@@ -5,7 +5,7 @@ import {
     CharacterProfile, ChatTheme, Message, UserProfile,
     Task, Anniversary, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
     GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
-    BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, SongSheet, QuizSession, GuidebookSession,
+    BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, XhsOwnedPost, SongSheet, QuizSession, GuidebookSession,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
     VRWorldNovel, VRNovelAnnotation, CustomCreatorPart, VRMusicRoomState, VRGuestbookState, VRScript, VRStagedPlay, VRLetter,
@@ -20,6 +20,7 @@ import { exportSignalLocal, importSignalLocal } from './vrWorld/signal';
 import { exportLuckinLocal, importLuckinLocal } from './luckinMcpClient';
 import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
 import { exportMcpLocal, importMcpLocal } from './mcpClient';
+import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
 
@@ -30,8 +31,9 @@ const DB_NAME = 'AetherOS_Data';
 // v69：资产系统三张表（char_wallets / wallet_transactions / char_homes，见 types.ts CharWalletProfile）。
 // v70：上岸计划四张表（job_sessions / job_positions / job_notes / job_resumes，见 types.ts JobSession）。
 // v71：上岸计划·竞争力档案（job_profile，用户级单份 id='main'，见 types.ts JobProfile）。
-// v72：合并上游 story theater —— story_theaters / story_theater_presets / story_theater_masks（建表幂等，老库补建）
-const DB_VERSION = 72;
+// v72：story theater —— story_theaters / story_theater_presets / story_theater_masks
+// v73：合并上游见面剧情/面具箱/小红书伪主页（建表幂等，老库补建）
+const DB_VERSION = 73;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -69,6 +71,7 @@ const STORE_BANK_TX = 'bank_transactions';
 const STORE_BANK_DATA = 'bank_data';
 const STORE_XHS_STOCK = 'xhs_stock';
 const STORE_XHS_ACTIVITIES = 'xhs_activities';
+const STORE_XHS_OWNED_POSTS = 'xhs_owned_posts';
 const STORE_SONGS = 'songs';
 const STORE_QUIZZES = 'quizzes';
 const STORE_GUIDEBOOK = 'guidebook';
@@ -349,6 +352,11 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains(STORE_XHS_ACTIVITIES)) {
           const xhsActStore = db.createObjectStore(STORE_XHS_ACTIVITIES, { keyPath: 'id' });
           xhsActStore.createIndex('characterId', 'characterId', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) {
+          const ownedPostStore = db.createObjectStore(STORE_XHS_OWNED_POSTS, { keyPath: 'id' });
+          ownedPostStore.createIndex('characterId', 'characterId', { unique: false });
+          ownedPostStore.createIndex('noteId', 'noteId', { unique: false });
       }
 
       createStore(STORE_SONGS, { keyPath: 'id' });
@@ -1538,6 +1546,45 @@ export const DB = {
       for (const a of activities) {
           store.delete(a.id);
       }
+  },
+
+  // --- XHS Character Profiles (durable ownership, independent from activity history) ---
+  saveXhsOwnedPost: async (post: XhsOwnedPost): Promise<void> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) return;
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readwrite');
+          tx.objectStore(STORE_XHS_OWNED_POSTS).put(post);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('保存角色小红书帖子失败'));
+          tx.onabort = () => reject(tx.error || new Error('保存角色小红书帖子被中止'));
+      });
+  },
+
+  getXhsOwnedPosts: async (characterId: string): Promise<XhsOwnedPost[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) return [];
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readonly');
+          const request = tx.objectStore(STORE_XHS_OWNED_POSTS).index('characterId').getAll(IDBKeyRange.only(characterId));
+          request.onsuccess = () => {
+              const posts = (request.result || []) as XhsOwnedPost[];
+              posts.sort((a, b) => b.publishedAt - a.publishedAt);
+              resolve(posts);
+          };
+          request.onerror = () => reject(request.error || tx.error);
+      });
+  },
+
+  getAllXhsOwnedPosts: async (): Promise<XhsOwnedPost[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) return [];
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_XHS_OWNED_POSTS, 'readonly');
+          const request = tx.objectStore(STORE_XHS_OWNED_POSTS).getAll();
+          request.onsuccess = () => resolve((request.result || []) as XhsOwnedPost[]);
+          request.onerror = () => reject(request.error || tx.error);
+      });
   },
 
   saveScheduledMessage: async (msg: ScheduledMessage): Promise<void> => {
@@ -2909,6 +2956,63 @@ export const DB = {
       });
   },
 
+  // --- 下一次 LLM 请求完整抓包（同 store 独立单例，永远只保留一份）---
+  getApiRequestCapture: async (): Promise<any | null> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return null;
+      return new Promise((resolve) => {
+          const tx = db.transaction(STORE_API_CALL_LOG, 'readonly');
+          const req = tx.objectStore(STORE_API_CALL_LOG).get('one-shot-capture');
+          req.onsuccess = () => resolve(req.result?.capture ?? null);
+          req.onerror = () => resolve(null);
+      });
+  },
+
+  saveApiRequestCapture: async (capture: any): Promise<void> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return;
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_API_CALL_LOG, 'readwrite');
+          tx.objectStore(STORE_API_CALL_LOG).put({ id: 'one-shot-capture', capture });
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('saveApiRequestCapture transaction failed'));
+          tx.onabort = () => reject(tx.error || new Error('saveApiRequestCapture transaction aborted'));
+      });
+  },
+
+  patchApiRequestCapture: async (captureId: string, patch: Record<string, unknown>): Promise<boolean> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return false;
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_API_CALL_LOG, 'readwrite');
+          const store = tx.objectStore(STORE_API_CALL_LOG);
+          const req = store.get('one-shot-capture');
+          let updated = false;
+          req.onsuccess = () => {
+              const current = req.result?.capture;
+              if (!current || current.id !== captureId) return;
+              store.put({ id: 'one-shot-capture', capture: { ...current, ...patch } });
+              updated = true;
+          };
+          req.onerror = () => reject(req.error || new Error('patchApiRequestCapture read failed'));
+          tx.oncomplete = () => resolve(updated);
+          tx.onerror = () => reject(tx.error || new Error('patchApiRequestCapture transaction failed'));
+          tx.onabort = () => reject(tx.error || new Error('patchApiRequestCapture transaction aborted'));
+      });
+  },
+
+  clearApiRequestCapture: async (): Promise<void> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return;
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_API_CALL_LOG, 'readwrite');
+          tx.objectStore(STORE_API_CALL_LOG).delete('one-shot-capture');
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error || new Error('clearApiRequestCapture transaction failed'));
+          tx.onabort = () => reject(tx.error || new Error('clearApiRequestCapture transaction aborted'));
+      });
+  },
+
   // 导入备份用：直接写回一条 vr_settings 原始记录（{id, ...}）。
   saveVRSettingRecord: async (record: any): Promise<void> => {
       if (!record || !record.id) return;
@@ -3188,7 +3292,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings, charWallets, walletTx, charHomes, jobSessions, jobPositions, jobNotes, jobResumes, jobProfiles] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings, charWallets, walletTx, charHomes, jobSessions, jobPositions, jobNotes, jobResumes, jobProfiles] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3216,6 +3320,7 @@ export const DB = {
           getAllFromStore(STORE_BANK_TX),
           getAllFromStore(STORE_BANK_DATA),
           getAllFromStore(STORE_XHS_ACTIVITIES),
+          getAllFromStore(STORE_XHS_OWNED_POSTS),
           getAllFromStore(STORE_XHS_STOCK),
           getAllFromStore(STORE_SONGS),
           getAllFromStore(STORE_QUIZZES),
@@ -3274,6 +3379,7 @@ export const DB = {
           jobResumes,
           jobProfiles,
           xhsActivities,
+          xhsOwnedPosts,
           xhsStockImages,
           songs,
           quizSessions: quizzes,
@@ -3305,6 +3411,7 @@ export const DB = {
           luckinLocal: exportLuckinLocal(),       // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),             // 麦当劳 token + 启用状态（存 localStorage）
           mcpLocal: exportMcpLocal(),             // 通用 MCP 服务器配置（存 localStorage）
+          amsg2GlobalConfig: await exportAmsg2GlobalConfig(), // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库）
           desktopSkinLocal: await exportDesktopSkinLocal(), // 桌面皮肤：界面配色 + 看板 banner（看板图令牌解析为 data URL）
       };
   },
@@ -3333,7 +3440,7 @@ export const DB = {
           STORE_JOB_SESSIONS, STORE_JOB_POSITIONS, STORE_JOB_NOTES, STORE_JOB_RESUMES,
           STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
-          STORE_XHS_ACTIVITIES, STORE_XHS_STOCK,
+          STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_XHS_STOCK,
           STORE_QUIZZES,
           STORE_GUIDEBOOK,
           STORE_SCHEDULED,
@@ -3560,6 +3667,7 @@ export const DB = {
           return {
               ...c,
               avatar: media.avatar || c.avatar,
+              companionAvatar: media.companionAvatar || c.companionAvatar,
               sprites: media.sprites || c.sprites,
               dateSkinSets: media.dateSkinSets || c.dateSkinSets,
               activeSkinSetId: media.activeSkinSetId || c.activeSkinSetId,
@@ -3784,6 +3892,13 @@ export const DB = {
           importMcpLocal((data as any).mcpLocal); // 用户自配的 MCP 服务器列表
           (data as any).mcpLocal = undefined;
       }, 1);
+      await runSection('主动消息配置', (data as any).amsg2GlobalConfig !== undefined, async () => {
+          // 必须在 OSContext 那段「导入后跟云端对一次账」之前落地：那段的第一道门是
+          // 「本机有没有 Worker 地址」，地址还没写回去的话它会整段跳过，旧档角色留在
+          // 云端的无主任务就没人取消，等用户手填回地址时照样到点推送。
+          await importAmsg2GlobalConfig((data as any).amsg2GlobalConfig);
+          (data as any).amsg2GlobalConfig = undefined;
+      }, 1);
       await runSection('桌面皮肤偏好', (data as any).desktopSkinLocal !== undefined, async () => {
           await importDesktopSkinLocal((data as any).desktopSkinLocal); // 界面配色 + 看板 banner（data URL→本机 blob）
           (data as any).desktopSkinLocal = undefined;
@@ -3855,6 +3970,10 @@ export const DB = {
           await clearAndAdd(STORE_XHS_ACTIVITIES, data.xhsActivities, '小红书活动', false);
           data.xhsActivities = undefined as any;
       }, data.xhsActivities?.length || 0);
+      await runSection('角色小红书主页', data.xhsOwnedPosts !== undefined, async () => {
+          await clearAndAdd(STORE_XHS_OWNED_POSTS, data.xhsOwnedPosts, '角色小红书主页', false);
+          data.xhsOwnedPosts = undefined as any;
+      }, data.xhsOwnedPosts?.length || 0);
       await runSection('小红书图库', data.xhsStockImages !== undefined, async () => {
           await clearAndAdd(STORE_XHS_STOCK, data.xhsStockImages, '小红书图库', true);
           data.xhsStockImages = undefined as any;

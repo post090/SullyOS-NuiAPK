@@ -103,6 +103,14 @@
                         "content":  ""
                     },
                     {
+                        "id":  "worldInfoBefore",
+                        "name":  "World Info (before)",
+                        "enabled":  true,
+                        "role":  "user",
+                        "content":  "",
+                        "marker":  "world_before"
+                    },
+                    {
                         "id":  "charDescription",
                         "name":  "Char Description",
                         "enabled":  true,
@@ -117,14 +125,6 @@
                         "role":  "user",
                         "content":  "",
                         "marker":  "characters"
-                    },
-                    {
-                        "id":  "worldInfoBefore",
-                        "name":  "World Info (before)",
-                        "enabled":  true,
-                        "role":  "user",
-                        "content":  "",
-                        "marker":  "world_before"
                     },
                     {
                         "id":  "personaDescription",

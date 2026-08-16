@@ -18,7 +18,7 @@ import {
 } from '../utils/memoryPalace';
 import type { Anticipation, MigrationProgress, DigestResult, MemoryLink, EventBox, DigestReport } from '../utils/memoryPalace';
 import { confirmExportSafety } from '../utils/exportGuard';
-import type { Message } from '../types';
+import type { CharacterProfile, MemoryPalaceWaterlinePreset, Message } from '../types';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import GlassSelect from '../components/os/GlassSelect';
 import ApiConnectionPicker from '../components/os/ApiConnectionPicker';
@@ -38,6 +38,15 @@ import {
     getExternalMemoryLengthInfo,
     getExternalMemoryOverLimitMessage,
 } from '../utils/memoryPalace/externalMemory';
+import {
+    MAX_MEMORY_BUFFER_THRESHOLD,
+    MAX_MEMORY_HOT_ZONE_SIZE,
+    MEMORY_PALACE_WATERLINE_PRESETS,
+    MIN_MEMORY_BUFFER_THRESHOLD,
+    MIN_MEMORY_HOT_ZONE_SIZE,
+    makeCustomMemoryPalaceWaterline,
+    resolveMemoryPalaceWaterline,
+} from '../utils/memoryPalace/waterline';
 
 /** 手动总结面板：每页渲染多少条聊天记录（翻页，避免一次性塞几百条 DOM 卡顿） */
 const RANGE_PAGE_SIZE = 50;
@@ -444,6 +453,212 @@ const ROOM_COLORS: Record<MemoryRoom, string> = {
 const inputClass = "w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white focus:outline-none focus:ring-1 focus:ring-violet-300 transition-all";
 const labelClass = "text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1";
 
+const WATERLINE_PRESET_COPY: Record<MemoryPalaceWaterlinePreset, { label: string; short: string; description: string }> = {
+    online: {
+        label: '线上为主',
+        short: '默认',
+        description: '主要在私聊里慢慢聊，保留更长的连续原文，整理节奏更从容。',
+    },
+    balanced: {
+        label: '综合',
+        short: '均衡',
+        description: '私聊、见面和剧情都会用，在上下文长度与沉淀速度之间取平衡。',
+    },
+    offline: {
+        label: '见面/剧情为主',
+        short: '更快',
+        description: '经常使用见面或剧情陪伴，更快沉淀；副 API 会更频繁地被调用。',
+    },
+    custom: {
+        label: '自定义',
+        short: '微调',
+        description: '自己决定保留多少条原文、积累多少条后开始整理。',
+    },
+};
+
+const WATERLINE_PRESET_ORDER: MemoryPalaceWaterlinePreset[] = ['online', 'balanced', 'offline', 'custom'];
+
+const MemoryWaterlineEditor: React.FC<{
+    character: CharacterProfile;
+    expanded: boolean;
+    disabled?: boolean;
+    onToggle: () => void;
+    onPresetChange: (preset: MemoryPalaceWaterlinePreset) => void;
+    onSaveCustom: (hotZoneSize: number, bufferThreshold: number) => void;
+}> = ({ character, expanded, disabled, onToggle, onPresetChange, onSaveCustom }) => {
+    const resolved = resolveMemoryPalaceWaterline(character.memoryPalaceWaterline);
+    const [hotDraft, setHotDraft] = useState(String(resolved.hotZoneSize));
+    const [bufferDraft, setBufferDraft] = useState(String(resolved.bufferThreshold));
+    const [showHelp, setShowHelp] = useState(false);
+
+    useEffect(() => {
+        setHotDraft(String(resolved.hotZoneSize));
+        setBufferDraft(String(resolved.bufferThreshold));
+    }, [character.id, resolved.hotZoneSize, resolved.bufferThreshold]);
+
+    const saveCustom = () => {
+        const hot = Number(hotDraft);
+        const buffer = Number(bufferDraft);
+        onSaveCustom(hot, buffer);
+    };
+
+    return (
+        <div
+            style={{
+                marginTop: -2,
+                borderRadius: 15,
+                border: '1px solid #f5d0e3',
+                background: 'linear-gradient(135deg, rgba(253,242,248,0.9), rgba(250,245,255,0.9))',
+                overflow: 'hidden',
+                opacity: disabled ? 0.65 : 1,
+            }}
+        >
+            <div style={{ display: 'flex', alignItems: 'center', paddingRight: 10 }}>
+                <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={e => { e.stopPropagation(); onToggle(); }}
+                    style={{
+                        minWidth: 0, flex: 1, border: 0, background: 'transparent', padding: '10px 6px 10px 12px',
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                        cursor: disabled ? 'wait' : 'pointer', textAlign: 'left',
+                    }}
+                >
+                    <span style={{ minWidth: 0 }}>
+                        <span style={{ display: 'block', fontSize: 11, fontWeight: 800, color: '#9d174d' }}>聊天记忆整理节奏</span>
+                        <span style={{ display: 'block', marginTop: 2, fontSize: 10, color: '#9ca3af' }}>
+                            {WATERLINE_PRESET_COPY[resolved.preset].label} · AI 直接读最近 {resolved.hotZoneSize} 条 · 每攒 {resolved.bufferThreshold} 条整理
+                        </span>
+                    </span>
+                    <span style={{ color: '#be185d', fontSize: 14, transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>⌄</span>
+                </button>
+                <button
+                    type="button"
+                    aria-label="水位线是什么"
+                    title="水位线是什么"
+                    onClick={e => { e.stopPropagation(); setShowHelp(open => !open); }}
+                    style={{
+                        width: 22, height: 22, flexShrink: 0, borderRadius: '50%',
+                        border: '1px solid #e9a8c7', background: showHelp ? '#db2777' : 'rgba(255,255,255,0.8)',
+                        color: showHelp ? '#fff' : '#be185d', fontSize: 11, fontWeight: 900,
+                        lineHeight: 1, display: 'grid', placeItems: 'center', cursor: 'pointer',
+                    }}
+                >
+                    ?
+                </button>
+            </div>
+
+            {showHelp && (
+                <div
+                    style={{
+                        margin: '0 10px 10px', padding: '11px 12px', borderRadius: 12,
+                        background: '#fff', border: '1px solid #f1d5e4', color: '#6b4b64',
+                        fontSize: 10, lineHeight: 1.65, boxShadow: '0 5px 14px rgba(88,28,135,0.08)',
+                    }}
+                    onClick={e => e.stopPropagation()}
+                >
+                    <div style={{ fontSize: 11, fontWeight: 900, color: '#9d174d', marginBottom: 6 }}>聊天会按时间排在同一条线上</div>
+                    <div style={{ padding: '7px 8px', borderRadius: 9, background: '#faf5ff', color: '#6d28d9', fontWeight: 800, textAlign: 'center' }}>
+                        较旧　已向量化整理　｜水位线｜　等待整理　·　最近原文　较新
+                    </div>
+                    <div style={{ marginTop: 7 }}><b style={{ color: '#7c3aed' }}>水位线前（较旧的一侧）</b>：聊天已经经过向量化，被整理进记忆宫殿。原记录仍在数据库里，没有删除；AI 平时不再整段重读，需要时会从记忆宫殿召回。</div>
+                    <div style={{ marginTop: 4 }}><b style={{ color: '#7c3aed' }}>水位线后（较新的一侧）</b>：聊天暂时保留为原文，包括正在等待整理的内容，以及 AI 每次直接读取的最近原文。</div>
+                    <div style={{ marginTop: 4 }}>等待区攒够设定条数后，较早的约 85% 会被向量化并移到水位线前，留下约 15% 衔接下一次整理。</div>
+                    <div style={{ marginTop: 6, padding: '7px 8px', borderRadius: 9, background: '#faf5ff', color: '#6d28d9' }}>
+                        例如 50 / 20：AI 每次直接读最近 50 条；在这 50 条之外又攒够 20 条等待内容时，约 17 条会被向量化、进入水位线前，约 3 条留下衔接。一问一答通常约 2 条消息。
+                    </div>
+                    <div style={{ marginTop: 7, padding: '7px 8px', borderRadius: 9, background: '#fff1f7', color: '#9d174d' }}>
+                        <b>见面、剧情里的内容也会被整理吗？会。</b><br />
+                        私聊、见面、通话、剧情、主动消息、小屋、彼方，只要其中有可读内容并进入这个角色的上下文时间线，就都会排进这里，之后跨过同一条水位线进入记忆宫殿。不是只有私聊会整理，也不是每个入口各算一条线。
+                    </div>
+                </div>
+            )}
+
+            {expanded && (
+                <div style={{ padding: '0 10px 11px' }} onClick={e => e.stopPropagation()}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 6 }}>
+                        {WATERLINE_PRESET_ORDER.map(preset => {
+                            const active = resolved.preset === preset;
+                            const presetNumbers = preset === 'custom'
+                                ? null
+                                : MEMORY_PALACE_WATERLINE_PRESETS[preset];
+                            return (
+                                <button
+                                    key={preset}
+                                    type="button"
+                                    disabled={disabled}
+                                    onClick={() => onPresetChange(preset)}
+                                    style={{
+                                        border: active ? '1px solid #db2777' : '1px solid #f1d5e4',
+                                        borderRadius: 11,
+                                        padding: '8px 7px',
+                                        background: active ? '#fff1f7' : 'rgba(255,255,255,0.78)',
+                                        color: active ? '#9d174d' : '#6b7280',
+                                        textAlign: 'left', cursor: disabled ? 'wait' : 'pointer',
+                                        boxShadow: active ? '0 2px 8px rgba(219,39,119,0.1)' : 'none',
+                                    }}
+                                >
+                                    <span style={{ display: 'block', fontSize: 10, fontWeight: 800 }}>{WATERLINE_PRESET_COPY[preset].label}</span>
+                                    <span style={{ display: 'block', marginTop: 2, fontSize: 9, opacity: 0.72 }}>
+                                        {presetNumbers
+                                            ? `最近 ${presetNumbers.hotZoneSize} · 攒 ${presetNumbers.bufferThreshold}`
+                                            : WATERLINE_PRESET_COPY[preset].short}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div style={{ marginTop: 8, padding: '8px 9px', borderRadius: 10, background: 'rgba(255,255,255,0.68)', fontSize: 9.5, lineHeight: 1.5, color: '#7c3aed' }}>
+                        {WATERLINE_PRESET_COPY[resolved.preset].description}
+                    </div>
+
+                    {resolved.preset === 'custom' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 6, alignItems: 'end', marginTop: 8 }}>
+                            <label style={{ minWidth: 0 }}>
+                                <span style={{ display: 'block', fontSize: 9, color: '#9ca3af', marginBottom: 3 }}>AI 直接读最近原文（20–500）</span>
+                                <input
+                                    type="number"
+                                    min={MIN_MEMORY_HOT_ZONE_SIZE}
+                                    max={MAX_MEMORY_HOT_ZONE_SIZE}
+                                    step={10}
+                                    value={hotDraft}
+                                    onChange={e => setHotDraft(e.target.value)}
+                                    style={{ width: '100%', minWidth: 0, border: '1px solid #e9d5ff', borderRadius: 9, padding: '7px 6px', fontSize: 11, color: '#581c87', background: '#fff' }}
+                                />
+                            </label>
+                            <label style={{ minWidth: 0 }}>
+                                <span style={{ display: 'block', fontSize: 9, color: '#9ca3af', marginBottom: 3 }}>攒够多少条开始整理（10–200）</span>
+                                <input
+                                    type="number"
+                                    min={MIN_MEMORY_BUFFER_THRESHOLD}
+                                    max={MAX_MEMORY_BUFFER_THRESHOLD}
+                                    step={10}
+                                    value={bufferDraft}
+                                    onChange={e => setBufferDraft(e.target.value)}
+                                    style={{ width: '100%', minWidth: 0, border: '1px solid #e9d5ff', borderRadius: 9, padding: '7px 6px', fontSize: 11, color: '#581c87', background: '#fff' }}
+                                />
+                            </label>
+                            <button
+                                type="button"
+                                disabled={disabled}
+                                onClick={saveCustom}
+                                style={{ border: 0, borderRadius: 9, padding: '8px 9px', background: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 800, cursor: disabled ? 'wait' : 'pointer' }}
+                            >
+                                保存
+                            </button>
+                        </div>
+                    )}
+
+                    <div style={{ marginTop: 8, fontSize: 9, lineHeight: 1.45, color: '#9ca3af' }}>
+                        调快后会在下一次达到阈值时整理，成功前不会隐藏原文；调慢不会倒退水位或重复记忆，原文窗口会随新对话逐渐变长。
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 // ─── 主组件 ───────────────────────────────────────────
 
 export default function MemoryPalaceApp() {
@@ -660,6 +875,7 @@ export default function MemoryPalaceApp() {
     // 全自动记忆（自动归档）catch-up 状态：按角色 id 分别记录
     const [autoArchiveSyncingId, setAutoArchiveSyncingId] = useState<string | null>(null);
     const [autoArchiveSyncProgress, setAutoArchiveSyncProgress] = useState('');
+    const [waterlineEditorCharId, setWaterlineEditorCharId] = useState<string | null>(null);
 
     // 全自动记忆追平确认弹窗（替代原生 confirm）
     const [autoArchiveConfirm, setAutoArchiveConfirm] = useState<{
@@ -1321,7 +1537,7 @@ export default function MemoryPalaceApp() {
         } as any);
 
         // 统计未同步消息数并决定是否立即追平历史
-        // 口径必须和 pipeline 的缓冲区定义一致：排除热区（最后 200 条），
+        // 口径必须和 pipeline 的缓冲区定义一致：排除该角色档位指定的热区，
         // 否则会把"永远不会被处理"的热区也算成未同步，欺骗用户去点立即追平。
         const { getMemoryPalaceUnprocessedBufferCount } = await import('../utils/memoryPalace/pipeline');
         const unprocessedCount = await getMemoryPalaceUnprocessedBufferCount(charId);
@@ -1341,6 +1557,52 @@ export default function MemoryPalaceApp() {
             mpEmb,
             mpLLM,
         });
+    };
+
+    const saveCharacterWaterline = (
+        target: CharacterProfile,
+        nextConfig: CharacterProfile['memoryPalaceWaterline'],
+    ) => {
+        const before = resolveMemoryPalaceWaterline(target.memoryPalaceWaterline);
+        const after = resolveMemoryPalaceWaterline(nextConfig);
+        updateCharacter(target.id, { memoryPalaceWaterline: nextConfig });
+
+        const faster = after.hotZoneSize <= before.hotZoneSize
+            && after.bufferThreshold <= before.bufferThreshold
+            && (after.hotZoneSize < before.hotZoneSize || after.bufferThreshold < before.bufferThreshold);
+        const slower = after.hotZoneSize >= before.hotZoneSize
+            && after.bufferThreshold >= before.bufferThreshold
+            && (after.hotZoneSize > before.hotZoneSize || after.bufferThreshold > before.bufferThreshold);
+        if (faster) {
+            addToast('已调快：下次达到新阈值时开始整理，成功前不会隐藏原文', 'success');
+        } else if (slower) {
+            addToast('已调慢：旧水位不会倒退，原文窗口会随新对话逐渐变长', 'success');
+        } else {
+            addToast('已保存这个角色的记忆处理节奏', 'success');
+        }
+    };
+
+    const handleWaterlinePresetChange = (
+        target: CharacterProfile,
+        preset: MemoryPalaceWaterlinePreset,
+    ) => {
+        if (preset === 'custom') {
+            const current = resolveMemoryPalaceWaterline(target.memoryPalaceWaterline);
+            saveCharacterWaterline(target, makeCustomMemoryPalaceWaterline(
+                current.hotZoneSize,
+                current.bufferThreshold,
+            ));
+            return;
+        }
+        saveCharacterWaterline(target, { preset });
+    };
+
+    const handleSaveCustomWaterline = (
+        target: CharacterProfile,
+        hotZoneSize: number,
+        bufferThreshold: number,
+    ) => {
+        saveCharacterWaterline(target, makeCustomMemoryPalaceWaterline(hotZoneSize, bufferThreshold));
     };
 
     // 全自动记忆：用户点「立即追平」后跑的循环逻辑
@@ -1372,7 +1634,7 @@ export default function MemoryPalaceApp() {
 
             for (let round = 1; round <= MAX_ROUNDS; round++) {
                 const curHwm = getMemoryPalaceHighWaterMark(charId);
-                // 用 pipeline 的真实缓冲区口径（排除热区），避免把热区的 200 条
+                // 用 pipeline 的真实缓冲区口径（排除该角色档位的热区），避免把热区
                 // 当未同步反复重试——下面的 force=true 调用其实也只会处理缓冲区，
                 // 用同一口径循环才能正确收敛。
                 const remaining = await getMemoryPalaceUnprocessedBufferCount(charId);
@@ -1675,6 +1937,10 @@ export default function MemoryPalaceApp() {
                 if (result.aspirations?.length) parts.push(`${result.aspirations.length} 个新期盼`);
                 if (result.distilled?.length) parts.push(`${result.distilled.length} 条沉淀到门牌`);
                 if (result.plateUpdated?.length) parts.push(`${result.plateUpdated.length} 块门牌更新`);
+                // 门牌整理是交给云端跑的（页面关着也能跑完），交出去就返回，门牌得过几分钟
+                // 才动。手动消化时用户刚盯着「正在整理门牌…」一路看到这里，不说这一句的话
+                // 他看到的就是整理阶段一闪而过、门牌纹丝不动，跟没跑过一模一样。
+                if (result.plateCloudPending) parts.push('门牌整理在云端跑，结果晚几分钟落地');
                 setDigestResult(parts.length > 0 ? `[ok]${parts.join('，')}` : '没有变化');
             }
             loadStats();
@@ -2404,6 +2670,21 @@ export default function MemoryPalaceApp() {
                                                     />
                                                 </label>
                                             </div>
+
+                                            {palaceOn && autoOn && (
+                                                <MemoryWaterlineEditor
+                                                    character={c}
+                                                    expanded={waterlineEditorCharId === c.id}
+                                                    disabled={syncing}
+                                                    onToggle={() => setWaterlineEditorCharId(current => current === c.id ? null : c.id)}
+                                                    onPresetChange={preset => handleWaterlinePresetChange(c, preset)}
+                                                    onSaveCustom={(hotZoneSize, bufferThreshold) => handleSaveCustomWaterline(
+                                                        c,
+                                                        hotZoneSize,
+                                                        bufferThreshold,
+                                                    )}
+                                                />
+                                            )}
                                         </div>
                                     </div>
                                 </div>
@@ -2559,7 +2840,7 @@ export default function MemoryPalaceApp() {
                                         color: '#7c3aed', fontSize: 13, fontWeight: 600,
                                     }}
                                 >
-                                    稍后慢慢处理（每 100 条触发一次）
+                                    稍后按所选档位慢慢处理
                                 </button>
                             </div>
                         </div>
@@ -4417,7 +4698,12 @@ create table if not exists memory_vectors (
                                                         门牌已更新：{report.plateUpdated.map(r => (PLATE_TITLES as Record<string, string>)[r] || r).join('、')}
                                                     </div>
                                                 )}
-                                                {submitCount > 0 && report.plateUpdated.length === 0 && (
+                                                {report.plateCloudPending && (
+                                                    <div style={{ fontSize: 10, color: '#8b5cf6', marginTop: 6 }}>
+                                                        门牌整理已交给云端跑，结果晚几分钟落地
+                                                    </div>
+                                                )}
+                                                {submitCount > 0 && report.plateUpdated.length === 0 && !report.plateCloudPending && (
                                                     <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 6 }}>
                                                         ⚠️ 本次提交的候选未合并进门牌（整理未跑成或未被采纳）
                                                     </div>

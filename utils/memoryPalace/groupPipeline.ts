@@ -272,7 +272,9 @@ export async function processGroupNewMessages(
                     const vector = vectors[i];
 
                     // 与该成员已有记忆去重（同样的群记忆草稿可能跟以前的群记忆撞）
-                    // ensureFloat32：DB 里的向量可能是 Uint8Array 字节形态，直接算余弦会把字节当浮点、去重全盲
+                    // ev.vector 声明上有 number[] / Float32Array / Uint8Array 三态，
+                    // ensureFloat32 统一（DB 层已经转好，这里是恒等返回），别让
+                    // cosineSimilarity 把 Uint8Array 的原始字节当成分量读。
                     const isDup = existingVectors.some(ev => cosineSimilarity(vector, ensureFloat32(ev.vector)) > DEDUP_THRESHOLD);
                     if (isDup) {
                         console.log(`♻️ [GroupPalace] ${member.name}：重复群记忆跳过 "${draft.content.slice(0, 30)}..."`);

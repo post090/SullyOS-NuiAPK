@@ -43,6 +43,41 @@ describe('AI 原文范围边界', () => {
         expect(snapshot.messages.at(-1)?.id).toBe(1000);
     });
 
+    it('一键入宫后即使没开全自动，也会从水位线之后读取且当前可为 0 条', () => {
+        const messages = makeMessages(1, 1000);
+        const snapshot = computeContextRangeSnapshot(
+            messages,
+            makeChar({
+                memoryPalaceEnabled: true,
+                autoArchiveEnabled: false,
+                contextRangeMode: 'adaptive',
+                contextFollowsMemoryPalaceHwm: true,
+            }),
+            1000,
+        );
+
+        expect(snapshot.mode).toBe('adaptive');
+        expect(snapshot.maxRangeStartMessageId).toBeUndefined();
+        expect(snapshot.messages).toHaveLength(0);
+    });
+
+    it('选择保留最近 10 条时，水位线后的原文与橙色范围精确为 10 条', () => {
+        const snapshot = computeContextRangeSnapshot(
+            makeMessages(1, 1000),
+            makeChar({
+                memoryPalaceEnabled: true,
+                autoArchiveEnabled: false,
+                contextRangeMode: 'adaptive',
+                contextFollowsMemoryPalaceHwm: true,
+            }),
+            990,
+        );
+
+        expect(snapshot.maxRangeStartMessageId).toBe(991);
+        expect(snapshot.messages).toHaveLength(10);
+        expect(snapshot.messages[9].id).toBe(1000);
+    });
+
     it('范围内用户断点只能把起点向更新消息推进', () => {
         const snapshot = computeContextRangeSnapshot(
             makeMessages(1, 1000),
@@ -198,6 +233,7 @@ describe('旧角色上下文迁移', () => {
             contextRangeMode: 'manual',
             contextLimit: 1200,
             contextUserStartMessageId: 321,
+            contextFollowsMemoryPalaceHwm: true,
         });
         const restored = JSON.parse(JSON.stringify(original)) as CharacterProfile;
 
@@ -205,5 +241,6 @@ describe('旧角色上下文迁移', () => {
         expect(restored.contextRangeMode).toBe('manual');
         expect(restored.contextLimit).toBe(1200);
         expect(restored.contextUserStartMessageId).toBe(321);
+        expect(restored.contextFollowsMemoryPalaceHwm).toBe(true);
     });
 });

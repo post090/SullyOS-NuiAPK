@@ -9,6 +9,7 @@ const callLite = (
   body: Record<string, unknown> = {},
   env: Record<string, unknown> = {},
   rnoteApiKey = '',
+  platform = 'xhs',
 ) =>
   worker.fetch(
     new Request(`https://local.test/api/${command}`, {
@@ -17,6 +18,7 @@ const callLite = (
         'content-type': 'application/json',
         'x-xhs-cookie': COOKIE,
         ...(rnoteApiKey ? { 'x-rnote-api-key': rnoteApiKey } : {}),
+        ...(platform && platform !== 'auto' ? { 'x-xhs-platform': platform } : {}),
       },
       body: JSON.stringify(body),
     }),
@@ -33,6 +35,7 @@ const callExperiment = (
       headers: {
         'content-type': 'application/json',
         'x-xhs-cookie': COOKIE,
+        'x-xhs-platform': 'xhs',
         ...(ack ? { 'x-xhs-experiment-ack': ack } : {}),
       },
       body: JSON.stringify(body),
@@ -45,6 +48,66 @@ const callExperiment = (
 afterEach(() => {
   vi.restoreAllMocks();
   __xhsLiteTest.spiderV3.resetDslCache();
+  __xhsLiteTest.spiderV3.resetPlatformCache();
+});
+
+describe('XHS Lite mainland / RedNote platform routing', () => {
+  it('auto-detects a RedNote session without relying on gid or bRequestId', async () => {
+    const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const headers = new Headers(init?.headers);
+      expect(headers.get('cookie')).toBe(COOKIE);
+      if (url.hostname === 'edith.xiaohongshu.com') {
+        expect(headers.get('origin')).toBe('https://www.xiaohongshu.com');
+        return new Response(JSON.stringify({ success: true, data: { guest: true } }), {
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.hostname === 'webapi.rednote.com') {
+        expect(headers.get('origin')).toBe('https://www.rednote.com');
+        if (url.pathname.endsWith('/v2/user/me')) {
+          return new Response(JSON.stringify({ success: true, data: { guest: true } }), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({
+          success: true,
+          data: { result: { success: true, user: { user_id: 'rednote-user', nickname: 'global-user' } } },
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    const response = await callLite('check-login', {}, {}, '', 'auto');
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(3);
+    expect(body).toMatchObject({
+      logged_in: true,
+      platform: 'rednote',
+      api_host: 'webapi.rednote.com',
+      user_id: 'rednote-user',
+    });
+  });
+
+  it('routes subsequent RedNote reads directly to the global backend', async () => {
+    const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data: { items: [] } }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const response = await callLite('search', { keyword: 'cat' }, {}, '', 'rednote');
+
+    expect(response.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    const [input, init] = upstream.mock.calls[0];
+    expect(String(input)).toContain('https://webapi.rednote.com/api/sns/web/v1/search/notes');
+    const headers = new Headers(init?.headers);
+    expect(headers.get('origin')).toBe('https://www.rednote.com');
+    expect((await response.json()).platform).toBe('rednote');
+  });
 });
 
 describe('XHS Lite session-risk headers', () => {
@@ -65,6 +128,88 @@ describe('XHS Lite session-risk headers', () => {
     expect(headers.has('xy-direction')).toBe(false);
     expect(headers.get('user-agent')).toContain('Chrome/138.0.0.0');
     expect(headers.get('sec-ch-ua')).toContain('Chromium";v="138"');
+  });
+
+  it('adds the upstream-required RAP envelope when loading the signed-in user notes', async () => {
+    const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      const headers = new Headers(init?.headers);
+      if (url.pathname.endsWith('/api/sns/web/v1/user/otherinfo')) {
+        expect(headers.has('x-rap-param')).toBe(false);
+        return new Response(JSON.stringify({
+          success: true,
+          data: { basic_info: { nickname: 'owner' } },
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      if (url.pathname.endsWith('/api/sns/web/v1/user_posted')) {
+        expect(headers.get('x-rap-param')).toBeTruthy();
+        expect(url.searchParams.get('user_id')).toBe('owner-id');
+        expect(url.searchParams.get('xsec_source')).toBe('pc_user');
+        return new Response(JSON.stringify({
+          success: true,
+          data: { notes: [{ id: 'owned-note-id', note_card: { title: 'mine' } }] },
+        }), { headers: { 'content-type': 'application/json' } });
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+
+    const response = await callLite('user-profile', {
+      user_id: 'owner-id',
+      xsec_token: 'owner-token',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(2);
+    expect(body).toMatchObject({
+      success: true,
+      notes_status: 'loaded',
+      notes: [{ note_id: 'owned-note-id', title: 'mine' }],
+    });
+  });
+
+  it('uses RAP and exact note/comment ids when replying to a comment', async () => {
+    const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe('/api/sns/web/v1/comment/post');
+      const headers = new Headers(init?.headers);
+      expect(headers.get('x-rap-param')).toBeTruthy();
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        note_id: 'owned-note-id',
+        target_comment_id: 'comment-id',
+        content: 'reply text',
+      });
+      return new Response(JSON.stringify({ success: true, data: { comment: { id: 'reply-id' } } }), {
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    const response = await callLite('reply-comment', {
+      feed_id: 'owned-note-id',
+      comment_id: 'comment-id',
+      content: 'reply text',
+    });
+
+    expect(response.status).toBe(200);
+    expect(upstream).toHaveBeenCalledTimes(1);
+    expect(await response.json()).toMatchObject({ success: true });
+  });
+
+  it('surfaces an upstream reply rejection as an operation error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ success: false, msg: 'risk control' }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const response = await callLite('reply-comment', {
+      feed_id: 'owned-note-id',
+      comment_id: 'comment-id',
+      content: 'reply text',
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ error: '评论失败: risk control' });
   });
 
   it('does not call the protected XHS comment endpoint when no managed provider is configured', async () => {

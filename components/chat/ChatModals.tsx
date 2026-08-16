@@ -132,6 +132,14 @@ interface ChatModalsProps {
     vectorizePendingCount?: number | null;
     /** 处理中的逐轮进度文案，如「第 2 轮 · 剩余 340 条」 */
     vectorizeProgress?: string;
+    retainRecentForVectorize?: boolean;
+    setRetainRecentForVectorize?: (value: boolean) => void;
+    vectorizeResult?: {
+        processedMessages: number;
+        storedMemories: number;
+        retainedMessages: number;
+        waterlineAlreadyAhead: boolean;
+    } | null;
     onForceVectorize?: () => void;
     // Emotion (embedded under schedule modal, synced on/off with scheduleStyle)
     apiPresets?: ApiPreset[];
@@ -253,7 +261,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     scheduleData, isScheduleGenerating, onScheduleEdit, onScheduleDelete, onScheduleReroll, onScheduleCoverChange,
     onScheduleStyleChange, onPlayTheater,
     isScheduleFeatureEnabled, onToggleScheduleFeature,
-    isMemoryPalaceEnabled, isVectorizing, vectorizePendingCount, vectorizeProgress, onForceVectorize,
+    isMemoryPalaceEnabled, isVectorizing, vectorizePendingCount, vectorizeProgress,
+    retainRecentForVectorize, setRetainRecentForVectorize, vectorizeResult, onForceVectorize,
     apiPresets, onAddApiPreset, onSaveEmotion, onClearBuffs, onUpdateCharacter, onScheduleConfigChange,
 }) => {
     const bgInputRef = useRef<HTMLInputElement>(null);
@@ -399,13 +408,15 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                          {activeCharacter.chatBackground && <button onClick={onRemoveBg} className="text-[10px] text-red-400 mt-1">移除背景</button>}
                      </div>
                      <div>
-                         {activeCharacter.autoArchiveEnabled && settingsContextRangeMode === 'adaptive' ? (
+                         {(activeCharacter.autoArchiveEnabled || activeCharacter.contextFollowsMemoryPalaceHwm) && settingsContextRangeMode === 'adaptive' ? (
                              <div className="rounded-2xl border border-violet-200 bg-violet-50 p-3.5">
                                  <div className="flex items-start justify-between gap-3">
                                      <div>
-                                         <div className="text-xs font-bold text-violet-700">自适应全自动记忆中</div>
+                                         <div className="text-xs font-bold text-violet-700">
+                                             {activeCharacter.autoArchiveEnabled ? '自适应全自动记忆中' : '原文范围跟随记忆水位线'}
+                                         </div>
                                          <p className="text-[10px] text-violet-600/80 mt-1 leading-relaxed">
-                                             原文范围自动跟随记忆宫殿水位线，更早内容通过向量记忆召回。非特殊需求请勿调整。
+                                             已处理原文不再重复注入，更早内容通过向量记忆召回。非特殊需求请勿调整。
                                          </p>
                                          {activeCharacter.contextUserStartMessageId && (
                                              <p className="text-[10px] text-sky-700 mt-1.5 leading-relaxed">
@@ -437,19 +448,19 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                              <>
                                  <div className="flex items-center justify-between gap-2 mb-2">
                                      <label className="text-xs font-bold text-slate-400 uppercase">上下文最大条数 ({settingsContextLimit})</label>
-                                     {activeCharacter.autoArchiveEnabled && (
+                                     {(activeCharacter.autoArchiveEnabled || activeCharacter.contextFollowsMemoryPalaceHwm) && (
                                          <button
                                              type="button"
                                              onClick={onRestoreAdaptiveContext}
                                              className="text-[10px] font-bold text-violet-600 bg-violet-50 border border-violet-100 rounded-full px-2.5 py-1"
                                          >
-                                             一键恢复自适应
+                                             {activeCharacter.autoArchiveEnabled ? '一键恢复自适应' : '恢复水位跟随'}
                                          </button>
                                      )}
                                  </div>
                                  <input
                                      type="range"
-                                     min="20"
+                                     min="10"
                                      max="5000"
                                      step="10"
                                      value={settingsContextLimit}
@@ -459,8 +470,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                      }}
                                      className="w-full h-2 bg-slate-200 rounded-full appearance-none accent-primary"
                                  />
-                                 <div className="flex justify-between text-[10px] text-slate-400 mt-1"><span>20 (省流)</span><span>5000 (最大范围)</span></div>
-                                 {activeCharacter.autoArchiveEnabled && (
+                                 <div className="flex justify-between text-[10px] text-slate-400 mt-1"><span>10 (省流)</span><span>5000 (最大范围)</span></div>
+                                 {(activeCharacter.autoArchiveEnabled || activeCharacter.contextFollowsMemoryPalaceHwm) && (
                                      <p className="text-[10px] text-amber-600 mt-2 leading-relaxed">
                                          自定义只改变 AI 可直接读取的原文范围，不会回退记忆宫殿水位线，也不会让旧消息重新向量化。
                                      </p>
@@ -620,22 +631,33 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                      {isMemoryPalaceEnabled && onForceVectorize && (
                          <div className="pt-2 border-t border-slate-100">
                              <button
-                                 onClick={() => { onForceVectorize(); trackEvent('一键把聊天存进记忆宫殿'); }}
+                                 type="button"
+                                 onClick={() => setRetainRecentForVectorize?.(!retainRecentForVectorize)}
+                                 className={`w-full mb-2.5 rounded-2xl border p-3 text-left transition-colors ${retainRecentForVectorize ? 'bg-amber-50 border-amber-200' : 'bg-slate-50 border-slate-200'}`}
+                             >
+                                 <span className="flex items-center gap-2.5">
+                                     <span className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${retainRecentForVectorize ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                                         {retainRecentForVectorize && <span className="text-white text-[11px] font-bold">✓</span>}
+                                     </span>
+                                     <span>
+                                         <span className="block text-xs font-bold text-slate-700">为我保留最近 10 条注入到上下文</span>
+                                         <span className="block text-[10px] text-slate-400 mt-0.5 leading-relaxed">不开启则处理到当前最后一条，已处理原文不再直接发送给模型。</span>
+                                     </span>
+                                 </span>
+                             </button>
+                             <button
+                                 onClick={() => { setModalType('memory-vectorize-confirm'); trackEvent('一键把聊天存进记忆宫殿'); }}
                                  disabled={isVectorizing}
                                  className="w-full py-3 bg-emerald-50 text-emerald-600 font-bold rounded-2xl border border-emerald-200 active:scale-95 transition-transform flex items-center justify-center gap-2 disabled:opacity-70"
                              >
-                                 {isVectorizing
-                                     ? `🏰 ${vectorizeProgress || '存进记忆宫殿中...'}`
-                                     : (vectorizePendingCount != null && vectorizePendingCount > 0)
-                                         ? `🏰 一键存进记忆宫殿 · 待处理 ${vectorizePendingCount} 条`
-                                         : (vectorizePendingCount === 0)
-                                             ? '🏰 记忆宫殿已同步 · 无待处理'
-                                             : '🏰 一键把所有聊天存进记忆宫殿'}
+                                 {(vectorizePendingCount != null && vectorizePendingCount > 0)
+                                     ? `🏰 一键存进记忆宫殿 · 待处理 ${vectorizePendingCount} 条`
+                                     : (vectorizePendingCount === 0)
+                                         ? '🏰 同步原文范围 · 当前无待处理'
+                                         : '🏰 一键把所有聊天存进记忆宫殿'}
                              </button>
                              <p className="text-[10px] text-slate-400 mt-2 text-center leading-relaxed">
-                                 {isVectorizing
-                                     ? '正在分批交给副 API 处理，保持应用打开、先别切走～完成前请勿清空聊天。'
-                                     : <>将所有未处理的聊天记录交给记忆宫殿处理，完成后可安全清空聊天。<br/><span className="text-slate-300">看不懂这是什么的话不需要操作此按钮。</span></>}
+                                 使用副 API 分批整理。正式开始前会再次说明影响，不会直接执行。
                              </p>
                          </div>
                      )}
@@ -652,6 +674,63 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                              执行清空
                          </button>
                      </div>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={modalType === 'memory-vectorize-confirm'}
+                title="确认存进记忆宫殿"
+                onClose={() => { if (!isVectorizing) setModalType('chat-settings'); }}
+                footer={isVectorizing ? (
+                    <div className="w-full py-3 rounded-2xl bg-emerald-50 text-emerald-700 text-center text-sm font-bold flex items-center justify-center gap-2">
+                        <span className="w-4 h-4 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                        {vectorizeProgress || '正在处理...'}
+                    </div>
+                ) : (
+                    <div className="w-full flex gap-2">
+                        <button type="button" onClick={() => setModalType('chat-settings')} className="flex-1 py-3 rounded-2xl bg-slate-100 text-slate-600 font-bold">取消</button>
+                        <button type="button" onClick={onForceVectorize} className="flex-1 py-3 rounded-2xl bg-emerald-500 text-white font-bold">确认开始</button>
+                    </div>
+                )}
+            >
+                <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
+                    <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4">
+                        <p className="font-bold text-emerald-800 mb-2">按下确认后：</p>
+                        <ul className="space-y-1.5 text-xs text-emerald-900/80 list-disc pl-4">
+                            <li>当前可处理的聊天内容会全部完成记忆整理。</li>
+                            <li>{retainRecentForVectorize ? '最近 10 条原文继续注入聊天上下文。' : '已处理原文不再直接注入聊天上下文。'}</li>
+                            <li>紫色水位线与橙色原文范围会同步，待处理统计从新水位重新开始。</li>
+                        </ul>
+                    </div>
+                    <p className="text-[11px] text-slate-400">处理期间请保持应用打开，不要清空聊天。任何一批失败都不会移动水位线，可安全重试。</p>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={modalType === 'memory-vectorize-result'}
+                title="记忆处理完成"
+                onClose={() => { setModalType('none'); }}
+                footer={<button type="button" onClick={() => setModalType('none')} className="w-full py-3 rounded-2xl bg-emerald-500 text-white font-bold">知道了</button>}
+            >
+                <div className="space-y-3">
+                    <div className="rounded-2xl bg-emerald-50 border border-emerald-100 p-4 text-center">
+                        <div className="text-2xl mb-1">✓</div>
+                        <p className="text-sm font-bold text-emerald-800">当前聊天的记忆处理边界已同步</p>
+                        <p className="text-[11px] text-emerald-700/70 mt-1">
+                            处理 {vectorizeResult?.processedMessages || 0} 条内容 · 新增 {vectorizeResult?.storedMemories || 0} 条长期记忆
+                        </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3.5 text-xs text-slate-600 leading-relaxed">
+                        {(vectorizeResult?.retainedMessages || 0) > 0
+                            ? <>最近 <b>{vectorizeResult?.retainedMessages}</b> 条原文会继续注入聊天上下文；更早的已处理原文不再重复注入。</>
+                            : <>已处理原文不会再直接注入聊天上下文，更早内容改由记忆宫殿按需召回。</>}
+                    </div>
+                    <p className="text-[11px] text-slate-400 text-center">向量化待处理统计已经从新的水位线重新开始。</p>
+                    {vectorizeResult?.waterlineAlreadyAhead && (
+                        <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2.5 leading-relaxed">
+                            最近 10 条此前已经处理过。为避免重复向量化，水位线没有回退，但这 10 条原文仍已按你的选择保留在上下文中。
+                        </p>
+                    )}
                 </div>
             </Modal>
 
@@ -753,7 +832,8 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             <b>紫色 · 记忆宫殿水位线</b>：此前消息已经处理，不会因调整上下文再次向量化。
                         </div>
                         <div className="bg-orange-50 border border-orange-200 rounded-xl p-2.5 text-[11px] text-orange-800 leading-relaxed">
-                            <b>橙色 · 最大范围起点</b>：由{contextRangeSnapshot?.mode === 'adaptive' ? '全自动记忆' : `拉杆 ${settingsContextLimit} 条`}决定，用户断点不能越过它读取更早内容。
+                            <b>橙色 · 最大范围起点</b>：由{contextRangeSnapshot?.mode === 'adaptive' ? (activeCharacter.contextFollowsMemoryPalaceHwm ? '记忆水位线' : '全自动记忆') : `拉杆 ${settingsContextLimit} 条`}决定，用户断点不能越过它读取更早内容。
+                            {contextRangeSnapshot?.mode === 'adaptive' && !contextRangeSnapshot.maxRangeStartMessageId && ' 当前水位线后为 0 条，因此列表中没有额外橙色起点。'}
                         </div>
                         {contextRangeSnapshot?.userStartMessageId && (
                             <div className="bg-sky-50 border border-sky-200 rounded-xl p-2.5 text-[11px] text-sky-800 leading-relaxed">

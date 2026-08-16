@@ -1636,7 +1636,8 @@ const GuidebookApp: React.FC = () => {
                 )}
 
                 {error && (
-                    <Card className="p-3" style={{ border: '1px solid rgba(200,160,160,0.3)', background: 'rgba(250,240,240,0.6)' }}>
+                    // Card 只用自己那套卡片样式，不转发 style，这里原来传的红框/浅红底从来没生效过，就别传了
+                    <Card className="p-3">
                         <div className="text-red-500 text-xs">{error}</div>
                     </Card>
                 )}

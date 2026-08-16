@@ -72,6 +72,10 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 - **MCP 模式强制本地 fetch**（跳过 Instant Push）且**本轮禁 thinking**
   （`toolModeActive`，Gemini 系 "thinking + tools" 同发会 400）——与
   瑞幸/麦当劳既有约束一致，设置卡片里已向用户说明。
+- **即时对话路径下 MCP 由 amsg worker 云端执行**：主动消息 2.0 的即时对话（与上面的
+  Instant Push 是两条互斥的云端路，见 `plans/amsg2-instant-chat-contract.md`）刻意不把
+  MCP 排除在外——worker fire 时自己解析 `tool_config`、直连用户配置的 MCP 服务器，
+  工具说明块与凭据都由 worker 侧统一供给（客户端这次 POST 顺手把 `tool_config` 传上去）。
 - **session 失效自动重连一次**：`tools/call` 遇 HTTP 400/404 会重握手重试
   （服务器重启后 `Mcp-Session-Id` 作废是常态）。
 - **配置改动要 `resetMcpSession`**：URL/token/代理任一变了旧 session 就不能用，

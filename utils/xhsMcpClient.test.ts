@@ -86,6 +86,43 @@ describe('XHS Lite response normalization', () => {
         ]);
     });
 });
+
+describe('XHS Lite platform affinity', () => {
+    afterEach(() => {
+        XhsMcpClient.setCookie('');
+        vi.restoreAllMocks();
+    });
+
+    it('remembers the RedNote backend selected by check-login', async () => {
+        XhsMcpClient.setCookie(`a1=${'r'.repeat(52)}; web_session=rednote-session`);
+        const upstream = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+            const url = String(input);
+            const headers = new Headers(init?.headers);
+            if (url.endsWith('/api/check-login')) {
+                expect(headers.has('x-xhs-platform')).toBe(false);
+                return new Response(JSON.stringify({
+                    logged_in: true,
+                    platform: 'rednote',
+                    user_id: 'global-user',
+                }), { headers: { 'content-type': 'application/json' } });
+            }
+            if (url.endsWith('/api/search')) {
+                expect(headers.get('x-xhs-platform')).toBe('rednote');
+                return new Response(JSON.stringify({ success: true, feeds: [], platform: 'rednote' }), {
+                    headers: { 'content-type': 'application/json' },
+                });
+            }
+            throw new Error(`unexpected request: ${url}`);
+        });
+
+        const login = await XhsMcpClient.checkLogin('https://worker.test/api');
+        const search = await XhsMcpClient.search('https://worker.test/api', 'cat');
+
+        expect(login.success).toBe(true);
+        expect(search.success).toBe(true);
+        expect(upstream).toHaveBeenCalledTimes(2);
+    });
+});
 describe('Spider v3 hidden client patch', () => {
     let values: Map<string, string>;
 

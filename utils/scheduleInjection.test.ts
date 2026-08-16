@@ -52,6 +52,19 @@ describe('凌晨 0-5 点算前一夜的延续', () => {
         expect(out).toContain('稿子卡在第三段');
     });
 
+    it('ChatApp 主请求可注入完整日程，并用一个简单标签教角色修改未来计划', () => {
+        const out = buildScheduleInjection(schedule, undefined, at(14), {
+            includeFullDay: true,
+            includeChangeInstruction: true,
+        });
+        expect(out).toContain('你今天的完整日程：');
+        expect(out).toContain('- 07:00 晨跑');
+        expect(out).toContain('- 13:00 写稿');
+        expect(out).toContain('- 22:00 看剧');
+        expect(out).toContain('[[ACTION:CHANGE_SCHEDULE | 22:00 | 去超市]]');
+        expect(out).toContain('时段必须来自上表且尚未开始');
+    });
+
     it('一天三档的通用取法本身没变（小剧场、桌面小屋还按它取色）', () => {
         expect(getFlowNarrativeKey(1)).toBe('morning');
         expect(getFlowNarrativeKey(9)).toBe('morning');

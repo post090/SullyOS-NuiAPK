@@ -98,6 +98,24 @@ type LyricSlot = {
     lineInSection: number;
 };
 
+// SECTION_LABELS 声明成了 Record<string, …>，从它身上取出来的 key 只剩 string，
+// 这里把段落 key 收窄回 SongLine['section']。实际用到的 key 就是这七个，
+// 兜底沿用段落选择器的初始值 'verse'。
+const toSectionKind = (value: string): SongLine['section'] => {
+    switch (value) {
+        case 'intro':
+        case 'verse':
+        case 'pre-chorus':
+        case 'chorus':
+        case 'bridge':
+        case 'outro':
+        case 'free':
+            return value;
+        default:
+            return 'verse';
+    }
+};
+
 type PaperTheme = {
     background: string;
     ink: string;
@@ -188,7 +206,7 @@ const SongwritingApp: React.FC = () => {
 
     // Write View State
     const [inputText, setInputText] = useState('');
-    const [currentSection, setCurrentSection] = useState<string>('verse');
+    const [currentSection, setCurrentSection] = useState<SongLine['section']>('verse');
     const [isTyping, setIsTyping] = useState(false);
     const [lastTokenUsage, setLastTokenUsage] = useState<number | null>(null);
     const [showStructureGuide, setShowStructureGuide] = useState(false);
@@ -455,7 +473,7 @@ const SongwritingApp: React.FC = () => {
                 content: m.content
             }));
 
-            await injectMemoryPalace(collaborator, undefined, `${updatedSong.title || ''} ${updatedSong.theme || ''} ${userMessage}`.trim() || undefined);
+            await injectMemoryPalace(collaborator, undefined, `${updatedSong.title || ''} ${userMessage}`.trim() || undefined);
             const systemPrompt = SongPrompts.buildMentorSystemPrompt(collaborator, userProfile, updatedSong, msgContext);
             let userPrompt = SongPrompts.buildUserMessage(updatedSong, userMessage, currentSection);
             if (requestedType) {
@@ -803,7 +821,7 @@ const SongwritingApp: React.FC = () => {
                 if (!content) return;
                 const existing = lineAtSlot({ ...activeSong, lines: snapshotLines }, index);
                 const targetSlot = buildLyricSlots(activeSong)[index]
-                    || { index, section: currentSection as SongLine['section'], chars: '不限', sectionOccurrence: 0, lineInSection: index };
+                    || { index, section: currentSection, chars: '不限', sectionOccurrence: 0, lineInSection: index };
                 if (existing) {
                     snapshotLines = snapshotLines.map(line => line.id === existing.id
                         ? { ...line, content, section: targetSlot.section, slotIndex: index }
@@ -902,7 +920,7 @@ const SongwritingApp: React.FC = () => {
             await injectMemoryPalace(
                 collaborator,
                 undefined,
-                `${activeSong.title} ${activeSong.theme || ''} ${activeSong.lines.map(line => line.content).join(' ')}`.trim(),
+                `${activeSong.title} ${activeSong.lines.map(line => line.content).join(' ')}`.trim(),
                 userProfile.name,
             );
             const systemPrompt = SongPrompts.buildCompletionSystemPrompt(collaborator, userProfile);
@@ -2301,11 +2319,11 @@ const SongwritingApp: React.FC = () => {
                         </div>
                         <div className="rounded-2xl p-4 shizuku-glass" style={{ border: `1px solid ${MusicC.faint}40` }}>
                             <div className="grid grid-cols-3 gap-3">
-                                {[
+                                {([
                                     { label: '起点色', color: customCoverFrom, position: 'from' },
                                     { label: '中间色', color: customCoverVia, position: 'via' },
                                     { label: '终点色', color: customCoverTo,  position: 'to'   }
-                                ].map(item => (
+                                ] as const).map(item => (
                                     <label key={item.label} className="space-y-1.5">
                                         <span className="block text-[10px]" style={{ color: MusicC.muted }}>{item.label}</span>
                                         <div className="rounded-lg overflow-hidden" style={{ height: 28, background: item.color, border: `1px solid ${MusicC.faint}40`, boxShadow: `inset 0 1px 0 rgba(255,255,255,0.2)` }}>
@@ -3171,7 +3189,7 @@ const SongwritingApp: React.FC = () => {
                 })),
                 {
                     index: nextFreeIndex,
-                    section: currentSection as SongLine['section'],
+                    section: currentSection,
                     chars: '不限',
                     sectionOccurrence: 0,
                     lineInSection: nextFreeIndex,
@@ -3398,7 +3416,7 @@ const SongwritingApp: React.FC = () => {
                                 {Object.entries(SECTION_LABELS).map(([key, info]) => (
                                     <button
                                         key={key}
-                                        onClick={() => setCurrentSection(key)}
+                                        onClick={() => setCurrentSection(toSectionKind(key))}
                                         className="shrink-0 px-2.5 py-1 rounded-full text-[9px] transition-all"
                                         style={currentSection === key
                                             ? { color: '#fff', background: paper.accent }

@@ -15,7 +15,7 @@ function corsHeaders(origin) {
   return {
     "Access-Control-Allow-Origin": origin || "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization, Depth, X-Brave-API-Key, X-Notion-API-Key, X-Feishu-Token, X-Xhs-Cookie, X-Rnote-API-Key, X-Xhs-Experiment-Ack, X-Netease-Cookie, X-WebDAV-Method, X-WebDAV-Depth, X-WebDAV-Range, X-GitHub-Method, X-GitHub-Api-Version, Mcp-Session-Id, Accept, Range",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Depth, X-Brave-API-Key, X-Notion-API-Key, X-Feishu-Token, X-Xhs-Cookie, X-Xhs-Platform, X-Rnote-API-Key, X-Xhs-Experiment-Ack, X-Netease-Cookie, X-WebDAV-Method, X-WebDAV-Depth, X-WebDAV-Range, X-GitHub-Method, X-GitHub-Api-Version, X-CF-Method, Mcp-Session-Id, Accept, Range",
     "Access-Control-Expose-Headers": "Mcp-Session-Id",
     "Access-Control-Max-Age": "86400",
   };
@@ -972,6 +972,12 @@ const XHSLite = (() => {
   const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36 Edg/138.0.0.0';
   const IMG_FORMATS = ['jpg', 'webp', 'avif'];
   const EDITH = 'https://edith.xiaohongshu.com', CREATOR = 'https://creator.xiaohongshu.com', WWW = 'https://www.xiaohongshu.com';
+  const XHS_PLATFORMS = Object.freeze({
+    xhs: Object.freeze({ key: 'xhs', apiBase: EDITH, webBase: WWW }),
+    rednote: Object.freeze({ key: 'rednote', apiBase: 'https://webapi.rednote.com', webBase: 'https://www.rednote.com' }),
+  });
+  const PLATFORM_CACHE_TTL_MS = 30 * 60 * 1000;
+  const platformCache = new Map();
   const SPIDER_V3 = Object.freeze({
     schemaVersion: 1,
     signVersion: '4.3.7',
@@ -1705,10 +1711,43 @@ const XHSLite = (() => {
     for (const part of s.split(';')) { const i = part.indexOf('='); if (i === -1) continue; out[part.slice(0, i).trim()] = part.slice(i + 1).trim(); }
     return out;
   }
-  function baseHeaders(cookieStr) {
+  function normalizePlatform(value) {
+    const platform = String(value || '').trim().toLowerCase();
+    return platform === 'xhs' || platform === 'rednote' ? platform : 'auto';
+  }
+  function platformConfig(value) {
+    return XHS_PLATFORMS[normalizePlatform(value)] || XHS_PLATFORMS.xhs;
+  }
+  function platformForApiBase(base) {
+    return String(base).includes('rednote.com') ? XHS_PLATFORMS.rednote : XHS_PLATFORMS.xhs;
+  }
+  function platformCacheKey(cookieStr) {
+    const a1 = parseCookies(cookieStr).a1 || '';
+    return a1 ? md5Hex(a1).slice(0, 16) : '';
+  }
+  function getCachedPlatform(cookieStr, now = Date.now()) {
+    const key = platformCacheKey(cookieStr);
+    const cached = key ? platformCache.get(key) : null;
+    if (!cached) return '';
+    if (cached.expiresAt <= now) {
+      platformCache.delete(key);
+      return '';
+    }
+    return cached.platform;
+  }
+  function cachePlatform(cookieStr, platform, now = Date.now()) {
+    const key = platformCacheKey(cookieStr);
+    if (key) platformCache.set(key, { platform, expiresAt: now + PLATFORM_CACHE_TTL_MS });
+  }
+  function clearCachedPlatform(cookieStr) {
+    const key = platformCacheKey(cookieStr);
+    if (key) platformCache.delete(key);
+  }
+  function baseHeaders(cookieStr, apiBase = EDITH) {
+    const { webBase } = platformForApiBase(apiBase);
     return {
       accept: 'application/json, text/plain, */*', 'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      'content-type': 'application/json;charset=UTF-8', origin: WWW, referer: WWW + '/', 'user-agent': UA,
+      'content-type': 'application/json;charset=UTF-8', origin: webBase, referer: webBase + '/', 'user-agent': UA,
       'sec-ch-ua': '"Not)A;Brand";v="8", "Chromium";v="138", "Microsoft Edge";v="138"', 'sec-ch-ua-mobile': '?0',
       'sec-ch-ua-platform': '"Windows"', 'sec-fetch-dest': 'empty', 'sec-fetch-mode': 'cors', 'sec-fetch-site': 'same-site',
       'x-mns': 'unload', cookie: cookieStr,
@@ -1901,10 +1940,14 @@ const XHSLite = (() => {
     };
   }
 
-  async function signedGet(base, uri, params, cookieStr, ck, extraHeaders = {}, signFormat = 'xys') {
+  async function signedGet(base, uri, params, cookieStr, ck, extraHeaders = {}, signFormat = 'xys', useXrap = false) {
     const query = buildSignedQuery(params);
     const sig = await signHeaders('GET', uri, ck, { params: params || {}, signFormat });
-    const resp = await fetch(base + uri + (query ? '?' + query : ''), { method: 'GET', headers: { ...baseHeaders(cookieStr), ...sig, ...extraHeaders } });
+    const requestUri = uri + (query ? '?' + query : '');
+    const xrapHeader = useXrap
+      ? { 'x-rap-param': await xRapParam(`//${new URL(base).host}${requestUri}`, '') }
+      : {};
+    const resp = await fetch(base + requestUri, { method: 'GET', headers: { ...baseHeaders(cookieStr, base), ...sig, ...xrapHeader, ...extraHeaders } });
     return readJsonResponse(resp);
   }
   async function signedPost(base, uri, payload, cookieStr, ck, extraHeaders = {}, useXrap = false) {
@@ -1912,7 +1955,7 @@ const XHSLite = (() => {
     const xrapHeader = useXrap
       ? { 'x-rap-param': await xRapParam(`//${new URL(base).host}${uri}`, payload) }
       : {};
-    const resp = await fetch(base + uri, { method: 'POST', headers: { ...baseHeaders(cookieStr), ...sig, ...xrapHeader, ...extraHeaders }, body: JSON.stringify(payload) });
+    const resp = await fetch(base + uri, { method: 'POST', headers: { ...baseHeaders(cookieStr, base), ...sig, ...xrapHeader, ...extraHeaders }, body: JSON.stringify(payload) });
     return readJsonResponse(resp);
   }
 
@@ -2079,16 +2122,83 @@ const XHSLite = (() => {
     };
   }
 
-  async function checkLogin(cookieStr) {
+  async function checkLoginOnPlatform(cookieStr, platform) {
+    const config = platformConfig(platform);
     const ck = parseCookies(cookieStr);
-    const r = await signedGet(EDITH, '/api/sns/web/v2/user/me', null, cookieStr, ck);
-    const d = r?.data || {};
-    return { logged_in: !!(r?.success && (d.user_id || d.userId || d.guest === false)), nickname: d.nickname || '', user_id: d.user_id || d.userId || '', red_id: d.red_id || '', raw: r };
+    let r = await signedGet(config.apiBase, '/api/sns/web/v2/user/me', null, cookieStr, ck);
+    let root = r?.data || {};
+    let d = root.user_info || root.userInfo || root.user || root;
+    let sessionOk = !!(r?.success && (
+      d.user_id
+      || d.userId
+      || root.user_id
+      || root.userId
+      || d.guest === false
+      || root.guest === false
+      || d.logged_in === true
+      || d.loggedIn === true
+    ));
+    // The global backend has also shipped /v1/user/selfinfo. Its login bit is
+    // nested under data.result.success, so use it as a RedNote-only fallback.
+    if (!sessionOk && config.key === 'rednote') {
+      const selfInfo = await signedGet(config.apiBase, '/api/sns/web/v1/user/selfinfo', null, cookieStr, ck);
+      const selfRoot = selfInfo?.data || {};
+      const selfResult = selfRoot.result || {};
+      if (selfResult.success === true) {
+        r = selfInfo;
+        root = selfRoot;
+        d = selfResult.user_info || selfResult.userInfo || selfResult.user || selfResult;
+        sessionOk = true;
+      }
+    }
+    const userId = d.user_id || d.userId || root.user_id || root.userId || '';
+    return {
+      logged_in: sessionOk,
+      nickname: d.nickname || d.nick_name || root.nickname || '',
+      user_id: userId,
+      red_id: d.red_id || d.redId || root.red_id || '',
+      platform: config.key,
+      api_host: new URL(config.apiBase).host,
+      web_host: new URL(config.webBase).host,
+      raw: r,
+    };
   }
-  async function listFeeds(cookieStr, { category = 'homefeed_recommend', cursorScore = '', noteIndex = 0, refreshType = 1 } = {}) {
+  async function checkLogin(cookieStr, requestedPlatform = 'auto') {
+    const requested = normalizePlatform(requestedPlatform);
+    const cached = requested === 'auto' ? getCachedPlatform(cookieStr) : '';
+    const candidates = requested === 'auto'
+      ? [...new Set([cached, 'xhs', 'rednote'].filter(Boolean))]
+      : [requested];
+    let lastResult = null;
+    for (const platform of candidates) {
+      const result = await checkLoginOnPlatform(cookieStr, platform);
+      lastResult = result;
+      if (result.logged_in) {
+        cachePlatform(cookieStr, platform);
+        return result;
+      }
+    }
+    clearCachedPlatform(cookieStr);
+    return {
+      ...(lastResult || {}),
+      logged_in: false,
+      platform: requested === 'auto' ? undefined : requested,
+      checked_platforms: candidates,
+    };
+  }
+  async function resolvePlatform(cookieStr, requestedPlatform = 'auto') {
+    const requested = normalizePlatform(requestedPlatform);
+    if (requested !== 'auto') return { platform: requested, login: null };
+    const cached = getCachedPlatform(cookieStr);
+    if (cached) return { platform: cached, login: null };
+    const login = await checkLogin(cookieStr, 'auto');
+    return { platform: login.platform || '', login };
+  }
+  async function listFeeds(cookieStr, { category = 'homefeed_recommend', cursorScore = '', noteIndex = 0, refreshType = 1 } = {}, platform = 'xhs') {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const payload = { cursor_score: cursorScore, num: 20, refresh_type: refreshType, note_index: noteIndex, unread_begin_note_id: '', unread_end_note_id: '', unread_note_count: 0, category, search_key: '', need_num: 10, image_formats: IMG_FORMATS, need_filter_image: false };
-    const r = await signedPost(EDITH, '/api/sns/web/v1/homefeed', payload, cookieStr, ck);
+    const r = await signedPost(apiBase, '/api/sns/web/v1/homefeed', payload, cookieStr, ck);
     return { feeds: (r?.data?.items || []).map(normItem), cursor_score: r?.data?.cursor_score, success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
   }
   const SORT_MAP = { general: 'general', time: 'time_descending', hot: 'popularity_descending', comment: 'comment_descending', collect: 'collect_descending' };
@@ -2099,13 +2209,14 @@ const XHSLite = (() => {
     while (n > 0n) { s = B36[Number(n % 36n)] + s; n /= 36n; }
     return s;
   }
-  async function search(cookieStr, keyword, { page = 1, sort = 'general' } = {}) {
+  async function search(cookieStr, keyword, { page = 1, sort = 'general' } = {}, platform = 'xhs') {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const st = SORT_MAP[sort] || 'general';
     const payload = { keyword, page, page_size: 20, search_id: genSearchId(), sort: st, note_type: 0, ext_flags: [],
       filters: [{ tags: [st], type: 'sort_type' }, { tags: ['不限'], type: 'filter_note_type' }, { tags: ['不限'], type: 'filter_note_time' }, { tags: ['不限'], type: 'filter_note_range' }, { tags: ['不限'], type: 'filter_pos_distance' }],
       geo: '', image_formats: IMG_FORMATS };
-    const r = await signedPost(EDITH, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
+    const r = await signedPost(apiBase, '/api/sns/web/v1/search/notes', payload, cookieStr, ck);
     const items = (r?.data?.items || []).filter((it) => it.id && (it.note_card || it.model_type === 'note'));
     return { feeds: items.map(normItem), success: !!r?.success, msg: r?.msg, raw_error: r?.success ? undefined : r };
   }
@@ -2114,10 +2225,12 @@ const XHSLite = (() => {
     loadComments = true,
     env,
     requestRnoteApiKey,
+    platform = 'xhs',
   } = {}) {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const payload = { source_note_id: feedId, image_formats: IMG_FORMATS, extra: { need_body_topic: '1' }, xsec_source: xsecSource || 'pc_feed', xsec_token: xsecToken || '' };
-    const r = await signedPost(EDITH, '/api/sns/web/v1/feed', payload, cookieStr, ck, { 'xy-direction': '13' });
+    const r = await signedPost(apiBase, '/api/sns/web/v1/feed', payload, cookieStr, ck, { 'xy-direction': '13' });
     const nc = r?.data?.items?.[0]?.note_card || {};
     const note = { note_id: feedId, title: nc.title || '', content: nc.desc || '', desc: nc.desc || '', user: nc.user || {}, interact_info: nc.interact_info || {}, image_list: nc.image_list || [], xsec_token: xsecToken || '' };
     const embeddedComments = findCommentArray(nc?.comments) || [];
@@ -2149,33 +2262,67 @@ const XHSLite = (() => {
       raw_error: r?.success ? undefined : r,
     };
   }
-  async function userProfile(cookieStr, userId, xsecToken) {
+  async function userProfile(cookieStr, userId, xsecToken, platform = 'xhs') {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
-    const info = await signedGet(EDITH, '/api/sns/web/v1/user/otherinfo', { target_user_id: userId }, cookieStr, ck);
-    let notes = [];
+    let info = null;
+    let infoError = '';
     try {
-      const posted = await signedGet(EDITH, '/api/sns/web/v1/user_posted', { num: 30, cursor: '', user_id: userId, image_formats: 'jpg,webp,avif', xsec_token: xsecToken || '', xsec_source: 'pc_note' }, cookieStr, ck);
+      info = await signedGet(apiBase, '/api/sns/web/v1/user/otherinfo', { target_user_id: userId }, cookieStr, ck);
+      if (!info?.success) infoError = info?.msg || `HTTP ${info?.http_status || 'unknown'}`;
+    } catch (e) {
+      infoError = e?.message || String(e);
+    }
+    let notes = [];
+    let notesLoaded = false;
+    let notesError = '';
+    try {
+      // Spider_XHS 将 user_posted 列入 RAP 白名单；GET 的 RAP 摘要包含完整 query，body 为空串。
+      const posted = await signedGet(apiBase, '/api/sns/web/v1/user_posted', { num: 30, cursor: '', user_id: userId, image_formats: 'jpg,webp,avif', xsec_token: xsecToken || '', xsec_source: 'pc_user' }, cookieStr, ck, {}, 'xys', true);
+      notesLoaded = !!posted?.success;
       notes = (posted?.data?.notes || []).map(normItem);
-    } catch (e) { /* best effort */ }
-    return { basic_info: info?.data?.basic_info || {}, notes, feeds: notes, success: !!info?.success };
+      if (!notesLoaded) notesError = posted?.msg || `HTTP ${posted?.http_status || 'unknown'}`;
+    } catch (e) {
+      notesError = e?.message || String(e);
+    }
+    if (!info?.success && !notesLoaded) {
+      return { error: `获取主页失败: ${notesError || infoError || '上游未返回成功状态'}` };
+    }
+    return {
+      basic_info: info?.data?.basic_info || {},
+      notes,
+      feeds: notes,
+      success: true,
+      profile_status: info?.success ? 'loaded' : 'unavailable',
+      profile_error: info?.success ? undefined : infoError,
+      notes_status: notesLoaded ? 'loaded' : 'unavailable',
+      notes_error: notesLoaded ? undefined : notesError,
+    };
   }
-  async function likeFeed(cookieStr, feedId, unlike = false) {
+  async function likeFeed(cookieStr, feedId, unlike = false, platform = 'xhs') {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
-    const r = await signedPost(EDITH, unlike ? '/api/sns/web/v1/note/dislike' : '/api/sns/web/v1/note/like', { note_oid: feedId }, cookieStr, ck);
+    const r = await signedPost(apiBase, unlike ? '/api/sns/web/v1/note/dislike' : '/api/sns/web/v1/note/like', { note_oid: feedId }, cookieStr, ck);
     return { success: !!r?.success, msg: r?.msg, raw: r };
   }
-  async function favoriteFeed(cookieStr, feedId, unfavorite = false) {
+  async function favoriteFeed(cookieStr, feedId, unfavorite = false, platform = 'xhs') {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
-    const r = await signedPost(EDITH, unfavorite ? '/api/sns/web/v1/note/uncollect' : '/api/sns/web/v1/note/collect', unfavorite ? { note_ids: feedId } : { note_id: feedId }, cookieStr, ck);
+    const r = await signedPost(apiBase, unfavorite ? '/api/sns/web/v1/note/uncollect' : '/api/sns/web/v1/note/collect', unfavorite ? { note_ids: feedId } : { note_id: feedId }, cookieStr, ck);
     return { success: !!r?.success, msg: r?.msg, raw: r };
   }
-  async function postComment(cookieStr, feedId, content, { targetCommentId = null, xsecToken = '' } = {}) {
+  async function postComment(cookieStr, feedId, content, { targetCommentId = null, xsecToken = '', platform = 'xhs' } = {}) {
+    const { apiBase } = platformConfig(platform);
     const ck = parseCookies(cookieStr);
     const payload = { note_id: feedId, content, at_users: [] };
     if (xsecToken) payload.xsec_token = xsecToken;
     if (targetCommentId) payload.target_comment_id = targetCommentId;
-    const r = await signedPost(EDITH, '/api/sns/web/v1/comment/post', payload, cookieStr, ck);
-    return { success: !!r?.success, msg: r?.msg, comment: r?.data?.comment, raw: r };
+    // Spider_XHS 的 RAP 白名单同样包含 comment/post。
+    const r = await signedPost(apiBase, '/api/sns/web/v1/comment/post', payload, cookieStr, ck, {}, true);
+    if (!r?.success) {
+      return { error: `评论失败: ${r?.msg || `HTTP ${r?.http_status || 'unknown'}`}`, raw: r };
+    }
+    return { success: true, msg: r?.msg, comment: r?.data?.comment, raw: r };
   }
 
   async function sha1Hex(str) {
@@ -2283,30 +2430,52 @@ const XHSLite = (() => {
   }
 
   async function handle(command, body, cookie, env, requestContext = {}) {
+    const requestedPlatform = requestContext.platform || body.platform || 'auto';
+    if (command === 'check-login') return checkLogin(cookie, requestedPlatform);
+
+    const resolved = await resolvePlatform(cookie, requestedPlatform);
+    if (!resolved.platform) {
+      return {
+        error: '这串 cookie 在 xiaohongshu.com 和 rednote.com 两套后端都没有通过登录校验。请从当前实际登录的网站重新复制完整请求 Cookie。',
+        checked_platforms: resolved.login?.checked_platforms || ['xhs', 'rednote'],
+      };
+    }
+    const platform = resolved.platform;
+    let result;
     switch (command) {
-      case 'check-login': return checkLogin(cookie);
-      case 'search': return search(cookie, body.keyword || '', { sort: body.sort_by, page: body.page });
-      case 'list-feeds': return listFeeds(cookie, { category: body.category, cursorScore: body.cursor_score, noteIndex: body.note_index });
-      case 'get-feed-detail': return getFeedDetail(cookie, body.feed_id, body.xsec_token, {
+      case 'search': result = await search(cookie, body.keyword || '', { sort: body.sort_by, page: body.page }, platform); break;
+      case 'list-feeds': result = await listFeeds(cookie, { category: body.category, cursorScore: body.cursor_score, noteIndex: body.note_index }, platform); break;
+      case 'get-feed-detail': result = await getFeedDetail(cookie, body.feed_id, body.xsec_token, {
         xsecSource: body.xsec_source,
         loadComments: body.load_all_comments !== false,
         env,
         requestRnoteApiKey: requestContext.rnoteApiKey,
-      });
-      case 'xhs-experimental-comments': return experimentalComments(cookie, body);
-      case 'post-comment': return postComment(cookie, body.feed_id, body.content, { xsecToken: body.xsec_token });
-      case 'reply-comment': return postComment(cookie, body.feed_id, body.content, { targetCommentId: body.comment_id, xsecToken: body.xsec_token });
-      case 'like-feed': return likeFeed(cookie, body.feed_id, !!body.unlike);
-      case 'favorite-feed': return favoriteFeed(cookie, body.feed_id, !!body.unfavorite);
-      case 'user-profile': return userProfile(cookie, body.user_id, body.xsec_token);
-      case 'publish': return publishNote(cookie, { title: body.title, content: body.content, images: body.images || [], tags: body.tags || [], isPrivate: body.visibility === 'private' || !!body.is_private });
-      case 'login': return { error: 'lite 模式用 cookie 登录，无需扫码。请在设置里粘贴 cookie。' };
-      case 'get-qrcode': return { error: 'lite 模式不支持二维码登录，请粘贴 cookie。' };
-      case 'delete-cookies': return { ok: true };
-      case 'publish-video': return { error: '视频发布暂未在 lite 模式实现。' };
-      case 'long-article': return { error: '长文发布暂未在 lite 模式实现。' };
+        platform,
+      }); break;
+      case 'xhs-experimental-comments':
+        result = platform === 'rednote'
+          ? { error: 'Spider v3 评论实验目前只支持 xiaohongshu.com 国内后端。' }
+          : await experimentalComments(cookie, body);
+        break;
+      case 'post-comment': result = await postComment(cookie, body.feed_id, body.content, { xsecToken: body.xsec_token, platform }); break;
+      case 'reply-comment': result = await postComment(cookie, body.feed_id, body.content, { targetCommentId: body.comment_id, xsecToken: body.xsec_token, platform }); break;
+      case 'like-feed': result = await likeFeed(cookie, body.feed_id, !!body.unlike, platform); break;
+      case 'favorite-feed': result = await favoriteFeed(cookie, body.feed_id, !!body.unfavorite, platform); break;
+      case 'user-profile': result = await userProfile(cookie, body.user_id, body.xsec_token, platform); break;
+      case 'publish':
+        result = platform === 'rednote'
+          ? { error: 'RedNote 全球后端的图片发布链路尚未验证；搜索、浏览、详情和互动已支持。' }
+          : await publishNote(cookie, { title: body.title, content: body.content, images: body.images || [], tags: body.tags || [], isPrivate: body.visibility === 'private' || !!body.is_private });
+        break;
+      case 'login': result = { error: 'lite 模式用 cookie 登录，无需扫码。请在设置里粘贴 cookie。' }; break;
+      case 'get-qrcode': result = { error: 'lite 模式不支持二维码登录，请粘贴 cookie。' }; break;
+      case 'delete-cookies': result = { ok: true }; break;
+      case 'publish-video': result = { error: '视频发布暂未在 lite 模式实现。' }; break;
+      case 'long-article': result = { error: '长文发布暂未在 lite 模式实现。' }; break;
       default: return null;
     }
+    if (result && typeof result === 'object' && !Array.isArray(result)) return { ...result, platform };
+    return result;
   }
 
   return {
@@ -2324,6 +2493,7 @@ const XHSLite = (() => {
         generateB1: generateSpiderV3B1,
         parseCookies,
         resetDslCache() { spiderV3DslCache = { value: '', expiresAt: 0 }; },
+        resetPlatformCache() { platformCache.clear(); },
       },
       _internals: { md5Hex, encodeCustomStr, crc32JsInt, xrapEncryptBlock, xrapXxh32 },
     },
@@ -2372,6 +2542,7 @@ export default {
       try {
         const result = await XHSLite.handle(command, body, cookie, env, {
           rnoteApiKey: request.headers.get('x-rnote-api-key') || '',
+          platform: request.headers.get('x-xhs-platform') || 'auto',
         });
         if (result === null) return jsonResponse({ error: `Unknown command: ${command}` }, { status: 404, origin });
         const response = jsonResponse(result, { origin });
@@ -2454,6 +2625,104 @@ export default {
         return jsonResponse({
           error: `Proxy error: ${String(e && e.message || e)}`,
           stack: String(e && e.stack || '').slice(0, 400),
+        }, { status: 502, origin });
+      }
+    }
+
+    // ========== Cloudflare API 代理 (/cf-api) ==========
+    // api.cloudflare.com 一个 CORS 头都不返回，浏览器连最简单的请求都发不出去，所以
+    // 「在设置页填一枚 CF token 就把主动消息后端装好」这条路必须过一层中转。
+    //
+    // 跟 /webdav 的关键区别：目标地址不是调用方给的，是这里拼死的。调用方只能给
+    // api.cloudflare.com/client/v4 后面那一截路径，而且限制在账号级资源里——建 D1、
+    // 传 worker、加 cron、开 workers.dev 都在 /accounts 下面，够用；/zones/* 那类
+    // （改 DNS、签证书）一律挡掉，免得这个端点变成通用的 CF API 中继。
+    if (url.pathname === '/cf-api') {
+      const CF_ALLOWED_PREFIXES = ['/accounts', '/memberships', '/user/tokens/verify'];
+      // 探针：不带任何凭据 GET 一下就知道这条中转在不在。
+      // 这个 worker 要手动部署，而它对未知路径的 POST 一律回 405，光看状态码分不出
+      // 「部署好了」还是「路由不存在」；GET 这里回 200、旧版本落到末尾的 404，一眼分得开。
+      // 前端也拿它判断用户自填的代理 worker 支不支持一键部署。
+      if (request.method === 'GET') {
+        return jsonResponse({
+          ok: true,
+          relay: 'cf-api',
+          upstream: 'api.cloudflare.com',
+          allowed: CF_ALLOWED_PREFIXES,
+        }, { origin });
+      }
+      if (request.method !== 'POST') {
+        return jsonResponse({ error: 'Method not allowed' }, { status: 405, origin });
+      }
+      const apiPath = url.searchParams.get('path') || '';
+      if (!apiPath.startsWith('/') || apiPath.includes('://') || apiPath.includes('..')) {
+        return jsonResponse({ error: 'Invalid path parameter' }, { status: 400, origin });
+      }
+      const prefixAllowed = CF_ALLOWED_PREFIXES.some(
+        (p) => apiPath === p || apiPath.startsWith(p + '/') || apiPath.startsWith(p + '?')
+      );
+      if (!prefixAllowed) {
+        return jsonResponse({
+          error: 'This proxy only relays account-scoped Cloudflare API paths',
+          allowed: CF_ALLOWED_PREFIXES,
+        }, { status: 403, origin });
+      }
+      // 真实方法走 header：全局 CORS 只放行 GET/POST/OPTIONS，跟 /webdav 一个套路。
+      const cfMethod = (request.headers.get('X-CF-Method') || 'GET').toUpperCase();
+      if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(cfMethod)) {
+        return jsonResponse({ error: 'CF method not allowed' }, { status: 400, origin });
+      }
+      const cfTargetUrl = 'https://api.cloudflare.com/client/v4' + apiPath;
+      // 拼完再验一次 host。上面的字符串检查已经拦掉了绝对地址，这里是兜底：
+      // 只要解析出来不是 api.cloudflare.com 就宁可 400，不往外发。
+      let parsedCf;
+      try {
+        parsedCf = new URL(cfTargetUrl);
+      } catch {
+        return jsonResponse({ error: 'Invalid path parameter' }, { status: 400, origin });
+      }
+      if (parsedCf.host !== 'api.cloudflare.com') {
+        return jsonResponse({ error: 'Refusing to relay off api.cloudflare.com' }, { status: 400, origin });
+      }
+      const cfAuth = request.headers.get('Authorization');
+      if (!cfAuth) {
+        return jsonResponse({ error: 'Missing Authorization header' }, { status: 401, origin });
+      }
+      // worker.bundle.js 现在 ~500KB，multipart 包一层还要再大些。给到 10MB 够宽裕，
+      // 同时别让这个端点变成谁都能拿来传大文件的口子。
+      const CF_MAX_BODY = 10 * 1024 * 1024;
+      const declaredLen = Number(request.headers.get('Content-Length') || '0');
+      if (Number.isFinite(declaredLen) && declaredLen > CF_MAX_BODY) {
+        return jsonResponse({ error: 'Request body too large' }, { status: 413, origin });
+      }
+      const cfHeaders = { Authorization: cfAuth };
+      const cfContentType = request.headers.get('Content-Type');
+      // multipart 上传要靠 Content-Type 里的 boundary，原样带过去，别自己拼。
+      if (cfContentType) cfHeaders['Content-Type'] = cfContentType;
+      try {
+        let cfBody = null;
+        if (cfMethod !== 'GET' && cfMethod !== 'DELETE') {
+          cfBody = await request.arrayBuffer();
+          if (cfBody.byteLength > CF_MAX_BODY) {
+            return jsonResponse({ error: 'Request body too large' }, { status: 413, origin });
+          }
+          if (cfBody.byteLength === 0) cfBody = null;
+        }
+        const upstream = await fetch(cfTargetUrl, {
+          method: cfMethod,
+          headers: cfHeaders,
+          body: cfBody,
+        });
+        // 日志只留方法 / 路径 / 状态码，排障够用。token 在 header 里、不打；
+        // query 也不打（pathname 已经把它切掉了）。路径里的账号 id 会留下。
+        console.log('cf-api', cfMethod, parsedCf.pathname, '→', upstream.status);
+        const respHeaders = new Headers(corsHeaders(origin));
+        respHeaders.set('Content-Type', upstream.headers.get('Content-Type') || 'application/json; charset=utf-8');
+        // 状态码原样透传，前端能直接分辨 401（token 不对）和 403（权限不够）。
+        return new Response(upstream.body, { status: upstream.status, headers: respHeaders });
+      } catch (e) {
+        return jsonResponse({
+          error: `CF proxy error: ${String((e && e.message) || e)}`,
         }, { status: 502, origin });
       }
     }

@@ -22,7 +22,7 @@ import type {
 import { DB } from '../db';
 import { buildChatRequestPayload } from '../chatRequestPayload';
 import { safeFetchJson } from '../safeApi';
-import { processNewMessages } from '../memoryPalace/pipeline';
+import { processNewMessagesWithAutoArchive } from '../memoryPalace/autoArchive';
 import { getDailyScheduleForChar } from '../dailySchedule';
 import {
     worldTimeLabel, buildWorldSystemAddendum, buildWorldCharTurn, buildNpcTurn,
@@ -536,7 +536,7 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                         const char = members.find(m => m.id === beat.charId);
                         if (!char?.memoryPalaceEnabled) continue;
                         const recentMsgs = await DB.getRecentMessagesByCharId(char.id, 50);
-                        void processNewMessages(recentMsgs, char.id, char.name, mpEmb as any, mpLLM as any, userProfile?.name || '', false).catch(() => {});
+                        void processNewMessagesWithAutoArchive(recentMsgs, char.id, char.name, mpEmb as any, mpLLM as any, userProfile?.name || '', false).catch(() => {});
                     }
                 }
             } catch { /* 记忆失败不影响主流程 */ }

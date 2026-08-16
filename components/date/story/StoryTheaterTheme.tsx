@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Moon, Palette, Sparkle, SquaresFour, Sun, X } from '@phosphor-icons/react';
 import { STORY_THEATER_APPEARANCE_STORAGE_KEY } from '../../../utils/storyTheaterBackup';
 import { useOS } from '../../../context/OSContext';
@@ -216,9 +217,9 @@ export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ classN
         <button type='button' onClick={() => setOpen(true)} className={`w-9 h-9 rounded-full grid place-items-center ${className}`} title='剧情外观' aria-label='剧情外观'>
             <Palette size={18} weight={appearance.decor === 'cinema' ? 'fill' : 'regular'} />
         </button>
-        {open && <div
-            className='fixed inset-0 z-[90] bg-slate-950/35 flex items-end sm:items-center justify-center overflow-y-auto overscroll-contain'
-            style={{ paddingTop: 'max(12px, var(--safe-top))', paddingBottom: 'max(0px, var(--safe-bottom))' }}
+        {open && createPortal(<div
+            className={`story-theme story-theme-${appearance.color} story-decor-${appearance.decor} fixed inset-0 z-[90] flex items-end sm:items-center justify-center overflow-y-auto overscroll-contain`}
+            style={{ position: 'fixed', paddingTop: 'max(12px, var(--safe-top))', paddingBottom: 'max(0px, var(--safe-bottom))', backgroundColor: 'rgba(2, 6, 23, .35)' }}
             onClick={closePanel}
             role='presentation'
         >
@@ -238,6 +239,6 @@ export const StoryAppearanceButton: React.FC<{ className?: string }> = ({ classN
                     <div className='py-4 border-t border-slate-200 flex items-center gap-3'><span className='text-xs font-semibold w-16'>装饰</span><div className='min-w-0 flex-1 grid grid-cols-2 p-1 rounded-xl bg-slate-200'><button onClick={() => setDecor('plain')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.decor === 'plain' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><SquaresFour size={14} />素雅</button><button onClick={() => setDecor('cinema')} className={`py-2 rounded-lg text-[10px] font-bold flex items-center justify-center gap-1.5 ${appearance.decor === 'cinema' ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500'}`}><Sparkle size={14} />花里胡哨</button></div></div>
                 </div>
             </div>
-        </div>}
+        </div>, document.body)}
     </>;
 };

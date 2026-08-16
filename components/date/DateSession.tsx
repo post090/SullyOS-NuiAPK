@@ -15,6 +15,7 @@ import { cleanTextForTtsFish } from '../../utils/fishAudioTts';
 import { cleanTextForTtsEleven } from '../../utils/elevenLabsTts';
 import { resilientFetch } from '../../utils/resilientFetch';
 import { planNovelLoadMore } from '../../utils/dateSessionHistory';
+import { getPendingReplyText } from '../../utils/pendingReply';
 
 // 语音情绪标记 [v:xxx]：跟立绘情绪 [emotion] 分开的独立通道。立绘的 happy 是
 // 夸张的表情、语音的 happy 是音色情绪，两者强度/语义差异大，不能一概而论。
@@ -120,10 +121,13 @@ interface DateSessionProps {
     historyReachedEnd?: boolean;
 }
 
-const NOVEL_MESSAGE_WINDOW_SIZE = 80;
+// Long replies can expand into many DOM lines. Keeping a smaller reading window
+// materially reduces iOS WebKit content-process crashes while older entries
+// remain available through the existing "加载更早" button.
+const NOVEL_MESSAGE_WINDOW_SIZE = 40;
 /** 铺满已加载部分后，每次回库多取多少条见面消息。 */
 const NOVEL_HISTORY_FETCH_STEP = 220;
-const NOVEL_MESSAGE_LOAD_STEP = 80;
+const NOVEL_MESSAGE_LOAD_STEP = 40;
 const REQUIRED_EMOTIONS_SET = ['normal', 'happy', 'angry', 'sad', 'shy'];
 
 const DateSession: React.FC<DateSessionProps> = ({ 
@@ -169,6 +173,12 @@ const DateSession: React.FC<DateSessionProps> = ({
     const [isTyping, setIsTyping] = useState(false); // Waiting for API
     const [isShowingOpening, setIsShowingOpening] = useState(!initialState); // True until first user interaction
     const [showExitModal, setShowExitModal] = useState(false);
+    // API 失败时本地记住本轮输入，不依赖父组件的 DB 刷新是否已经完成；用户可直接点重试。
+    const [pendingRetryText, setPendingRetryText] = useState('');
+
+    useEffect(() => {
+        if (!getPendingReplyText(messages)) setPendingRetryText('');
+    }, [messages]);
     
     // Settings Overlay State (Internal)
     const [showSettings, setShowSettings] = useState(false);
@@ -585,12 +595,10 @@ const DateSession: React.FC<DateSessionProps> = ({
     const handleSend = async () => {
         if (isTyping) return;
         const inputText = input.trim();
-        // 重发模式：输入为空但最后一条是 user 消息（说明上一轮 API 没回，可能错误中断或网络抖动），
-        // 让发送键直接拿 DB 里那条 user 的内容重新触发 LLM，不必让用户重打。与 chat app 行为对齐。
-        const lastMsg = messages[messages.length - 1];
-        const canRetry = !inputText && lastMsg?.role === 'user';
-        if (!inputText && !canRetry) return;
-        const text = inputText || lastMsg.content;
+        // 本地失败输入优先，DB 时间线兜底。这样即使父组件刷新尚未落到这一帧，重试键也不会失效。
+        const retryText = pendingRetryText || getPendingReplyText(messages);
+        if (!inputText && !retryText) return;
+        const text = inputText || retryText;
         if (inputText) {
             setInput('');
             setShowInputBox(false);
@@ -609,8 +617,10 @@ const DateSession: React.FC<DateSessionProps> = ({
             if (items.length > 0) {
                 processNextDialogue(items[0], items.slice(1));
             }
+            setPendingRetryText('');
         } catch (e: any) {
             // onSendMessage 内部含 API 调用 + 回复后处理, 抛错不一定是网络。用中性文案, 不误导成"连接中断"。
+            setPendingRetryText(text);
             setCurrentText(`(出错了: ${e?.message || '未知错误'})`);
             setShowInputBox(true);
         } finally {
@@ -1070,18 +1080,18 @@ const DateSession: React.FC<DateSessionProps> = ({
                     </div>
                 )}
                 {showInputBox && (
-                    <div className={`w-[90%] max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto ${char.dateLightReading ? 'bg-stone-100 border border-stone-300' : 'bg-white/10 border border-white/20'}`} onClick={(e) => e.stopPropagation()}>
-                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`flex-1 bg-transparent px-4 py-3 outline-none font-light resize-none h-14 no-scrollbar leading-tight ${char.dateLightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
+                    <div className={`w-[90%] min-w-0 max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto ${char.dateLightReading ? 'bg-stone-100 border border-stone-300' : 'bg-white/10 border border-white/20'}`} onClick={(e) => e.stopPropagation()}>
+                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`min-w-0 flex-1 bg-transparent px-3 sm:px-4 py-3 outline-none font-light resize-none h-14 no-scrollbar leading-tight ${char.dateLightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
                         {(() => {
-                            const lastMsg = messages[messages.length - 1];
-                            const canRetry = !input.trim() && !isTyping && lastMsg?.role === 'user';
+                            const retryText = pendingRetryText || getPendingReplyText(messages);
+                            const canRetry = !input.trim() && !isTyping && !!retryText;
                             return (
                                 <button
                                     onClick={handleSend}
                                     disabled={(!input.trim() && !canRetry) || isTyping}
-                                    className="px-6 bg-white text-black rounded-xl font-bold text-sm hover:bg-slate-200 disabled:opacity-50 transition-colors h-14 flex items-center justify-center"
+                                    className="shrink-0 px-4 sm:px-6 bg-white text-black rounded-xl font-bold text-sm hover:bg-slate-200 disabled:opacity-50 transition-colors h-14 flex items-center justify-center"
                                 >
-                                    {canRetry ? 'RETRY' : 'SEND'}
+                                    {canRetry ? '重试' : '发送'}
                                 </button>
                             );
                         })()}

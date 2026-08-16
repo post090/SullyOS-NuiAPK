@@ -11,7 +11,8 @@ import TokenImg from '../os/TokenImg';
 import { useOS } from '../../context/OSContext';
 import { DB } from '../../utils/db';
 import { processImage } from '../../utils/file';
-import { Armchair, PaintBucket, SquaresFour, Image as ImageIcon, HouseSimple, PencilSimple, type Icon as PhosphorIcon } from '@phosphor-icons/react';
+import { Armchair, PaintBucket, SquaresFour, Image as ImageIcon, HouseSimple, PencilSimple } from '@phosphor-icons/react';
+import type { Icon as PhosphorIcon } from '@phosphor-icons/react';
 
 const ROOM_UNLOCK_COSTS: Record<string, number> = {
     'room-1f-left': 0,
@@ -54,8 +55,7 @@ interface CustomFurnitureAsset {
 interface Props {
     shopState: BankShopState;
     dollhouseState: DollhouseState;
-    /** 允许返回值（BankApp 的持久化实现会 resolve 出新状态），这里只关心完成时机 */
-    onDollhouseChange: (updater: DollhouseState | ((prev: DollhouseState) => DollhouseState)) => Promise<unknown>;
+    onDollhouseChange: (updater: DollhouseState | ((prev: DollhouseState) => DollhouseState)) => Promise<void>;
     characters: CharacterProfile[];
     userProfile: UserProfile;
     apiConfig: APIConfig;

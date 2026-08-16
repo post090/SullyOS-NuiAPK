@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useOS } from '../context/OSContext';
 import { useBackGuard } from '../hooks/useBackGuard';
 import { useMusic, musicApi, normalizeCookie, toHttps, Song } from '../context/MusicContext';
-import { getProxyWorkerUrl } from '../utils/proxyWorker';
 import { DB } from '../utils/db';
 import { trackEvent } from '../utils/analytics';
 import { Gear, User as UserIcon, Crosshair, Play as PlayIcon, Pause as PauseIcon } from '@phosphor-icons/react';
@@ -38,7 +37,7 @@ type View = 'search' | 'settings' | 'player' | 'profile' | 'visit_char' | 'playl
 const MusicApp: React.FC = () => {
   const { closeApp, addToast, characters, userProfile } = useOS();
   const {
-    cfg, setCfg,
+    cfg, setCfg, effectiveWorkerUrl,
     current, playing, progress, duration, loadingSong,
     lyric, tlyric, activeLyricIdx,
     profile, playSong, togglePlay, nextSong, prevSong, seek,
@@ -697,14 +696,11 @@ const MusicApp: React.FC = () => {
   // ════════════════ 设置页 ════════════════
   const renderSettings = () => {
     const setDraft = (updates: Partial<typeof cfg>) => setCfg({ ...cfg, ...updates });
-    // 音乐的 worker 地址是独立持久化的，中心设置里的「恢复默认」管不到它——
-    // 这里必须自己兜底：地址清空就保存 = 跟随中心 worker，立即生效（不然存进空串，
-    // 请求会打相对路径直接挂，要等下次刷新 loadCfg 迁移才恢复）。
     const commit = () => {
-      if (!cfg.workerUrl.trim()) setCfg({ ...cfg, workerUrl: getProxyWorkerUrl() });
       addToast('已保存', 'success');
       setView('search');
     };
+    const followsCentral = !cfg.workerUrl.trim();
     return (
       <div className="flex flex-col h-full relative"
         style={{ background: `linear-gradient(180deg, #ffffff 0%, ${C.bg} 50%, ${C.bgDeep} 100%)` }}>
@@ -714,16 +710,18 @@ const MusicApp: React.FC = () => {
           <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
             <div className="text-[10px] mb-2 tracking-wider flex items-center justify-between" style={{ color: C.muted }}>
               <span className="flex items-center gap-1.5"><Sparkle size={6} color={C.glow} delay={0} /> 服务地址</span>
-              {cfg.workerUrl.trim() !== getProxyWorkerUrl() && (
-                <button onClick={() => setDraft({ workerUrl: getProxyWorkerUrl() })}
-                  className="text-[9px] underline" style={{ color: C.muted }}>恢复默认</button>
+              {!followsCentral && (
+                <button onClick={() => setDraft({ workerUrl: '' })}
+                  className="text-[9px] underline" style={{ color: C.muted }}>改回跟随中心</button>
               )}
             </div>
             <input className="w-full rounded-xl px-3 py-2 outline-none text-xs shizuku-glass" value={cfg.workerUrl}
-              onChange={e => setDraft({ workerUrl: e.target.value })} placeholder={getProxyWorkerUrl()}
+              onChange={e => setDraft({ workerUrl: e.target.value })} placeholder={effectiveWorkerUrl}
               style={{ color: C.text }} />
             <div className="text-[9px] mt-1.5 italic" style={{ color: C.faint }}>
-              留空保存 = 跟随「设置 → 自定义网络代理」的地址
+              {followsCentral
+                ? <>跟随「设置 → 网络代理」：{effectiveWorkerUrl}</>
+                : <>只在音乐里用这个地址，「设置 → 网络代理」改了也不跟</>}
             </div>
           </div>
           <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
@@ -807,10 +805,10 @@ const MusicApp: React.FC = () => {
                 trackEvent('运行音乐服务诊断');
                 const lines: string[] = [];
                 const ck = normalizeCookie(cfg.cookie);
-                lines.push(`Worker: ${cfg.workerUrl}`);
+                lines.push(`Worker: ${effectiveWorkerUrl}${followsCentral ? '（跟随中心）' : '（音乐单独设的）'}`);
                 lines.push(`Cookie: ${ck ? ck.slice(0, 18) + '...(' + ck.length + 'c)' : '(未填)'}`);
                 try {
-                  const res = await fetch(`${cfg.workerUrl.replace(/\/+$/, '')}/netease/search`, {
+                  const res = await fetch(`${effectiveWorkerUrl}/netease/search`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json', ...(ck ? { 'X-Netease-Cookie': ck } : {}) },
                     body: JSON.stringify({ keyword: '晴天', limit: 3 }),
                   });

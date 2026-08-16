@@ -5,6 +5,8 @@ import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'rea
 import { IMPORT_IN_PROGRESS_KEY, useOS } from '../context/OSContext';
 import StatusBar from './os/StatusBar';
 import Launcher from '../apps/Launcher';
+import CompanionLockChrome from './os/CompanionLockChrome';
+import { loadCompanionFrameStyle } from './os/companionFrameStyles';
 
 // 按需懒加载各 App —— 切到对应 App 时才下载/解析其代码块，首屏只加载 Launcher 与外壳，
 // 大体积 App（MemoryPalace / VRWorld / Songwriting 等）不再压在主包里。
@@ -135,6 +137,7 @@ setAppPayloadWarmer((id: AppID) => { const c = APP_BY_ID[id]; if (c) warmLazy(c)
 import { Like520Controller, shouldShowLike520Popup } from './Like520Event';
 import { UpdateNotificationController, shouldShowUpdateNotification } from './UpdateNotificationEvent';
 import { WorkerUpdateReminderController, shouldShowWorkerUpdateReminder, rearmWorkerUpdateReminder } from './WorkerUpdateReminderEvent';
+import { InstantPushSunsetController, shouldShowInstantPushSunsetNotice } from './InstantPushSunsetEvent';
 import { loadInstantConfig, probeInstantWorkerVersion } from '../utils/instantPushClient';
 import { BackupReminderController } from './BackupReminderEvent';
 import { shouldShowBackupReminder, markBackupReminderShown, daysSinceLastBackup } from '../utils/backupReminder';
@@ -146,7 +149,7 @@ import { App as CapApp } from '@capacitor/app';
 import { StatusBar as CapStatusBar, Style as StatusBarStyle } from '@capacitor/status-bar';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
-import { isIOSStandaloneWebApp, isStatusBarHidden } from '../utils/iosStandalone';
+import { isIOSStandaloneWebApp, resolveStatusBarMode } from '../utils/iosStandalone';
 import AppErrorBoundary from './os/AppErrorBoundary';
 import GlobalMiniPlayer from './os/GlobalMiniPlayer';
 import ApiFloatBall from './ApiFloatBall';
@@ -428,18 +431,18 @@ const ImportRecoveryPopup: React.FC<{
 // 刻意「零动画开销」：之前那套呼吸/涟漪/上升微尘的持续动画在 iOS 上会引起卡顿，且预热命中后
 // 这屏几乎不出现 —— 收益小、代价大。现在只一次性淡入一个静态柔光点（无 infinite 动画），
 // 透明底让外壳虚化壁纸透出来。真卡住（>7s）才换成可点的刷新/返回兜底。
-const AppLoadingFallback: React.FC<{ onReturn?: () => void }> = ({ onReturn }) => {
+const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: boolean }> = ({ onReturn, animationEnabled = true }) => {
   const [show, setShow] = useState(false);
   const [stalled, setStalled] = useState(false);
   useEffect(() => {
-    const t = setTimeout(() => setShow(true), 220);
+    const t = animationEnabled ? setTimeout(() => setShow(true), 220) : null;
     // 卡死逃生口：iOS standalone PWA 从后台恢复 / 弱网时，动态 import 可能既不 resolve 也不 reject，
     // Suspense 会永远停在这一屏（不报错 → 错误边界不触发 → 不会自动刷新），用户狂点中心光点却毫无反应。
     // 超过 STALL_MS 仍未加载完 → 把「看着像按钮其实不是」的光点换成真正可点的「刷新/返回」按钮，
     // 既明确告诉用户该点哪里，又把静默卡死变成一键可恢复。只动占位 UI，不碰 import 逻辑。
     const stall = setTimeout(() => { setStalled(true); trackEvent('App 加载卡死超时'); }, 7000);
-    return () => { clearTimeout(t); clearTimeout(stall); };
-  }, []);
+    return () => { if (t) clearTimeout(t); clearTimeout(stall); };
+  }, [animationEnabled]);
   if (stalled) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/95 text-white p-6 text-center space-y-4" style={{ animation: 'appLoadIn 320ms ease-out both' }}>
@@ -488,15 +491,21 @@ const PhoneShell: React.FC = () => {
   const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError } = useOS();
   const useIOSStandaloneLayout = isIOSStandaloneWebApp();
 
-  // 顶部时钟/电量条是否隐藏（外观「隐藏顶部时间栏」开关 + 平台默认：iOS 全屏 PWA 系统已有状态栏，默认隐藏避免双显）。
-  // 隐藏时把 --chrome-top 退化成 --safe-top，让用 chrome-top 让位的顶栏（交换日记/彼方/剧场）不再为已隐藏的状态栏多留 1.5rem。
-  const statusBarHidden = isStatusBarHidden(theme.hideStatusBar);
+  // 三档顶部状态栏：安全显示 / 紧凑显示 / 隐藏。旧存档仍由 hideStatusBar 兼容解析。
+  // compact 把时间放进 safe-area，本体顶栏只让出 max(safe-area, 1.5rem)，避免顶部再多一整行。
+  const statusBarMode = resolveStatusBarMode(theme.statusBarMode, theme.hideStatusBar);
   useEffect(() => {
-    document.documentElement.classList.toggle('sully-statusbar-hidden', statusBarHidden);
-  }, [statusBarHidden]);
+    document.documentElement.classList.toggle('sully-statusbar-hidden', statusBarMode === 'hidden');
+    document.documentElement.classList.toggle('sully-statusbar-compact', statusBarMode === 'compact');
+  }, [statusBarMode]);
 
   // 冷启动「世界入场」是否已结束。结束前由 BootSequence 接管整屏（同时取代旧的黑屏 spinner）。
   const [bootDone, setBootDone] = useState(false);
+  const bootAnimationEnabled = theme.bootAnimationEnabled !== false;
+  useEffect(() => {
+    // 本次启动一旦选择跳过，就记为已经完成；用户稍后重新打开开关时不在桌面中途补播。
+    if (!bootAnimationEnabled) setBootDone(true);
+  }, [bootAnimationEnabled]);
 
   // 从根本上消除「每次进 App 都要加载」：数据一就绪就在后台按优先级逐个预热各 App 的代码块。
   // 关键：不等开机动画（bootDone）结束就开始 —— 否则用户在开机那 ~2 秒内点开 Chat 时 chunk 还没热，
@@ -615,13 +624,23 @@ const PhoneShell: React.FC = () => {
     if (shouldShowLike520Popup()) setShowLike520Popup(true);
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded]);
 
-  // Worker 后端更新提醒 — 只对启用了 Instant Push 的用户弹，且当前 worker 版本未确认过
-  const [showWorkerUpdateReminder, setShowWorkerUpdateReminder] = useState(false);
+  // Instant Push 下线通知 — 只对现在开着它的人弹，每天最多一次。
+  // 排在 Worker 更新提醒前面：这两条都只找同一批人，而「这功能要没了」比
+  // 「去把它更新到最新版」重要，同一天里先说前者。
+  const [showInstantPushSunset, setShowInstantPushSunset] = useState(false);
   useEffect(() => {
     if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup) return;
     if (!isDataLoaded) return;
-    if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
+    if (shouldShowInstantPushSunsetNotice()) setShowInstantPushSunset(true);
   }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, isDataLoaded]);
+
+  // Worker 后端更新提醒 — 只对启用了 Instant Push 的用户弹，且当前 worker 版本未确认过
+  const [showWorkerUpdateReminder, setShowWorkerUpdateReminder] = useState(false);
+  useEffect(() => {
+    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup || showInstantPushSunset) return;
+    if (!isDataLoaded) return;
+    if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
+  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, showInstantPushSunset, isDataLoaded]);
 
   // 部署漂移自检：启动后异步 GET {workerUrl}/version（每 24h 最多一次）。
   // 常量比对只能发现「前端更新了」，发现不了「用户 seen 过但实际没部署 / 部署的是更老的包」——
@@ -649,14 +668,14 @@ const PhoneShell: React.FC = () => {
   // 「该备份啦」提醒 — local-first 数据只在本机，隔 N 天（默认 7，可在设置里改）没导出就弹一次
   const [showBackupReminder, setShowBackupReminder] = useState(false);
   useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup || showWorkerUpdateReminder) return;
+    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup || showInstantPushSunset || showWorkerUpdateReminder) return;
     if (!isDataLoaded || isLocked) return;
     if (shouldShowBackupReminder()) {
       setShowBackupReminder(true);
       // 只报「从未备份 / 已过期」这一个二选一，不报具体天数、也不报用户设的提醒间隔。
       trackEvent('弹出该备份啦提醒', { state: daysSinceLastBackup() == null ? '从未备份' : '已过期' });
     }
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, showWorkerUpdateReminder, isDataLoaded, isLocked]);
+  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, showInstantPushSunset, showWorkerUpdateReminder, isDataLoaded, isLocked]);
 
   const dismissBackupReminder = () => {
     markBackupReminderShown();
@@ -740,7 +759,7 @@ const PhoneShell: React.FC = () => {
 
   // 冷启动：先放「世界入场」cinematic（数据没就绪时它持续呼吸等待，绝不出现 spinner）。
   // BootSequence 在「数据就绪 + 停留够时长」后推进退场，再交还控制权给下方的锁屏/桌面。
-  if (!bootDone) {
+  if (!bootDone && bootAnimationEnabled) {
     return <BootSequence dataReady={isDataLoaded} wallpaper={theme.wallpaper} onDone={() => setBootDone(true)} />;
   }
 
@@ -758,11 +777,14 @@ const PhoneShell: React.FC = () => {
   const lockBgImageValue = getBgStyle(theme.lockWallpaper || theme.wallpaper);
   const contentColor = theme.contentColor || '#ffffff';
   const acnhSkin = theme.skin === 'animalcrossing'; // 动森彩蛋：锁屏换暖色草地点缀
+  const storedCompanionFrame = theme.skin === 'companion' ? loadCompanionFrameStyle() : null;
+  const companionLockFrame = storedCompanionFrame;
 
   if (isLocked) {
     const unreadCount = Object.values(unreadMessages).reduce((a,b) => a+b, 0);
     const unreadCharId = Object.keys(unreadMessages)[0];
     const unreadChar = unreadCharId ? characters.find(c => c.id === unreadCharId) : null;
+    const lockCharacter = characters.find(c => c.id === activeCharacterId) || characters[0] || null;
 
         return (
       <div 
@@ -794,7 +816,19 @@ const PhoneShell: React.FC = () => {
             </div>
         )}
 
-        <div className="absolute top-24 w-full text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
+        {companionLockFrame && (
+          <CompanionLockChrome
+            variant={companionLockFrame}
+            hours={virtualTime.hours}
+            minutes={virtualTime.minutes}
+            activeCharacter={lockCharacter}
+            unreadCharacter={unreadChar}
+            unreadCount={unreadCount}
+            preserveWallpaper={Boolean(theme.lockWallpaper)}
+          />
+        )}
+
+        {!companionLockFrame && <div className="absolute top-24 w-full text-center drop-shadow-[0_2px_4px_rgba(0,0,0,0.3)]">
            <div className="text-8xl tracking-tighter opacity-95 font-bold">
              {virtualTime.hours.toString().padStart(2,'0')}<span className="animate-pulse">:</span>{virtualTime.minutes.toString().padStart(2,'0')}
            </div>
@@ -805,9 +839,9 @@ const PhoneShell: React.FC = () => {
            ) : (
                <div className="text-lg tracking-widest opacity-90 mt-2 uppercase text-xs font-bold">SullyOS Simulation</div>
            )}
-        </div>
+        </div>}
 
-        {unreadCount > 0 && (
+        {!companionLockFrame && unreadCount > 0 && (
             <div className="absolute top-[40%] left-4 right-4 animate-slide-up">
                 <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 shadow-lg border border-white/10 flex items-center gap-4">
                     <div className="w-10 h-10 rounded-xl bg-green-500 flex items-center justify-center text-white shrink-0 shadow-sm">
@@ -826,10 +860,10 @@ const PhoneShell: React.FC = () => {
             </div>
         )}
 
-        <div className="absolute bottom-12 w-full flex flex-col items-center gap-3 animate-pulse opacity-80 drop-shadow-md">
+        {!companionLockFrame && <div className="absolute bottom-12 w-full flex flex-col items-center gap-3 animate-pulse opacity-80 drop-shadow-md">
           <div className="w-1 h-8 rounded-full bg-gradient-to-b from-transparent to-current"></div>
           <span className="text-[10px] tracking-widest uppercase font-semibold">Tap to Unlock</span>
-        </div>
+        </div>}
       </div>
     );
   }
@@ -934,7 +968,7 @@ const PhoneShell: React.FC = () => {
             {/* 非 Launcher App 叠在上层 */}
             {activeApp !== AppID.Launcher && (
               <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
-                <Suspense fallback={<AppLoadingFallback onReturn={closeApp} />}>
+                <Suspense fallback={<AppLoadingFallback onReturn={closeApp} animationEnabled={theme.appLoadingAnimationEnabled !== false} />}>
                   {/* 统一「淡入」过渡：每次切换 App 时 key 变化 → 重新挂载并淡入，
                       让所有 App 都像个人档案那样「渐变进去」，而非瞬间咚一下。
                       关键：只动 opacity、不做 scale/translate —— 否则会把整棵（常含大量头像图片的）
@@ -980,11 +1014,11 @@ const PhoneShell: React.FC = () => {
           {/* Overlays: Toasts (Top) */}
           <div className="absolute top-12 left-0 w-full flex flex-col items-center gap-2 pointer-events-none z-[60]">
               {toasts.map(toast => (
-                 <div key={toast.id} className="animate-fade-in bg-white/95 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-xl border border-black/5 flex items-center gap-3 max-w-[85%] ring-1 ring-white/20">
+                 <div key={toast.id} className="animate-fade-in bg-white/95 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-xl border border-black/5 flex items-start gap-3 max-w-[85%] ring-1 ring-white/20">
                      {toast.type === 'success' && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>}
                      {toast.type === 'error' && <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></div>}
                      {toast.type === 'info' && <div className="w-2.5 h-2.5 rounded-full bg-primary shrink-0"></div>}
-                     <span className="text-xs font-bold text-slate-800 truncate leading-none">{toast.message}</span>
+                     <span className="min-w-0 text-left text-xs font-bold text-slate-800 whitespace-normal break-words [overflow-wrap:anywhere] leading-5">{toast.message}</span>
                  </div>
               ))}
            </div>
@@ -1027,15 +1061,22 @@ const PhoneShell: React.FC = () => {
          />
        )}
 
+       {/* Instant Push 下线通知（仅现在开着它的用户，每天最多一次） */}
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && showInstantPushSunset && (
+         <InstantPushSunsetController
+           onClose={() => setShowInstantPushSunset(false)}
+         />
+       )}
+
        {/* Worker 后端更新提醒（仅启用 Instant Push 的用户，每个 worker 版本一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && showWorkerUpdateReminder && (
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && !showInstantPushSunset && showWorkerUpdateReminder && (
          <WorkerUpdateReminderController
            onClose={() => setShowWorkerUpdateReminder(false)}
          />
        )}
 
        {/* 「该备份啦」提醒（local-first 数据只在本机，隔 N 天没导出弹一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && !showWorkerUpdateReminder && showBackupReminder && (
+       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && !showInstantPushSunset && !showWorkerUpdateReminder && showBackupReminder && (
          <BackupReminderController
            onDismiss={dismissBackupReminder}
            onGoBackup={goBackupFromReminder}

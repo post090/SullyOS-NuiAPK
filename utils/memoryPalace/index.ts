@@ -45,6 +45,17 @@ export { formatMemoryDateWithDistance } from './memoryDate';
 // 集成
 export type { LightLLMConfig, PipelineResult, DiaryIngestResult } from './pipeline';
 export { retrieveMemories, injectMemoryPalace, processNewMessages, getMemoryPalaceHighWaterMark, ingestDiaryToPalace } from './pipeline';
+export {
+    DEFAULT_MEMORY_PALACE_WATERLINE,
+    MEMORY_PALACE_WATERLINE_PRESETS,
+    MIN_MEMORY_HOT_ZONE_SIZE,
+    MAX_MEMORY_HOT_ZONE_SIZE,
+    MIN_MEMORY_BUFFER_THRESHOLD,
+    MAX_MEMORY_BUFFER_THRESHOLD,
+    resolveMemoryPalaceWaterline,
+    makeCustomMemoryPalaceWaterline,
+} from './waterline';
+export type { ResolvedMemoryPalaceWaterline } from './waterline';
 
 // 期盼
 export {

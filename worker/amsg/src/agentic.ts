@@ -62,6 +62,12 @@ export interface FireSessionState {
    * 露营帖、卡片推的却是 B 组第 3 篇口红帖。所以在那一轮就把当时的列表定格下来。
    */
   xhsShareNotes: XhsNote[] | null;
+  /**
+   * 最后一轮 LLM 的思考链（reasoning_content + 正文内联 `<think>`，见 index.ts 的
+   * onLLMOutput）。每轮覆盖，finish 时随第一条 push 的 metadata 回客户端渲染思考链卡片。
+   * 一轮都没给过思考的模型留 null，那时候一个字段都不挂。
+   */
+  finalReasoning: string | null;
 }
 
 export const createFireSessionState = (): FireSessionState => ({
@@ -70,6 +76,7 @@ export const createFireSessionState = (): FireSessionState => ({
   duplicateToolCalls: 0,
   mcpCallSeq: 0,
   xhsShareNotes: null,
+  finalReasoning: null,
 });
 
 /**
@@ -200,20 +207,86 @@ export type RoundDecision =
 /** 本轮的通用 MCP 识别输入（没配 MCP 的角色不传，行为与改动前完全一致）。 */
 export interface McpRoundInput {
   resolve: Map<string, McpResolvedToolCore<McpFireServer>>;
-  /** 本轮 LLM 响应里已按 mcp__ 前缀过滤好的 native tool_calls；文本模式/无调用时缺省。 */
+  /** 本轮 LLM 响应里已识别为 MCP 的 native tool_calls（名字已是 mcp__ 声明名）；文本模式/无调用时缺省。 */
   nativeToolCalls?: ToolCall[];
 }
 
 /**
- * 本轮的「给自己排下一条」识别输入。
+ * 本轮的任务管理工具识别输入（schedule / cancel / renew 共用一个池，
+ * 由 index.ts 的 classifyNativeToolCalls 认领好传进来）。
  *
- * 和 MCP 一样两层：native tool_calls 优先（由 index.ts 按工具名过滤好传进来），
- * 没有 native 时从正文抠 schedule_active_message({...})。两层都命中同一轮时只认 native
- * ——同一个意图两处都写的话，跑两遍就是排出两条一模一样的任务。
+ * 和 MCP 一样两层：native tool_calls 优先，没有 native 的排程调用时从正文抠
+ * schedule_active_message({...})。同一轮两处都写了排程时只认 native——同一个意图
+ * 跑两遍就是排出两条一模一样的任务（取消 / 改期不教正文协议，没有这层问题）。
  */
 export interface ScheduleRoundInput {
   nativeToolCalls?: ToolCall[];
 }
+
+/** classifyNativeToolCalls 的结果：认领的进两个池，认不出的名字留给调用方记日志。 */
+export interface NativeCallClassification {
+  /** 排程 / 取消 / 改期（声明清单命中），名字已改写成声明名。 */
+  manage: ToolCall[];
+  /** 通用 MCP（mcpResolve 命中），名字已改写成 `mcp__暴露名`。 */
+  mcp: ToolCall[];
+  /** 两份清单都对不上的原始名字（模型幻觉的工具），调用方丢弃并记日志。 */
+  dropped: Array<string | null>;
+}
+
+/**
+ * 把模型回报的名字解析成声明清单里的那一个。模型常把声明名的「姓」搞丢或换家：
+ * 声明的是 `mcp__foo`，回报成 `foo`、`default_api:foo`、`functions.foo` 之类。
+ * 原名严格命中优先（老规矩不变）；对不上再去掉命名空间取最后一段重试。
+ * 每个候选按「mcp__ 前缀名 → 管理工具名 → MCP 裸名」的顺序找，清单键本身唯一，
+ * 「唯一命中才认」由 Map/Set 语义天然保证。
+ */
+const resolveNativeFireToolName = (
+  raw: string,
+  manageToolNames: ReadonlySet<string>,
+  mcpResolve: Map<string, McpResolvedToolCore> | null,
+): { kind: 'manage' | 'mcp'; name: string } | null => {
+  const candidates = [raw];
+  const lastSegment = raw.split(/[:./]/).pop();
+  if (lastSegment && lastSegment !== raw) candidates.push(lastSegment);
+  for (const c of candidates) {
+    if (!c) continue;
+    if (c.startsWith(MCP_FIRE_NAME_PREFIX) && mcpResolve?.has(c.slice(MCP_FIRE_NAME_PREFIX.length))) {
+      return { kind: 'mcp', name: c };
+    }
+    if (manageToolNames.has(c)) return { kind: 'manage', name: c };
+    // 裸名回退：模型把 mcp__ 前缀弄丢时，报的就是暴露名本身。
+    if (mcpResolve?.has(c)) return { kind: 'mcp', name: `${MCP_FIRE_NAME_PREFIX}${c}` };
+  }
+  return null;
+};
+
+/**
+ * 认领本轮 LLM 响应里的 native tool_calls：管理工具（schedule / cancel / renew）
+ * 与 MCP 各进各的池，两份清单都对不上的丢进 dropped。认领时名字改写回声明名——
+ * 下游 executeToolCalls 按声明名分流、还要 slice mcp__ 前缀，裸名直接透传会撞上
+ * 没有映射的名字。
+ */
+export const classifyNativeToolCalls = (
+  rawToolCalls: unknown,
+  manageToolNames: ReadonlySet<string>,
+  mcpResolve: Map<string, McpResolvedToolCore> | null,
+): NativeCallClassification => {
+  const out: NativeCallClassification = { manage: [], mcp: [], dropped: [] };
+  const calls = (Array.isArray(rawToolCalls) ? rawToolCalls : []) as ToolCall[];
+  for (const tc of calls) {
+    const raw = tc?.function?.name;
+    const resolved = typeof raw === 'string' && raw
+      ? resolveNativeFireToolName(raw, manageToolNames, mcpResolve)
+      : null;
+    if (!resolved) {
+      out.dropped.push(typeof raw === 'string' && raw ? raw : null);
+      continue;
+    }
+    const call = resolved.name === raw ? tc : { ...tc, function: { ...tc.function, name: resolved.name } };
+    (resolved.kind === 'mcp' ? out.mcp : out.manage).push(call);
+  }
+  return out;
+};
 
 /**
  * 处理一轮 LLM 输出（入参已 stripReasoningTags）：
@@ -250,19 +323,25 @@ export function processLLMRound(
   const textCalls = mcp?.resolve.size
     ? extractTextFakedMcpCalls(llmOutputText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX })
     : [];
-  // 排程工具同样两层。native 在场时不再扫正文：同一意图两处都写的话，跑两遍就是
-  // 排出两条一模一样的任务（而 MCP 那边重复调用只是白查一次）。
+  // 排程工具同样两层，语法提取与入列拆开管：正文里的排程语法**始终**抠出来剥掉
+  // （跟 MCP 同一条红线：调用语法不能进旁白/推送），要不要当调用入列另说——
+  // native 排程在场时不入列，同一意图两处都写的话，跑两遍就是排出两条一模一样的
+  // 任务（而 MCP 那边重复调用只是白查一次）。池里现在可能混着 cancel / renew
+  // （见 classifyNativeToolCalls），「不入列」只看有没有真正的 native 排程调用：
+  // 本轮只 native 取消了一条时，正文里的排程语法照常入列，两个是不同意图。
   const nativeScheduleCalls = schedule?.nativeToolCalls ?? [];
-  const scheduleTextCalls = nativeScheduleCalls.length > 0 || !schedule
-    ? []
-    : extractFireScheduleTextCalls(llmOutputText);
-  const scheduleCalls: ToolCall[] = nativeScheduleCalls.length > 0
-    ? nativeScheduleCalls
-    : scheduleTextCalls.map((c) => ({
-        id: `sched_${state.mcpCallSeq++}`,
-        type: 'function',
-        function: { name: AMSG_FIRE_SCHEDULE_TOOL, arguments: JSON.stringify(c.args) },
-      }));
+  const hasNativeSchedule = nativeScheduleCalls.some(
+    (tc) => tc?.function?.name === AMSG_FIRE_SCHEDULE_TOOL,
+  );
+  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(llmOutputText) : [];
+  const scheduleCalls: ToolCall[] = [
+    ...nativeScheduleCalls,
+    ...(hasNativeSchedule ? [] : scheduleTextCalls).map((c) => ({
+      id: `sched_${state.mcpCallSeq++}`,
+      type: 'function' as const,
+      function: { name: AMSG_FIRE_SCHEDULE_TOOL, arguments: JSON.stringify(c.args) },
+    })),
+  ];
 
   const strippedText = scheduleTextCalls.length
     ? stripTextFakedMcpCalls(llmOutputText, scheduleTextCalls)

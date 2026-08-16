@@ -97,8 +97,10 @@ export interface RealtimeConfig {
     xhsEnabled?: boolean;
     xhsMcpConfig?: {
         enabled: boolean;
+        mode?: 'local' | 'lite';
         serverUrl: string;
         cookie?: string;        // Lite 模式：登录后的完整小红书 cookie
+        platform?: 'xhs' | 'rednote'; // Lite 自动识别出的国内 / 全球后端
         rnoteApiKey?: string;   // Lite 模式：用户自备的 Rnote Key，用于真实评论
         loggedInNickname?: string;
         loggedInUserId?: string;
@@ -123,8 +125,10 @@ export const defaultRealtimeConfig: RealtimeConfig = {
     xhsEnabled: false,
     xhsMcpConfig: {
         enabled: false,
+        mode: 'lite',
         serverUrl: `${getProxyWorkerUrl()}/api`,
         cookie: undefined,
+        platform: undefined,
         rnoteApiKey: undefined,
         loggedInNickname: undefined,
         loggedInUserId: undefined,
@@ -1058,6 +1062,7 @@ export const RealtimeContextManager = {
         weatherCacheMap.clear();
         newsCache = { data: [], timestamp: 0 };
         clearGeocodeCache();
+        geocodeCache.clear();
     },
 
     /**

@@ -8,6 +8,7 @@ import {
     exportMcpLocal,
     importMcpLocal,
     getEnabledMcpServers,
+    hasWorkerUnreachableMcpServer,
     isMcpChatAvailable,
     getMcpUseNativeTools,
     setMcpUseNativeTools,
@@ -527,6 +528,16 @@ describe('collectMcpFireServers', () => {
         expect('proxyUrl' in out[0]).toBe(false);
     });
 
+    it('本机 / 内网服务器不上云，但本地照常在 MCP 模式里 —— 上云那一轮会掉工具', () => {
+        // 这一条钉的是「两侧集合不一致」这件事本身：collectMcpFireServers 把 localhost
+        // 过滤掉了，isMcpChatAvailable 没有。即时对话那一轮前端不注入 MCP 说明块、云端
+        // 清单又是空的，角色就彻底不知道自己有工具，而设置页还显示「已连接」。
+        saveMcpServers([mkServer({ id: 'srv_local', url: 'http://localhost:18061/mcp' })]);
+        expect(isMcpChatAvailable('char_a')).toBe(true);
+        expect(collectMcpFireServers()).toEqual([]);
+        expect(hasWorkerUnreachableMcpServer('char_a')).toBe(true);
+    });
+
     it('其余 worker 够不着的地址一并挡掉（链路本地 / 占位地址 / 局域网域名 / IPv6 ULA）', () => {
         const blocked = [
             'http://169.254.1.1/mcp',      // IPv4 链路本地
@@ -546,5 +557,30 @@ describe('collectMcpFireServers', () => {
         ]));
 
         expect(collectMcpFireServers().map((s) => s.id)).toEqual(['good']);
+    });
+});
+
+describe('hasWorkerUnreachableMcpServer', () => {
+    it('地址全是公网 → false（这一轮可以放心上云，worker 那边照样有工具）', () => {
+        saveMcpServers([mkServer({ id: 'srv_pub', url: 'https://mcp.example.com/mcp' })]);
+        expect(hasWorkerUnreachableMcpServer('char_a')).toBe(false);
+    });
+
+    it('混着一台本机地址 → true（上云会让角色少掉那台的工具）', () => {
+        saveMcpServers([
+            mkServer({ id: 'srv_pub', url: 'https://mcp.example.com/mcp' }),
+            mkServer({ id: 'srv_lan', url: 'http://192.168.1.5:18061/mcp' }),
+        ]);
+        expect(hasWorkerUnreachableMcpServer('char_a')).toBe(true);
+    });
+
+    it('口径跟 isMcpChatAvailable 同源：没启用 / 没发现工具 / 绑给别的角色的都不算', () => {
+        saveMcpServers([mkServer({ id: 'srv_off', url: 'http://localhost:18061/mcp', enabled: false })]);
+        expect(hasWorkerUnreachableMcpServer('char_a')).toBe(false);
+        saveMcpServers([mkServer({ id: 'srv_empty', url: 'http://localhost:18061/mcp', tools: [] })]);
+        expect(hasWorkerUnreachableMcpServer('char_a')).toBe(false);
+        saveMcpServers([mkServer({ id: 'srv_bound', url: 'http://localhost:18061/mcp', charIds: ['char_b'] })]);
+        expect(hasWorkerUnreachableMcpServer('char_a')).toBe(false);
+        expect(hasWorkerUnreachableMcpServer('char_b')).toBe(true);
     });
 });

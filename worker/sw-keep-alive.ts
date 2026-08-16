@@ -649,14 +649,25 @@ async function saveIncomingActiveMessage(payload: any) {
       return;
 
     case 'error':
-      // 诊断 push: 不写 inbox, 不弹通知, 仅 log + 通知任意 visible client 把 error 渲染到 toast.
-      console.error('[amsg] error push', payload?.code, payload?.message);
+      // 失败告知 push: 不写 inbox（不是聊天内容）。通知横幅由包层按 notification.show
+      // 决定（即时对话的终态失败带 show:'always' + 折叠 + 静音，前后台都弹）。这里把
+      // metadata 整份带给页面: 即时对话靠里面的 taskUuid/reason 当场收尾那一轮
+      // （落系统消息、熄灯），见 activeMsgRuntime 的 active-msg-error 分支。
+      console.error('[amsg] error push', payload?.code, payload?.message, payload?.metadata?.reason);
       await notifyClients({
         type: 'active-msg-error',
         code: payload?.code,
         message: payload?.message,
         charId: payload?.metadata?.charId,
+        metadata: payload?.metadata,
       });
+      return;
+
+    case 'result':
+      // 宿主自定义结果（worker 的 ctx.emitResult），不是聊天内容: 不写 inbox, 原样
+      // 转给页面按 resultKind 分流。落进 content 分支的话, 结果里那些不是正文的字段
+      // 会被当角色说的一句话渲染成气泡。
+      await notifyClients({ type: 'active-msg-result', payload });
       return;
 
     default:

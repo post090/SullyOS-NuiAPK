@@ -201,6 +201,7 @@ export const isMcdActivatedInMessages = (messages: MsgLike[]): boolean => {
 
 export interface McdMiniAppSnapshot {
     open: boolean;
+    /** 跟 McdMiniApp 里的 Step 一一对应 (下单成功后会停在 success) */
     step?: 'mode' | 'pick' | 'menu' | 'review' | 'success';
     orderType?: 1 | 2;
     storeCode?: string;
@@ -249,6 +250,14 @@ export const MCD_PROPOSE_TOOL = {
     }
 };
 
+/** propose_cart_items 里的一项 (模型现编的, 字段都可能缺, 所以全是可选) */
+export interface McdProposalItemLike {
+    code?: string;
+    name?: string;
+    qty?: number;
+    reason?: string;
+}
+
 /**
  * 把 char 在 propose_cart_items 里塞的 items 里所有 productCode 校准:
  * - 如果 code 已经在菜单字典里, 原样保留
@@ -259,9 +268,9 @@ export const MCD_PROPOSE_TOOL = {
  * 返回 { fixed: 修正后的 items, fixes: 修了哪些 (用于 log) }
  */
 export const autoFixProposalCodesByName = (
-    items: any[],
+    items: McdProposalItemLike[],
     menuMeals: Record<string, { name?: string; currentPrice?: string }> | undefined
-): { fixed: any[]; fixes: Array<{ from: string; to: string; name: string }> } => {
+): { fixed: McdProposalItemLike[]; fixes: Array<{ from: string; to: string; name: string }> } => {
     const fixes: Array<{ from: string; to: string; name: string }> = [];
     if (!items?.length || !menuMeals || !Object.keys(menuMeals).length) {
         return { fixed: items || [], fixes };
@@ -334,18 +343,18 @@ export const buildMcdMiniAppContextBlock = (snap?: McdMiniAppSnapshot, userName:
     }
     lines.push('');
 
-    const menuLoaded = !!(snap.menuMeals && Object.keys(snap.menuMeals).length);
-    if (!menuLoaded) {
+    const loadedMenuMeals = snap.menuMeals && Object.keys(snap.menuMeals).length ? snap.menuMeals : null;
+    if (!loadedMenuMeals) {
         lines.push(`# 当前菜单: ❌ 还没加载 (用户还在选模式 / 选地址门店阶段)`);
         lines.push(`**这一阶段不要调 propose_cart_items**: 没有菜单字典, 你 propose 出去的任何 code 都会被服务端拒 (会回一条 tool error)。陪用户选地址 / 门店就好, 文字回应即可; 等小程序进入菜单页, system prompt 里出现"当前门店在售"清单后再说推荐。`);
         lines.push('');
     }
-    if (menuLoaded) {
+    if (loadedMenuMeals) {
         // 把套餐排前面 (人气热卖里的套餐 char 看着最先, 下意识更倾向推套餐)
         const COMBO_RE = /(套餐|单人餐|双人餐|全家桶|三件套|四件套|五件套|超值组合|节省组合)/;
-        const allEntries = Object.entries(snap.menuMeals || {}).filter(([, m]: any) => m?.name);
-        const combos = allEntries.filter(([, m]: any) => COMBO_RE.test(String(m.name)));
-        const singles = allEntries.filter(([, m]: any) => !COMBO_RE.test(String(m.name)));
+        const allEntries = Object.entries(loadedMenuMeals).filter(([, m]) => m?.name);
+        const combos = allEntries.filter(([, m]) => COMBO_RE.test(String(m.name)));
+        const singles = allEntries.filter(([, m]) => !COMBO_RE.test(String(m.name)));
         const ordered = [...combos, ...singles].slice(0, 100);
         lines.push(`# 当前门店在售 (前 ${ordered.length} 项, 推荐时从这里挑; **套餐已排在前面, 优先看这些**)`);
         lines.push('格式: \`code=商品名 ¥价格\` ← propose_cart_items 的 code 字段必须用这里的 code (= 号左边那串), 不要用商品名');

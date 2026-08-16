@@ -260,6 +260,20 @@
   .options {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
   }
+  .options-pager {
+    min-height: 30px;
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    padding-top: 7px;
+    color: var(--text-soft); font-size: 10px;
+  }
+  .options-pager:empty { display: none; min-height: 0; padding: 0; }
+  .options-pager button {
+    width: 32px; height: 27px; border-radius: 14px;
+    border: 1px solid var(--cream-deep); background: white;
+    color: var(--rose-dark); cursor: pointer; font-size: 17px; line-height: 1;
+  }
+  .options-pager button:active { transform: scale(0.94); }
+  .options-pager button:disabled { opacity: 0.3; cursor: default; transform: none; }
   .opt {
     aspect-ratio: 1;
     background: linear-gradient(135deg, #FFFBF6 0%, #FFF1E6 100%);
@@ -534,6 +548,7 @@
         <button id="flipBtn" class="toggle-mini" style="display:none;" title="水平翻转">⇄ 翻转</button>
       </div>
       <div class="options" id="options"></div>
+      <div class="options-pager" id="optionsPager"></div>
 
       <div id="colorPickerWrap" style="display:none;">
         <div class="section-label-row">
@@ -1356,6 +1371,7 @@ const HUE_PALETTE = [
 
 const state = {
   activeTab: 0,
+  optionPage: 0,
   preserveLineart: 25,
   selected: {},    /* 部位key → itemId（单选）或 itemId数组（多选）*/
   tintColor: {},   /* 单选部位的颜色：部位key → {hueIdx, sat, light} */
@@ -1389,6 +1405,7 @@ function renderTabs() {
     btn.innerHTML = `<span class="tab-icon">${part.icon}</span>${part.label}`;
     btn.onclick = () => {
       state.activeTab = i;
+      state.optionPage = 0;
       renderTabs();
       renderPanel();
       /* 切到新部位时，把面板滚回顶部，确保色板可见 */
@@ -1436,6 +1453,16 @@ function isEmpty(partKey) {
   if (Array.isArray(sel)) return sel.length === 0;
   return sel === null;
 }
+
+/* 4 列 × 2 行：第一格固定为「无」，每页最多加载 7 张款式图。 */
+const OPTION_ITEMS_PER_PAGE = 7;
+function visibleItemsForPart(part) {
+  return part.items.filter(item => {
+    if (item.special && !LIKE520_IS_SULLY) return false;
+    if (isFoldedLegacy(part, item)) return false;
+    return true;
+  });
+}
 /* ===== toggleSelect: 多选时点击行为分两种
    - 未选中 → 加入选中，并设为焦点
    - 已选中 → 1次点击：若是当前焦点则取消选中；否则切换焦点
@@ -1468,8 +1495,15 @@ function toggleSelect(partKey, itemId, part) {
 function renderPanel() {
   const part = PARTS[state.activeTab];
   const wrap = document.getElementById("options");
+  const pager = document.getElementById("optionsPager");
   wrap.innerHTML = "";
+  pager.innerHTML = "";
   const isMulti = Array.isArray(state.selected[part.key]);
+  const visibleItems = visibleItemsForPart(part);
+  const pageCount = Math.max(1, Math.ceil(visibleItems.length / OPTION_ITEMS_PER_PAGE));
+  state.optionPage = Math.max(0, Math.min(state.optionPage, pageCount - 1));
+  const pageStart = state.optionPage * OPTION_ITEMS_PER_PAGE;
+  const pageItems = visibleItems.slice(pageStart, pageStart + OPTION_ITEMS_PER_PAGE);
 
   /* 标题说明 */
   const optLabel = document.getElementById("optionsLabel");
@@ -1492,11 +1526,7 @@ function renderPanel() {
 
   const focusedId = isMulti ? state.activeItemFocus[part.key] : null;
 
-  part.items.forEach(item => {
-    // 非 Sully 角色：隐藏 special 项（fronthair_99 / back1_99 / eyes_99 是 Sully 专属）
-    if (item.special && !LIKE520_IS_SULLY) return;
-    // 老画风：该类目已有新款时，折叠隐藏老款（数据保留，老角色仍渲染，只是不在面板里选）
-    if (isFoldedLegacy(part, item)) return;
+  pageItems.forEach(item => {
     const btn = document.createElement("button");
     const selected = isSelected(part.key, item.id);
     const isFocus = isMulti && selected && item.id === focusedId;
@@ -1504,7 +1534,9 @@ function renderPanel() {
       + (selected ? " selected" : "")
       + (isFocus ? " focused" : "")
       + (item.special ? " special" : "");
-    btn.innerHTML = `<img src="${item.src}" alt="${item.name}">`;
+    // 每次翻页/切分类都会新建 img 节点；只渲染 7 张，直接加载比依赖旧 WebView
+    // 的 lazy loading 更可靠，也不会在新图解码前暂留上一分类的位图。
+    btn.innerHTML = `<img src="${item.src}" alt="${item.name}" decoding="async">`;
     /* 特殊款（SULLY）右上角加个标签 */
     if (item.special) {
       const tag = document.createElement("span");
@@ -1529,6 +1561,32 @@ function renderPanel() {
     };
     wrap.appendChild(btn);
   });
+
+  if (pageCount > 1) {
+    const prev = document.createElement('button');
+    prev.type = 'button'; prev.textContent = '‹'; prev.title = '上一页款式';
+    prev.setAttribute('aria-label', '上一页款式');
+    prev.disabled = state.optionPage === 0;
+    prev.onclick = () => {
+      state.optionPage = Math.max(0, state.optionPage - 1);
+      renderPanel();
+    };
+
+    const status = document.createElement('span');
+    const rangeEnd = Math.min(pageStart + OPTION_ITEMS_PER_PAGE, visibleItems.length);
+    status.textContent = `${state.optionPage + 1}/${pageCount} 页 · ${pageStart + 1}-${rangeEnd}/${visibleItems.length}`;
+
+    const next = document.createElement('button');
+    next.type = 'button'; next.textContent = '›'; next.title = '下一页款式';
+    next.setAttribute('aria-label', '下一页款式');
+    next.disabled = state.optionPage >= pageCount - 1;
+    next.onclick = () => {
+      state.optionPage = Math.min(pageCount - 1, state.optionPage + 1);
+      renderPanel();
+    };
+
+    pager.appendChild(prev); pager.appendChild(status); pager.appendChild(next);
+  }
 
   /* 翻转按钮（如果当前部位有选中的项目）*/
   renderFlipButton(part);
@@ -1971,13 +2029,6 @@ function loadImage(src) {
   return p;
 }
 
-/* 预加载所有素材到内存（页面初始化时调用） */
-function preloadAllAssets() {
-  const all = [];
-  PARTS.forEach(p => p.items.forEach(item => all.push(loadImage(item.src))));
-  return Promise.all(all);
-}
-
 function drawToCanvas(img) {
   const c = document.createElement("canvas");
   c.width = img.naturalWidth; c.height = img.naturalHeight;
@@ -2366,7 +2417,9 @@ function renderCcList() {
     const grid = document.createElement('div'); grid.className = 'cc-list';
     groups[key].forEach(it => {
       const cell = document.createElement('div'); cell.className = 'cc-cell';
-      const img = document.createElement('img'); img.src = it.src; img.alt = it.name; cell.appendChild(img);
+      const img = document.createElement('img');
+      img.src = it.src; img.alt = it.name; img.loading = 'lazy'; img.decoding = 'async';
+      cell.appendChild(img);
       const nm = document.createElement('span'); nm.className = 'cc-name';
       nm.textContent = it.name + (it.tintable ? ' ·色' : ''); cell.appendChild(nm);
       const del = document.createElement('button');
@@ -2533,14 +2586,68 @@ function saveDraft() {
    presets 只有 selected，这里连换色/翻转/眼型/发色联动一起还原。 */
 function applyFullState(d) {
   if (!d || typeof d !== 'object') return false;
-  if (d.selected) state.selected = d.selected;
-  if (d.tintColor) state.tintColor = d.tintColor;
-  if (d.itemColor) state.itemColor = d.itemColor;
-  if (d.flipped) state.flipped = d.flipped;
-  if (d.eyeSide) state.eyeSide = d.eyeSide;
-  if (d.hairLinked) state.hairLinked = d.hairLinked;
-  if (d.activeItemFocus) state.activeItemFocus = d.activeItemFocus;
-  if (typeof d.preserveLineart === 'number') state.preserveLineart = d.preserveLineart;
+  const isRecord = value => !!value && typeof value === 'object' && !Array.isArray(value);
+  const clamp = (value, min, max, fallback) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? Math.max(min, Math.min(max, n)) : fallback;
+  };
+  const normalizeTint = (value, fallback = { hueIdx: 0, sat: 50, light: 0 }) => {
+    if (!isRecord(value)) return { ...fallback };
+    return {
+      hueIdx: Math.round(clamp(value.hueIdx, 0, HUE_PALETTE.length - 1, fallback.hueIdx)),
+      sat: clamp(value.sat, 0, 100, fallback.sat),
+      light: clamp(value.light, -50, 50, fallback.light),
+    };
+  };
+
+  if (isRecord(d.selected)) {
+    PARTS.forEach(part => {
+      const incoming = d.selected[part.key];
+      if (part.multi) {
+        if (Array.isArray(incoming)) {
+          state.selected[part.key] = [...new Set(incoming.filter(id => typeof id === 'string'))];
+        }
+      } else if (typeof incoming === 'string' || incoming === null) {
+        state.selected[part.key] = incoming;
+      }
+    });
+  }
+  if (isRecord(d.tintColor)) {
+    Object.keys(state.tintColor).forEach(key => {
+      if (key === 'eyes') return;
+      if (d.tintColor[key] !== undefined) {
+        state.tintColor[key] = normalizeTint(d.tintColor[key], state.tintColor[key]);
+      }
+    });
+    if (isRecord(d.tintColor.eyes)) {
+      state.tintColor.eyes.L = normalizeTint(d.tintColor.eyes.L, state.tintColor.eyes.L);
+      state.tintColor.eyes.R = normalizeTint(d.tintColor.eyes.R, state.tintColor.eyes.R);
+      if (typeof d.tintColor.eyes.linked === 'boolean') state.tintColor.eyes.linked = d.tintColor.eyes.linked;
+    }
+  }
+  if (isRecord(d.itemColor)) {
+    state.itemColor = {};
+    Object.entries(d.itemColor).forEach(([id, tint]) => {
+      if (typeof id === 'string' && isRecord(tint)) state.itemColor[id] = normalizeTint(tint);
+    });
+  }
+  if (isRecord(d.flipped)) {
+    state.flipped = Object.fromEntries(Object.entries(d.flipped).filter(([, value]) => typeof value === 'boolean'));
+  }
+  if (d.eyeSide === 'both' || d.eyeSide === 'L' || d.eyeSide === 'R') state.eyeSide = d.eyeSide;
+  if (isRecord(d.hairLinked)) {
+    Object.keys(state.hairLinked).forEach(key => {
+      if (typeof d.hairLinked[key] === 'boolean') state.hairLinked[key] = d.hairLinked[key];
+    });
+  }
+  if (isRecord(d.activeItemFocus)) {
+    state.activeItemFocus = Object.fromEntries(
+      Object.entries(d.activeItemFocus).filter(([, value]) => typeof value === 'string')
+    );
+  }
+  if (typeof d.preserveLineart === 'number') {
+    state.preserveLineart = clamp(d.preserveLineart, 0, 100, state.preserveLineart);
+  }
   return true;
 }
 
@@ -2555,6 +2662,7 @@ function tryLoadDraft() {
     return true;
   } catch (e) {
     console.warn('[520][cc] load draft failed', e);
+    try { localStorage.removeItem(getDraftKey()); } catch {}
     return false;
   }
 }
@@ -2586,10 +2694,11 @@ fetch('parts/manifest.json', { cache: 'no-cache' })
   .then(list => { if (Array.isArray(list) && list.length) mergeExtraItems(list); })
   .catch(() => {});
 
-/* 后台预加载所有素材，让后续切换更顺滑 */
-preloadAllAssets().then(() => {
-  console.log('所有素材预加载完成');
-});
+/*
+ * 素材由当前选项面板和角色画布按需加载。这里不能再把整包图片一次性解码进
+ * 内存：移动端 WebView 上百张 472px PNG 会轻易挤掉页面进程，表现为按钮无响应
+ * 或 Safari 的 “A problem repeatedly occurred”。
+ */
 
 /* 通知父框架 iframe 已就绪、可以接收 like520_init 消息 */
 if (IS_EMBEDDED) {

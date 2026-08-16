@@ -5,11 +5,14 @@ import {
   MIN_SCHEDULE_LEAD_MS,
   buildFireScheduleBlock,
   buildFireScheduleTool,
+  buildSelfScheduleUuid,
   buildSendAtExample,
   buildTaskInstruction,
   extractFireScheduleTextCalls,
   parseFireScheduleArgs,
+  resolveFireTargetTask,
 } from './amsgFireSchedule';
+import { shortTaskId } from './amsg2Tasks';
 
 const NOW = Date.UTC(2026, 6, 30, 12, 0);
 const inMinutes = (n: number) => new Date(NOW + n * 60_000).toISOString();
@@ -205,5 +208,79 @@ describe('buildTaskInstruction', () => {
 
   it('auto 无灵感时写「无」，不留空', () => {
     expect(buildTaskInstruction('auto')).toContain('可选灵感补充：无');
+  });
+});
+
+// 排程清单里印给角色看的短 id 取的是 uuid 前 8 个字符（amsg2Tasks.shortTaskId）。
+// 自排任务的 uuid 要是以固定字样开头，同一次 fire 排下的两条就印成一模一样的短 id，
+// 角色说「取消晚上那条」时随便命中一条 —— 删掉的很可能是早上那条，而且两边都回 ok。
+describe('buildSelfScheduleUuid（自排任务的 uuid）', () => {
+  it('同一次 fire 的两条，前 8 个字符不一样（清单里印出来的短 id 不撞车）', () => {
+    const a = buildSelfScheduleUuid('preset-nyah', 1_785_000_000_000, 0);
+    const b = buildSelfScheduleUuid('preset-nyah', 1_785_000_000_000, 1);
+    expect(shortTaskId(a)).not.toBe(shortTaskId(b));
+  });
+
+  it('不同角色 / 不同触发时刻同样分得开', () => {
+    const base = buildSelfScheduleUuid('preset-nyah', 1_785_000_000_000, 0);
+    expect(shortTaskId(buildSelfScheduleUuid('preset-other', 1_785_000_000_000, 0)))
+      .not.toBe(shortTaskId(base));
+    expect(shortTaskId(buildSelfScheduleUuid('preset-nyah', 1_785_000_060_000, 0)))
+      .not.toBe(shortTaskId(base));
+  });
+
+  // 幂等的根：fire 抛错整条重跑时算出同一个 uuid，上游才认得出撞车、不会每重试一次多排一条。
+  it('同样的入参永远算出同一个 uuid（重跑对得上号）', () => {
+    expect(buildSelfScheduleUuid('preset-nyah', 1_785_000_000_000, 0))
+      .toBe(buildSelfScheduleUuid('preset-nyah', 1_785_000_000_000, 0));
+  });
+
+  it('uuid 里仍看得出是自排的那一族（排障时一眼认出来）', () => {
+    expect(buildSelfScheduleUuid('preset-nyah', 1_785_000_000_000, 0)).toContain('amsgself');
+  });
+});
+
+// 取消 / 改期会真的动 D1 行。短 id 撞车时静默取第一条 = 删掉另一条任务，而角色和用户
+// 都只看到一句 ok —— 说好的那条到点照响，被删的那条无声无息地没了。
+describe('resolveFireTargetTask 的短 id 撞车', () => {
+  const NOW_MS = Date.UTC(2026, 6, 30, 12, 0);
+  const task = (uuid: string, hoursFromNow: number) => ({
+    taskUuid: uuid,
+    clientTaskId: `${uuid}-c`,
+    mode: 'auto',
+    firstSendTime: new Date(NOW_MS + hoursFromNow * 3600_000).toISOString(),
+    recurrenceType: 'none',
+    expirePolicy: 'expire',
+    source: 'character',
+    status: 'scheduled',
+    createdAt: NOW_MS,
+  }) as any;
+
+  const morning = task('amsgself-c1-1000-0', 1);
+  const evening = task('amsgself-c1-1000-1', 9);
+
+  it('一个短 id 命中两条 → 打回 ambiguous_task，不静默挑第一条', () => {
+    const out = resolveFireTargetTask([morning, evening], 'amsgself', NOW_MS, TZ) as any;
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe('ambiguous_task');
+  });
+
+  it('打回的话里带得走：两条各自的触发时间 + 完整 task_id', () => {
+    const out = resolveFireTargetTask([morning, evening], 'amsgself', NOW_MS, TZ) as any;
+    expect(out.message).toContain(morning.taskUuid);
+    expect(out.message).toContain(evening.taskUuid);
+    expect(out.message).toContain('7月30日 13:00');
+    expect(out.message).toContain('7月30日 21:00');
+  });
+
+  it('带完整 uuid 重来一次就指得准', () => {
+    const out = resolveFireTargetTask([morning, evening], evening.taskUuid, NOW_MS, TZ) as any;
+    expect(out.task).toBe(evening);
+  });
+
+  it('短 id 只命中一条时照常选它，没命中还是 task_not_found', () => {
+    expect((resolveFireTargetTask([morning], 'amsgself', NOW_MS, TZ) as any).task).toBe(morning);
+    expect((resolveFireTargetTask([morning], 'nothere1', NOW_MS, TZ) as any).reason)
+      .toBe('task_not_found');
   });
 });

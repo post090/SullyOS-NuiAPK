@@ -299,14 +299,6 @@ LLM 日志里的聊天历史动辄几十条，整段塞进 localStorage 很快�
 
 ## 十一、TODO：还没接入 devDebug 的日志支线
 
-### 社区迁移检测重测
-
-开发调试面板底部的「迁移重测」是社区迁移检测的测试动作：清除
-`sullyos_loyal_recruitment_2026-07-20-v4` 及兼容读取的旧版 `v1` / `v2` / `v3` 状态并刷新页面，方便连续导入多套数据验证。招募不再主动弹窗；刷新后从
-「设置 → 页面最底部 → 社区迁移说明」重新进入。
-正式构建默认看不到调试面板，用户无法从正常 UI 触发复检。它不是行为开关，不进入
-`DevDebugFlags`，也不计入浮球红点。
-
 `makeDebugLogger` 已经把 P1 等价的错误支线接进来了（safeApi 重试、InstantPush HTTP failure / fetch threw / saveOutboundSession、ActiveMsg post-processing / saveMessage / requeue lost / flushInboxToChat、amsg multipart expired）。下面这些还没接，价值递减或工程量大，**单点踩坑时再换成 `log.warn(...)` 即可**（每条改 1 行）：
 
 ### P2 — 价值递减的前端支线
@@ -348,3 +340,82 @@ SW 跑在自己的 context，没法直接访问 page 的 `localStorage` / `appen
 | `public/sw-keep-alive.js` | 1308 | `[InstantTrace:SW]`（构建产物里也叫这名） |
 
 > **建议路径**：等真的有 SW 端 bug 需要远端排障时再做（开发本地 SW 在 DevTools 单独面板就能看，价值不大）。做的时候在 `utils/swVersion.ts` 旁边新增 `utils/swTrace.ts` 包通信协议。
+
+---
+
+## 十二、系统调试终端里的网络失败诊断（面向普通用户）
+
+> 注意：这一节讲的是**所有用户都看得到**的「系统调试终端」（状态栏下方的红色 `SYSTEM ERROR` 胶囊点开的那个），
+> 不是上面十一节那个只在开发分支出现的 devDebug 面板。两者是两套东西，别改串了。
+
+### 背景
+
+浏览器出于安全，把下面这些完全不同的事统统报成同一句 `TypeError: Failed to fetch`，不带任何细节：
+
+- 梯子 / 代理把这个域名的连接掐了
+- DNS 解析不到
+- 浏览器扩展（广告拦截、隐私盾、脚本管理器）在请求发出前就屏蔽了
+- 对方**回了响应，但没有 CORS 头**（Cloudflare 限流页、人机验证页、网关错误页都长这样）
+
+旧版日志只记 `URL: xxx` 一行，用户复制出来发到群里，信息量是零。
+
+### 现在记什么
+
+`utils/networkFailureDiagnosis.ts` 负责把能补的旁证一次性补齐，`context/OSContext.tsx` 的 fetch 拦截器
+在 `catch` 里调用它：
+
+```
+URL: https://sullymeow.ccwu.cc/api/health
+请求: GET · 失败于 43ms
+错误: TypeError: Failed to fetch
+目标域名: sullymeow.ccwu.cc（跨域请求，受 CORS 约束）
+本页来源: https://xxx.pages.dev
+浏览器联网状态: 在线
+Resource Timing: responseStatus=429, transferSize=0 → 对方其实回了 HTTP 429，是响应被 CORS 拦掉的，不是网络不通
+初判: 请求在拿到响应头之前就失败了——浏览器没告诉我们具体是哪一步断的。
+可能原因: 梯子/代理把这个域名的连接掐了 · DNS 解析不到 · ...
+连通性复检: no-cors 直连 sullymeow.ccwu.cc 成功 → 网络路径是通的，问题出在响应本身（...）
+```
+
+两个关键设计：
+
+1. **Resource Timing 的 `responseStatus`**：跨域也能读（不受 TAO 限制）。它 > 0 就说明**对方其实回了**，
+   那就是 CORS / 限流页的事，跟网络通不通无关——这一条直接把排查范围砍一半。
+2. **no-cors 连通性复检**：`mode: 'no-cors'` 不做 CORS 校验，只要网络路径通就会拿到 opaque 响应。
+   它成功而原请求失败 ⇒ 响应头的问题；它也失败 ⇒ 这台设备到这个域名是真的不通。结论异步回填到同一条日志。
+
+### 失败分类别漏了 TimeoutError
+
+线上第一版就踩到：`AbortSignal.timeout()` 抛出来的是 **`TimeoutError` / "signal timed out"**，
+既不含 `abort` 字样、也不是 `TypeError`，一度掉进 `unknown`，日志只剩一句「不符合已知的几种
+失败形态」。分类里 `timeout` 必须排在 `aborted` 前面判：
+
+- `aborted`（AbortError）= 调用方自己撤了，到此为止，不用再查；
+- `timeout`（TimeoutError）= 连接**挂住不返回**，恰恰是最需要继续查的一类，要做连通性复检。
+
+要不要复检统一走 `shouldProbeReachability(kind)`，别在调用点各写各的。
+
+### 「失败得多快」也是证据
+
+`readStallHint()` 拿耗时区分两种截然相反的形态，这是 JS 侧唯一能拿到的这条线索：
+
+- **挂几秒到几十秒才失败、transferSize 0** ⇒ 握手没人应答（黑洞）。查代理分流规则、换节点。
+- **几十毫秒就失败** ⇒ 有人明确说不。查 DNS、扩展、防火墙。
+
+中间地带（0.3–5s）不硬猜，宁可不输出——瞎猜比不说更容易把人带偏。
+
+### 改这块时的坑
+
+- **复检必须用 `originalFetch`**（拦截器闭包里那个未打补丁的），用打过补丁的 `window.fetch` 会让探测自己
+  失败时再写一条日志，一条网络错误滚成一屏。
+- **复检打的是域名根路径，不是原地址**：原地址可能是有副作用的接口（发帖、下单），复检不该顺手触发它；
+  而 DNS / 梯子 / 防火墙 / 扩展拦的都是整个域名，打根路径一样测得出来。
+- **同域名 30s 冷却**：一串请求同时炸时不能对同一个域名连打探测；冷却命中返回 `cooldown`，
+  日志里明说「看上一条」，不能一声不吭让人以为漏了。
+- **哪些类要复检看 `shouldProbeReachability()`**：主动取消 / 混合内容 / 地址非法 / 离线已经有确定结论，再打一次纯属浪费。
+- 判定全是纯函数，回归守卫在 `utils/networkFailureDiagnosis.test.ts`——改文案时先看那份测试想守的是什么。
+
+### 用户侧自查清单
+
+`NETWORK_SELF_CHECK_STEPS` 同时被调试终端（`components/os/StatusBar.tsx`，网络类错误时折叠展示）复用。
+改文案改那一处即可，两边不会不同步。

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArrowBendDownRight, ArrowClockwise, ArrowLeft, Broadcast, CaretDown, CaretLeft, CaretRight, ChatCircleDots, Clock, Database, Eye, EyeSlash, FilmSlate, GearSix, HeartStraight, Key, MapPin, PaperPlaneTilt, PencilSimple, SlidersHorizontal, SpinnerGap, Trash, X } from '@phosphor-icons/react';
+import { Archive, ArrowBendDownRight, ArrowClockwise, ArrowLeft, Broadcast, CaretDown, CaretLeft, CaretRight, ChatCircleDots, Clock, Database, DownloadSimple, Eye, EyeSlash, FilmSlate, GearSix, HeartStraight, Key, MapPin, PaperPlaneTilt, PencilSimple, SlidersHorizontal, SpinnerGap, Trash, X } from '@phosphor-icons/react';
 import { useOS } from '../../../context/OSContext';
 import type { CharacterProfile, Message, StoryTheaterEntry, StoryTheaterMask, StoryTheaterPreset } from '../../../types';
 import { DB } from '../../../utils/db';
@@ -7,6 +7,7 @@ import { ContextBuilder } from '../../../utils/context';
 import { safeResponseJson, extractContent } from '../../../utils/safeApi';
 import {
     appendStoryAffinityInputs,
+    appendStoryUserTurn,
     buildBareTheaterActorContext,
     buildStoryAffinityAwarenessReminder,
     buildStoryBackstageAftermathReminder,
@@ -16,15 +17,21 @@ import {
     buildStoryHistory,
     buildStoryIdentityGuard,
     buildStoryMiniTheaterReminder,
+    buildStoryWorldbookScanMessages,
     buildTheaterPersona,
     buildTheaterWorldbookSlots,
     compileStoryPreset,
     dedupeTheaterWorldbooks,
+    describeEmptyStoryCompletion,
+    describeStoryApiError,
     estimateStoryTokens,
     formatActorRecentMessages,
+    formatStoryTheaterExport,
     getActiveStoryMiniTheaterPrompt,
     getPendingStoryRetryInput,
+    isStoryUserLastCompatibilityError,
     makeStoryTheaterId,
+    makeStoryTheaterFileName,
     memoryTimestampForCharacter,
     parseStoryDisplayBlocks,
     REAL_COMPANION_MEMORY_GUARD,
@@ -38,14 +45,14 @@ import {
 } from '../../../utils/storyTheater';
 import {
     getMemoryPalaceHighWaterMark,
-    mergePalaceFragmentsIntoMemories,
     processMessageRange,
-    processNewMessages,
     retrieveMemories,
 } from '../../../utils/memoryPalace/pipeline';
+import { processNewMessagesWithAutoArchive } from '../../../utils/memoryPalace/autoArchive';
 import { incrementDigestRound, runCognitiveDigestion } from '../../../utils/memoryPalace';
 import StoryQuickPresetPanel from './StoryQuickPresetPanel';
 import { StoryAppearanceButton } from './StoryTheaterTheme';
+import { shareOrDownloadFile } from '../../../utils/shareExport';
 
 interface Props {
     entry: StoryTheaterEntry;
@@ -63,6 +70,14 @@ const textFromHistory = (messages: Message[], identityName: string): string => b
 }).join('\n\n');
 
 const STORY_PAGE_SIZE = 10;
+
+const StoryPagination: React.FC<{ page: number; pageCount: number; onChange: (page: number) => void; className?: string }> = ({ page, pageCount, onChange, className = '' }) => (
+    <nav className={`${className} py-2 border-y border-slate-200 flex items-center justify-between`}>
+        <button disabled={page === 0} onClick={() => onChange(Math.max(0, page - 1))} className='w-9 h-9 rounded-full grid place-items-center disabled:opacity-20' aria-label='更早一页'><CaretLeft size={17} /></button>
+        <div className='text-center'><div className='text-[10px] font-bold text-slate-600'>第 {page + 1} / {pageCount} 页</div><div className='mt-0.5 text-[9px] text-slate-400'>每页最多 {STORY_PAGE_SIZE} 条内容</div></div>
+        <button disabled={page >= pageCount - 1} onClick={() => onChange(Math.min(pageCount - 1, page + 1))} className='w-9 h-9 rounded-full grid place-items-center disabled:opacity-20' aria-label='更新一页'><CaretRight size={17} /></button>
+    </nav>
+);
 
 const normalizeAffinityInput = (value: any, actor?: CharacterProfile): StoryAffinityInput | undefined => {
     if (!value || typeof value !== 'object') return undefined;
@@ -275,6 +290,8 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     const [affinityDrafts, setAffinityDrafts] = useState<Record<string, AffinityDraft>>({});
     const [selectedAffinityActorId, setSelectedAffinityActorId] = useState('');
     const [messagePage, setMessagePage] = useState(0);
+    const [expandedArchivedIds, setExpandedArchivedIds] = useState<Set<number>>(() => new Set());
+    const [exporting, setExporting] = useState(false);
     const [showQuickPreset, setShowQuickPreset] = useState(false);
     const [rerollingId, setRerollingId] = useState<number | null>(null);
     const [messageMenu, setMessageMenu] = useState<Message | null>(null);
@@ -282,6 +299,10 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     const [deletingMessage, setDeletingMessage] = useState<Message | null>(null);
     const [editDraft, setEditDraft] = useState('');
     const [mutatingMessage, setMutatingMessage] = useState(false);
+    // React state does not update synchronously. A rapid double tap can enter send()
+    // twice before `sending` re-renders the disabled button, creating two billable
+    // completions. Keep the state for UI only and use this ref as the real mutex.
+    const sendLock = useRef(false);
     const archiveLock = useRef(false);
     const bottomRef = useRef<HTMLDivElement>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -299,6 +320,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
         setShowAffinityInput(false);
         setAffinityDrafts({});
         setSelectedAffinityActorId('');
+        setExpandedArchivedIds(new Set());
         setMessageMenu(null);
         setEditingMessage(null);
         setDeletingMessage(null);
@@ -381,6 +403,25 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     const pageCount = Math.max(1, Math.ceil(messages.length / STORY_PAGE_SIZE));
     useEffect(() => { setMessagePage(Math.max(0, pageCount - 1)); }, [messages.length, pageCount]);
     const pageMessages = useMemo(() => messages.slice(messagePage * STORY_PAGE_SIZE, (messagePage + 1) * STORY_PAGE_SIZE), [messagePage, messages]);
+    const pageArchivedIds = useMemo(() => pageMessages.filter(message => mirrorArchived(message, entry)).map(message => message.id), [entry, pageMessages]);
+    const allPageArchivesExpanded = pageArchivedIds.length > 0 && pageArchivedIds.every(id => expandedArchivedIds.has(id));
+    const togglePageArchives = useCallback(() => {
+        setExpandedArchivedIds(current => {
+            const next = new Set(current);
+            if (pageArchivedIds.every(id => next.has(id))) pageArchivedIds.forEach(id => next.delete(id));
+            else pageArchivedIds.forEach(id => next.add(id));
+            return next;
+        });
+    }, [pageArchivedIds]);
+    const setArchiveExpanded = useCallback((messageId: number, open: boolean) => {
+        setExpandedArchivedIds(current => {
+            if (current.has(messageId) === open) return current;
+            const next = new Set(current);
+            if (open) next.add(messageId);
+            else next.delete(messageId);
+            return next;
+        });
+    }, []);
     const storedTokenInfo = useMemo(() => {
         const source = [...messages].reverse().find(message => Number(message.metadata?.theaterPromptTokens) > 0);
         return source ? {
@@ -390,18 +431,40 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     }, [messages]);
     const displayedTokenInfo = contextTokens > 0 ? { count: contextTokens, exact: contextTokensExact } : storedTokenInfo;
 
+    const exportStory = useCallback(async () => {
+        if (messages.length === 0 || exporting) {
+            if (messages.length === 0) addToast('暂无可导出的剧情原文', 'info');
+            return;
+        }
+        setExporting(true);
+        try {
+            const result = await shareOrDownloadFile({
+                content: formatStoryTheaterExport(entry, mask.name, actors.map(actor => actor.name), messages),
+                fileName: makeStoryTheaterFileName(entry.title),
+                mimeType: 'text/plain;charset=utf-8',
+                shareTitle: `${entry.title || '未命名剧情'}的完整原文`,
+            });
+            addToast(result === 'shared' ? '已打开分享面板' : '剧情原文已导出', 'success');
+        } catch (error: any) {
+            console.error('[StoryTheater] export failed', error);
+            addToast(`剧情原文导出失败：${error?.message || error}`, 'error');
+        } finally {
+            setExporting(false);
+        }
+    }, [actors, addToast, entry, exporting, mask.name, messages]);
+
     const callCompletion = useCallback(async (payload: Array<{ role: string; content: string }>, settings?: object, onPromptTokens?: (tokens: number) => void): Promise<string> => {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({ model: apiConfig.model, messages: payload, stream: false, ...settings }),
         });
-        if (!response.ok) throw new Error(`API Error ${response.status}`);
         const data = await safeResponseJson(response);
+        if (!response.ok) throw new Error(describeStoryApiError(response.status, data));
         const reportedPromptTokens = Number(data?.usage?.prompt_tokens);
         if (Number.isFinite(reportedPromptTokens) && reportedPromptTokens > 0) onPromptTokens?.(reportedPromptTokens);
         const content = extractContent(data).trim();
-        if (!content) throw new Error('没有生成正文，请重试');
+        if (!content) throw new Error(describeEmptyStoryCompletion(data));
         return content;
     }, [apiConfig]);
 
@@ -475,11 +538,11 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
         return `${core}\n${formatActorRecentMessages(maskCharacter, recent, userProfile.name, mask.name)}`.trim();
     }, [actors, characters, entry.carryCharacterMemory, entry.characterContextLimits, mask.characterId, mask.name, memoryPalaceConfig.embedding, remoteVectorConfig, userProfile]);
 
-    const independentRecall = useCallback(async (query: string, recent: Message[]): Promise<string> => {
-        if (entry.writesToCharacterMemory || !entry.archives.some(archive => archive.strategy === 'vector')) return '';
+    const independentRecall = useCallback(async (query: string, recent: Message[], activeEntry: StoryTheaterEntry = entry): Promise<string> => {
+        if (activeEntry.writesToCharacterMemory || !activeEntry.archives.some(archive => archive.strategy === 'vector')) return '';
         const embedding = memoryPalaceConfig.embedding;
         if (!embedding?.baseUrl || !embedding?.apiKey) return '（本剧情存在向量归档，但当前没有可用的向量记忆配置。）';
-        return (await retrieveMemories(recent, threadId, embedding, undefined, 'emotional', 0.3, query, mask.name, remoteVectorConfig, entry.title)).text;
+        return (await retrieveMemories(recent, threadId, embedding, undefined, 'emotional', 0.3, query, mask.name, remoteVectorConfig, activeEntry.title)).text;
     }, [entry, mask.name, memoryPalaceConfig.embedding, remoteVectorConfig, threadId]);
 
     const applyActorMemoryPipeline = useCallback(async () => {
@@ -492,15 +555,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
             try {
                 setMemoryStatus(`${actor.name}正在整理这段相处……`);
                 const recent = await DB.getRecentMessagesByCharId(actor.id, 50);
-                const result = await processNewMessages(recent, actor.id, actor.name, embedding, light, mask.name, false, setMemoryStatus);
-                const live = characters.find(char => char.id === actor.id) || actor;
-                if ((live as any).autoArchiveEnabled) {
-                    const patch: Partial<CharacterProfile> = {};
-                    if (result?.autoArchive) patch.memories = mergePalaceFragmentsIntoMemories(live.memories || [], result.autoArchive.fragments);
-                    const hwm = getMemoryPalaceHighWaterMark(actor.id);
-                    if (hwm > ((live as any).hideBeforeMessageId || 0)) patch.hideBeforeMessageId = hwm;
-                    if (Object.keys(patch).length > 0) updateCharacter(actor.id, patch);
-                }
+                await processNewMessagesWithAutoArchive(recent, actor.id, actor.name, embedding, light, mask.name, false, setMemoryStatus);
                 if (incrementDigestRound(actor.id)) {
                     await runCognitiveDigestion(actor.id, actor.name, [actor.systemPrompt, actor.worldview].filter(Boolean).join('\n'), light, false, mask.name, embedding);
                 }
@@ -512,15 +567,15 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
         await loadMessages();
     }, [apiConfig, characters, entry.writesToCharacterMemory, loadMessages, mask.name, memoryActors, memoryPalaceConfig, updateCharacter]);
 
-    const archiveIfNeeded = useCallback(async () => {
-        if (entry.writesToCharacterMemory || archiveLock.current) return;
+    const archiveIfNeeded = useCallback(async (): Promise<StoryTheaterEntry | null> => {
+        if (entry.writesToCharacterMemory || archiveLock.current) return null;
         archiveLock.current = true;
         try {
             const rows = (await DB.getMessagesByCharId(threadId, true))
                 .filter(message => message.metadata?.source === 'story_theater' && !message.metadata?.theaterArchived)
                 .sort((a, b) => a.id - b.id);
             const batch = selectStoryArchiveBatch(rows, entry.archiveAfter, entry.archiveKeepRecent ?? 5);
-            if (batch.length === 0) return;
+            if (batch.length === 0) return null;
             const first = batch[0];
             const last = batch[batch.length - 1];
             let summary: string | undefined;
@@ -537,7 +592,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 const light = memoryPalaceConfig.lightLLM?.baseUrl ? memoryPalaceConfig.lightLLM : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model };
                 if (!embedding?.baseUrl || !embedding?.apiKey || !light.baseUrl) {
                     addToast('独立向量归档需要先完成向量记忆配置', 'error');
-                    return;
+                    return null;
                 }
                 setMemoryStatus(`正在写入「${entry.title}」的独立向量分区……`);
                 const result = await processMessageRange(threadId, entry.title, embedding, light, first.id, last.id, mask.name, setMemoryStatus);
@@ -561,9 +616,11 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
             await onEntryChange(next);
             await loadMessages();
             addToast(entry.archiveStrategy === 'summary' ? '旧正文已收进事件盒' : '旧正文已写入独立向量分区', 'success');
+            return next;
         } catch (error: any) {
             console.error('[StoryTheater] archive failed', error);
             addToast(`剧情归档失败：${error?.message || error}`, 'error');
+            return null;
         } finally {
             archiveLock.current = false;
             setMemoryStatus('');
@@ -571,7 +628,8 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
     }, [addToast, apiConfig, callCompletion, entry, loadMessages, mask.name, memoryPalaceConfig, onEntryChange, threadId]);
 
     const send = useCallback(async (rerollTarget?: Message) => {
-        if (sending || actors.length === 0) return;
+        if (sendLock.current || actors.length === 0) return;
+        sendLock.current = true;
         setSending(true);
         setRerollingId(rerollTarget?.id || null);
         try {
@@ -605,23 +663,31 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                         : await saveCentralAndMirrors('user', text, affinityInputs.length > 0 ? { theaterAffinityInputs: affinityInputs } : {});
             if (!isReroll && !assistantOpening) await loadMessages();
 
+            // 归档不能只放在成功生成之后：一旦会话已经碰到上游上下文上限，正文永远生成
+            // 不出来，后置归档也就永远没有机会执行。重试已有 user 楼层时先归档，窗口可自愈。
+            const promptEntry = await archiveIfNeeded() || entry;
+
             const current = (await DB.getMessagesByCharId(threadId, true))
                 .filter(message => message.metadata?.source === 'story_theater')
                 .sort((a, b) => a.id - b.id);
             const history = current.filter(message => message.id !== userMessageId && message.id !== rerollTarget?.id);
-            const visibleHistory = history.filter(message => !mirrorArchived(message, entry));
+            const visibleHistory = history.filter(message => !mirrorArchived(message, promptEntry));
             const [actorContext, maskMemoryContext, vectorRecall] = await Promise.all([
                 buildActorContexts(text),
                 buildMaskMemoryContext(text),
-                independentRecall(text, visibleHistory.slice(-8)),
+                independentRecall(text, visibleHistory.slice(-8), promptEntry),
             ]);
-            const summaries = entry.archives.filter(archive => archive.summary).map((archive, index) => `事件盒 ${index + 1}：${archive.summary}`).join('\n\n');
+            const summaries = promptEntry.archives.filter(archive => archive.summary).map((archive, index) => `事件盒 ${index + 1}：${archive.summary}`).join('\n\n');
             const scenario = [
                 `### 当前剧情\n标题：${entry.title}\n前提：${entry.premise || '沿用已经发生的正文自然继续。'}`,
                 summaries ? `### 常驻事件盒\n${summaries}` : '',
                 vectorRecall ? buildStoryArchiveMemoryEnvelope(vectorRecall) : '',
             ].filter(Boolean).join('\n\n');
-            const worldbookSlots = buildTheaterWorldbookSlots(selectedBooks, visibleHistory.slice(-20).map(message => ({ role: message.role, content: message.content })), promptIdentityName, actors.map(actor => actor.name));
+            const worldbookScanMessages = buildStoryWorldbookScanMessages(
+                visibleHistory.map(message => ({ role: message.role, content: message.content })),
+                text,
+            );
+            const worldbookSlots = buildTheaterWorldbookSlots(selectedBooks, worldbookScanMessages, promptIdentityName, actors.map(actor => actor.name));
             const compiled = compileStoryPreset({
                 preset: effectivePreset,
                 userName: promptIdentityName,
@@ -641,18 +707,17 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
             const affinityAwarenessReminder = affinityInputs.map(item => buildStoryAffinityAwarenessReminder(item, item.characterName || '当前角色')).filter(Boolean).join('\n\n');
             const identityGuard = buildStoryIdentityGuard(effectivePreset.document, promptIdentityName, actors.map(actor => actor.name));
             const modelInput = appendStoryAffinityInputs(text, affinityInputs);
-            const payload = [
+            const payloadBeforeTurn = [
                 ...compiled.messages,
-                ...(entry.writesToCharacterMemory ? [{ role: 'system' as const, content: REAL_COMPANION_MEMORY_GUARD }] : []),
+                ...(promptEntry.writesToCharacterMemory ? [{ role: 'system' as const, content: REAL_COMPANION_MEMORY_GUARD }] : []),
                 ...(backstageAftermathReminder ? [{ role: 'system' as const, content: backstageAftermathReminder }] : []),
                 ...(miniTheaterReminder ? [{ role: 'system' as const, content: miniTheaterReminder }] : []),
                 ...(multiAffinityGuide ? [{ role: 'system' as const, content: multiAffinityGuide }] : []),
                 ...(affinityEnabled ? [{ role: 'system' as const, content: RELATIONSHIP_TEXTURE_GUIDE }] : []),
                 ...(affinityAwarenessReminder ? [{ role: 'system' as const, content: affinityAwarenessReminder }] : []),
                 { role: 'system' as const, content: identityGuard },
-                { role: 'user' as const, content: modelInput },
             ];
-            if (compiled.assistantPrefill) payload.push(compiled.assistantPrefill);
+            const payload = appendStoryUserTurn(payloadBeforeTurn, modelInput, compiled.assistantPrefill, promptEntry.forceUserLastMessage === true);
             let promptTokenCount = estimateStoryTokens(payload.map(message => `${message.role}\n${message.content}`).join('\n'));
             let promptTokenCountExact = false;
             setContextTokens(promptTokenCount);
@@ -682,12 +747,19 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
             else void archiveIfNeeded();
         } catch (error: any) {
             console.error('[StoryTheater] send failed', error);
-            addToast(`剧情续写失败：${error?.message || error}`, 'error');
+            const message = String(error?.message || error);
+            addToast(
+                message.includes('API Error 400') && isStoryUserLastCompatibilityError(message) && !entry.forceUserLastMessage
+                    ? '剧情续写失败：API 400。若日志提示最后一条必须是 user，可在右上角设置开启“400 兼容模式”；更建议更换模型。'
+                    : `剧情续写失败：${message}`,
+                'error',
+            );
         } finally {
+            sendLock.current = false;
             setSending(false);
             setRerollingId(null);
         }
-    }, [actors, addToast, affinityDrafts, affinityEnabled, applyActorMemoryPipeline, archiveIfNeeded, buildActorContexts, buildMaskMemoryContext, callCompletion, effectivePreset, entry, independentRecall, input, loadMessages, mask, promptIdentityName, saveCentralAndMirrors, selectedBooks, sending, threadId]);
+    }, [actors, addToast, affinityDrafts, affinityEnabled, applyActorMemoryPipeline, archiveIfNeeded, buildActorContexts, buildMaskMemoryContext, callCompletion, effectivePreset, entry, independentRecall, input, loadMessages, mask, promptIdentityName, saveCentralAndMirrors, selectedBooks, threadId]);
 
     const archivedCount = messages.filter(message => mirrorArchived(message, entry)).length;
     const pendingRetryInput = getPendingStoryRetryInput(messages);
@@ -705,6 +777,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 <button onClick={onBack} className='w-9 h-9 rounded-full grid place-items-center'><ArrowLeft size={20} /></button>
                 <div className='min-w-0 flex-1'><div className='text-[9px] tracking-[.24em] uppercase font-bold text-violet-500'>Story theater</div><h1 className='font-serif font-semibold truncate'>{entry.title}</h1></div>
                 {onOpenVectorMemory && <button onClick={onOpenVectorMemory} className='w-9 h-9 rounded-full grid place-items-center text-violet-600' title='本剧情向量记忆' aria-label='本剧情向量记忆'><Database size={18} /></button>}
+                <button disabled={exporting || messages.length === 0} onClick={() => void exportStory()} className='w-9 h-9 rounded-full grid place-items-center text-violet-600 disabled:opacity-30' title='导出全部剧情原文' aria-label='导出全部剧情原文'>{exporting ? <SpinnerGap size={18} className='animate-spin' /> : <DownloadSimple size={18} />}</button>
                 <StoryAppearanceButton />
                 <button onClick={onEdit} className='w-9 h-9 rounded-full grid place-items-center'><GearSix size={19} /></button>
             </div>
@@ -720,6 +793,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                     <div><span className='block text-[8px] font-bold text-slate-400'>记忆方式</span><span className='block mt-1 truncate text-slate-600'>{entry.writesToCharacterMemory ? '写入角色记忆' : entry.archiveStrategy === 'summary' ? '独立事件盒' : '独立向量分区'}</span></div>
                     <div><span className='block text-[8px] font-bold text-slate-400'>结尾模块</span><span className='block mt-1 truncate text-slate-600'>{activeMiniTheater?.name || '未启用小剧场'}</span></div>
                     <div><span className='block text-[8px] font-bold text-slate-400'>完整上下文</span><span className='block mt-1 truncate text-slate-600'>{displayedTokenInfo.count > 0 ? `${sending ? '本轮' : '上轮'}${displayedTokenInfo.exact ? '使用' : '估算'} ${displayedTokenInfo.count.toLocaleString()} tokens` : '推进时统计全部内容'}</span></div>
+                    <div><span className='block text-[8px] font-bold text-slate-400'>API 兼容</span><span className={`block mt-1 truncate ${entry.forceUserLastMessage ? 'font-semibold text-amber-700' : 'text-slate-600'}`}>{entry.forceUserLastMessage ? '400 兼容模式' : '原生预填（推荐）'}</span></div>
                 </div>
             </details>
         </header>
@@ -733,15 +807,20 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                     <p className='mt-6 text-[10px] text-slate-400'>{canWriteOpening ? '输入框留空，点击推进即可开场' : '这一幕由你先落笔'}</p>
                 </section> : entry.writesToCharacterMemory && <div className='mb-8 py-3 border-y border-amber-200 text-center text-[11px] text-amber-700'>和朋友们已经分别相处了一段时间……</div>}
 
-                {pageCount > 1 && <nav className='mb-7 py-2 border-y border-slate-200 flex items-center justify-between'><button disabled={messagePage === 0} onClick={() => setMessagePage(value => Math.max(0, value - 1))} className='w-9 h-9 rounded-full grid place-items-center disabled:opacity-20'><CaretLeft size={17} /></button><div className='text-center'><div className='text-[10px] font-bold text-slate-600'>第 {messagePage + 1} / {pageCount} 页</div><div className='mt-0.5 text-[9px] text-slate-400'>每页最多 {STORY_PAGE_SIZE} 条内容</div></div><button disabled={messagePage >= pageCount - 1} onClick={() => setMessagePage(value => Math.min(pageCount - 1, value + 1))} className='w-9 h-9 rounded-full grid place-items-center disabled:opacity-20'><CaretRight size={17} /></button></nav>}
+                {pageCount > 1 && <StoryPagination className='mb-4' page={messagePage} pageCount={pageCount} onChange={setMessagePage} />}
+                {pageArchivedIds.length > 0 && <div className='mb-7 px-1 flex items-center justify-between gap-3 text-[9px] text-slate-400'><span>本页 {pageArchivedIds.length} 条归档原文 · 展开时才渲染正文</span><button onClick={togglePageArchives} className='shrink-0 px-3 py-1.5 rounded-full bg-white border border-slate-200 font-bold text-violet-600'>{allPageArchivesExpanded ? '全部收起' : '全部展开'}</button></div>}
 
                 <div className='space-y-8'>
                     {pageMessages.map(message => {
                         const archived = mirrorArchived(message, entry);
                         if (archived) {
-                            if (entry.writesToCharacterMemory) return <div key={message.id} className='flex items-center gap-3 text-slate-300'><span className='h-px flex-1 bg-slate-200' /><span className='text-[9px] tracking-wide'>已作为正常记忆归档</span><span className='h-px flex-1 bg-slate-200' /></div>;
-                            const archiveLabel = message.metadata?.theaterArchiveStrategy === 'vector' ? '已存入本剧情向量分区' : '已收进剧场事件盒';
-                            return <details key={message.id} className='group border-y border-slate-200'>
+                            const archiveLabel = entry.writesToCharacterMemory
+                                ? '已作为正常记忆归档'
+                                : message.metadata?.theaterArchiveStrategy === 'vector'
+                                    ? '已存入本剧情向量分区'
+                                    : '已收进剧场事件盒';
+                            const isExpanded = expandedArchivedIds.has(message.id);
+                            return <details key={message.id} open={isExpanded} onToggle={event => setArchiveExpanded(message.id, event.currentTarget.open)} className='group border-y border-slate-200'>
                                 <summary className='list-none cursor-pointer py-3 flex items-center gap-3 text-slate-400 [&::-webkit-details-marker]:hidden'>
                                     <Archive size={13} className='shrink-0' />
                                     <span className='min-w-0 flex-1'>
@@ -750,11 +829,11 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                                     </span>
                                     <CaretDown size={14} className='shrink-0 transition-transform group-open:rotate-180' />
                                 </summary>
-                                <div className='pb-5 pl-7'>
+                                {isExpanded && <div className='pb-5 pl-7'>
                                     {message.role === 'user'
                                         ? <p className='text-sm leading-7 text-slate-600 whitespace-pre-wrap'>{message.content}</p>
                                         : <StoryOutput content={message.content} affinityInputs={affinityInputsFromMessage(message, actors)} />}
-                                </div>
+                                </div>}
                             </details>;
                         }
                         if (message.role === 'user') return <section key={message.id} {...pressHandlersFor(message)} className='pl-4 border-l-2 border-violet-300'><div className='text-[9px] tracking-[.16em] font-bold text-violet-500'>你写下</div><p className='mt-2 text-sm leading-7 text-slate-600 whitespace-pre-wrap'>{message.content}</p></section>;
@@ -762,6 +841,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                         return <article key={message.id} {...pressHandlersFor(message)}><StoryOutput content={message.content} onChoose={choice => setInput(choice)} affinityInputs={affinityInputsFromMessage(message, actors)} />{isLatest && <div className='mt-4 flex items-center justify-end gap-2'><span className='w-1.5 h-1.5 rounded-full bg-violet-400' /><button disabled={sending} onClick={() => void send(message)} className='inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-slate-200 bg-white text-[10px] font-bold text-slate-500 disabled:opacity-40'>{rerollingId === message.id ? <SpinnerGap size={12} className='animate-spin' /> : <ArrowClockwise size={12} />}换一种写法</button></div>}</article>;
                     })}
                 </div>
+                {pageCount > 1 && <StoryPagination className='mt-8' page={messagePage} pageCount={pageCount} onChange={setMessagePage} />}
                 {archivedCount > 0 && <div className='mt-10 flex items-center justify-center gap-2 text-[9px] text-slate-400'><Archive size={13} />{archivedCount} 条旧内容已归档，仍会通过所选记忆方式参与续写</div>}
                 <div ref={bottomRef} className='h-6' />
             </div>
@@ -779,7 +859,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 {!sending && !memoryStatus && !input.trim() && pendingRetryInput && <div className='mb-2 text-[10px] text-violet-600'>上次续写可能中断了，点击推进即可继续</div>}
                 {!sending && !memoryStatus && canWriteOpening && <div className='mb-2 text-[10px] text-violet-600'>准备好了，点击推进让故事写下第一幕</div>}
                 {affinityEnabled && <div className='mb-2 overflow-hidden rounded-2xl border border-rose-200 bg-rose-50/70'>
-                    <button type='button' disabled={sending} onClick={() => setShowAffinityInput(value => !value)} className='w-full px-3 py-2.5 flex items-center gap-2 text-left disabled:opacity-50'>
+                    <button type='button' aria-expanded={showAffinityInput} onClick={() => setShowAffinityInput(value => !value)} className='w-full px-3 py-2.5 flex items-center gap-2 text-left'>
                         <HeartStraight size={15} weight={filledAffinityActorIds.length > 0 ? 'fill' : 'regular'} className='text-rose-500' />
                         <span className='min-w-0 flex-1'><strong className='block text-[10px] text-rose-800'>这轮关系备注 · 可选</strong><span className='block mt-0.5 truncate text-[9px] text-rose-500'>{filledAffinityActorIds.length > 0 ? `已填写 ${filledAffinityActorIds.length} 位：${actors.filter(actor => filledAffinityActorIds.includes(actor.id)).map(actor => actor.name).join('、')}` : '先选择角色，再分别填写你对 TA 的变化'}</span></span>
                         <span className='text-[9px] font-bold text-rose-500'>{showAffinityInput ? '收起' : '填写'}</span>

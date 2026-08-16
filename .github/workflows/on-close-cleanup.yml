@@ -19,10 +19,42 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 移除标签
-        # https://github.com/actions-cool/issues-helper
-        uses: actions-cool/issues-helper@a610082f8ac0cf03e357eb8dd0d5e2ba075e017e # v3.6.0
-        with:
-          actions: remove-labels
-          token: ${{ secrets.GITHUB_TOKEN }}
-          issue-number: ${{ github.event.issue.number || github.event.pull_request.number }}
-          labels: 'needs triage,needs info,needs design'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          # 要摘掉的标签，一行一个
+          PENDING_LABELS: |
+            needs triage
+            needs info
+            needs design
+        run: |
+          set -euo pipefail
+
+          # 先看这条 issue / PR 现在挂着哪些标签。没挂的就不去删，
+          # 免得为「本来就没有的标签」报一次 404 把整个流程判成失败。
+          current=$(gh api "repos/$REPO/issues/$NUMBER/labels" --paginate --jq '.[].name')
+
+          while IFS= read -r label; do
+            [ -n "$label" ] || continue
+
+            # 下面几处 ${label} 的花括号不能省：变量紧挨着「」这类全角标点时，
+            # bash 会把标点的字节也算进变量名，配上 set -u 直接报错退出
+            if ! grep -Fxq "$label" <<<"$current"; then
+              echo "跳过：#$NUMBER 上没有「${label}」"
+              continue
+            fi
+
+            # 标签名里有空格，塞进 URL 前先转义
+            encoded=$(jq -rn --arg name "$label" '$name | @uri')
+
+            if err=$(gh api --method DELETE "repos/$REPO/issues/$NUMBER/labels/$encoded" 2>&1 >/dev/null); then
+              echo "已移除：$label"
+            elif grep -q 'HTTP 404' <<<"$err"; then
+              # 查完标签到这一步之间，别人手动摘掉了，当成已经做完
+              echo "跳过：「${label}」已经不在了"
+            else
+              echo "移除「${label}」失败：$err" >&2
+              exit 1
+            fi
+          done <<<"$PENDING_LABELS"

@@ -20,6 +20,13 @@ import type { DailySchedule, ScheduleSlot } from '../types';
  */
 export type RenderableSchedule = Pick<DailySchedule, 'slots' | 'flowNarrative'>;
 
+export interface ScheduleInjectionOptions {
+    /** ChatApp 主请求需要让角色看到今天的整张表；主动消息到点场景仍只看当前与下一条。 */
+    includeFullDay?: boolean;
+    /** 仅在能实际接收并执行修改指令的聊天请求里教角色这个能力。 */
+    includeChangeInstruction?: boolean;
+}
+
 /** 意识流独白按一天三档取：早 / 午 / 晚。 */
 export function getFlowNarrativeKey(hour: number): 'morning' | 'afternoon' | 'evening' {
     if (hour < 12) return 'morning';
@@ -62,6 +69,7 @@ export const buildScheduleInjection = (
     schedule: RenderableSchedule | null,
     evolvedNarrative?: string,
     now: Date = new Date(),
+    options: ScheduleInjectionOptions = {},
 ): string => {
     if (!schedule || !schedule.slots || schedule.slots.length === 0) return '';
     const { current: currentSlot, next: nextSlot } = resolveScheduleSlots(schedule, now);
@@ -103,9 +111,23 @@ export const buildScheduleInjection = (
     const preamble = `此刻你的心中盘旋着这些想法……\n`;
     const footnote = `\n（不是台词，不用说出口——让它影响你的语气和情绪就好。）`;
 
-    let out = slotHeader;
+    let out = '';
+    if (options.includeFullDay) {
+        const rows = schedule.slots.map((slot) => {
+            let line = `- ${slot.startTime} ${slot.activity}`;
+            if (slot.location) line += `（${slot.location}）`;
+            if (slot.description) line += `：${slot.description}`;
+            return line;
+        });
+        out += `你今天的完整日程：\n${rows.join('\n')}\n`;
+    }
+    out += slotHeader;
     if (narrative) {
         out += preamble + narrative + footnote;
+    }
+    if (options.includeChangeInstruction && nextSlot) {
+        out += '\n你拥有更改未来日程计划的能力；需要时在回复末尾单独输出：'
+            + `[[ACTION:CHANGE_SCHEDULE | ${nextSlot.startTime} | 去超市]]（时段必须来自上表且尚未开始）。`;
     }
     out += '\n';
     return out;

@@ -10,6 +10,8 @@
  * Skills Server: https://github.com/autoclaw-cc/xiaohongshu-skills
  */
 
+import { classifyFetchFailure, parseTargetUrl } from './networkFailureDiagnosis';
+
 export interface McpToolResult {
     success: boolean;
     data?: any;
@@ -23,11 +25,13 @@ export const XHS_SPIDER_V3_EXPERIMENT = Object.freeze({
 });
 
 
-// ==================== Backend Detection ====================
+// ==================== Wire Protocol Detection ====================
 
-type BackendMode = 'mcp' | 'bridge';
+type BackendProtocol = 'mcp' | 'bridge';
+type XhsPlatform = 'xhs' | 'rednote';
 
-const detectMode = (serverUrl: string): BackendMode => {
+// 这里只识别传输协议，不代表部署位置：本地 Skills 与云端 Lite 都走 bridge /api。
+const detectMode = (serverUrl: string): BackendProtocol => {
     if (serverUrl.includes('/api')) return 'bridge';
     return 'mcp'; // default: MCP (backwards compatible)
 };
@@ -35,6 +39,7 @@ const detectMode = (serverUrl: string): BackendMode => {
 // Lite-Worker cookie: set from settings, sent as x-xhs-cookie on bridge calls.
 // Local Bridge/Skills servers ignore the header; the cloud Worker requires it.
 let liteCookie = '';
+let litePlatform: XhsPlatform | 'auto' = 'auto';
 
 // Local Bridge auth token: sent as Authorization: Bearer <token>.
 // Keep it separate from the XHS cookie because Lite Worker and local Bridge
@@ -61,6 +66,11 @@ const resolveLiteCookie = (): string => {
 const resolveBridgeToken = (): string => {
     if (bridgeToken) return bridgeToken;
     return getPersistedXhsConfig()?.bridgeToken || '';
+};
+
+const resolvePersistedLitePlatform = (): XhsPlatform | 'auto' => {
+    const platform = getPersistedXhsConfig()?.platform;
+    return platform === 'xhs' || platform === 'rednote' ? platform : 'auto';
 };
 
 const buildBridgeHeaders = (includeJson: boolean = true): Record<string, string> => {
@@ -131,6 +141,8 @@ const trySpiderV3CommentPatch = async (
     if (
         !storage
         || detail?.data?.comments_status === 'loaded'
+        || detail?.platform === 'rednote'
+        || detail?.data?.platform === 'rednote'
     ) {
         return detail;
     }
@@ -158,6 +170,7 @@ const trySpiderV3CommentPatch = async (
             headers: {
                 'Content-Type': 'application/json',
                 'x-xhs-cookie': cookie,
+                ...(litePlatform !== 'auto' ? { 'x-xhs-platform': litePlatform } : {}),
                 'x-xhs-experiment-ack': XHS_SPIDER_V3_EXPERIMENT.optInValue,
             },
             body: JSON.stringify({
@@ -206,6 +219,10 @@ const bridgePost = async (
     const url = `${baseUrl}/api/${endpoint}`;
 
     const headers = buildBridgeHeaders(true);
+    const requestPlatform = endpoint === 'check-login'
+        ? litePlatform
+        : (litePlatform === 'auto' ? resolvePersistedLitePlatform() : litePlatform);
+    if (requestPlatform !== 'auto') headers['x-xhs-platform'] = requestPlatform;
 
     try {
         const resp = await fetch(url, {
@@ -226,6 +243,10 @@ const bridgePost = async (
         let data = await resp.json();
         if (data.error) {
             return { success: false, error: data.error };
+        }
+        const detectedPlatform = data?.platform || data?.data?.platform;
+        if (detectedPlatform === 'xhs' || detectedPlatform === 'rednote') {
+            litePlatform = detectedPlatform;
         }
         if (endpoint === 'get-feed-detail') {
             const ck = resolveLiteCookie();
@@ -533,6 +554,32 @@ const extractFirstXsecToken = (data: any): string | undefined => {
     return undefined;
 };
 
+/**
+ * 连接测试失败时给一句人话。裸传 e.message 的话，用户在设置页只会看到
+ * 「Failed to fetch」——那句话不区分「地址填错」「梯子拦了」「对方在限流页后面」，
+ * 到头来只能来问作者。分类逻辑复用调试终端那份，两处口径保持一致。
+ */
+const describeXhsConnectFailure = (e: any, serverUrl: string): string => {
+    const host = parseTargetUrl(serverUrl).host || serverUrl;
+    const kind = classifyFetchFailure({ url: serverUrl, error: e });
+    switch (kind) {
+        case 'timeout':
+            return `连接 ${host} 超时（10 秒一个字节都没回）。连接是挂住不返回、不是被拒——多半是该域名没走代理走了直连，或代理节点到上游是黑洞。优先换个梯子节点、或把这个域名显式加进代理规则。`;
+        case 'aborted':
+            return '连接被取消（页面切走了或手动停止）。';
+        case 'offline':
+            return '当前处于离线状态，请检查网络或梯子是否掉线。';
+        case 'mixed-content':
+            return `SullyOS 跑在 https 上，不能连 http 地址（${host}）。请把服务地址改成 https://，或用本地 http 打开 SullyOS。`;
+        case 'bad-url':
+            return `服务器地址不是合法 URL：${serverUrl}。检查有没有漏掉 https://、多了空格或用了中文标点。`;
+        case 'blocked':
+            return `连不上 ${host}：浏览器在拿到响应前就失败了。常见原因——梯子/代理拦了这个域名、DNS 解析不到、浏览器扩展（广告拦截/隐私盾）屏蔽了，或对方正返回限流/人机验证页。可在新标签页直接打开 ${serverUrl.replace(/\/+$/, '')}/health 验证；详细旁证见「系统调试终端」。`;
+        default:
+            return e?.message || '连接失败';
+    }
+};
+
 // ==================== Public API (双模式) ====================
 
 export const XhsMcpClient = {
@@ -546,7 +593,9 @@ export const XhsMcpClient = {
 
     // Lite Worker auth: register the XHS cookie used for x-xhs-cookie header.
     setCookie: (cookie?: string) => {
-        liteCookie = cookie || '';
+        const nextCookie = cookie || '';
+        if (nextCookie !== liteCookie) litePlatform = 'auto';
+        liteCookie = nextCookie;
     },
 
     // Local Bridge auth: register the token used for Authorization header.
@@ -554,20 +603,25 @@ export const XhsMcpClient = {
         bridgeToken = token || '';
     },
 
-    testConnection: async (serverUrl: string, cookie?: string, token?: string): Promise<{ connected: boolean; tools?: string[]; error?: string; nickname?: string; userId?: string; loggedIn?: boolean; xsecToken?: string }> => {
-        if (cookie !== undefined) liteCookie = cookie;
+    testConnection: async (serverUrl: string, cookie?: string, token?: string): Promise<{ connected: boolean; tools?: string[]; error?: string; nickname?: string; userId?: string; loggedIn?: boolean; xsecToken?: string; platform?: XhsPlatform }> => {
+        if (cookie !== undefined) XhsMcpClient.setCookie(cookie);
         if (token !== undefined) bridgeToken = token;
         const mode = detectMode(serverUrl);
 
         if (mode === 'bridge') {
             try {
                 const baseUrl = serverUrl.replace(/\/+$/, '').replace(/\/api$/, '');
-                const healthResp = await fetch(`${baseUrl}/api/health`, { headers: buildBridgeHeaders(false) });
+                // 探活必须自带超时：代理/网关把连接吞掉时裸 fetch 会一直挂着，界面永远停在
+                // 「连接中」，用户只能当成卡死。10s 到点主动断，走下面的 catch 出一句人话。
+                const healthResp = await fetch(`${baseUrl}/api/health`, {
+                    headers: buildBridgeHeaders(false),
+                    signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined,
+                });
                 if (!healthResp.ok) return { connected: false, error: `Bridge 服务未响应 (HTTP ${healthResp.status})` };
 
                 const loginResult = await bridgePost(serverUrl, 'check-login');
                 const tools = ['check-login', 'search', 'list-feeds', 'get-feed-detail', 'publish', 'publish-video', 'long-article', 'post-comment', 'reply-comment', 'like-feed', 'favorite-feed', 'user-profile', 'login', 'get-qrcode'];
-                let loggedIn = false, nickname: string | undefined, userId: string | undefined;
+                let loggedIn = false, nickname: string | undefined, userId: string | undefined, platform: XhsPlatform | undefined;
                 if (loginResult.success && loginResult.data) {
                     const d = loginResult.data;
                     if (typeof d === 'string') {
@@ -580,6 +634,7 @@ export const XhsMcpClient = {
                         loggedIn = !!(d.logged_in || d.loggedIn || d.is_logged_in || d.isLoggedIn || d.logged);
                         nickname = d.nickname || d.name || d.username || d.user_name || undefined;
                         userId = d.user_id || d.userId || d.id || d.red_id || undefined;
+                        platform = d.platform === 'xhs' || d.platform === 'rednote' ? d.platform : undefined;
                     }
                 }
                 // 自动获取 xsecToken：从首页推荐中提取
@@ -590,9 +645,9 @@ export const XhsMcpClient = {
                         if (feedResult.success) xsecToken = extractFirstXsecToken(feedResult.data);
                     } catch { /* 非关键，静默忽略 */ }
                 }
-                return { connected: true, tools, nickname, userId, loggedIn, xsecToken };
+                return { connected: true, tools, nickname, userId, loggedIn, xsecToken, platform };
             } catch (e: any) {
-                return { connected: false, error: e.message };
+                return { connected: false, error: describeXhsConnectFailure(e, serverUrl) };
             }
         }
 

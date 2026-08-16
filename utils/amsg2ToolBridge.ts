@@ -26,8 +26,9 @@ import { trackEvent } from './analytics';
 import {
   applyScheduledTask, currentOccurrenceMs, describeExpirePolicy, describeRecurrence,
   describeTaskMode, describeTaskProgress, findTaskByShortId, formatTaskTime,
-  getPendingTasks, pruneStaleTasks, resolveExpirePolicy, shortTaskId,
+  getPendingTasks, isPendingTask, pruneStaleTasks, resolveExpirePolicy, shortTaskId,
 } from './amsg2Tasks';
+import { resolveMaxUnansweredSends } from './amsgFirePack';
 import { EXPIRE_POLICY_DESCRIPTION } from './amsgFireSchedule';
 import { resolveCharTimeZone } from './timezone';
 
@@ -270,6 +271,21 @@ const persistTasks = (
 async function handleSchedule(args: Record<string, any>, deps: Amsg2ToolDeps): Promise<string> {
   const { char, userProfile, groups, realtimeConfig, apiConfig } = deps;
   const config = readConfig(deps);
+  // 连发上限·本地排程闸（与 worker fire 侧 runFireScheduleTool 的 unanswered_limit
+  // 对齐）：挂着的自排任务到点各消耗一条连发额度，本地排到超限的那几条会被到点兜底闸
+  // 静默 skip——角色在正文里承诺了「等下再来找你」，到点却凭空蒸发。在这里带回喂打回，
+  // 让模型当场改口。本地轮次用户刚开口（连发计数已清零），所以只数还没响的自排任务；
+  // 面板里用户亲手排的（source!=='character'）不占额度，与 worker 侧同一口径。
+  // 改期/补当次（__replaceTaskUuid / __makeupForTaskUuid）不新占额度，放行。
+  if (!args.__replaceTaskUuid && !args.__makeupForTaskUuid) {
+    const unansweredLimit = resolveMaxUnansweredSends(char.activeMsg2Config?.maxUnansweredSends);
+    const plannedSelfSends = config.tasks
+      .filter((t) => t.source === 'character' && isPendingTask(t, Date.now()))
+      .length;
+    if (plannedSelfSends + 1 > unansweredLimit) {
+      return `对方还没回复，这期间你已经排了 ${plannedSelfSends} 条后续，用户设置的连发上限是 ${unansweredLimit} 条——这次别排了，等 ta 回复再说。`;
+    }
+  }
   // 回话里的时间按角色的钟写：到点 worker 渲染排程清单用的也是角色时区，两边对不上的话
   // 纽约角色刚排的那条，在下一轮的排程现状里会显示成差一个时差的另一个时刻。
   const charTz = resolveCharTimeZone(char);
@@ -283,7 +299,9 @@ async function handleSchedule(args: Record<string, any>, deps: Amsg2ToolDeps): P
   };
 
   const result = await ActiveMsgClient.scheduleCharacterTask({
-    char, config, task: taskInput,
+    // selfScheduled：角色自己排的要带标记进任务 metadata——连发上限的到点兜底闸只拦
+    // 带它的任务，用户在面板里亲手排的不带、不受限（面板走的是同一个入口但不传这个）。
+    char, config, task: { ...taskInput, selfScheduled: true },
     replaceTaskUuid: args.__replaceTaskUuid,   // renew 内部复用，LLM 不感知
     userProfile, groups, realtimeConfig, apiConfig,
   });

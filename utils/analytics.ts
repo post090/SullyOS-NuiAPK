@@ -83,6 +83,27 @@ export function isAnalyticsConfigured(): boolean {
   return Boolean(SCRIPT_URL && WEBSITE_ID);
 }
 
+/**
+ * The tracker is optional infrastructure. Its send endpoint must never be
+ * surfaced as an OS/API failure when an ad blocker or the network blocks it.
+ */
+export function isAnalyticsRequestUrl(value: string): boolean {
+  if (!SCRIPT_URL || !value) return false;
+  try {
+    const pageBase =
+      (typeof window !== 'undefined' && window.location?.href) ||
+      'https://sully.invalid/';
+    const scriptUrl = new URL(SCRIPT_URL, pageBase);
+    const requestUrl = new URL(value, pageBase);
+    return (
+      requestUrl.origin === scriptUrl.origin &&
+      /^\/api\/send\/?$/.test(requestUrl.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** 浏览器有没有开 Do Not Track。开了就整个跳过，连脚本都不加载。 */
 function hasDoNotTrack(): boolean {
   if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;

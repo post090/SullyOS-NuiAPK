@@ -1,5 +1,7 @@
 // utils/amsg2Tasks.test.ts
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import {
   MAX_ACTIVE_TASKS_PER_CHAR,
   REPLACE_CANCEL_FAILED_NOTE,
@@ -8,6 +10,7 @@ import {
   AMSG2_SCHEDULE_SECRECY_NOTE,
   buildFireTaskListBlock,
   currentOccurrenceMs,
+  describeInstantChatFailure,
   describeRemoteLastError,
   describeTaskProgress,
   findTaskByShortId,
@@ -18,6 +21,7 @@ import {
   keepUncancelledTasks,
   parseRemoteTaskLastError,
   pruneFiredTasks,
+  REMOTE_ERROR_REASON_MAX,
   pruneStaleTasks,
   reconcileTasksWithRemote,
   shortTaskId,
@@ -330,8 +334,29 @@ describe('describeRemoteLastError', () => {
 
   it('reason 是一长串原始报错时截断，别把整段堆栈糊上卡片', () => {
     const text = describeRemoteLastError({ reason: 'x'.repeat(500) }, fmt)!;
-    expect(text.length).toBeLessThan(120);
+    // 对着常量算，别写死数字：截断长度会随上游报错的形态调整，写死的话调一次常量
+    // 就假挂一次，而这条测试真正要钉的是「500 字的原文不会整段糊上来」。
+    expect(text.length).toBeLessThan(REMOTE_ERROR_REASON_MAX + 40);
     expect(text).toContain('上次到点没发出去');
+  });
+
+  // 上游拒了请求时 reason 是「状态行 —— 上游原话」两段，而唯一能照着改的东西
+  // （模型名写错、余额不够）全在破折号后面。老的 60 字截断正好把它整段切掉。
+  it('LLM 上游那句话取破折号后面那段，不把状态行占满整行', () => {
+    const reason = 'AI API error: 401 Unauthorized. Request URL: https://api.example.com/v1/chat/completions\n'
+      + '  — Incorrect API key provided: sk-[redacted]. (provider code: invalid_api_key)';
+    const text = describeRemoteLastError({ reason }, fmt)!;
+    expect(text).toContain('Incorrect API key provided');
+    expect(text).toContain('invalid_api_key');
+    expect(text).not.toContain('Request URL');
+  });
+
+  it('推送订阅失效（pushStatus 410 / 404）说该去重置订阅，不报原始错误', () => {
+    const text = describeRemoteLastError(
+      { reason: 'Web Push delivery failed: 410 Gone — …', pushStatus: 410 }, fmt,
+    )!;
+    expect(text).toContain('重置订阅');
+    expect(text).not.toContain('410 Gone');
   });
 
   it('没有 occurrence 退回 at；两个都没有就不带时间；null → null', () => {
@@ -340,6 +365,71 @@ describe('describeRemoteLastError', () => {
     expect(describeRemoteLastError({ reason: 'boom' }, fmt))
       .toBe('上次到点没发出去（连续失败：boom）');
     expect(describeRemoteLastError(null, fmt)).toBeNull();
+  });
+});
+
+describe('describeInstantChatFailure', () => {
+  // 排程那句是「上次到点没发出去」，说的是一条到点该主动开口的任务。即时对话是用户
+  // 刚按下发送的一条消息，套那个句式读起来不知所云。
+  it('说人话地讲这一轮生成失败，带上重试次数和底层报错，不提「到点」', () => {
+    expect(describeInstantChatFailure({ at: '2026-08-05T00:00:00.000Z', reason: '上游 502' }, 3))
+      .toBe('生成失败（重试 3 次后放弃）：上游 502');
+  });
+
+  it('没重试过就不提重试；没有底层报错就只说生成失败', () => {
+    expect(describeInstantChatFailure({ reason: '上游 502' }, 0)).toBe('生成失败：上游 502');
+    expect(describeInstantChatFailure({ at: '2026-08-05T00:00:00.000Z' })).toBe('生成失败');
+  });
+
+  it("reason 'stale' 是排队太久没轮到，没有底层报错可引", () => {
+    expect(describeInstantChatFailure({ reason: 'stale' }, 2)).toBe('云端排队太久没轮到这一轮（重试 2 次后放弃）');
+  });
+
+  // skip-push 的两种机器码（worker 在 chat_fail 里留的）：这一轮不是失败、是没产出。
+  // 掉进「生成失败」句式的话，用户以为出了故障，其实是模型拒答/只做了动作。
+  it("reason 'empty-generation' / 'side-effects-only' 照实说没产出，不说成失败", () => {
+    expect(describeInstantChatFailure({ reason: 'empty-generation' }))
+      .toBe('模型这轮没有生成内容（空输出或拒答）');
+    expect(describeInstantChatFailure({ reason: 'side-effects-only' }))
+      .toBe('角色这轮只做了动作，没有文字回复');
+  });
+
+  it('一长串原始报错照样截断；没有 lastError → null', () => {
+    expect(describeInstantChatFailure({ reason: 'x'.repeat(500) })!.length)
+      .toBeLessThan(REMOTE_ERROR_REASON_MAX + 40);
+    expect(describeInstantChatFailure(null)).toBeNull();
+  });
+
+  // ── 机读字段（amsg-server 2.6.0-next.21 起）：这三条守的是「按 errorCode /
+  //    pushStatus 分流，不去正则匹配 reason 那句人话」。上游改个措辞，reason 就变了，
+  //    而这几句「接下来该做什么」不能跟着失效。
+
+  it('errorCode LLM_CALL_FAILED → 说是模型接口拒了，别让人以为本地生成挂了', () => {
+    const reason = 'AI API error: 404 Not Found. Request URL: https://api.example.com/v1/chat/completions\n'
+      + '  — The model `gpt-4o-typo` does not exist. (provider code: model_not_found)';
+    const text = describeInstantChatFailure({ reason, errorCode: 'LLM_CALL_FAILED' })!;
+    expect(text).toContain('模型接口拒了这次请求');
+    // 模型名是这一档最关键的信息，上游不再脱敏它，这边也不能截断截掉。
+    expect(text).toContain('gpt-4o-typo');
+    expect(text).not.toContain('生成失败');
+  });
+
+  it('errorCode PUSH_PAYLOAD_TOO_LARGE → 说这条太长，不套「生成失败」', () => {
+    expect(describeInstantChatFailure({ reason: 'push payload 4200 bytes', errorCode: 'PUSH_PAYLOAD_TOO_LARGE' }))
+      .toBe('这条回复太长，一条推送装不下');
+  });
+
+  it('pushStatus 410 → 引导重新登记订阅（重发多少次都是同一个结果）', () => {
+    const text = describeInstantChatFailure(
+      { reason: 'Web Push delivery failed: 410 Gone', pushStatus: 410 }, 3,
+    )!;
+    expect(text).toContain('重置订阅');
+    expect(text).toContain('重试 3 次后放弃');
+  });
+
+  it('认不出来的 errorCode 走通用文案，不吞掉底层报错', () => {
+    expect(describeInstantChatFailure({ reason: '上游 502', errorCode: 'SOMETHING_NEW' }))
+      .toBe('生成失败：上游 502');
   });
 });
 
@@ -512,6 +602,18 @@ describe('reconcileTasksWithRemote（跟远端底账对一次账）', () => {
     const local = [task()];
     expect(reconcileTasksWithRemote(local, [])).toEqual(local);
   });
+
+  // 失败的行会在远端留 7 天（一次性任务发成功才删行），照单全收的话，清单上会多出
+  // 一条永远等不到的幽灵任务。
+  it('远端那行已经失败 → 不补进清单', () => {
+    expect(reconcileTasksWithRemote([], [remoteRow({ status: 'failed' })])).toEqual([]);
+  });
+
+  // 即时对话的行是「用户此刻正等着的一轮聊天」，不是排程：补进清单会显示成待触发的
+  // 任务，还可能被「取消全部」把用户正等着的回复顺手掐掉。
+  it('远端那行是即时对话 → 不补进清单', () => {
+    expect(reconcileTasksWithRemote([], [remoteRow({ messageSubtype: 'instant-chat' })])).toEqual([]);
+  });
 });
 
 describe('currentOccurrenceMs 跨夏令时', () => {
@@ -538,5 +640,40 @@ describe('currentOccurrenceMs 跨夏令时', () => {
     });
     const now = Date.parse('2026-03-20T00:00:00.000Z');
     expect(currentOccurrenceMs(stale, now)).toBeGreaterThan(now);
+  });
+});
+
+// ─── 设置面板的「启用主动消息 2.0」开关必须落盘 ───
+//
+// isAmsg2EnabledForChar 只认持久化下来的 enabled:true。开关的 onClick 要是只改 React
+// state，用户拨开、关掉弹窗之后角色身上还是没有 activeMsg2Config：聊天里不注入
+// schedule/cancel/renew/list、fire_pack 的 selfScheduleEnabled 上传 false、云端 fire
+// 也不给排程能力，而重开面板开关又显示成「关」。症状是纯界面的，不报错也不崩，
+// 用户唯一能歪打正着的路子是去点「新建任务」——那条路才顺手写了 enabled:true。
+//
+// 仓库的 vitest 是纯 Node 环境（没装 jsdom），设置面板是 React 组件跑不起来测行为，
+// 所以沿用 amsg2CharToggle.wiring.test.ts 的做法做源码级断言：它验证不了运行时时序，
+// 只钉住「开关接的是会写库的 handler」这一件事。
+describe('设置面板的启用开关落盘', () => {
+  const modal = readFileSync(
+    fileURLToPath(new URL('../components/chat/ActiveMsg2SettingsModal.tsx', import.meta.url)),
+    'utf8',
+  );
+  const toggleHandler = modal.match(/const handleToggleEnabled[\s\S]*?\n  \};/)?.[0] ?? '';
+
+  it('开关接的是会写库的 handler，不是裸 setEnabled', () => {
+    expect(modal).toMatch(/onClick=\{handleToggleEnabled\}/);
+    expect(modal).not.toMatch(/onClick=\{\(\) => setEnabled\(!enabled\)\}/);
+  });
+
+  it('handler 既改面板状态也落盘', () => {
+    expect(toggleHandler).toMatch(/setEnabled\(!enabled\)/);
+    expect(toggleHandler).toMatch(/onSave\(/);
+  });
+
+  it('只有「开」就地落盘，「关」留给「关闭 2.0」按钮先取消远端任务', () => {
+    // 就地写 enabled:false 的话，该角色在远端的任务没人取消，会变成面板看不见、
+    // 却照样到点触发的幽灵任务。
+    expect(toggleHandler).toMatch(/if \(turningOn\)[\s\S]*?onSave\(/);
   });
 });

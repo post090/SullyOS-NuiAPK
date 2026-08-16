@@ -15,7 +15,9 @@ import {
 } from '../../types';
 import { ActiveMsgClient, getDefaultActiveMsgFirstSendTime } from '../../utils/activeMsgClient';
 import { ActiveMsgStore } from '../../utils/activeMsgStore';
-import { type AmsgLastSkip, describeLastSkip } from '../../utils/amsgFirePack';
+import { type AmsgLastSkip, DEFAULT_MAX_UNANSWERED_SENDS, describeLastSkip } from '../../utils/amsgFirePack';
+import { isInstantChatReady } from '../../utils/amsgInstantChat';
+import { syncAmsgLlmCredentials } from '../../utils/amsgStateSync';
 import { buildUserCancelledNotices } from '../../utils/amsg2TaskContext';
 import { trackEvent } from '../../utils/analytics';
 import {
@@ -94,12 +96,20 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
 
   // 开关初值走和工具注入门同一个判定：面板显示「关」而角色其实还能排程，界面就在骗人。
   const [enabled, setEnabled] = useState(() => isAmsg2EnabledForChar(char));
+  // 即时对话按角色单独关：undefined = 跟随全局默认开，所以只有显式 false 才显示成关。
+  const [instantChatOn, setInstantChatOn] = useState(saved?.instantChatEnabled !== false);
+  // 全局那道门开没开（isInstantChatReady 读回来的）。没开时下面那行开关置灰。
+  const [globalInstantChatOn, setGlobalInstantChatOn] = useState(false);
   const [mode, setMode] = useState<ActiveMsg2Mode>('auto');
   const [firstSendTime, setFirstSendTime] = useState(getDefaultActiveMsgFirstSendTime());
   const [recurrenceType, setRecurrenceType] = useState<ActiveMsg2Recurrence>('none');
   const [userMessage, setUserMessage] = useState('');
   const [promptHint, setPromptHint] = useState('');
   const [maxTokens, setMaxTokens] = useState(String(saved?.maxTokens ?? ''));
+  // '' = 没设（用默认值）；'0' = 不限；其余 1-10。
+  const [maxUnanswered, setMaxUnanswered] = useState(
+    saved?.maxUnansweredSends === undefined ? '' : String(saved.maxUnansweredSends),
+  );
   const [useSecondaryApi, setUseSecondaryApi] = useState(saved?.useSecondaryApi ?? false);
   // 副 API 连接（站点+模型选择器；旧手填值原样带入）
   const [secApi, setSecApi] = useState<ApiTriple | null>(saved?.secondaryApi ?? null);
@@ -130,8 +140,12 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
 
     const config = char.activeMsg2Config;
     const list = config?.tasks ?? [];
-    setEnabled(config?.enabled ?? false);
+    // 跟 useState 初值同一个判定：这里自己写三元的话，面板显示的开关状态就会跟
+    // 工具注入门分家（见 isAmsg2EnabledForChar 的注释）。
+    setEnabled(isAmsg2EnabledForChar(char));
+    setInstantChatOn(config?.instantChatEnabled !== false);
     setMaxTokens(config?.maxTokens ? String(config.maxTokens) : '');
+    setMaxUnanswered(config?.maxUnansweredSends === undefined ? '' : String(config.maxUnansweredSends));
     setUseSecondaryApi(config?.useSecondaryApi ?? false);
     setSecApi(config?.secondaryApi ?? null);
 
@@ -158,6 +172,9 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
     if (!isOpen) return;
     setKnownRemoteUuids(null);
     setRemoteTaskInfo(null);
+
+    // 全局即时对话开没开（现成的读取函数，别自己另读存储）。读失败按没开置灰。
+    void isInstantChatReady().then(setGlobalInstantChatOn).catch(() => setGlobalInstantChatOn(false));
 
     void (async () => {
       const globalConfig = await ActiveMsgClient.getGlobalConfig();
@@ -227,7 +244,10 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
   ): ActiveMsg2CharacterConfig => ({
     enabled: true,
     tasks: tasksOf(prev?.tasks ?? []),
+    // 开着就存 undefined（= 跟随全局默认开），只有显式关掉才落 false。
+    instantChatEnabled: instantChatOn ? undefined : false,
     maxTokens: maxTokens.trim() ? Number(maxTokens) : undefined,
+    maxUnansweredSends: maxUnanswered === '' ? undefined : Number(maxUnanswered),
     useSecondaryApi: useSecondaryApi && !!secApi?.baseUrl,
     secondaryApi: useSecondaryApi && secApi?.baseUrl ? {
       baseUrl: secApi.baseUrl.trim(),
@@ -237,6 +257,42 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
     lastSyncedAt: prev?.lastSyncedAt,
     ...extra,
   });
+
+  /**
+   * 拨开关本身就算一次保存。
+   *
+   * 这是设置弹窗，用户拨完开关就认为已经生效了。只改 React state 不写库的话，角色的
+   * activeMsg2Config 还是空的（= 关）：聊天里不注入排程工具、fire_pack 的
+   * selfScheduleEnabled 上传 false、重开面板开关又显示成「关」，全程一句提示都没有。
+   *
+   * 只有「开」这一侧就地落盘。「关」要走底部那颗「关闭 2.0」按钮：关掉的同时得把该
+   * 角色在远端的任务全部取消，这里就地写一个 enabled:false，远端任务没人管，会变成
+   * 面板看不见却照样到点触发的幽灵任务。
+   */
+  const handleToggleEnabled = () => {
+    const turningOn = !enabled;
+    setEnabled(!enabled);
+    // 顺手把面板上其它角色级设置（maxTokens / 连发上限 / 单独 API）一起带上，与
+    // buildConfig 的口径一致：这几项本来就只有面板会写。
+    if (turningOn) onSave((prev) => buildConfig(prev, (list) => list));
+  };
+
+  /**
+   * 即时对话开关也是拨了就落盘（跟上面同一习惯）。它没有远端任务要清，关掉只影响
+   * 之后每一轮的路由，所以开关两个方向都能就地保存。注意不能走 buildConfig：那份会
+   * 把 enabled 钉成 true，而即时对话和排程是互相独立的两个开关，不能顺手把排程也打开。
+   */
+  const handleToggleInstantChat = () => {
+    const next = !instantChatOn;
+    // 全局那个开关有自己的事件，这里单独记：想知道「按角色区分」这件事有没有人真的用。
+    trackEvent('切换角色的即时对话', { action: next ? '开' : '关' });
+    setInstantChatOn(next);
+    onSave((prev) => ({
+      ...(prev ?? { enabled: false }),
+      // 开着存 undefined（= 跟随全局默认开），只有显式关掉才落 false。
+      instantChatEnabled: next ? undefined : false,
+    }));
+  };
 
   /**
    * 给角色留一句「这几条被人工取消了」。
@@ -385,6 +441,10 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
           : `任务已创建 [${shortTaskId(result.uuid)}]。`),
       result.replacedCancelFailed ? 'error' : 'success');
 
+      // 角色级 API（单独 API 开关 / 三件套）这次可能刚改过：支持凭据表的 Worker 上
+      // 只要把这个角色那几行覆盖掉，已排的任务（含角色自排的）下次触发就跟上了。
+      // 老 Worker 上是 no-op，凭据靠下面逐条补刷。
+      syncAmsgLlmCredentials(apiConfig);
       // 角色级 API（单独 API 开关 / 三件套）也可能这次刚改过：刚排的这条已带新凭据
       // （排程时现算），但同角色**其它** pending AI 任务里冻结的还是旧的，就地刷一遍。
       // 用渲染时清单近似「其它任务」——保存期间角色刚用工具排的新任务会漏，下次保存
@@ -441,10 +501,38 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
             <div className="text-xs text-fuchsia-600 mt-1">{pushSummary || '正在检查 Push 状态...'}</div>
           </div>
           <button
-            onClick={() => setEnabled(!enabled)}
+            onClick={handleToggleEnabled}
             className={`w-12 h-7 rounded-full transition-colors relative ${enabled ? 'bg-fuchsia-500' : 'bg-slate-200'}`}
           >
             <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-200 ${enabled ? 'translate-x-5' : 'translate-x-0'}`} />
+          </button>
+        </div>
+
+        {/* 关着的时候面板下面整块都是空的，不说一句的话，用户看不出这个开关是按角色算的，
+            也不知道打开它能换来什么。 */}
+        {!enabled ? (
+          <p className="text-xs leading-relaxed text-slate-400 pl-1">
+            主动消息 2.0 按角色单独开启。打开这个开关，TA 才能在聊天里给你排定时消息，到点由云端发出；你也可以在这里手动建任务。
+          </p>
+        ) : null}
+
+        {/* 即时对话按角色单独关，和上面的排程开关互相独立（只排程不即时、只即时不排程
+            都行），所以不裹在 enabled 里。全局那道门没开时这里只置灰说明，不代替它。 */}
+        <div className={`flex items-center justify-between rounded-2xl p-4 border ${globalInstantChatOn ? 'bg-white border-slate-200' : 'bg-slate-50 border-slate-100'}`}>
+          <div className="min-w-0 pr-3">
+            <div className={`font-bold ${globalInstantChatOn ? 'text-slate-700' : 'text-slate-400'}`}>即时对话</div>
+            <div className="text-xs text-slate-400 mt-1 leading-relaxed">
+              {globalInstantChatOn
+                ? '开着时 TA 的回复在云端生成、走推送送回，发完就能锁屏。关掉的话这个角色回到本地生成。'
+                : '需要先在全局设置里开启即时对话，才能按角色单独调。'}
+            </div>
+          </div>
+          <button
+            onClick={handleToggleInstantChat}
+            disabled={!globalInstantChatOn}
+            className={`w-12 h-7 rounded-full transition-colors relative shrink-0 ${globalInstantChatOn && instantChatOn ? 'bg-fuchsia-500' : 'bg-slate-200'} ${!globalInstantChatOn ? 'opacity-50' : ''}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-200 ${globalInstantChatOn && instantChatOn ? 'translate-x-5' : 'translate-x-0'}`} />
           </button>
         </div>
 
@@ -622,6 +710,26 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
                 </div>
               </>
             )}
+
+            <div className="pt-1 border-t border-slate-100">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">连发上限</label>
+              <select
+                value={maxUnanswered}
+                onChange={(event) => setMaxUnanswered(event.target.value)}
+                className="w-full bg-white border border-slate-200 rounded-2xl px-4 py-3 text-sm"
+              >
+                <option value="">默认（{DEFAULT_MAX_UNANSWERED_SENDS} 条）</option>
+                {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                  <option key={n} value={String(n)}>{n} 条</option>
+                ))}
+                <option value="0">不限</option>
+              </select>
+              <p className="text-xs text-slate-400 mt-1.5 pl-1 leading-relaxed">
+                你没回消息的时候，TA 最多连续主动发几条——这就是 TA 能连续主动发言的次数上限（包括
+                TA 给自己排的后续）。到上限后 TA 自己排的会暂停，你回一句就重新计数；你在这个面板里
+                亲手排的任务不受它限制。比如你俩有时差、想让 TA 在你睡觉时每隔一阵报备一句，就把这里调大些。
+              </p>
+            </div>
 
             <div className="pt-1 border-t border-slate-100">
               <div className="flex items-center justify-between mb-2">

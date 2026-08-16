@@ -392,9 +392,9 @@ ${char.memories?.slice(-3).map(m => `- ${m.summary}`).join('\n') || '- 无记忆
     try {
         const response = await resilientFetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiConfig.apiKey}` 
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiConfig.apiKey}`
             },
             body: JSON.stringify({
                 model: apiConfig.model,
@@ -403,7 +403,7 @@ ${char.memories?.slice(-3).map(m => `- ${m.summary}`).join('\n') || '- 无记忆
                 max_tokens: 8000
             })
         }, { timeoutMs: 120_000, retries: 1 });
-        
+
         if (response.ok) {
             const data = await safeResponseJson(response);
             const rawPersona = extractLlmContent(data).trim();
@@ -653,12 +653,12 @@ export const parsePersonaMarkdown = (rawPersona: string) => {
     const sections: {title: string, content: string[], icon: string}[] = [];
     let currentSection: {title: string, content: string[], icon: string} | null = null;
 
-    // for...of 而非 forEach：让 TS 能跟踪 currentSection 在循环体内的赋值，
-    // 否则循环后的收尾判断会被收窄成 never（TS 冤案，运行时本来就正确）。
+    // 用 for...of 而不是 forEach：回调里的赋值不进 TS 的控制流分析，
+    // 循环结束后 currentSection 会被当成还是初始的 null。
     for (const line of lines) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-        
+
         const headerMatch = trimmed.match(/^###\s*(.+)/) || 
                            trimmed.match(/^\*\*([^*]+)\*\*\s*[:：]\s*(.*)/) ||
                            trimmed.match(/^([^-•\d][^:：]{1,15})[:：]\s*(.*)/);
@@ -684,7 +684,7 @@ export const parsePersonaMarkdown = (rawPersona: string) => {
             }
         }
     }
-    
+
     if (currentSection && currentSection.content.length > 0) {
         sections.push(currentSection);
     }

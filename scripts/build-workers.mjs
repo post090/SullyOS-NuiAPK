@@ -58,12 +58,6 @@ const WORKERS = [
   // public/ 副本给设置页「复制 Worker 代码」按钮 fetch。amsg-server 2.6.0-next.2 起
   // 全 Web Crypto，和 instant 一样免 nodejs_compat flag。
   { name: 'amsg', outName: 'amsg-worker.bundle.js' },
-  // loyal-recruitment 是一次性忠实用户招募服务：独立 D1 / secrets / 路由，
-  // 不与邮局或彼方活动共享运行时状态。
-  {
-    name: 'loyal-recruitment',
-    skipPublicOut: true,
-  },
 ];
 
 // amsg-instant 0.3.0+ uses only Web Crypto (globalThis.crypto.subtle); the
@@ -78,7 +72,9 @@ const sharedOpts = {
   conditions: ['worker', 'browser', 'import', 'default'],
   // @capacitor/* 是浏览器原生桥（仅 APK WebView 里有），worker 永远跑不到这些代码路径，
   // 但 db.ts → mcpClient.ts 的 import 链会把它拖进 bundle。标 external 让 esbuild 不去 resolve。
-  external: ['@capacitor/*'],
+  // cloudflare:* 是运行时自带的内置模块（amsg 用 cloudflare:workers 的 DurableObject
+  // 基类）。它们不在 node_modules 里，不标 external 的话 esbuild 会当成缺失依赖报错。
+  external: ['@capacitor/*', 'cloudflare:*'],
 };
 
 console.log(`Building ${WORKERS.length} worker bundle(s)...`);

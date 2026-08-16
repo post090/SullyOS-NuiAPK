@@ -3,7 +3,7 @@ import { DB } from './db';
 
 export const CONTEXT_RANGE_POLICY_VERSION = 1;
 export const DEFAULT_MANUAL_CONTEXT_LIMIT = 500;
-export const MIN_MANUAL_CONTEXT_LIMIT = 20;
+export const MIN_MANUAL_CONTEXT_LIMIT = 10;
 export const MAX_MANUAL_CONTEXT_LIMIT = 5000;
 
 export type ContextRangeMode = 'adaptive' | 'manual';
@@ -37,11 +37,12 @@ export const clampManualContextLimit = (value: unknown): number => {
 };
 
 /**
- * 全自动记忆只在显式 adaptive 时接管范围。关闭全自动后即便旧数据残留 adaptive，
- * 也按 manual 处理，避免一个已经不存在的自动模式继续限制用户。
+ * adaptive 只在有明确来源时接管范围：全自动记忆，或用户主动执行过一键存入。
+ * 单独残留一个 adaptive 旧字段仍按 manual 处理，避免不存在的自动模式限制用户。
  */
 export const resolveContextRangeMode = (char: CharacterProfile): ContextRangeMode =>
-    char.autoArchiveEnabled && char.contextRangeMode === 'adaptive'
+    char.contextRangeMode === 'adaptive'
+    && (char.autoArchiveEnabled || char.contextFollowsMemoryPalaceHwm)
         ? 'adaptive'
         : 'manual';
 
@@ -140,7 +141,7 @@ export const computeContextRangeSnapshot = (
 
 /**
  * AI 上下文读取：
- * - adaptive 读取水位线后的完整原文；
+ * - adaptive 读取水位线后的完整原文（全自动记忆或一键存入后的水位跟随）；
  * - manual 忽略水位线，读取完整库最近 N 条；
  * - 随后再用用户断点收窄。
  */

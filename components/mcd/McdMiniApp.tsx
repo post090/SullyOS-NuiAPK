@@ -13,8 +13,8 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import NetImg from '../os/NetImg';
 import { callMcdTool, isMcdConfigured } from '../../utils/mcdMcpClient';
+import NetImg from '../os/NetImg';
 import { autoFixProposalCodesByName } from '../../utils/mcdToolBridge';
 import { mcdItemEmoji } from '../../utils/mcdEmoji';
 import type { McdCartItem } from '../chat/McdCard';
@@ -1170,7 +1170,7 @@ const McdMiniApp: React.FC<McdMiniAppProps> = ({ open, onClose, char, userProfil
                 }
             }
             if (activeCodes.size > 0) {
-                const filtered: NonNullable<typeof fullMeals> = {};
+                const filtered: NonNullable<MealsData['meals']> = {};
                 for (const code of activeCodes) {
                     if (fullMeals[code]) filtered[code] = fullMeals[code];
                 }

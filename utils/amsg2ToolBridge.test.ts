@@ -3,7 +3,7 @@
 // char 是生成开始时的快照，updateCharacter 只更 React state 不回写它——清单要是从
 // char 上读写，第二次 schedule 就会读着空清单把第一条覆盖掉（「建俩只显示一个」）。
 // 累加由 createAmsg2ToolSession 的本轮局部变量兜住，下面的用例钉的就是这件事。
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('./activeMsgClient', () => ({
   ActiveMsgClient: { scheduleCharacterTask: vi.fn(), cancelTask: vi.fn() },
@@ -25,6 +25,16 @@ const shortOf = (uuid: string) => uuid.slice(0, 8);
 
 // 排程接口把角色写的墙钟折成的绝对时刻（上海 2026-08-03 21:00 / 纽约同日 09:00）。
 const RESOLVED_ISO = '2026-08-03T13:00:00.000Z';
+
+// persistTasks 会用 Date.now() 跑 48h 清理，一次性任务过期就被清空——夹具里这个
+// 绝对时刻写死了，系统时钟往前走两天它就会被当成陈旧任务扫掉，测试跟着莫名其妙全红。
+// 这里把时钟钉在 RESOLVED_ISO 之前，让这份夹具时间永远不会「过期」。
+beforeEach(() => {
+  vi.useFakeTimers({ now: new Date('2026-08-03T05:00:00.000Z') });
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 // 模拟 React：updateCharacter 只记录落盘的 config，绝不回写 char——
 // 这样只有「session 自己兜住最新 config」才能让同轮后续调用读到累加结果。
@@ -111,6 +121,14 @@ describe('amsg2ToolBridge 同一轮多次调用累加', () => {
     );
   });
 
+  it('角色排的任务带 selfScheduled 标记（连发上限的到点兜底闸认它；面板排的不带）', async () => {
+    const { deps } = makeSession();
+    await executeAmsg2Tool('schedule_active_message', { send_at: future() }, deps);
+    expect(ActiveMsgClient.scheduleCharacterTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({ task: expect.objectContaining({ selfScheduled: true }) }),
+    );
+  });
+
   it('一轮内 schedule 后 list → 列得出刚建的那条', async () => {
     const { deps } = makeSession();
     await executeAmsg2Tool('schedule_active_message', { send_at: future() }, deps);
@@ -176,10 +194,10 @@ describe('amsg2ToolBridge 同一轮多次调用累加', () => {
 });
 
 // ─── 角色级开关 ───
-// 设置面板「关闭 2.0」会持久化 activeMsg2Config.enabled=false。工具注入这条路要是只看
-// 全局 workerUrl，被关掉的角色照样拿得到 schedule_active_message；再加上落盘时强写
-// enabled:true，一次工具调用就把用户显式关掉的功能又打开了。两头都得钉住。
-describe('角色级开关 enabled=false', () => {
+// 工具注入这条路要是只看全局 workerUrl，没在面板里开过 2.0 的角色照样拿得到
+// schedule_active_message；再加上落盘时强写 enabled:true，一次工具调用就把用户
+// 没表态过的功能替他打开了。两头都得钉住。
+describe('角色级开关', () => {
   const charWith = (config: any) => ({ id: 'preset-x', name: 'Nyah', activeMsg2Config: config } as any);
 
   it('关掉的角色不给注入工具', () => {
@@ -190,8 +208,8 @@ describe('角色级开关 enabled=false', () => {
     expect(isAmsg2EnabledForChar(charWith({ enabled: true, tasks: [] }))).toBe(true);
   });
 
-  it('从没配过 2.0 的角色算开启（默认可用，不需要先进面板点一下）', () => {
-    expect(isAmsg2EnabledForChar(charWith(undefined))).toBe(true);
+  it('从没配过 2.0 的角色算关闭（要先进面板把开关打开）', () => {
+    expect(isAmsg2EnabledForChar(charWith(undefined))).toBe(false);
   });
 
   it('落盘不把 enabled 改写成 true（工具调用不得替用户重新开启功能）', async () => {
@@ -350,5 +368,50 @@ describe('同名同参的调用不重复执行', () => {
     expect(failed).toContain('失败');
     expect(retried).toContain('已创建');
     expect(ActiveMsgClient.scheduleCharacterTask).toHaveBeenCalledTimes(2);
+  });
+});
+
+// 连发上限的本地排程闸（与 worker fire 侧 unanswered_limit 对齐）：本地排到超限的
+// 那几条会被到点兜底闸静默 skip——角色在正文里承诺了「等下再来找你」，到点却凭空
+// 蒸发。这里钉住：超限时带回喂打回、一次远端请求都不发；面板任务不占额度。
+describe('连发上限·本地排程闸', () => {
+  beforeEach(() => {
+    (ActiveMsgClient.scheduleCharacterTask as any).mockReset();
+    (ActiveMsgClient.scheduleCharacterTask as any).mockImplementation(async () => ({
+      uuid: UUIDS[0], clientTaskId: 'ct-limit', firstSendAt: RESOLVED_ISO, anchorMs: null,
+    }));
+  });
+
+  const selfTask = (uuid: string) => ({
+    taskUuid: uuid, clientTaskId: `${uuid}-c`, mode: 'auto', recurrenceType: 'none',
+    expirePolicy: 'expire', source: 'character', status: 'scheduled',
+    firstSendTime: new Date(Date.now() + 3600_000).toISOString(), createdAt: Date.now(),
+  });
+
+  it('挂满自排任务（默认上限 3）再排 → 打回，不发远端请求', async () => {
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [selfTask('u1'), selfTask('u2'), selfTask('u3')] },
+    });
+    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(1) }, deps);
+    expect(reply).toContain('连发上限');
+    expect(ActiveMsgClient.scheduleCharacterTask).not.toHaveBeenCalled();
+  });
+
+  it('面板里用户亲手排的任务不占连发额度', async () => {
+    const userTask = (uuid: string) => ({ ...selfTask(uuid), source: 'user' });
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [userTask('u1'), userTask('u2'), userTask('u3')] },
+    });
+    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(1) }, deps);
+    expect(reply).toContain('已创建');
+  });
+
+  it('用户把上限设成 1 → 第一条自排就打回第二条', async () => {
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, maxUnansweredSends: 1, tasks: [selfTask('u1')] },
+    });
+    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(1) }, deps);
+    expect(reply).toContain('连发上限是 1 条');
+    expect(ActiveMsgClient.scheduleCharacterTask).not.toHaveBeenCalled();
   });
 });

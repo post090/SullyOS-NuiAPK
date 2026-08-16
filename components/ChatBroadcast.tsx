@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { CHAT_GEN_EVENTS, CHAT_VIEW_CHANGED_EVENT, getChatViewSnapshot } from '../utils/chatGenEvents';
+import { AMSG_INSTANT_CHAT_PENDING_EVENT, listInstantChatPendings } from '../utils/amsgInstantChat';
+import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
 
 /**
  * 聊天生成全局横幅（对标彼方的 VRBroadcast，App 根级挂载）。
@@ -12,31 +14,45 @@ import { CHAT_GEN_EVENTS, CHAT_VIEW_CHANGED_EVENT, getChatViewSnapshot } from '.
  * 抑制规则：用户正开着该角色的聊天页时不显示（页内已有打字/情绪指示灯），
  * 切走的瞬间由 CHAT_VIEW_CHANGED_EVENT 触发重渲染、横幅接棒。
  *
- * 结束信号都在 finally 里派发，正常不会漏；TTL 只是兜底（instant 情绪评估的
- * 'instant-emotion-done' 可能因 worker 被杀/推送丢失而永不到达）。
+ * 结束信号都在 finally 里派发，正常不会漏；TTL 只是兜底（上云那两条路的
+ * emotionDone 可能因 worker 被杀/推送丢失而永不到达）。
  */
 
 type GenKind = 'reply' | 'emotion';
-interface GenEntry { kind: GenKind; charId: string; charName: string; startedAt: number; }
+interface GenEntry { kind: GenKind; charId: string; charName: string; startedAt: number; ttlMs: number; }
 
-// 兜底过期：主回复对齐 instant 300s 超时 + 本地重试余量；情绪评估对齐 hook 内 90s 安全网。
-// reply 从 6 分钟缩到 3 分钟——safeFetchJson 已加 60s stall 超时（3 次重试 ≈ 3 分钟），
-// 正常路径不应超过这个时间；缩短 TTL 让卡住场景更快清横幅。
-const TTL_MS: Record<GenKind, number> = { reply: 3 * 60_000, emotion: 2 * 60_000 };
+// 兜底过期的默认档：主回复对齐 instant 300s 超时 + 本地重试余量；情绪评估按本地评估的量级给。
+//
+// 派发方可以用 detail.ttlMs 单条覆盖，上云的情绪评估就是这么干的：同一个「正在感受」
+// 在本地是几秒钟的事，交给自己那台 worker 的即时对话却能跑满十分钟。这里要是一律按
+// 默认档扫掉，横幅会在角色还在云端想着的时候先自己消失，用户以为没在跑了。
+// 覆盖值与 Chat 页那盏徽章用的是同一个数（见 useChatAI 的 cloudEvalTimeoutMs），
+// 两处必须一起改——不然横幅和徽章会一前一后灭，看着像出了两次故障。
+const TTL_MS: Record<GenKind, number> = { reply: 6 * 60_000, emotion: 2 * 60_000 };
 
 const LABEL: Record<GenKind, string> = { reply: '正在回应', emotion: '正在感受' };
+
+// 即时对话待收条目的兜底 TTL：worker fire 上限 + 一分钟推送在途（与 useChatAI 的
+// cloudEvalTimeoutMs 同一来源推导，worker 调预算两边一起动）。正常熄灭不靠它——
+// 待收记录销账（回复到了 / 判失败）那一刻事件就把条目撤了。
+const INSTANT_PENDING_TTL_MS = INSTANT_TOTAL_TIMEOUT_MS + 60_000;
 
 const ChatBroadcast: React.FC = () => {
     const [entries, setEntries] = useState<GenEntry[]>([]);
     const [, setViewTick] = useState(0);
+    // 即时对话的「正在回应」不靠 replyStart/replyEnd 撑：instant 分支 POST 完就 return，
+    // finally 的 replyEnd 几秒内就把事件条目撤了，而云端还要跑最长十分钟。这里直接以
+    // 待收记录为准（localStorage 持久，重启后横幅也还在）——受理点亮、销账熄灭。
+    const [, setPendingTick] = useState(0);
 
     useEffect(() => {
         const add = (kind: GenKind) => (e: Event) => {
-            const d = (e as CustomEvent).detail as { charId?: string; charName?: string };
+            const d = (e as CustomEvent).detail as { charId?: string; charName?: string; ttlMs?: number };
             if (!d?.charId) return;
+            const ttlMs = typeof d.ttlMs === 'number' && d.ttlMs > 0 ? d.ttlMs : TTL_MS[kind];
             setEntries(prev => prev.some(x => x.kind === kind && x.charId === d.charId)
                 ? prev
-                : [...prev, { kind, charId: d.charId!, charName: d.charName || '', startedAt: Date.now() }]);
+                : [...prev, { kind, charId: d.charId!, charName: d.charName || '', startedAt: Date.now(), ttlMs }]);
         };
         const remove = (kind: GenKind) => (e: Event) => {
             const id = (e as CustomEvent).detail?.charId;
@@ -55,30 +71,44 @@ const ChatBroadcast: React.FC = () => {
         window.addEventListener(CHAT_GEN_EVENTS.replyEnd, onReplyEnd);
         window.addEventListener(CHAT_GEN_EVENTS.emotionStart, onEmotionStart);
         window.addEventListener(CHAT_GEN_EVENTS.emotionEnd, onEmotionEnd);
-        // instant 模式情绪评估在 worker 跑，结束信号是 activeMsgRuntime 的既有事件
-        window.addEventListener('instant-emotion-done', onEmotionEnd);
+        // 上云的情绪评估在 worker 跑，结束信号由 activeMsgRuntime / 收尾判定派发
+        window.addEventListener(CHAT_GEN_EVENTS.emotionDone, onEmotionEnd);
         window.addEventListener(CHAT_VIEW_CHANGED_EVENT, onView);
-        // sweeper 间隔从 15s 缩到 10s，让 TTL 兜底更快生效（APK 后台 timer 冻结时减少恢复后的延迟）
+        const onPending = () => setPendingTick(n => n + 1);
+        window.addEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, onPending);
         const sweeper = setInterval(() => {
             const now = Date.now();
             setEntries(prev => {
-                const next = prev.filter(x => now - x.startedAt < TTL_MS[x.kind]);
+                const next = prev.filter(x => now - x.startedAt < x.ttlMs);
                 return next.length === prev.length ? prev : next;
             });
-        }, 10_000);
+            // 待收条目的 TTL 过期只在渲染时判，欠着回复时靠这个 tick 保证有下一次渲染。
+            if (listInstantChatPendings().length > 0) setPendingTick(n => n + 1);
+        }, 15_000);
         return () => {
+            window.removeEventListener(AMSG_INSTANT_CHAT_PENDING_EVENT, onPending);
             window.removeEventListener(CHAT_GEN_EVENTS.replyStart, onReplyStart);
             window.removeEventListener(CHAT_GEN_EVENTS.replyEnd, onReplyEnd);
             window.removeEventListener(CHAT_GEN_EVENTS.emotionStart, onEmotionStart);
             window.removeEventListener(CHAT_GEN_EVENTS.emotionEnd, onEmotionEnd);
-            window.removeEventListener('instant-emotion-done', onEmotionEnd);
+            window.removeEventListener(CHAT_GEN_EVENTS.emotionDone, onEmotionEnd);
             window.removeEventListener(CHAT_VIEW_CHANGED_EVENT, onView);
             clearInterval(sweeper);
         };
     }, []);
 
+    // 即时对话待收 → 「正在回应」条目（同角色已有事件驱动的 reply 条目时不重复）。
+    const now = Date.now();
+    const cloudEntries: GenEntry[] = listInstantChatPendings()
+        .filter(p => now - p.acceptedAt < INSTANT_PENDING_TTL_MS)
+        .filter(p => !entries.some(e => e.kind === 'reply' && e.charId === p.charId))
+        .map(p => ({
+            kind: 'reply' as const, charId: p.charId, charName: p.charName || '',
+            startedAt: p.acceptedAt, ttlMs: INSTANT_PENDING_TTL_MS,
+        }));
+
     const view = getChatViewSnapshot();
-    const visible = entries.filter(x => !(view.chatOpen && view.charId === x.charId));
+    const visible = [...entries, ...cloudEntries].filter(x => !(view.chatOpen && view.charId === x.charId));
     if (visible.length === 0) return null;
     // 回复优先于情绪展示（同角色两个都在跑时"正在回应"信息量更大）
     const cur = [...visible].sort((a, b) =>

@@ -20,6 +20,21 @@ export function cleanApiMessages(
 }
 
 /**
+ * 单条多模态 content 的拍平内核：保留 text 部分，丢弃 image_url/base64。
+ * 「图片消息 → 文字占位」这条规则全仓库只此一份——本地 stripImages 路径
+ * （flattenImageContentParts）和即时对话超预算降级路径（activeMsgClient 的
+ * toFirePackChatMessages）都从这里出，两条路的产物永远同源。
+ */
+export function flattenContentPartsToText(parts: any[]): string {
+    const text = parts
+        .filter((part: any) => part?.type === 'text')
+        .map((part: any) => part.text || '')
+        .join('\n')
+        .trim();
+    return text || '[图片]';
+}
+
+/**
  * 把多模态图片消息压平成纯文本：保留 text 部分，丢弃 image_url/base64。
  */
 export function flattenImageContentParts(
@@ -27,11 +42,6 @@ export function flattenImageContentParts(
 ): Array<{ role: string; content: any }> {
     return apiMessages.map((msg) => {
         if (!Array.isArray(msg.content)) return msg;
-        const text = msg.content
-            .filter((part: any) => part?.type === 'text')
-            .map((part: any) => part.text || '')
-            .join('\n')
-            .trim();
-        return { ...msg, content: text || '[图片]' };
+        return { ...msg, content: flattenContentPartsToText(msg.content) };
     });
 }

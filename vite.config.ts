@@ -54,6 +54,18 @@ if (process.env.VITE_SHOW_BUILD_BADGE === '1') showBuildBadge = true;
 type ProxyWithRouter = import('vite').ProxyOptions & { router?: (req: any) => string };
 
 export default defineConfig({
+  resolve: {
+    // Live2D subclasses Pixi containers, so both the renderer and the engine
+    // must share the same Pixi prototype/extension registry in dev and builds.
+    dedupe: [
+      'react',
+      'react-dom',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'pixi.js',
+      '@pixi/sound',
+    ],
+  },
   plugins: [
     react(),
     {
@@ -123,7 +135,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       // 关键修复：将这些包排除在打包之外，让浏览器通过 index.html 的 importmap 加载
-      external: ['pdfjs-dist', 'katex'],
+      external: ['katex'],
       onwarn(warning, defaultHandler) {
         // 抑制动态导入与静态导入混合的无害警告
         if (warning.message?.includes('dynamic import will not move module into another chunk')) return;
@@ -132,6 +144,27 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // Local camera emotion calibration is opt-in. Keep MediaPipe out of
+            // the preloaded common vendor so its JS is fetched only after the
+            // user explicitly enables their camera.
+            if (id.includes('@mediapipe/tasks-vision')) {
+              return 'vendor-mediapipe';
+            }
+            // VRM/Three 只在懒加载的 CallApp 视频模式使用。单独成包，避免 3D 引擎
+            // 被通用 vendor 首屏加载，普通聊天/桌面用户无需支付这部分体积。
+            if (id.includes('@pixiv/three-vrm') || /[\\/]node_modules[\\/]three[\\/]/.test(id)) {
+              return 'vendor-vrm';
+            }
+            // The Cubism adapter checks window.Live2DCubismCore at module evaluation
+            // time. Keep it out of the Pixi chunk: the call page and Live2D desktop
+            // theme import Pixi eagerly, while live2dCore.ts must load Cubism Core
+            // before dynamically importing this adapter.
+            if (id.includes('untitled-pixi-live2d-engine')) {
+              return 'vendor-live2d-engine';
+            }
+            if (id.includes('@pixi/') || /[\\/]node_modules[\\/]pixi\.js[\\/]/.test(id)) {
+              return 'vendor-live2d';
+            }
             if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
               return 'vendor-react';
             }

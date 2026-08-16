@@ -13,10 +13,16 @@
 
 **用户侧（不需要电脑/部署）：** SullyOS → 设置 → 实时感知 → 小红书：
 - 服务器 URL 已默认 `https://sullymeow.ccwu.cc/api`，一般无需改。
-- 粘贴浏览器登录小红书后的完整 cookie（含 `a1` 和 `web_session`），点测试连接。
+- 粘贴浏览器登录 `xiaohongshu.com` 或 `rednote.com` 后的完整 cookie（含 `a1` 和
+  `web_session`），点测试连接。Lite 会分别探测国内与全球后端并自动选择，不依赖
+  `gid`、`bRequestId` 等可能随域名和灰度版本变化的字段。
 
 cookie 存在本地，每次请求经 `X-Xhs-Cookie` 头发给 Worker；Worker 无状态，
 一个部署服务所有用户。
+
+国内小红书和全球 RedNote 是两套不共享会话的后端：前者请求
+`edith.xiaohongshu.com`，后者请求 `webapi.rednote.com`。当前 RedNote 支持搜索、
+浏览、详情、点赞、收藏和评论；图片发布仍只对已验证的国内后端开放。
 
 ## 原理
 
@@ -26,7 +32,7 @@ cookie 存在本地，每次请求经 `X-Xhs-Cookie` 头发给 Worker；Worker �
 - 发帖带图：Worker `fetch` 图床/CDN 图片字节 → 算上传签名 → `PUT` 到小红书 ROS →
   拿 `file_id` 发帖。
 
-> ⚠️ `x-rap-param`（搜索/详情用的 JSVMP）已省略，多数情况不带也能用；若被拦再补。
+> ⚠️ `x-rap-param` 只在上游 RAP 白名单明确要求的链路启用；当前“我的笔记” (`user_posted`) 和评论/回复 (`comment/post`) 会携带，搜索/详情仍保留已验证的稳定请求形态。
 > 签名随小红书改版会失效，到时同步上游 xhshow 更新 `worker/index.js` 里的 `XHSLite`。
 
 ## 验证签名（与 Python 原版逐字节比对）

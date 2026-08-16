@@ -16,11 +16,11 @@ import {
 } from '../utils/devDebug';
 import { BUILD_LABEL } from '../utils/buildInfo';
 import { trackEvent } from '../utils/analytics';
-import { resetLoyalRecruitmentForTesting } from '../utils/loyalUserRecruitment';
 import type { DevDebugCaptureCategory, DevDebugFlags, DevDebugFloatingPosition } from '../utils/devDebug';
 
 const FLOATING_BUTTON_SIZE = 44;
 const FLOATING_SAFE_MARGIN = 16;
+const FLOATING_BOTTOM_RESERVED = 92;
 const PANEL_WIDTH = 342;
 const PANEL_ESTIMATED_HEIGHT = 392;
 const DRAG_THRESHOLD_PX = 4;
@@ -41,7 +41,7 @@ function clampFloatingPosition(position: DevDebugFloatingPosition): DevDebugFloa
     const viewport = getViewportSize();
     return {
         x: clamp(position.x, FLOATING_SAFE_MARGIN, viewport.width - FLOATING_BUTTON_SIZE - FLOATING_SAFE_MARGIN),
-        y: clamp(position.y, FLOATING_SAFE_MARGIN, viewport.height - FLOATING_BUTTON_SIZE - FLOATING_SAFE_MARGIN),
+        y: clamp(position.y, FLOATING_SAFE_MARGIN, viewport.height - FLOATING_BUTTON_SIZE - FLOATING_BOTTOM_RESERVED),
     };
 }
 
@@ -49,7 +49,7 @@ function getDefaultFloatingPosition(): DevDebugFloatingPosition {
     const viewport = getViewportSize();
     return clampFloatingPosition({
         x: FLOATING_SAFE_MARGIN,
-        y: viewport.height - FLOATING_BUTTON_SIZE - FLOATING_SAFE_MARGIN,
+        y: viewport.height - FLOATING_BUTTON_SIZE - FLOATING_BOTTOM_RESERVED,
     });
 }
 
@@ -241,12 +241,6 @@ const DevDebugPanel: React.FC = () => {
         setFloatingPosition(getDefaultFloatingPosition());
         closeDevDebug();
         trackEvent('强制关闭调试面板');
-    };
-    const resetRecruitment = () => {
-        if (!window.confirm('清除本机的社区迁移检测结果并刷新？仅用于测试不同数据集。')) return;
-        resetLoyalRecruitmentForTesting();
-        trackEvent('重测社区迁移检测');
-        window.location.reload();
     };
     const copyLog = async () => {
         const text = formatDevDebugLog();
@@ -486,14 +480,6 @@ const DevDebugPanel: React.FC = () => {
                     </div>
 
                     <div className="flex shrink-0 items-center justify-end gap-2 border-t border-white/10 px-4 py-3">
-                        <button
-                            type="button"
-                            onClick={resetRecruitment}
-                            className="flex h-8 shrink-0 items-center gap-1 rounded-full bg-amber-300/15 px-3 text-[11px] font-bold text-amber-100 active:scale-95"
-                        >
-                            <ArrowsClockwise size={13} weight="bold" />
-                            迁移重测
-                        </button>
                         <button
                             type="button"
                             onClick={handleForceClose}

@@ -12,7 +12,7 @@ import React from 'react';
 const HtmlCard: React.FC<{ html: string }> = ({ html }) => {
     const srcDoc = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body{margin:0;padding:0;background:transparent;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#334155;}body{display:flex;justify-content:center;padding:0;}*{box-sizing:border-box;}img{max-width:100%;}body>*{box-shadow:none!important;filter:none!important;}</style></head><body>${html}</body></html>`;
     return (
-        <div className="rounded-[18px] overflow-hidden bg-transparent max-w-[280px]">
+        <div className="w-[280px] max-w-full rounded-[18px] overflow-hidden bg-transparent">
             <iframe
                 title="html-card"
                 srcDoc={srcDoc}
@@ -21,7 +21,7 @@ const HtmlCard: React.FC<{ html: string }> = ({ html }) => {
                 // AI 输出里的 <script> 不会执行, 表单 / 弹窗 / 顶层跳转 也都被拦。
                 sandbox="allow-same-origin"
                 referrerPolicy="no-referrer"
-                className="block w-[280px] min-h-[120px] border-0 bg-transparent"
+                className="block w-full min-h-[120px] border-0 bg-transparent"
                 style={{ height: 200 }}
                 onLoad={(e) => {
                     try {

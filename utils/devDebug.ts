@@ -284,8 +284,13 @@ export function isCaptureEnabled(category: DevDebugCaptureCategory): boolean {
     return flags.captureEnabled && flags.captureLogs.includes(category);
 }
 
-function redactSecrets(value: unknown): unknown {
-    if (Array.isArray(value)) return value.map(redactSecrets);
+export function redactDevDebugSecrets(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map(redactDevDebugSecrets);
+    // Multimodal requests may contain a one-frame camera data URL. Debug logs
+    // keep its size signal via requestChars, never the actual private pixels.
+    if (typeof value === 'string' && /^data:image\/[a-z0-9.+-]+;base64,/i.test(value)) {
+        return `<image data omitted · ${value.length} chars>`;
+    }
     if (!value || typeof value !== 'object') return value;
 
     const out: Record<string, unknown> = {};
@@ -293,7 +298,7 @@ function redactSecrets(value: unknown): unknown {
         if (SECRET_KEY_PATTERN.test(key)) {
             out[key] = '<redacted>';
         } else {
-            out[key] = redactSecrets(item);
+            out[key] = redactDevDebugSecrets(item);
         }
     }
     return out;
@@ -302,7 +307,7 @@ function redactSecrets(value: unknown): unknown {
 function safeJsonValue(value: unknown): unknown {
     if (value === undefined) return undefined;
     try {
-        return redactSecrets(JSON.parse(JSON.stringify(value)));
+        return redactDevDebugSecrets(JSON.parse(JSON.stringify(value)));
     } catch {
         return String(value);
     }

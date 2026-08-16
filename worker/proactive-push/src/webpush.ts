@@ -32,7 +32,10 @@ export function b64uEncode(buf: ArrayBuffer | Uint8Array): string {
   return out;
 }
 
-export function b64uDecode(s: string): Uint8Array {
+// 注：下面凡是要交给 Web Crypto / fetch 的字节都写成 Uint8Array<ArrayBuffer>。
+// TS 5.7 起 Uint8Array 默认是 Uint8Array<ArrayBufferLike>，而 BufferSource / BodyInit
+// 只收 ArrayBuffer 撑的视图；这些数组本来就是 new Uint8Array(...) 现造的，如实标注即可。
+export function b64uDecode(s: string): Uint8Array<ArrayBuffer> {
   const clean = s.replace(/-/g, '+').replace(/_/g, '/');
   const padded = clean + '='.repeat((4 - (clean.length % 4)) % 4);
   const bin = atob(padded);
@@ -41,7 +44,7 @@ export function b64uDecode(s: string): Uint8Array {
   return out;
 }
 
-function concatBytes(...parts: Uint8Array[]): Uint8Array {
+function concatBytes(...parts: Uint8Array[]): Uint8Array<ArrayBuffer> {
   const len = parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(len);
   let off = 0;
@@ -97,7 +100,12 @@ async function buildVapidJwt(audience: string, vapid: VapidContext): Promise<str
 }
 
 // ---------- HKDF ----------
-async function hkdf(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, lengthBytes: number): Promise<Uint8Array> {
+async function hkdf(
+  ikm: Uint8Array<ArrayBuffer>,
+  salt: Uint8Array<ArrayBuffer>,
+  info: Uint8Array<ArrayBuffer>,
+  lengthBytes: number,
+): Promise<Uint8Array<ArrayBuffer>> {
   const key = await crypto.subtle.importKey('raw', ikm, { name: 'HKDF' }, false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
     { name: 'HKDF', hash: 'SHA-256', salt, info },
@@ -108,7 +116,11 @@ async function hkdf(ikm: Uint8Array, salt: Uint8Array, info: Uint8Array, lengthB
 }
 
 // ---------- aes128gcm content encoding (RFC 8188 + RFC 8291) ----------
-async function encryptAes128Gcm(payload: Uint8Array, clientP256dh: Uint8Array, clientAuth: Uint8Array): Promise<Uint8Array> {
+async function encryptAes128Gcm(
+  payload: Uint8Array<ArrayBuffer>,
+  clientP256dh: Uint8Array<ArrayBuffer>,
+  clientAuth: Uint8Array<ArrayBuffer>,
+): Promise<Uint8Array<ArrayBuffer>> {
   // 1. Ephemeral ECDH key pair on Worker side
   const ephemeral = await crypto.subtle.generateKey(
     { name: 'ECDH', namedCurve: 'P-256' },
@@ -184,7 +196,7 @@ export interface PushResult {
   responseText?: string;
 }
 
-export async function sendPush(vapid: VapidContext, sub: PushSubscription, payload: Uint8Array | string): Promise<PushResult> {
+export async function sendPush(vapid: VapidContext, sub: PushSubscription, payload: Uint8Array<ArrayBuffer> | string): Promise<PushResult> {
   const bytes = typeof payload === 'string' ? new TextEncoder().encode(payload) : payload;
   const url = new URL(sub.endpoint);
   const audience = url.origin;

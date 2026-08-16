@@ -79,7 +79,7 @@ describe('buildToolConfig / parseToolConfig', () => {
       notionApiKey: 'ntn-key',
       notionDatabaseId: 'db1',
       feishuEnabled: false,
-      xhsMcpConfig: { enabled: true, serverUrl: 'https://xhs.example.com/api', cookie: 'ck' },
+      xhsMcpConfig: { enabled: true, serverUrl: 'https://xhs.example.com/api', cookie: 'ck', platform: 'rednote' },
       // 天气不是工具，但 worker 到点要自己拉一次填进提示词，所以也得上云
       weatherEnabled: true,
       weatherCity: '上海',
@@ -91,7 +91,7 @@ describe('buildToolConfig / parseToolConfig', () => {
 
     expect(parsed?.newsApiKey).toBe('brave-key');
     expect(parsed?.notionDatabaseId).toBe('db1');
-    expect(parsed?.xhsMcpConfig).toEqual({ enabled: true, serverUrl: 'https://xhs.example.com/api', cookie: 'ck' });
+    expect(parsed?.xhsMcpConfig).toEqual({ enabled: true, serverUrl: 'https://xhs.example.com/api', cookie: 'ck', platform: 'rednote' });
     expect(typeof parsed?.proxyWorkerUrl).toBe('string');
     expect(parsed?.proxyWorkerUrl).toMatch(/^https?:\/\//);
     // 到点组提示词要用的实时世界配置：天气开关 + 城市 + 热榜平台

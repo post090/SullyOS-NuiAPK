@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import { DB, openDB } from './db';
 import { encodeVectorsForBackup, encodeVectorsForBackupChunked, MemoryVectorDB } from './memoryPalace/db';
 import { writeV2Backup, assembleV2Backup, shardFileName, type ShardLimits } from './backupFormat';
+import { ActiveMsgStore } from './activeMsgStore';
 
 // fake-indexeddb 已通过 test-setup.ts 注入。
 // 这组用例走「真实链路」：writeV2Backup → assembleV2Backup → DB.importFullData，钉死 v2 改造
@@ -100,14 +101,90 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         localStorage.removeItem('aetheros.mcp.useNativeTools');
     });
 
+    // ─── 主动消息 2.0 的全局配置 ───
+    // 它存在独立的 ActiveMsg 库里，不在主库那份 store 清单内。曾经整份漏在备份外：
+    // 同一台设备上恢复看不出问题（那个库没被动过），换设备就是 Worker 地址、共享密钥、
+    // 一键部署生成的 master key 全丢，主动消息和即时对话得从头配。
+    it('主动消息 2.0 全局配置随备份往返：Worker 地址与 master key 都回得来', async () => {
+        await ActiveMsgStore.saveGlobalConfig({
+            userId: 'u-amsg-roundtrip',
+            workerUrl: 'https://amsg.example.workers.dev',
+            serverToken: 'token-abc',
+            masterKey: 'master-key-xyz',
+            initializedAt: 1700000000000,
+            instantChatEnabled: true,
+        });
+
+        const exported = await DB.exportFullData();
+        expect(exported.amsg2GlobalConfig?.workerUrl).toBe('https://amsg.example.workers.dev');
+
+        const zip = new FakeZip();
+        const manifest = await writeV2Backup(zip, { ...exported } as any, {});
+        const data: any = await assembleV2Backup(zip, manifest);
+
+        // 换设备 / 清了浏览器数据：这台机器上什么都没配过
+        await ActiveMsgStore.saveGlobalConfig({
+            userId: '', workerUrl: '', serverToken: undefined,
+            masterKey: undefined, initializedAt: undefined, instantChatEnabled: undefined,
+        });
+        expect((await ActiveMsgStore.getGlobalConfig()).workerUrl).toBe('');
+
+        await DB.importFullData(data);
+
+        const restored = await ActiveMsgStore.getGlobalConfig();
+        expect(restored.workerUrl).toBe('https://amsg.example.workers.dev');
+        expect(restored.serverToken).toBe('token-abc');
+        // master key 一换，之前加密进 D1 的任务就全解不开，而 worker 里的值读不回来
+        expect(restored.masterKey).toBe('master-key-xyz');
+        expect(restored.userId).toBe('u-amsg-roundtrip');
+        expect(restored.initializedAt).toBe(1700000000000);
+        expect(restored.instantChatEnabled).toBe(true);
+    });
+
+    it('instantChatSupported 不随备份还原：留空等重新探一次，不照抄过期结论', async () => {
+        await ActiveMsgStore.saveGlobalConfig({
+            workerUrl: 'https://amsg.example.workers.dev',
+            instantChatSupported: false, // 备份那会儿那台 Worker 还是旧版
+        });
+        const exported = await DB.exportFullData();
+
+        // 这台机器上的 Worker 早就更新过了
+        await ActiveMsgStore.saveGlobalConfig({ workerUrl: '', instantChatSupported: true });
+        await DB.importFullData({ ...exported } as any);
+
+        // 照抄回 false 会把即时对话白挡在门外，直到用户手动去重开开关
+        expect((await ActiveMsgStore.getGlobalConfig()).instantChatSupported).toBeUndefined();
+    });
+
+    it('没配过 Worker 的用户：备份里干脆不出现这一项', async () => {
+        await ActiveMsgStore.saveGlobalConfig({ workerUrl: '', masterKey: undefined });
+        const exported = await DB.exportFullData();
+        expect(exported.amsg2GlobalConfig).toBeUndefined();
+    });
+
     it('media_only 补丁：文字角色字段 + 文字消息存活，只有媒体被更新（R4·F1）', async () => {
         await seedStore('characters', [{ id: 'c1', name: 'Alice', bio: 'text-bio', avatar: 'old-avatar' }]);
         await seedStore('messages', [{ id: 1, charId: 'c1', type: 'text', content: 'hello' }]);
 
         // media_only 形状：没有 characters 字段（关键！），只有 mediaAssets + 过滤后的 image 消息
         const backupData = {
-            mediaAssets: [{ charId: 'c1', avatar: 'new-avatar', backgrounds: {} }],
-            messages: [{ id: 2, charId: 'c1', type: 'image', content: 'img' }],
+            mediaAssets: [{
+                charId: 'c1',
+                avatar: 'new-avatar',
+                companionAvatar: { version: 1, source: 'upload', imageRef: 'blobref:static-companion' },
+                backgrounds: {},
+            }],
+            messages: [
+                { id: 2, charId: 'c1', type: 'image', content: 'img' },
+                {
+                    id: 3,
+                    charId: 'c1',
+                    role: 'user',
+                    type: 'text',
+                    content: 'video turn',
+                    metadata: { source: 'call', callSessionId: 'call-1', cameraSnapshotExpired: true },
+                },
+            ],
         };
         const zip = new FakeZip();
         const manifest = await writeV2Backup(zip, backupData, {});
@@ -120,9 +197,10 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         expect(c1.name).toBe('Alice');        // 文字字段存活
         expect(c1.bio).toBe('text-bio');      // 文字字段存活
         expect(c1.avatar).toBe('new-avatar'); // 媒体被 patch
+        expect(c1.companionAvatar).toEqual({ version: 1, source: 'upload', imageRef: 'blobref:static-companion' });
         // 老文字消息 id1 没被清，新 image id2 加上（patch/merge，不 clear）
         const msgIds = (await DB.getRawStoreData('messages')).map((m: any) => m.id).sort();
-        expect(msgIds).toEqual([1, 2]);
+        expect(msgIds).toEqual([1, 2, 3]);
     });
 
     it('空数组按 shape 还原：clear-and-add 清、merge 不动、单例省略不动（test 9）', async () => {
@@ -180,6 +258,11 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
             contextRangeMode: 'manual',
             contextLimit: 1200,
             contextUserStartMessageId: 345,
+            memoryPalaceWaterline: {
+                preset: 'custom',
+                hotZoneSize: 80,
+                bufferThreshold: 30,
+            },
         };
         const zip = new FakeZip();
         const manifest = await writeV2Backup(zip, { characters: [char] } as any, {});
@@ -193,6 +276,11 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
             contextRangeMode: 'manual',
             contextLimit: 1200,
             contextUserStartMessageId: 345,
+            memoryPalaceWaterline: {
+                preset: 'custom',
+                hotZoneSize: 80,
+                bufferThreshold: 30,
+            },
         });
     });
 

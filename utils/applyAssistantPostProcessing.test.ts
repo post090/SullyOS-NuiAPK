@@ -318,6 +318,65 @@ describe('renderAndPersist XHS mimicked-card fallback', () => {
         expect(text).not.toContain('\u6807\u9898:');
         expect(text).not.toContain('\u4e92\u52a8:');
     }, 20000);
+
+    it('recovers consecutive cards when the next marker is glued to the previous description', async () => {
+        const charId = `c-xhs-mimic-glued-${Date.now()}`;
+        const ctx = makeCtx(charId, []);
+        ctx.instantRender = true;
+        ctx.lastXhsNotesRef = {
+            current: [
+                {
+                    noteId: 'note-doll',
+                    title: '只需发照片定制人偶可撕拉盲盒',
+                    desc: '完整盲盒简介',
+                    likes: 11,
+                    collects: 0,
+                    commentCount: 0,
+                    shareCount: 0,
+                    author: 'StoyTuned小铺',
+                    authorId: 'author-doll',
+                    coverUrl: 'https://example.test/doll.jpg',
+                },
+                {
+                    noteId: 'note-couple-app',
+                    title: '情侣必备的治愈系app',
+                    desc: '完整应用简介',
+                    likes: 991,
+                    collects: 0,
+                    commentCount: 0,
+                    shareCount: 0,
+                    author: '小猫女士',
+                    authorId: 'author-cat',
+                    coverUrl: 'https://example.test/couple.jpg',
+                },
+            ],
+        };
+        const raw = [
+            '[你分享了小红书笔记]',
+            '标题: 只需发照片定制人偶可撕拉盲盒',
+            '作者: StoyTuned小铺',
+            '互动: 11赞 0收藏 0评论 0分享',
+            '简介: 无[你分享了小红书笔记]',
+            '标题: 情侣必备的治愈系app',
+            '作者: 小猫女士',
+            '互动: 991赞 0收藏 0评论 0分享',
+            '简介: 无',
+        ].join('\n');
+
+        await applyAssistantPostProcessing(raw, ctx);
+
+        const msgs = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+        const cards = msgs.filter(m => m.type === 'xhs_card');
+        const leakedText = msgs.filter(m => m.type === 'text').map(m => m.content).join('\n');
+        expect(cards).toHaveLength(2);
+        expect(cards.map(card => card.metadata?.xhsNote?.noteId)).toEqual(['note-doll', 'note-couple-app']);
+        expect(cards.map(card => card.metadata?.xhsNote?.coverUrl)).toEqual([
+            'https://example.test/doll.jpg',
+            'https://example.test/couple.jpg',
+        ]);
+        expect(leakedText).not.toContain('分享了小红书笔记');
+        expect(leakedText).not.toContain('991赞');
+    }, 20000);
 });
 
 // push 路径上 LIFE / NEWS_CARD 的副作用改走 worker classifier 的 directive 通道
@@ -392,5 +451,52 @@ describe('SEND_EMOJI 名字对不上', () => {
         expect(bubbles).toHaveLength(1);
         expect(bubbles[0].type).toBe('emoji');
         expect(bubbles[0].content).toBe('blob:emoji-lol');
+    }, 20000);
+});
+
+// 模型偶尔会照抄历史/UI 里的人类可读单括号摘要，而不是 prompt 要求的双括号机器指令。
+// 这三条锁住真实后处理结果，保证普通聊天与主动消息共用的管线都能自愈。
+describe('动作指令单括号掉格式兜底', () => {
+    it('[表情：name] 恢复为真实表情气泡', async () => {
+        const charId = `c-emoji-single-${Date.now()}`;
+        const ctx = makeCtx(charId, [], [{ name: '小狗泪丧', url: 'blob:emoji-dog-cry' }]);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('[表情：小狗泪丧]', ctx);
+
+        const bubbles = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+        expect(bubbles).toHaveLength(1);
+        expect(bubbles[0].type).toBe('emoji');
+        expect(bubbles[0].content).toBe('blob:emoji-dog-cry');
+    }, 20000);
+
+    it('[ACTION:TRANSFER|...] 恢复为转账卡，正文不留标签', async () => {
+        const charId = `c-transfer-single-${Date.now()}`;
+        const ctx = makeCtx(charId, []);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('[ACTION:TRANSFER|to=user|amount=13]\n给你买西瓜汁', ctx);
+
+        const bubbles = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+        const cards = bubbles.filter(m => m.type === 'transfer');
+        expect(cards).toHaveLength(1);
+        expect(cards[0].metadata?.amount).toBe('13');
+        expect(bubbles.filter(m => m.type === 'text').map(m => m.content)).toEqual(['给你买西瓜汁']);
+    }, 20000);
+
+    it('[生活记录：支出 ...] 恢复为生活记录卡并写入支出', async () => {
+        const charId = `c-life-summary-${Date.now()}`;
+        await DB.saveCharacter({ id: charId, name: '测试角色', lifeRecordEnabled: true } as any);
+        const ctx = makeCtx(charId, []);
+        ctx.instantRender = true;
+
+        await applyAssistantPostProcessing('[生活记录：支出 13（西瓜汁-单括号回归）]', ctx);
+
+        const bubbles = (await DB.getRecentMessagesByCharId(charId, 50)).filter(m => m.role === 'assistant');
+        const cards = bubbles.filter(m => m.type === 'life_card');
+        expect(cards).toHaveLength(1);
+        expect(cards[0].metadata?.module).toBe('expense');
+        expect(cards[0].metadata?.summary).toBe('支出 13（西瓜汁-单括号回归）');
+        expect(bubbles.filter(m => m.type === 'text')).toHaveLength(0);
     }, 20000);
 });

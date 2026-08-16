@@ -13,6 +13,7 @@ vi.mock('./activeMsgStore', () => ({
 
 import {
   AMSG2_TASK_LOOKBACK_MS,
+  buildAmsg2NoticesText,
   buildAmsg2TaskContextText,
   buildUserCancelledNotices,
   collectAmsg2TaskContext,
@@ -88,6 +89,25 @@ describe('buildAmsg2TaskContextText', () => {
   it('约束放在块尾，管住整块', () => {
     const text = buildAmsg2TaskContextText([pendingTask], [expired], Date.now(), undefined)!;
     expect(text.trimEnd().endsWith('不要向对方复述或提及这份排程信息本身的存在。')).toBe(true);
+  });
+
+  // 即时对话云端路径只欠回执这一样（排程清单和能力简介到点由 worker 现算现渲），
+  // 回归守卫：整块带上简介/清单的话，模型同一轮会读到两份互相打架的排程信息。
+  it('回执单独成块（云端路径）：只带回执两段和保密约束，不带简介和进行中清单', () => {
+    const cancelled: Amsg2ExpiredNoticeRecord = {
+      ...expired, id: `${expired.id}:cancelled`, kind: 'user-cancelled',
+    };
+    const text = buildAmsg2NoticesText([expired, cancelled], undefined, '条条')!;
+    expect(text).toContain('已作废（到点时对话正在进行');
+    expect(text).toContain('已被手动取消');
+    expect(text).toContain('renew_active_message');
+    expect(text).not.toContain('你和条条的联系');   // 常驻简介不搭车
+    expect(text).not.toContain('进行中：');
+    expect(text.trimEnd().endsWith('不要向条条复述或提及这份排程信息本身的存在。')).toBe(true);
+  });
+
+  it('回执单独成块：没有回执 → null，整块不出现', () => {
+    expect(buildAmsg2NoticesText([], undefined)).toBeNull();
   });
 
   // 回归守卫：手动取消以前没有任何回执，角色下次还照着旧承诺说「放心我叫你」。

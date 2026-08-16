@@ -8,6 +8,7 @@ import { ChatTheme, BubbleStyle } from '../types';
 import { processImage } from '../utils/file';
 import { validateScopedCss, runCssRenderabilityCheck, CssValidationResult } from '../utils/scopedCss';
 import { trackEvent } from '../utils/analytics';
+import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../utils/bubbleAppearance';
 
 const cloneTheme = (theme: ChatTheme): ChatTheme => {
     if (typeof structuredClone === 'function') {
@@ -20,6 +21,7 @@ const DEFAULT_STYLE: BubbleStyle = {
     textColor: '#334155',
     backgroundColor: '#ffffff',
     borderRadius: 20,
+    tailMode: 'last',
     opacity: 1,
     backgroundImageOpacity: 0.5,
     decorationX: 90,
@@ -40,6 +42,9 @@ const DEFAULT_THEME: ChatTheme = {
     ai: { ...DEFAULT_STYLE },
     customCss: ''
 };
+
+const VOICE_PREVIEW_DURATION_MS = 8000;
+const VOICE_PREVIEW_WAVE = [4, 10, 6, 14, 8, 12, 5, 11, 7, 13, 5, 9];
 
 // --- CSS Examples ---
 const CSS_EXAMPLES = [
@@ -265,7 +270,7 @@ type CssSnippet = {
     code: string;
 };
 
-const TARGET_SELECTOR_REGEX = /^\.sully-bubble-(user|ai)\b/;
+const TARGET_SELECTOR_REGEX = /^(?:\.sully-bubble-(?:user|ai)\b|\.sully-voice-bar\b)/;
 
 const isValidHttpImageUrl = (value: string) => {
     try {
@@ -278,7 +283,7 @@ const isValidHttpImageUrl = (value: string) => {
 
 // 校验实现挪去 utils/scopedCss.ts（心象卡片的自定义 CSS 复用同一套），这里只绑定气泡作用域
 const validateCustomCss = (css: string): CssValidationResult =>
-    validateScopedCss(css, TARGET_SELECTOR_REGEX, '.sully-bubble-user / .sully-bubble-ai');
+    validateScopedCss(css, TARGET_SELECTOR_REGEX, '.sully-bubble-user / .sully-bubble-ai / .sully-voice-bar');
 
 const CSS_SCOPE_SNIPPETS: CssSnippet[] = [
     {
@@ -304,6 +309,12 @@ const CSS_SCOPE_SNIPPETS: CssSnippet[] = [
         name: '玻璃',
         description: '毛玻璃 + 高光边框',
         code: `.sully-bubble-user, .sully-bubble-ai {\n  backdrop-filter: blur(10px);\n  border: 1px solid rgba(255, 255, 255, 0.45);\n}\n.sully-bubble-user {\n  background: rgba(99, 102, 241, 0.62) !important;\n}\n.sully-bubble-ai {\n  background: rgba(255, 255, 255, 0.62) !important;\n}`
+    },
+    {
+        id: 'scope-voice-bar',
+        name: '语音条',
+        description: '单独修改语音条、播放键和波形',
+        code: `.sully-voice-bar {\n  min-width: 220px;\n  border-radius: 10px !important;\n  background: rgba(255,255,255,.72) !important;\n}\n.sully-voice-bar-button {\n  transform: rotate(-4deg);\n}\n.sully-voice-bar-wave-segment {\n  border-radius: 0 !important;\n}`
     }
 ];
 
@@ -358,7 +369,7 @@ const STYLE_TEMPLATES: StyleTemplate[] = [
 type PreviewMockMessage = {
     id: string;
     role: 'user' | 'ai';
-    kind: 'text' | 'image' | 'emoji';
+    kind: 'text' | 'image' | 'emoji' | 'voice';
     content: string;
     replyTo?: {
         name: string;
@@ -380,7 +391,8 @@ const PREVIEW_SCENES: PreviewScene[] = [
         name: '日常聊天',
         messages: [
             { id: 'd1', role: 'ai', kind: 'text', content: '今天状态怎么样？要不要一起复盘一下计划。' },
-            { id: 'd2', role: 'user', kind: 'text', content: '挺好！晚点一起把任务过一遍吧。' }
+            { id: 'd2', role: 'ai', kind: 'voice', content: '00:08' },
+            { id: 'd3', role: 'user', kind: 'text', content: '挺好！晚点一起把任务过一遍吧。' }
         ]
     },
     {
@@ -460,6 +472,10 @@ const ThemeMaker: React.FC = () => {
     const [previewToggleTarget, setPreviewToggleTarget] = useState<'A' | 'B'>('A');
     const [lastUsableCss, setLastUsableCss] = useState('');
     const [isPreviewFullscreen, setIsPreviewFullscreen] = useState(false);
+    const [editorPanelOpen, setEditorPanelOpen] = useState(true);
+    const [editorBubblePos, setEditorBubblePos] = useState<{ x: number; y: number } | null>(null);
+    const [playingVoicePreviewKey, setPlayingVoicePreviewKey] = useState<string | null>(null);
+    const [voicePreviewProgress, setVoicePreviewProgress] = useState(0);
     // 保存后的「应用到角色」弹层：勾选 = 该角色 bubbleStyle 指向本主题，取消勾选 = 回落默认气泡
     const [showApplySheet, setShowApplySheet] = useState(false);
     const [applySelection, setApplySelection] = useState<Set<string>>(new Set());
@@ -487,12 +503,73 @@ const ThemeMaker: React.FC = () => {
     const decorationInputRef = useRef<HTMLInputElement>(null);
     const avatarDecoInputRef = useRef<HTMLInputElement>(null);
     const cssTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const editorBubbleDragRef = useRef<{ startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
 
     const activeStyle = editingTheme[activeTab === 'css' ? 'user' : activeTab];
+    // 语音消息只出现在角色侧；无论当前在编辑哪个 tab，语音条控件都写到 ai，
+    // 避免旧版在“用户气泡”页改了颜色却永远不生效的假设置。
+    const voiceBarStyle = editingTheme.ai;
     const CONTRAST_LOW_THRESHOLD = 4.5;
     const CONTRAST_CRITICAL_THRESHOLD = 3;
     const HIGH_BG_IMAGE_OPACITY = 0.75;
     const cssValidation = useMemo(() => validateCustomCss(editingTheme.customCss || ''), [editingTheme.customCss]);
+
+    // 与「外观 → 聊天界面」保持同一套交互：圆形设置钮可拖动，轻点收起/展开悬浮编辑面板。
+    const EDITOR_BUBBLE_SIZE = 48;
+    const clampEditorBubble = (x: number, y: number) => ({
+        x: Math.max(8, Math.min(window.innerWidth - EDITOR_BUBBLE_SIZE - 8, x)),
+        y: Math.max(56, Math.min(window.innerHeight - EDITOR_BUBBLE_SIZE - 24, y)),
+    });
+    const onEditorBubblePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+        const rect = event.currentTarget.getBoundingClientRect();
+        editorBubbleDragRef.current = {
+            startX: event.clientX,
+            startY: event.clientY,
+            originX: rect.left,
+            originY: rect.top,
+            moved: false,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+    };
+    const onEditorBubblePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+        const drag = editorBubbleDragRef.current;
+        if (!drag) return;
+        const dx = event.clientX - drag.startX;
+        const dy = event.clientY - drag.startY;
+        if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+        drag.moved = true;
+        setEditorBubblePos(clampEditorBubble(drag.originX + dx, drag.originY + dy));
+    };
+    const onEditorBubblePointerUp = () => {
+        const drag = editorBubbleDragRef.current;
+        editorBubbleDragRef.current = null;
+        if (drag && !drag.moved) {
+            setEditorPanelOpen(open => !open);
+            trackEvent('开关气泡工坊悬浮设置');
+        }
+    };
+
+    // 预览不播放真实音频，只复刻真实语音条的 8 秒播放态，便于检查播放背景、按钮和波形颜色。
+    const toggleVoicePreview = (key: string) => {
+        setPlayingVoicePreviewKey(current => current === key ? null : key);
+        setVoicePreviewProgress(0);
+    };
+
+    useEffect(() => {
+        if (!playingVoicePreviewKey) {
+            setVoicePreviewProgress(0);
+            return;
+        }
+        const startedAt = Date.now();
+        const tick = () => {
+            const progress = Math.min(1, (Date.now() - startedAt) / VOICE_PREVIEW_DURATION_MS);
+            setVoicePreviewProgress(progress);
+            if (progress >= 1) setPlayingVoicePreviewKey(null);
+        };
+        tick();
+        const timer = window.setInterval(tick, 80);
+        return () => window.clearInterval(timer);
+    }, [playingVoicePreviewKey]);
 
     useEffect(() => {
         if (cssValidation.isValid) {
@@ -629,6 +706,28 @@ const ThemeMaker: React.FC = () => {
                     }
                 }
                 : {})
+        }));
+    };
+
+    const updateVoiceBarStyle = (key: keyof BubbleStyle, value: any) => {
+        updateTheme(prev => ({
+            ...prev,
+            ai: { ...prev.ai, [key]: value },
+        }));
+    };
+
+    const updateAllCornerRadii = (value: number) => {
+        if (activeTab === 'css') return;
+        updateTheme(prev => ({
+            ...prev,
+            [activeTab]: {
+                ...prev[activeTab],
+                borderRadius: value,
+                borderTopLeftRadius: undefined,
+                borderTopRightRadius: undefined,
+                borderBottomRightRadius: undefined,
+                borderBottomLeftRadius: undefined,
+            },
         }));
     };
 
@@ -881,21 +980,25 @@ const ThemeMaker: React.FC = () => {
         setIsAppliedToPreview(false);
     };
 
-    const renderPreviewBubble = (mock: PreviewMockMessage, theme: ChatTheme, panel: 'A' | 'B') => {
+    const renderPreviewBubble = (mock: PreviewMockMessage, theme: ChatTheme, panel: 'A' | 'B', isLastInGroup: boolean) => {
         const role = mock.role;
         const style = role === 'user' ? theme.user : theme.ai;
         const isUser = role === 'user';
+        const isVoice = mock.kind === 'voice';
         const isActive = panel === 'A' && (activeTab === role || activeTab === 'css');
+        const voicePreviewKey = `${panel}:${mock.id}`;
+        const isVoicePreviewPlaying = isVoice && playingVoicePreviewKey === voicePreviewKey;
         
-        // Match core bubble corner strategy in MessageItem.tsx
+        // Match core bubble corner/tail strategy in MessageItem.tsx.
+        const corners = resolveBubbleCornerRadii(style);
+        const hideTail = shouldHideBubbleTail(style.tailMode, isLastInGroup);
         const containerStyle = {
             backgroundColor: style.backgroundColor,
-            borderRadius: `${style.borderRadius}px`,
             opacity: style.opacity,
-            borderBottomLeftRadius: isUser ? `${style.borderRadius}px` : '4px',
-            borderBottomRightRadius: isUser ? '4px' : `${style.borderRadius}px`,
-            borderTopLeftRadius: `${style.borderRadius}px`,
-            borderTopRightRadius: `${style.borderRadius}px`,
+            borderTopLeftRadius: `${corners.topLeft}px`,
+            borderTopRightRadius: `${corners.topRight}px`,
+            borderBottomRightRadius: `${corners.bottomRight}px`,
+            borderBottomLeftRadius: `${corners.bottomLeft}px`,
         };
 
         return (
@@ -938,10 +1041,12 @@ const ThemeMaker: React.FC = () => {
                     )}
 
                     <div
-                        className={`relative px-5 py-3 shadow-sm border border-black/5 text-sm overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'} ${isActive ? 'ring-2 ring-primary/70' : ''}`}
-                        style={containerStyle}
+                        className={isVoice
+                            ? `sully-voice-bar-shell relative py-1 text-sm overflow-visible ${isActive ? 'ring-2 ring-primary/70 rounded-2xl' : ''}`
+                            : `relative px-5 py-3 shadow-sm border border-black/5 text-sm overflow-visible ${isUser ? 'sully-bubble-user' : 'sully-bubble-ai'} ${isLastInGroup ? 'sully-bubble-group-last' : ''} ${hideTail ? 'sully-bubble-tail-hidden' : 'sully-bubble-tail-visible'} ${isActive ? 'ring-2 ring-primary/70' : ''}`}
+                        style={isVoice ? undefined : containerStyle}
                     >
-                        {showPreviewBgImage && style.backgroundImage && (
+                        {!isVoice && showPreviewBgImage && style.backgroundImage && (
                             <div 
                                 className="absolute inset-0 bg-cover bg-center pointer-events-none z-0"
                                 style={{ 
@@ -958,7 +1063,59 @@ const ThemeMaker: React.FC = () => {
                             </div>
                         )}
 
-                        {mock.kind === 'image' ? (
+                        {mock.kind === 'voice' ? (
+                            <button
+                                type="button"
+                                className="sully-voice-bar relative z-10 flex min-w-[210px] items-center gap-2.5 overflow-hidden rounded-2xl border px-3 py-2 text-left transition-all duration-300 active:scale-[0.98]"
+                                style={{
+                                    background: isVoicePreviewPlaying
+                                        ? (style.voiceBarActiveBg || 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(52,211,153,0.08))')
+                                        : (style.voiceBarBg || 'linear-gradient(135deg, rgba(0,0,0,0.03), rgba(0,0,0,0.06))'),
+                                    borderColor: isVoicePreviewPlaying
+                                        ? (style.voiceBarBtnColor ? `${style.voiceBarBtnColor}33` : 'rgba(16,185,129,0.2)')
+                                        : 'rgba(0,0,0,0.05)',
+                                }}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    toggleVoicePreview(voicePreviewKey);
+                                    if (!isVoicePreviewPlaying) trackEvent('播放气泡工坊语音预览');
+                                }}
+                                aria-pressed={isVoicePreviewPlaying}
+                                aria-label={isVoicePreviewPlaying ? '暂停语音条播放预览' : '播放语音条样式预览'}
+                            >
+                                <span
+                                    className="sully-voice-bar-button flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] transition-all duration-300"
+                                    style={{
+                                        color: isVoicePreviewPlaying ? '#fff' : (style.voiceBarBtnColor || '#64748b'),
+                                        background: isVoicePreviewPlaying
+                                            ? (style.voiceBarBtnColor || '#10b981')
+                                            : (style.voiceBarBg ? 'rgba(255,255,255,.3)' : 'rgba(148,163,184,.18)'),
+                                        boxShadow: isVoicePreviewPlaying
+                                            ? `0 2px 8px ${style.voiceBarBtnColor ? `${style.voiceBarBtnColor}4D` : 'rgba(16,185,129,.3)'}`
+                                            : 'none',
+                                    }}
+                                >{isVoicePreviewPlaying ? 'Ⅱ' : '▶'}</span>
+                                <span className="sully-voice-bar-wave flex h-5 flex-1 items-center gap-[3px] overflow-hidden">
+                                    {VOICE_PREVIEW_WAVE.map((height, index) => {
+                                        const hasPlayed = index / VOICE_PREVIEW_WAVE.length <= voicePreviewProgress;
+                                        return (
+                                            <i
+                                                key={index}
+                                                className={`sully-voice-bar-wave-segment block w-[2.5px] rounded-full transition-all duration-150 ${isVoicePreviewPlaying ? 'animate-pulse' : ''}`}
+                                                style={{
+                                                    height: isVoicePreviewPlaying ? Math.max(3, height) : Math.max(2, height * 0.4),
+                                                    background: isVoicePreviewPlaying && hasPlayed
+                                                        ? (style.voiceBarWaveColor || '#10b981')
+                                                        : (style.voiceBarWaveColor ? `${style.voiceBarWaveColor}66` : 'rgba(148,163,184,.55)'),
+                                                    animationDelay: `${index * 60}ms`,
+                                                }}
+                                            />
+                                        );
+                                    })}
+                                </span>
+                                <span className="sully-voice-bar-toggle rounded-lg bg-black/5 px-1.5 py-0.5 text-[9px] font-medium" style={{ color: style.voiceBarTextColor || '#64748b' }}>转文字</span>
+                            </button>
+                        ) : mock.kind === 'image' ? (
                             <div className="relative z-10 w-40 h-28 rounded-xl bg-black/10 border border-black/10 flex items-center justify-center text-xs" style={{ color: style.textColor }}>
                                 🖼️ 图片占位
                             </div>
@@ -1076,7 +1233,7 @@ const ThemeMaker: React.FC = () => {
             </section>
 
             {/* Preview Area (Realistic Chat Row) */}
-            <div className={`${isPreviewFullscreen ? 'fixed inset-0 z-[120]' : 'flex-1'} relative overflow-hidden flex flex-col p-4 justify-center items-center gap-4 ${isPreviewDark ? 'bg-slate-900' : 'bg-slate-100'}`}>
+            <div className={`${isPreviewFullscreen ? 'fixed inset-0 z-[120]' : 'flex-1 min-h-0'} relative overflow-y-auto flex flex-col p-4 pb-20 justify-start sm:justify-center items-center gap-4 no-scrollbar ${isPreviewDark ? 'bg-slate-900' : 'bg-slate-100'}`}>
                 <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
                 {currentScene.wallpaper && (
                     <div className="absolute inset-0" style={{ background: currentScene.wallpaper, opacity: isPreviewDark ? 0.9 : 0.45 }} />
@@ -1084,6 +1241,10 @@ const ThemeMaker: React.FC = () => {
                 
                 {/* Live CSS Injection for Preview */}
                 {editingTheme.customCss && <style>{editingTheme.customCss}</style>}
+                <style>{`
+                    .sully-bubble-tail-hidden::before,
+                    .sully-bubble-tail-hidden::after { content: none !important; display: none !important; }
+                `}</style>
 
                 <div className="w-full max-w-sm relative z-10 bg-white/70 dark:bg-black/20 backdrop-blur-sm rounded-2xl p-3 border border-white/30 shadow-sm">
                     <div className={`absolute right-3 top-3 px-2.5 py-1 rounded-full text-[11px] font-bold shadow-sm ${overallContrastScore.grade === 'A' ? 'bg-emerald-100 text-emerald-700' : overallContrastScore.grade === 'B' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>
@@ -1141,33 +1302,73 @@ const ThemeMaker: React.FC = () => {
                         {[{ label: 'A 当前编辑', theme: editingTheme, panel: 'A' as const }, { label: 'B 上次保存', theme: lastSavedTheme, panel: 'B' as const }].map(item => (
                             <div key={item.label} className={`space-y-4 p-4 rounded-2xl ${isPreviewDark ? 'bg-slate-950/60 border border-white/10' : 'bg-white/70 border border-white/60'}`}>
                                 <div className="text-[10px] text-slate-500">{item.label}</div>
-                                {currentScene.messages.map(msg => (
-                                    <div key={`${item.panel}-${msg.id}`}>{renderPreviewBubble(msg, item.theme, item.panel)}</div>
-                                ))}
+                                {currentScene.messages.map((msg, index) => {
+                                    const next = currentScene.messages[index + 1];
+                                    const isLastInGroup = !next || next.role !== msg.role;
+                                    return <div key={`${item.panel}-${msg.id}`}>{renderPreviewBubble(msg, item.theme, item.panel, isLastInGroup)}</div>;
+                                })}
                             </div>
                         ))}
                     </div>
                 ) : (
                     <div className={`w-full max-w-sm space-y-4 p-4 rounded-2xl relative z-10 ${isPreviewDark ? 'bg-slate-950/60 border border-white/10' : 'bg-white/70 border border-white/60'}`}>
-                        {currentScene.messages.map(msg => (
-                            <div key={msg.id}>{renderPreviewBubble(msg, previewCompareMode === 'toggle' && previewToggleTarget === 'B' ? lastSavedTheme : editingTheme, previewCompareMode === 'toggle' && previewToggleTarget === 'B' ? 'B' : 'A')}</div>
-                        ))}
+                        {currentScene.messages.map((msg, index) => {
+                            const next = currentScene.messages[index + 1];
+                            const isLastInGroup = !next || next.role !== msg.role;
+                            return <div key={msg.id}>{renderPreviewBubble(msg, previewCompareMode === 'toggle' && previewToggleTarget === 'B' ? lastSavedTheme : editingTheme, previewCompareMode === 'toggle' && previewToggleTarget === 'B' ? 'B' : 'A', isLastInGroup)}</div>;
+                        })}
                     </div>
                 )}
                 
                 <div className={`text-[10px] absolute bottom-2 ${isPreviewDark ? 'text-slate-400' : 'text-slate-500'}`}>A 为当前编辑，B 为上次保存版本</div>
             </div>
 
-            {/* Editor Controls */}
+            {/* 与外观 App 相同的悬浮设置钮：点按开关面板，拖动避开想观察的气泡。 */}
             {!isPreviewFullscreen && (
-            <div className="bg-white rounded-t-[2.5rem] shadow-[0_-5px_30px_rgba(0,0,0,0.08)] z-30 flex flex-col h-[55%] ring-1 ring-slate-100">
+                <button
+                    type="button"
+                    onPointerDown={onEditorBubblePointerDown}
+                    onPointerMove={onEditorBubblePointerMove}
+                    onPointerUp={onEditorBubblePointerUp}
+                    onPointerCancel={() => { editorBubbleDragRef.current = null; }}
+                    className={`fixed z-[136] flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all active:scale-90 ${editorPanelOpen ? 'bg-primary text-white ring-4 ring-primary/20' : 'bg-white/95 text-primary ring-1 ring-primary/30 backdrop-blur'}`}
+                    style={editorBubblePos
+                        ? { left: editorBubblePos.x, top: editorBubblePos.y, touchAction: 'none' }
+                        : { right: 12, top: 'calc(var(--safe-top, 0px) + 35vh)', touchAction: 'none' }}
+                    aria-label={editorPanelOpen ? '收起气泡编辑面板' : '展开气泡编辑面板'}
+                    title="点按开关设置 · 按住拖动"
+                >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-6 w-6" aria-hidden="true">
+                        <path strokeLinecap="round" d="M4 7h10M18 7h2M4 17h2M10 17h10M8 4v6M8 14v6M16 4v6M16 14v6" />
+                    </svg>
+                </button>
+            )}
+
+            {/* Editor Controls：悬浮在完整预览上方，不再挤占一半预览高度。 */}
+            {!isPreviewFullscreen && editorPanelOpen && (
+            <div
+                className="fixed left-1/2 z-[135] flex w-[94%] max-w-md -translate-x-1/2 flex-col overflow-hidden rounded-[2rem] border border-white/70 bg-white/95 shadow-[0_14px_50px_rgba(15,23,42,0.24)] ring-1 ring-slate-100 backdrop-blur-xl"
+                style={{
+                    bottom: 'calc(14px + var(--safe-bottom, 0px))',
+                    height: 'min(62vh, 620px)',
+                    maxHeight: 'calc(100dvh - 96px - var(--safe-top, 0px) - var(--safe-bottom, 0px))',
+                }}
+            >
                 {/* Main Tabs (User / AI / CSS) */}
-                <div className="flex px-8 pt-6 pb-2 gap-6 overflow-x-auto no-scrollbar">
-                    <button onClick={() => requestTabSwitch('user')} className={`text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'user' ? 'text-slate-800' : 'text-slate-300'}`}>用户气泡</button>
-                    <button onClick={() => requestTabSwitch('ai')} className={`text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'ai' ? 'text-slate-800' : 'text-slate-300'}`}>角色气泡</button>
-                    <button onClick={() => requestTabSwitch('css')} className={`text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-1 ${activeTab === 'css' ? 'text-indigo-600' : 'text-slate-300'}`}>
-                        <span>⚡</span> 自定义CSS
-                    </button>
+                <div className="flex items-center gap-3 px-5 pt-4 pb-2">
+                    <div className="flex min-w-0 flex-1 gap-5 overflow-x-auto no-scrollbar">
+                        <button onClick={() => requestTabSwitch('user')} className={`text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'user' ? 'text-slate-800' : 'text-slate-300'}`}>用户气泡</button>
+                        <button onClick={() => requestTabSwitch('ai')} className={`text-sm font-bold transition-colors whitespace-nowrap ${activeTab === 'ai' ? 'text-slate-800' : 'text-slate-300'}`}>角色气泡</button>
+                        <button onClick={() => requestTabSwitch('css')} className={`text-sm font-bold transition-colors whitespace-nowrap flex items-center gap-1 ${activeTab === 'css' ? 'text-indigo-600' : 'text-slate-300'}`}>
+                            <span>⚡</span> 自定义CSS
+                        </button>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setEditorPanelOpen(false)}
+                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-lg leading-none text-slate-400 transition active:scale-90"
+                        aria-label="收起气泡编辑面板"
+                    >×</button>
                 </div>
 
                 <div className="px-8 pb-2 flex items-center gap-2">
@@ -1191,7 +1392,8 @@ const ThemeMaker: React.FC = () => {
                         <div className="space-y-6 animate-fade-in h-full flex flex-col">
                             <div className="text-[10px] text-slate-500 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed space-y-2">
                                 <span className="font-bold block mb-1 text-slate-500">CSS 增强模式</span>
-                                可使用CSS类名 <code className="bg-slate-200 px-1 rounded">.sully-bubble-user</code> 和 <code className="bg-slate-200 px-1 rounded">.sully-bubble-ai</code> 来统一定制气泡样式。
+                                可使用 <code className="bg-slate-200 px-1 rounded">.sully-bubble-user</code>、<code className="bg-slate-200 px-1 rounded">.sully-bubble-ai</code> 定制气泡，使用 <code className="bg-slate-200 px-1 rounded">.sully-voice-bar</code>、<code className="bg-slate-200 px-1 rounded">.sully-voice-bar-button</code>、<code className="bg-slate-200 px-1 rounded">.sully-voice-bar-wave-segment</code> 单独定制语音条。
+                                <br/>连续消息可用 <code className="bg-slate-200 px-1 rounded">.sully-bubble-group-last</code> 命中组末气泡；基础样式里的“尾巴出现位置”也会自动隐藏中间气泡的伪元素尾巴。
                                 <br/>支持使用 <code className="text-red-400">!important</code> 覆盖可视化编辑器的设置。
                                 <div className="rounded-lg border border-indigo-100 bg-indigo-50 px-2.5 py-2 text-[10px] text-indigo-700">
                                     <div className="font-semibold">优先级说明：可视化参数 vs CSS 覆盖</div>
@@ -1237,7 +1439,7 @@ const ThemeMaker: React.FC = () => {
                             )}
 
                             <div>
-                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">限定作用域插入器（仅 .sully-bubble-user/.sully-bubble-ai）</label>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">限定作用域插入器（气泡 / 语音条）</label>
                                 <div className="grid grid-cols-2 gap-2">
                                     {CSS_SCOPE_SNIPPETS.map(snippet => (
                                         <button
@@ -1308,27 +1510,28 @@ const ThemeMaker: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* 冗余的 activeTab !== 'css' 已删：本区块在 L1255 的同条件块内，TS 已把类型收窄到 'user'|'ai' */}
-                            <div className={`rounded-xl border p-3 ${showLowContrastWarning ? 'border-amber-200 bg-amber-50/80' : 'border-emerald-200 bg-emerald-50/70'}`}>
-                                <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div>
-                                        <div className="text-[11px] font-semibold text-slate-700">实时可读性评分：{activeContrastScore.grade}（{activeContrastScore.ratio.toFixed(2)}:1）</div>
-                                        <div className={`text-[10px] mt-1 ${showLowContrastWarning ? 'text-amber-700' : 'text-emerald-700'}`}>
-                                            {showLowContrastWarning ? '文字可读性偏低，建议提升文字与背景对比。' : '当前文字与背景对比良好。'}
+                            <>
+                                <div className={`rounded-xl border p-3 ${showLowContrastWarning ? 'border-amber-200 bg-amber-50/80' : 'border-emerald-200 bg-emerald-50/70'}`}>
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                            <div className="text-[11px] font-semibold text-slate-700">实时可读性评分：{activeContrastScore.grade}（{activeContrastScore.ratio.toFixed(2)}:1）</div>
+                                            <div className={`text-[10px] mt-1 ${showLowContrastWarning ? 'text-amber-700' : 'text-emerald-700'}`}>
+                                                {showLowContrastWarning ? '文字可读性偏低，建议提升文字与背景对比。' : '当前文字与背景对比良好。'}
+                                            </div>
                                         </div>
+                                        {showLowContrastWarning && (
+                                            <button onClick={oneClickFixContrast} className="text-[10px] px-2.5 py-1 rounded-full bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors">
+                                                一键修复
+                                            </button>
+                                        )}
                                     </div>
-                                    {showLowContrastWarning && (
-                                        <button onClick={oneClickFixContrast} className="text-[10px] px-2.5 py-1 rounded-full bg-amber-500 text-white font-semibold hover:bg-amber-600 transition-colors">
-                                            一键修复
-                                        </button>
+                                    {showCombinedRisk && (
+                                        <div className="mt-2 text-[10px] text-rose-600 font-medium">
+                                            组合风险：背景图透明层较强 + 对比度不足，可能在复杂壁纸上难以阅读。
+                                        </div>
                                     )}
                                 </div>
-                                {showCombinedRisk && (
-                                    <div className="mt-2 text-[10px] text-rose-600 font-medium">
-                                        组合风险：背景图透明层较强 + 对比度不足，可能在复杂壁纸上难以阅读。
-                                    </div>
-                                )}
-                            </div>
+                            </>
 
                             {/* Colors & Opacity */}
                             <div className="grid grid-cols-2 gap-4">
@@ -1382,9 +1585,49 @@ const ThemeMaker: React.FC = () => {
                             </div>
 
                             {/* Border Radius */}
-                            <div>
-                                <div className="flex justify-between mb-2"><label className="text-[10px] font-bold text-slate-400 uppercase">圆角大小</label><span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">推荐：16 / 20</span></div>
-                                <input type="range" min="0" max="30" value={activeStyle.borderRadius} onChange={(e) => updateStyle('borderRadius', parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-primary" />
+                            <div className="space-y-3">
+                                <div>
+                                    <div className="flex justify-between mb-2"><label className="text-[10px] font-bold text-slate-400 uppercase">四角一起调</label><span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-600">{activeStyle.borderRadius}px</span></div>
+                                    <input type="range" min="0" max="36" value={activeStyle.borderRadius} onChange={(e) => updateAllCornerRadii(parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-primary" />
+                                </div>
+                                <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                    <summary className="cursor-pointer text-xs font-semibold text-slate-600">独立调整四个角</summary>
+                                    <div className="mt-3 grid grid-cols-2 gap-3">
+                                        {([
+                                            ['borderTopLeftRadius', '左上'],
+                                            ['borderTopRightRadius', '右上'],
+                                            ['borderBottomLeftRadius', '左下'],
+                                            ['borderBottomRightRadius', '右下'],
+                                        ] as const).map(([key, label]) => {
+                                            const corners = resolveBubbleCornerRadii(activeStyle);
+                                            const value = key === 'borderTopLeftRadius' ? corners.topLeft
+                                                : key === 'borderTopRightRadius' ? corners.topRight
+                                                : key === 'borderBottomLeftRadius' ? corners.bottomLeft
+                                                : corners.bottomRight;
+                                            return (
+                                                <label key={key} className="rounded-lg bg-white p-2 text-[10px] text-slate-500">
+                                                    <span className="mb-1 flex justify-between"><span>{label}</span><b>{value}px</b></span>
+                                                    <input type="range" min="0" max="36" value={value} onChange={(e) => updateStyle(key, parseInt(e.target.value))} className="w-full h-1.5 bg-slate-200 rounded-full appearance-none cursor-pointer accent-primary" />
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                    <button type="button" onClick={() => updateAllCornerRadii(activeStyle.borderRadius)} className="mt-3 w-full rounded-lg bg-white py-2 text-[10px] font-semibold text-slate-500">重新统一四角</button>
+                                </details>
+                                <div>
+                                    <div className="mb-2 text-[10px] font-bold uppercase text-slate-400">小尾巴出现位置</div>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {([
+                                            ['last', '仅组末'],
+                                            ['every', '每一条'],
+                                            ['none', '不显示'],
+                                        ] as const).map(([mode, label]) => {
+                                            const selected = (activeStyle.tailMode || 'every') === mode;
+                                            return <button key={mode} type="button" onClick={() => updateStyle('tailMode', mode)} className={`rounded-xl border py-2 text-[10px] font-semibold transition ${selected ? 'border-primary bg-primary/10 text-primary' : 'border-slate-200 bg-white text-slate-500'}`}>{label}</button>;
+                                        })}
+                                    </div>
+                                    <p className="mt-1.5 text-[9px] leading-relaxed text-slate-400">适用于用 ::before / ::after 画出的 CSS 尾巴；“仅组末”就是 iMessage 那种连续消息只在最后一条保留尾巴。</p>
+                                </div>
                             </div>
 
                             {/* Background Image Logic */}
@@ -1423,45 +1666,92 @@ const ThemeMaker: React.FC = () => {
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4"><path d="M7 4a3 3 0 0 1 6 0v6a3 3 0 1 1-6 0V4Z" /><path d="M5.5 9.643a.75.75 0 0 0-1.5 0V10c0 3.06 2.29 5.585 5.25 5.954V17.5h-1.5a.75.75 0 0 0 0 1.5h4.5a.75.75 0 0 0 0-1.5h-1.5v-1.546A6.001 6.001 0 0 0 16 10v-.357a.75.75 0 0 0-1.5 0V10a4.5 4.5 0 0 1-9 0v-.357Z" /></svg>
                                     语音条样式
                                 </h3>
+                                <p className="mb-3 text-[9px] leading-relaxed text-slate-400">语音只出现在角色侧，因此这里始终写入角色气泡配置；在“用户气泡”页修改也会真实生效。需要改尺寸、圆角或布局，可到“自定义 CSS”使用 .sully-voice-bar。</p>
+                                <div className="sully-bubble-ai mb-4 rounded-2xl bg-slate-50 p-2">
+                                    <button
+                                        type="button"
+                                        className="sully-voice-bar flex w-full items-center gap-2.5 overflow-hidden rounded-2xl border px-3 py-2 text-left transition-all duration-300 active:scale-[0.98]"
+                                        style={{
+                                            background: playingVoicePreviewKey === 'editor-inline'
+                                                ? (voiceBarStyle.voiceBarActiveBg || 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(52,211,153,0.08))')
+                                                : (voiceBarStyle.voiceBarBg || 'linear-gradient(135deg, rgba(0,0,0,0.03), rgba(0,0,0,0.06))'),
+                                            borderColor: playingVoicePreviewKey === 'editor-inline'
+                                                ? (voiceBarStyle.voiceBarBtnColor ? `${voiceBarStyle.voiceBarBtnColor}33` : 'rgba(16,185,129,0.2)')
+                                                : 'rgba(0,0,0,0.05)',
+                                        }}
+                                        onClick={() => toggleVoicePreview('editor-inline')}
+                                        aria-pressed={playingVoicePreviewKey === 'editor-inline'}
+                                    >
+                                        <span
+                                            className="sully-voice-bar-button flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-all duration-300"
+                                            style={{
+                                                color: playingVoicePreviewKey === 'editor-inline' ? '#fff' : (voiceBarStyle.voiceBarBtnColor || '#64748b'),
+                                                background: playingVoicePreviewKey === 'editor-inline'
+                                                    ? (voiceBarStyle.voiceBarBtnColor || '#10b981')
+                                                    : 'rgba(255,255,255,.55)',
+                                            }}
+                                        >{playingVoicePreviewKey === 'editor-inline' ? 'Ⅱ' : '▶'}</span>
+                                        <span className="sully-voice-bar-wave flex h-5 flex-1 items-center gap-[3px] overflow-hidden">
+                                            {VOICE_PREVIEW_WAVE.map((height, index) => {
+                                                const playing = playingVoicePreviewKey === 'editor-inline';
+                                                const hasPlayed = index / VOICE_PREVIEW_WAVE.length <= voicePreviewProgress;
+                                                return <i
+                                                    key={index}
+                                                    className={`sully-voice-bar-wave-segment block w-[2.5px] rounded-full transition-all duration-150 ${playing ? 'animate-pulse' : ''}`}
+                                                    style={{
+                                                        height: playing ? height : Math.max(2, height * 0.45),
+                                                        background: playing && hasPlayed
+                                                            ? (voiceBarStyle.voiceBarWaveColor || '#10b981')
+                                                            : (voiceBarStyle.voiceBarWaveColor ? `${voiceBarStyle.voiceBarWaveColor}66` : '#94a3b8'),
+                                                        animationDelay: `${index * 60}ms`,
+                                                    }}
+                                                />;
+                                            })}
+                                        </span>
+                                        <span className="sully-voice-bar-toggle text-[9px]" style={{ color: voiceBarStyle.voiceBarTextColor || '#475569' }}>
+                                            {playingVoicePreviewKey === 'editor-inline' ? '播放中' : '播放预览'}
+                                        </span>
+                                    </button>
+                                </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <div>
                                         <label className="text-[10px] text-slate-400 block mb-1">背景色</label>
                                         <div className="flex items-center gap-2">
-                                            <input type="color" value={activeStyle.voiceBarBg || '#f1f5f9'} onChange={(e) => updateStyle('voiceBarBg', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
-                                            <span className="text-[10px] text-slate-400 font-mono">{activeStyle.voiceBarBg || '默认'}</span>
-                                            {activeStyle.voiceBarBg && <button onClick={() => updateStyle('voiceBarBg', undefined)} className="text-[9px] text-red-400">重置</button>}
+                                            <input type="color" value={voiceBarStyle.voiceBarBg || '#f1f5f9'} onChange={(e) => updateVoiceBarStyle('voiceBarBg', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
+                                            <span className="text-[10px] text-slate-400 font-mono">{voiceBarStyle.voiceBarBg || '默认'}</span>
+                                            {voiceBarStyle.voiceBarBg && <button onClick={() => updateVoiceBarStyle('voiceBarBg', undefined)} className="text-[9px] text-red-400">重置</button>}
                                         </div>
                                     </div>
                                     <div>
                                         <label className="text-[10px] text-slate-400 block mb-1">播放时背景</label>
                                         <div className="flex items-center gap-2">
-                                            <input type="color" value={activeStyle.voiceBarActiveBg || '#d1fae5'} onChange={(e) => updateStyle('voiceBarActiveBg', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
-                                            <span className="text-[10px] text-slate-400 font-mono">{activeStyle.voiceBarActiveBg || '默认'}</span>
-                                            {activeStyle.voiceBarActiveBg && <button onClick={() => updateStyle('voiceBarActiveBg', undefined)} className="text-[9px] text-red-400">重置</button>}
+                                            <input type="color" value={voiceBarStyle.voiceBarActiveBg || '#d1fae5'} onChange={(e) => updateVoiceBarStyle('voiceBarActiveBg', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
+                                            <span className="text-[10px] text-slate-400 font-mono">{voiceBarStyle.voiceBarActiveBg || '默认'}</span>
+                                            {voiceBarStyle.voiceBarActiveBg && <button onClick={() => updateVoiceBarStyle('voiceBarActiveBg', undefined)} className="text-[9px] text-red-400">重置</button>}
                                         </div>
                                     </div>
                                     <div>
                                         <label className="text-[10px] text-slate-400 block mb-1">按钮颜色</label>
                                         <div className="flex items-center gap-2">
-                                            <input type="color" value={activeStyle.voiceBarBtnColor || '#10b981'} onChange={(e) => updateStyle('voiceBarBtnColor', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
-                                            <span className="text-[10px] text-slate-400 font-mono">{activeStyle.voiceBarBtnColor || '默认'}</span>
-                                            {activeStyle.voiceBarBtnColor && <button onClick={() => updateStyle('voiceBarBtnColor', undefined)} className="text-[9px] text-red-400">重置</button>}
+                                            <input type="color" value={voiceBarStyle.voiceBarBtnColor || '#10b981'} onChange={(e) => updateVoiceBarStyle('voiceBarBtnColor', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
+                                            <span className="text-[10px] text-slate-400 font-mono">{voiceBarStyle.voiceBarBtnColor || '默认'}</span>
+                                            {voiceBarStyle.voiceBarBtnColor && <button onClick={() => updateVoiceBarStyle('voiceBarBtnColor', undefined)} className="text-[9px] text-red-400">重置</button>}
                                         </div>
                                     </div>
                                     <div>
                                         <label className="text-[10px] text-slate-400 block mb-1">波形颜色</label>
                                         <div className="flex items-center gap-2">
-                                            <input type="color" value={activeStyle.voiceBarWaveColor || '#10b981'} onChange={(e) => updateStyle('voiceBarWaveColor', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
-                                            <span className="text-[10px] text-slate-400 font-mono">{activeStyle.voiceBarWaveColor || '默认'}</span>
-                                            {activeStyle.voiceBarWaveColor && <button onClick={() => updateStyle('voiceBarWaveColor', undefined)} className="text-[9px] text-red-400">重置</button>}
+                                            <input type="color" value={voiceBarStyle.voiceBarWaveColor || '#10b981'} onChange={(e) => updateVoiceBarStyle('voiceBarWaveColor', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
+                                            <span className="text-[10px] text-slate-400 font-mono">{voiceBarStyle.voiceBarWaveColor || '默认'}</span>
+                                            {voiceBarStyle.voiceBarWaveColor && <button onClick={() => updateVoiceBarStyle('voiceBarWaveColor', undefined)} className="text-[9px] text-red-400">重置</button>}
                                         </div>
                                     </div>
                                     <div className="col-span-2">
                                         <label className="text-[10px] text-slate-400 block mb-1">文字颜色</label>
                                         <div className="flex items-center gap-2">
-                                            <input type="color" value={activeStyle.voiceBarTextColor || '#475569'} onChange={(e) => updateStyle('voiceBarTextColor', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
-                                            <span className="text-[10px] text-slate-400 font-mono">{activeStyle.voiceBarTextColor || '默认'}</span>
-                                            {activeStyle.voiceBarTextColor && <button onClick={() => updateStyle('voiceBarTextColor', undefined)} className="text-[9px] text-red-400">重置</button>}
+                                            <input type="color" value={voiceBarStyle.voiceBarTextColor || '#475569'} onChange={(e) => updateVoiceBarStyle('voiceBarTextColor', e.target.value)} className="w-7 h-7 rounded-lg border-0 cursor-pointer" />
+                                            <span className="text-[10px] text-slate-400 font-mono">{voiceBarStyle.voiceBarTextColor || '默认'}</span>
+                                            {voiceBarStyle.voiceBarTextColor && <button onClick={() => updateVoiceBarStyle('voiceBarTextColor', undefined)} className="text-[9px] text-red-400">重置</button>}
                                         </div>
                                     </div>
                                 </div>

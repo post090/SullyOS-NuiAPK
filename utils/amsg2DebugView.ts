@@ -10,7 +10,7 @@
  */
 
 import { ActiveMsg2TaskRecord, CharacterProfile } from '../types';
-import { currentOccurrenceMs, isPendingTask } from './amsg2Tasks';
+import { currentOccurrenceMs, isAmsg2EnabledForChar, isPendingTask } from './amsg2Tasks';
 
 const MINUTE_MS = 60_000;
 
@@ -124,7 +124,7 @@ export const buildAmsg2DebugTasks = (
         task,
         charId: char.id,
         charName: char.name || char.id,
-        charEnabled: config.enabled !== false,
+        charEnabled: isAmsg2EnabledForChar(char),
         state: resolveState(task, occurrenceMs, nowMs),
         occurrenceMs,
         cronTickMs: occurrenceMs == null ? null : nextCronTickMs(occurrenceMs),

@@ -530,6 +530,40 @@ export const ActiveMsgStore = {
   },
 };
 
+/**
+ * 备份用：把主动消息 2.0 的全局配置整份取出来（Worker 地址、密钥、即时对话开关等）。
+ *
+ * 这份配置存在自己的 `ActiveMsg` 库里，不在主库那份 store 清单内，所以必须单独取一次
+ * 挂进备份包。没配过 Worker 就返回 undefined，让备份里干脆不出现这个键。
+ *
+ * 整份带走而不是挑字段：这里将来加了新配置，备份会自动跟上，不用再想起来同步一次。
+ */
+export async function exportAmsg2GlobalConfig(): Promise<ActiveMsg2GlobalConfig | undefined> {
+  try {
+    const config = await ActiveMsgStore.getGlobalConfig();
+    return config.workerUrl?.trim() ? config : undefined;
+  } catch (e) {
+    console.warn('[amsg2] 读取全局配置失败，备份将不含这一项', e);
+    return undefined;
+  }
+}
+
+/**
+ * 备份用：把上面那份配置写回去。
+ *
+ * `instantChatSupported` 不还原——它记的是「上次探到那台 Worker 跑不跑得动即时对话」，
+ * 是一次探测的结果而不是用户的选择。备份里那个值可能已经过时（Worker 后来更新过 / 退回过），
+ * 照抄回来要么白挡一次、要么在跑不动的 Worker 上放行。留空表示「还没探过」，
+ * 握手时会补探一次，之后就有准数了。
+ */
+export async function importAmsg2GlobalConfig(
+  config: ActiveMsg2GlobalConfig | null | undefined,
+): Promise<void> {
+  if (!config || typeof config !== 'object') return;
+  const { instantChatSupported: _dropped, ...restorable } = config;
+  await ActiveMsgStore.saveGlobalConfig({ ...restorable, instantChatSupported: undefined });
+}
+
 export const maskActiveMsgUserId = (userId: string) => {
   if (!userId) return '未生成';
   if (userId.length <= 12) return userId;

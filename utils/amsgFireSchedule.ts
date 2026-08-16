@@ -9,12 +9,17 @@
  * 零运行时依赖（worker bundle 会打进这份代码）：只有纯函数和常量。
  */
 
-import type { ActiveMsg2ExpirePolicy, ActiveMsg2Mode, ActiveMsg2Recurrence } from '../types';
+import type { ActiveMsg2ExpirePolicy, ActiveMsg2Mode, ActiveMsg2Recurrence, ActiveMsg2TaskRecord } from '../types';
+import { currentOccurrenceMs, isPendingTask, shortTaskId } from './amsg2Tasks';
 import { type AmsgTzRef, formatFireTimeShort, wallClockPartsInZone } from './amsgFirePack';
 import { wallClockToTimestamp } from './timezone';
 
 /** 与前台同名，故意的：见文件头。 */
 export const AMSG_FIRE_SCHEDULE_TOOL = 'schedule_active_message';
+
+/** 取消 / 改期也开到 fire 侧（amsg-server 2.6.0-next.15 的 ctx.cancelTask / renewTask）。 */
+export const AMSG_FIRE_CANCEL_TOOL = 'cancel_active_message';
+export const AMSG_FIRE_RENEW_TOOL = 'renew_active_message';
 
 /**
  * 单次 fire 最多让角色排几条。
@@ -100,6 +105,49 @@ export const buildFireScheduleTool = (opts: FireScheduleTimeOpts): FireScheduleT
     parameters: buildParameters(
       buildSendAtExample(opts.nowMs, opts.tz),
     ) as unknown as Record<string, unknown>,
+  },
+});
+
+/**
+ * fire 侧的取消 / 改期工具声明。参数语义与前台同名工具一致（task_id 短 id、
+ * send_at 裸墙钟），描述按 fire 语境（「你正在发消息」）微调。
+ */
+export const buildFireCancelTool = (): FireScheduleToolDef => ({
+  type: 'function',
+  function: {
+    name: AMSG_FIRE_CANCEL_TOOL,
+    description: [
+      '取消你挂着的一个定时主动消息任务（排程清单里列的那些）。',
+      '比如刚才排的事已经在这条消息里说掉了、或者情况变了那条不该再响。',
+      '多个任务并存时必须用 task_id（排程清单里的短 id）指定；只有一个待触发任务时可省略。',
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string', description: '要取消的任务短 id（8 位，见排程清单）。' },
+      },
+    } as unknown as Record<string, unknown>,
+  },
+});
+
+export const buildFireRenewTool = (opts: FireScheduleTimeOpts): FireScheduleToolDef => ({
+  type: 'function',
+  function: {
+    name: AMSG_FIRE_RENEW_TOOL,
+    description: [
+      '给你挂着的一个任务改触发时间：只换时间，沿用原有模式与提示方向。',
+      '一次性任务 = 整条改到新时间（编号不变）；循环任务 = 只给这一次补发一条一次性任务，原来的每天/每周节奏不动。',
+      '想改的是循环任务本身的时间、或者想说的内容方向已经变了，改用 cancel_active_message + schedule_active_message 重新创建。',
+      `send_at 至少比现在晚 1 分钟（写你本地的墙钟时间，如 ${buildSendAtExample(opts.nowMs, opts.tz)}，不带时区后缀）。`,
+    ].join('\n'),
+    parameters: {
+      type: 'object',
+      properties: {
+        send_at: { type: 'string', description: '新的触发时间，写你本地的墙钟时间、不带时区后缀。至少比现在晚 1 分钟。' },
+        task_id: { type: 'string', description: '要改期的任务短 id（8 位，见排程清单）。只有一个任务时可省略。' },
+      },
+      required: ['send_at'],
+    } as unknown as Record<string, unknown>,
   },
 });
 
@@ -264,6 +312,131 @@ export const parseFireScheduleArgs = (
     recurrence: recurrence as ActiveMsg2Recurrence,
     expirePolicy,
   };
+};
+
+// ─── 自排任务的 uuid ───
+
+/**
+ * 一个字符串的 32 位 FNV-1a 摘要（8 位十六进制）。纯函数、无依赖，同样的输入永远
+ * 得到同样的输出——自排任务的 uuid 要靠这一点在 fire 重跑时对得上号。
+ */
+const fnv1a32Hex = (input: string): string => {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
+/**
+ * 角色在 fire 里给自己排下的那条任务的 uuid：`<8 位摘要>-amsgself-<charId>-<触发时刻>-<序号>`。
+ *
+ * 摘要放在最前面是有意的：排程清单里印给角色看的那个短 id 取的是 uuid 前 8 个字符
+ * （amsg2Tasks.shortTaskId）。前 8 位要是写死成 `amsgself`，同一次 fire 排下的两条在
+ * 清单里就印成一模一样的 `[amsgself]`，角色说「取消晚上那条」时随便点一条都算命中，
+ * 删掉的很可能是早上那条，而且两边都以为成功了。
+ *
+ * 摘要只由 (charId, occurrenceMs, seq) 算出，不掺随机数：fire 抛错整条重跑时算出的是
+ * 同一个 uuid，上游据此认出撞车、不会每重试一次多排一条。
+ */
+export const buildSelfScheduleUuid = (
+  charId: string,
+  occurrenceMs: number,
+  seq: number,
+): string =>
+  `${fnv1a32Hex(`${charId}|${occurrenceMs}|${seq}`)}-amsgself-${charId}-${occurrenceMs}-${seq}`;
+
+// ─── 取消 / 改期的目标解析（fire 侧） ───
+
+/** 这个 task_id 在清单里命中了哪几条：全 uuid 精确匹配优先，否则按短 id 收全部命中。 */
+const matchTasksByTaskId = (
+  tasks: ActiveMsg2TaskRecord[],
+  taskId: string,
+): ActiveMsg2TaskRecord[] => {
+  const exact = tasks.find((t) => t.taskUuid === taskId);
+  if (exact) return [exact];
+  return tasks.filter((t) => shortTaskId(t.taskUuid) === taskId);
+};
+
+/** 打回文案里指认一条任务用的时间：当前该盯的那一次触发。 */
+const describeTaskWhen = (
+  task: ActiveMsg2TaskRecord,
+  nowMs: number,
+  tz: AmsgTzRef,
+): string =>
+  formatFireTimeShort(
+    currentOccurrenceMs(task, nowMs) ?? new Date(task.firstSendTime).getTime(),
+    tz,
+  );
+
+/**
+ * 按 task_id（或「唯一即选」）从 fire 时刻的活任务清单里解出目标。
+ * 语义与前台 resolveTargetTask 对齐：短 id / 全 uuid 都认；不带 task_id 时先按
+ * fire 时刻复筛 pending（快照里可能混着已过点变陈旧的一次性任务——pack 只在打包
+ * 那一刻筛过一次），唯一 pending 就选它，没有 pending 而清单恰好一条也选它。
+ * 不对齐的话，同一句 cancel_active_message 本地能成、云端却被打回 ambiguous_task。
+ * 找不到就回一句能照做的话（不抛错，见 parseFireScheduleArgs）。
+ *
+ * 一个短 id 同时命中好几条时**绝不静默取第一条**：取消 / 改期是会真的动 D1 行的，
+ * 猜错了就是删掉另一条任务，而角色和用户都只会看到一句 ok。这种时候打回
+ * ambiguous_task，并把候选连同各自的触发时间和完整 task_id 一起报出去，
+ * 角色下一轮带完整 id 重来一次就能指准。
+ */
+export const resolveFireTargetTask = (
+  tasks: ActiveMsg2TaskRecord[],
+  taskIdArg: unknown,
+  nowMs: number,
+  tz: AmsgTzRef,
+): { task: ActiveMsg2TaskRecord } | FireScheduleReject => {
+  if (tasks.length === 0) {
+    return { ok: false, reason: 'no_tasks', message: '你现在没有挂着任何排程任务。' };
+  }
+  if (typeof taskIdArg === 'string' && taskIdArg.trim()) {
+    const taskId = taskIdArg.trim();
+    const hits = matchTasksByTaskId(tasks, taskId);
+    if (hits.length === 1) return { task: hits[0] };
+    if (hits.length === 0) {
+      return { ok: false, reason: 'task_not_found', message: `没有找到短 id 为 ${taskId} 的任务——短 id 在排程清单里，照着那里的写。` };
+    }
+    const candidates = hits
+      .map((t) => `${describeTaskWhen(t, nowMs, tz)} 那条的完整 id 是 ${t.taskUuid}`)
+      .join('；');
+    return {
+      ok: false,
+      reason: 'ambiguous_task',
+      message: `短 id ${taskId} 同时对应 ${hits.length} 个任务，这么写会动错人。`
+        + `挑一个，把完整 id 填进 task_id 再来一次：${candidates}。`,
+    };
+  }
+  const pending = tasks.filter((t) => isPendingTask(t, nowMs));
+  if (pending.length === 1) return { task: pending[0] };
+  if (pending.length === 0 && tasks.length === 1) return { task: tasks[0] };
+  return { ok: false, reason: 'ambiguous_task', message: '你挂着不止一个任务，带 task_id（排程清单里的短 id）指定要动哪一个。' };
+};
+
+/** renew 的 send_at 校验：与排程共用同一套解析（裸墙钟按角色时区）和 60s 提前线。 */
+export const parseFireRenewSendAt = (
+  raw: unknown,
+  nowMs: number,
+  tz: AmsgTzRef,
+): { sendAt: string } | FireScheduleReject => {
+  const example = buildSendAtExample(nowMs, tz);
+  if (typeof raw !== 'string' || !raw.trim()) {
+    return { ok: false, reason: 'invalid_send_at', message: `send_at 必填，写你本地的墙钟时间（如 ${example}）。` };
+  }
+  const sendAtMs = resolveSendAtMs(raw, tz);
+  if (!Number.isFinite(sendAtMs)) {
+    return { ok: false, reason: 'invalid_send_at', message: `send_at「${raw}」解析不出时间，写你本地的墙钟时间（如 ${example}）。` };
+  }
+  if (sendAtMs < nowMs + MIN_SCHEDULE_LEAD_MS) {
+    return {
+      ok: false,
+      reason: 'send_at_too_soon',
+      message: `send_at 至少要比现在晚 1 分钟（你那边现在是 ${formatFireTimeShort(nowMs, tz)}）。想马上说的话直接写进这条消息里。`,
+    };
+  }
+  return { sendAt: new Date(sendAtMs).toISOString() };
 };
 
 // ─── 正文协议兜底（用户的中转拒 tools 时） ───

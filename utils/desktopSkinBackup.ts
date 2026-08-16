@@ -10,6 +10,8 @@ import { isBlobRef, getBlobForRef, blobToDataUrl, migrateDataUrlToRef } from './
 
 // 纯字符串偏好键（原样带走）
 const PLAIN_KEYS = [
+    'companion_frame_style_v1', // 陪伴桌面：框架风格（科技 / 手游 / 卡面 / 画报）
+    'companion_layout_v1', // 陪伴桌面：真实布局（舞台 / 陪伴 / 轻巧）
     'tama_style_v2',   // 电子宠物：界面风格方案 {hue,dark,gold,mute}
     'mg_style_v1',     // 手游风：界面配色方案
     'tama_board_fg',   // 看板文字色（空=自动）

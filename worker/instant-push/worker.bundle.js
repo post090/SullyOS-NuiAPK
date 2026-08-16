@@ -2242,7 +2242,7 @@ function sanitizeTable(value) {
   return value;
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-instant@0.10.1-next.2/node_modules/@rei-standard/amsg-instant/dist/index.mjs
+// node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.5/node_modules/@rei-standard/amsg-instant/dist/index.mjs
 var PUSH_PAYLOAD_BYTE_ENCODER2 = new TextEncoder();
 function segmentTextWithProtectedBlocks(text, options) {
   if (!text) return [];
@@ -2581,18 +2581,7 @@ function sanitizeTextForBanner(text) {
   return result;
 }
 function chunkText(text) {
-  const CJK = "\\u4e00-\\u9fff\\u3400-\\u4dbf\\u3000-\\u303f\\uff00-\\uffef\\u2000-\\u206f\\u2e80-\\u2eff\\u3001-\\u3003\\u2018-\\u201f\\u300a-\\u300f\\uff01-\\uff0f\\uff1a-\\uff20";
-  const cjkSplitRe = new RegExp(`([${CJK}])\\s+(?=[${CJK}])`, "g");
-  const SPLIT = String.fromCharCode(1);
-  const lineChunks = text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
-  const SPACE_SENTINEL = String.fromCharCode(0);
-  const out = [];
-  for (const chunk of lineChunks) {
-    const guarded = chunk.replace(/\[{1,2}[^\[\]]*\]{1,2}/g, (m) => m.replace(/\s/g, SPACE_SENTINEL));
-    const sub = guarded.replace(cjkSplitRe, `$1${SPLIT}`).split(SPLIT).map((c) => c.split(SPACE_SENTINEL).join(" ").trim()).filter((c) => c.length > 0);
-    out.push(...sub);
-  }
-  return out;
+  return text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
 }
 function splitOnSendEmoji(chunk) {
   const re = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;
@@ -2967,7 +2956,89 @@ function classifyLLMOutput(text) {
 }
 
 // utils/instantWorkerVersion.ts
-var INSTANT_WORKER_VERSION = "2026-07-17";
+var INSTANT_WORKER_VERSION = "2026-08-13";
+
+// utils/emotionEvalCore.ts
+var EMOTION_EVAL_SYSTEM_SLOT = "__EMOTION_EVAL_SYSTEM_PROMPT__";
+var EMOTION_EVAL_HISTORY_SLOT = "__EMOTION_EVAL_HISTORY__";
+var EMOTION_EVAL_TIMEOUT_MS = 12e4;
+var flattenEvalContent = (content) => {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map((part) => part?.type === "text" ? part.text || "" : part?.type === "image_url" ? "[\u56FE\u7247]" : "").filter(Boolean).join(" ");
+  }
+  return "";
+};
+var restoreEvalPrompt = (template, chatMessages, charName) => {
+  const messages = Array.isArray(chatMessages) ? chatMessages : [];
+  let systemPromptText = "";
+  let conversation = messages;
+  if (messages.length > 0 && messages[0]?.role === "system") {
+    systemPromptText = flattenEvalContent(messages[0].content);
+    conversation = messages.slice(1);
+  }
+  const recentLines = conversation.map((m) => {
+    const role = m.role === "user" ? "\u7528\u6237" : m.role === "assistant" ? charName : "\u7CFB\u7EDF";
+    return `[${role}]: ${flattenEvalContent(m.content)}`;
+  }).join("\n");
+  return String(template).replace(EMOTION_EVAL_SYSTEM_SLOT, () => systemPromptText).replace(EMOTION_EVAL_HISTORY_SLOT, () => recentLines);
+};
+var ERROR_SNIPPET_MAX = 120;
+var maskAndSnip = (text, apiKey) => {
+  let snippet = text.replace(/\s+/g, " ").trim();
+  if (apiKey && snippet.includes(apiKey)) snippet = snippet.split(apiKey).join("***");
+  return snippet.slice(0, ERROR_SNIPPET_MAX);
+};
+var requestEmotionEval = async (api, promptContent, timeoutMs = EMOTION_EVAL_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const baseUrl = String(api.baseUrl).replace(/\/+$/, "");
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${api.apiKey || "sk-none"}`
+      },
+      body: JSON.stringify({
+        model: api.model,
+        messages: [{ role: "user", content: promptContent }],
+        temperature: 0.85,
+        // 显式给足输出额度：部分中转不传 max_tokens 时默认很小，评估输出很长，
+        // 会被截成半截 JSON。
+        max_tokens: 8e3,
+        stream: false
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) {
+      let body = "";
+      try {
+        body = await res.text();
+      } catch {
+      }
+      console.warn("[emotion-eval] \u526F API \u62D2\u4E86\u8FD9\u6B21\u8BC4\u4F30\uFF08\u4E3B\u6D41\u7A0B\u4E0D\u53D7\u5F71\u54CD\uFF09", res.status);
+      const snippet = maskAndSnip(body, api.apiKey);
+      return { raw: null, error: `\u526F API HTTP ${res.status}${snippet ? `\uFF1A${snippet}` : ""}` };
+    }
+    const data = await res.json();
+    const message = data?.choices?.[0]?.message;
+    const raw = flattenEvalContent(message?.content) || (typeof message?.reasoning_content === "string" ? message.reasoning_content : "");
+    if (!raw.trim()) {
+      return {
+        raw: null,
+        error: `\u8BC4\u4F30\u6A21\u578B\u6CA1\u6709\u8F93\u51FA\u5185\u5BB9\uFF08finish_reason: ${data?.choices?.[0]?.finish_reason ?? "?"}\uFF09`
+      };
+    }
+    return { raw, error: null };
+  } catch (error) {
+    console.warn("[emotion-eval] \u8BC4\u4F30\u5931\u8D25\uFF08\u4E3B\u6D41\u7A0B\u4E0D\u53D7\u5F71\u54CD\uFF09", error);
+    const reason = controller.signal.aborted ? `\u8BC4\u4F30\u8D85\u65F6\uFF08${Math.round(timeoutMs / 1e3)} \u79D2\u6CA1\u56DE\u6765\uFF09` : `\u8BC4\u4F30\u8BF7\u6C42\u6CA1\u53D1\u51FA\u53BB\uFF1A${maskAndSnip(error instanceof Error ? error.message : String(error), api.apiKey)}`;
+    return { raw: null, error: reason };
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 // worker/instant-push/src/index.ts
 var MULTIPART_TRANSPORT = { enabled: true };
@@ -3315,65 +3386,13 @@ async function runEmotionEval(body) {
   if (!ee?.prompt || !ee?.api?.baseUrl || !ee?.api?.apiKey || !ee?.api?.model) {
     return { raw: "", error: "\u8BC4\u4F30\u914D\u7F6E\u4E0D\u5B8C\u6574\uFF08\u7F3A prompt / baseUrl / apiKey / model\uFF09" };
   }
-  const charId = body?.metadata && typeof body.metadata === "object" ? body.metadata.charId : "";
   const priorMessages = Array.isArray(body?.messages) ? body.messages : [];
   const contactName = body?.contactName || "\u89D2\u8272";
-  const flattenContent = (content) => {
-    if (typeof content === "string") return content;
-    if (Array.isArray(content)) {
-      return content.map((p) => p?.type === "text" ? p.text || "" : p?.type === "image_url" ? "[\u56FE\u7247]" : "").filter(Boolean).join(" ");
-    }
-    return "";
-  };
-  let systemPromptText = "";
-  let conversation = priorMessages;
-  if (priorMessages.length > 0 && priorMessages[0]?.role === "system") {
-    systemPromptText = flattenContent(priorMessages[0].content);
-    conversation = priorMessages.slice(1);
-  }
-  const recentLines = conversation.map((m) => {
-    const role = m.role === "user" ? "\u7528\u6237" : m.role === "assistant" ? contactName : "\u7CFB\u7EDF";
-    return `[${role}]: ${flattenContent(m.content)}`;
-  }).join("\n");
-  const evalContent = String(ee.prompt).replace("__EMOTION_EVAL_SYSTEM_PROMPT__", () => systemPromptText).replace("__EMOTION_EVAL_HISTORY__", () => recentLines);
-  const evalMessages = [{ role: "user", content: evalContent }];
-  try {
-    const baseUrl = String(ee.api.baseUrl).replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${ee.api.apiKey || "sk-none"}`
-      },
-      body: JSON.stringify({
-        model: ee.api.model,
-        messages: evalMessages,
-        temperature: 0.85,
-        // 显式给足输出额度: 部分代理不传 max_tokens 时默认很小, eval 输出很长, 会被截断成半截 JSON
-        max_tokens: 8e3,
-        stream: false
-      })
-    });
-    if (!res.ok) {
-      let snippet = "";
-      try {
-        snippet = (await res.text()).replace(/\s+/g, " ").slice(0, 120);
-      } catch {
-      }
-      console.error("[emotion-eval] LLM call failed", res.status);
-      return { raw: "", error: `\u526F API HTTP ${res.status}${snippet ? `\uFF1A${snippet}` : ""}` };
-    }
-    const data = await res.json();
-    const msg = data?.choices?.[0]?.message;
-    const raw = flattenContent(msg?.content) || (typeof msg?.reasoning_content === "string" ? msg.reasoning_content : "");
-    if (!raw) {
-      return { raw: "", error: `\u8BC4\u4F30\u6A21\u578B\u6CA1\u6709\u8F93\u51FA\u5185\u5BB9 (finish_reason: ${data?.choices?.[0]?.finish_reason ?? "?"})` };
-    }
-    return { raw };
-  } catch (e) {
-    console.error("[emotion-eval] failed", e);
-    return { raw: "", error: `\u8BC4\u4F30\u8BF7\u6C42\u5F02\u5E38\uFF1A${e?.message || String(e)}` };
-  }
+  const outcome = await requestEmotionEval(
+    ee.api,
+    restoreEvalPrompt(String(ee.prompt), priorMessages, contactName)
+  );
+  return outcome.raw != null ? { raw: outcome.raw } : { raw: "", error: outcome.error ?? void 0 };
 }
 function withSseAntiBufferingHeaders(resp) {
   const contentType = resp.headers.get("content-type") || "";

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "versionCode": 30404,
+  "versionName": "3.4.4",
+  "apkUrl": "https://github.com/qegj567-cloud/SullyOS/releases/download/android-v3.4.4/SullyOS-Android-v3.4.4.apk",
+  "sha256": "acf3d7dc202a64bd6efbd617afe1e8fd597eab508746fd653e87517e33bbfd65",
+  "sizeBytes": 36822764,
+  "publishedAt": "2026-08-13T16:50:08Z",
+  "releaseNotes": [
+    "修复首次使用应用内更新时 Cache/updates 目录未创建导致的下载失败",
+    "对齐最新 master 389c8738（含 PR #577）",
+    "延续固定签名、UnifiedPush / ntfy、Android PDF 导入与更新包校验"
+  ]
+}

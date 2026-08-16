@@ -346,20 +346,18 @@ export const CharMusicPersona = {
 
         // 解析：结构化 parse 优先；不行就 scavenge（逐字段正则抠）
         // 两条线结果合并 — 任何字段单项 OK 都先收下
-        const structured = (extractJson<PersonaDraft>(rawText) || {}) as Partial<PersonaDraft>;
+        // LLM 吐的 JSON 缺字段是常态，所以按 Partial 收，字段级兜底在下面
+        const structured: Partial<PersonaDraft> = extractJson<Partial<PersonaDraft>>(rawText) || {};
         const scavenged = scavengeFields(rawText);
         const draft: Partial<PersonaDraft> = {
             bio: sanitizeStr(structured.bio) || sanitizeStr(scavenged.bio),
             genreTags: firstArray(structured.genreTags, scavenged.genreTags),
-            signatureArtists: firstArray(
-                structured.signatureArtists,
-                scavenged.signatureArtists as PersonaDraft['signatureArtists'],
-            ),
+            signatureArtists: firstArray(structured.signatureArtists, scavenged.signatureArtists),
             favoriteSoundtracks: firstArray(
                 structured.favoriteSoundtracks,
                 scavenged.favoriteSoundtracks as PersonaDraft['favoriteSoundtracks'],
             ),
-            playlists: firstArray(structured.playlists, scavenged.playlists as PersonaDraft['playlists']),
+            playlists: firstArray(structured.playlists, scavenged.playlists),
         };
 
         // 艺人字段：兼容三种形态 — [{name:"...",starred:true}] / [{name:"..."}] / ["..."] / 混合

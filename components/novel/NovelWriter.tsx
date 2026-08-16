@@ -492,7 +492,10 @@ ${chapterText.substring(0, 200000)}
 
             {/* Header */}
             {/* Removed 'sticky top-0' to fix layout overlap. It is now a standard flex child. */}
-            <div className={`flex flex-col border-b border-black/5 shrink-0 z-20 backdrop-blur-md ${activeTheme.bg}/90 transition-all`}>
+            <div
+                className={`flex flex-col border-b border-black/5 shrink-0 z-20 backdrop-blur-md ${activeTheme.bg}/90 transition-all`}
+                style={{ paddingTop: 'var(--chrome-top)' }}
+            >
                 <div className="h-16 flex items-center justify-between px-4 pt-2">
                     <button onClick={onBack} className="p-3 -ml-3 rounded-full hover:bg-black/5 active:scale-90 transition-transform">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className={`w-6 h-6 ${activeTheme.text}`}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>

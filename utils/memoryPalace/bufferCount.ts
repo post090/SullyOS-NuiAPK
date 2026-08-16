@@ -13,7 +13,7 @@ import type { Message } from '../../types';
  *
  * @param semanticMessages 已过滤成"语义相关"的消息（可不排序，本函数内部按 id 排序）
  * @param hwm 当前高水位标记（id <= hwm 视为已处理）
- * @param hotZoneSize 热区大小，默认 200，与 pipeline 的 HOT_ZONE_SIZE 对齐
+ * @param hotZoneSize 角色档位解析出的热区大小；旧角色默认 200
  */
 export function countUnprocessedBufferMessages(
     semanticMessages: Message[],
@@ -21,11 +21,45 @@ export function countUnprocessedBufferMessages(
     hotZoneSize = 200,
 ): number {
     const sorted = [...semanticMessages].sort((a, b) => a.id - b.id);
-    if (sorted.length <= hotZoneSize) return 0;
-    const hotZoneStartId = sorted[sorted.length - hotZoneSize].id;
+    const normalizedHotZoneSize = Math.max(0, Math.floor(hotZoneSize));
+    if (sorted.length <= normalizedHotZoneSize) return 0;
+    const hotZoneStartId = normalizedHotZoneSize === 0
+        ? Number.POSITIVE_INFINITY
+        : sorted[sorted.length - normalizedHotZoneSize].id;
     let count = 0;
     for (const m of sorted) {
         if (m.id > hwm && m.id < hotZoneStartId) count++;
     }
     return count;
+}
+
+/**
+ * 一键存入时按“用户眼里看到的聊天条数”划边界，而不是按语义消息条数划边界。
+ * 这样“保留最近 10 条”会精确保留最后 10 条原文；图片、卡片等消息不会让
+ * 紫色水位线与橙色原文范围错开。
+ */
+export function getOneShotTargetHighWaterMark(
+    sourceMessages: Message[],
+    retainRecentMessages: number,
+): number {
+    const sortedPrivateMessages = sourceMessages
+        .filter(message => !message.groupId)
+        .slice()
+        .sort((a, b) => a.id - b.id);
+    const retained = Math.max(0, Math.floor(retainRecentMessages));
+    const targetIndex = sortedPrivateMessages.length - retained - 1;
+    return targetIndex >= 0 ? sortedPrivateMessages[targetIndex].id : 0;
+}
+
+/** 一键存入实际会交给记忆提取管线的语义消息数。 */
+export function countOneShotPendingMessages(
+    semanticMessages: Message[],
+    sourceMessages: Message[],
+    hwm: number,
+    retainRecentMessages: number,
+): number {
+    const targetHighWaterMark = getOneShotTargetHighWaterMark(sourceMessages, retainRecentMessages);
+    return semanticMessages.filter(message => (
+        message.id > hwm && message.id <= targetHighWaterMark
+    )).length;
 }

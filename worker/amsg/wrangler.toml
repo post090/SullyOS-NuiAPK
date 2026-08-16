@@ -43,6 +43,17 @@ binding = "DB"
 database_name = "sullyos-amsg"
 database_id = "REPLACE_WITH_YOUR_D1_ID"
 
+# 即时对话的起跳器。用户按下发送后，这条聊天在它的 alarm 里生成 —— 那是一次独立
+# invocation，有 15 分钟墙钟，跟已经回了 202 的那个请求彻底脱钩。
+# 不用手动建资源：namespace 会随 Worker 上传一起创建。
+[[durable_objects.bindings]]
+name = "INSTANT_TICK"
+class_name = "InstantTickDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["InstantTickDO"]
+
 # 每分钟查一次到点任务（UTC）。这是主动消息唯一的投递触发方式——
 # 没有 send-notifications 这类 HTTP 端点，关掉 cron 等于整个功能停摆。
 [triggers]

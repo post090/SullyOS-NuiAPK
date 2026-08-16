@@ -22,7 +22,7 @@ const localDateTime = (timestamp = Date.now()): string => {
     return date.toISOString().slice(0, 16);
 };
 
-const Toggle: React.FC<{ value: boolean; onChange: (value: boolean) => void }> = ({ value, onChange }) => <button type='button' onClick={() => onChange(!value)} className={`w-11 h-6 rounded-full p-1 transition-colors ${value ? 'bg-violet-600' : 'bg-slate-200'}`}><span className={`block w-4 h-4 rounded-full bg-white transition-transform ${value ? 'translate-x-5' : ''}`} /></button>;
+const Toggle: React.FC<{ value: boolean; onChange: (value: boolean) => void; label?: string }> = ({ value, onChange, label }) => <button type='button' aria-label={label} aria-pressed={value} onClick={() => onChange(!value)} className={`w-11 h-6 shrink-0 rounded-full p-1 transition-colors ${value ? 'bg-violet-600' : 'bg-slate-200'}`}><span className={`block w-4 h-4 rounded-full bg-white transition-transform ${value ? 'translate-x-5' : ''}`} /></button>;
 
 const StoryTheaterEditor: React.FC<Props> = ({ initial, characters, user, masks, maskLocked, presets, onCancel, onSave, onImportPreset, onEditPreset, onOpenMaskBox }) => {
     const [draft, setDraft] = useState<StoryTheaterEntry>({ ...initial });
@@ -58,7 +58,7 @@ const StoryTheaterEditor: React.FC<Props> = ({ initial, characters, user, masks,
     const tokenPreview = useMemo(() => {
         const actorText = [resolvedMask.name, resolvedMask.description, resolvedMask.coreInstruction, resolvedMask.worldview, ...actors.map(char => [char.name, char.systemPrompt, char.worldview, draft.carryCharacterMemory ? JSON.stringify(char.memories || []) : ''].join('\n'))].join('\n');
         const bookText = books.filter(book => draft.selectedWorldbookIds.includes(book.id)).map(book => book.content).join('\n');
-        const presetText = effectivePreset ? effectivePreset.document.prompts.map(prompt => prompt.content).join('\n') : '';
+        const presetText = effectivePreset ? effectivePreset.document.prompts.filter(prompt => prompt.enabled).map(prompt => prompt.content).join('\n') : '';
         const archiveText = draft.archives.map(archive => archive.summary || '').join('\n');
         return { actor: estimateStoryTokens(actorText), book: estimateStoryTokens(bookText), preset: estimateStoryTokens(presetText), archive: estimateStoryTokens(archiveText) };
     }, [actors, books, draft, effectivePreset, resolvedMask]);
@@ -127,6 +127,13 @@ const StoryTheaterEditor: React.FC<Props> = ({ initial, characters, user, masks,
                 <div className='mt-3 flex gap-2'><select value={preset?.id || ''} onChange={event => setDraft(current => ({ ...current, presetId: event.target.value, presetOverride: undefined, updatedAt: Date.now() }))} className='min-w-0 flex-1 px-3 py-3 rounded-xl bg-white border border-slate-200 text-xs'>{presets.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select><button onClick={() => fileInput.current?.click()} className='w-11 rounded-xl bg-white border border-slate-200 grid place-items-center'><UploadSimple size={18} /></button><button disabled={!preset} onClick={() => preset && downloadStoryPreset(preset)} className='w-11 rounded-xl bg-white border border-slate-200 grid place-items-center disabled:opacity-30'><DownloadSimple size={18} /></button></div>
                 <input ref={fileInput} type='file' accept='.json,application/json' className='hidden' onChange={async event => { const file = event.target.files?.[0]; event.currentTarget.value = ''; if (!file) return; const imported = await onImportPreset(file); if (imported) setDraft(current => ({ ...current, presetId: imported.id, presetOverride: undefined, updatedAt: Date.now() })); }} />
                 {preset && <div className='mt-3 flex items-center justify-between'><span className='text-[10px] text-slate-500'>启用 {presetStats.enabled}/{presetStats.total} 条 · 按当前顺序与插入位置发送</span><button onClick={() => onEditPreset(preset, draft)} className='text-[10px] font-bold text-violet-600'>打开制作器</button></div>}
+                <div className='mt-5 pt-4 border-t border-slate-200'>
+                    <div className='flex items-start justify-between gap-5'>
+                        <div><div className='text-sm font-semibold'>400 兼容模式</div><p className='mt-1 text-[10px] leading-5 text-slate-500'>仅当接口提示“最后一条消息必须是 user”时开启。</p></div>
+                        <Toggle label='400 兼容模式' value={draft.forceUserLastMessage === true} onChange={value => update('forceUserLastMessage', value)} />
+                    </div>
+                    {draft.forceUserLastMessage && <p className='mt-3 border-l-2 border-amber-400 pl-3 text-[10px] leading-5 text-amber-700'>开启后会用系统指令代替原生助手预填，可能削弱格式与文风效果。优先建议更换支持该预设的模型。</p>}
+                </div>
             </section>
             <section className='pt-6 border-t border-slate-200'>
                 <div className='text-[9px] tracking-[.22em] uppercase font-bold text-violet-500'>06 / Budget</div>

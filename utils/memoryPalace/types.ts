@@ -313,6 +313,11 @@ export interface DigestReport {
     outcomes: DigestReportSection[];    // 状态机结果（化解/加深/淡忘/实现/落空/新困惑）
     plateSubmissions: DigestReportSection[]; // 提交给门牌的蒸馏候选
     plateUpdated: string[];             // 门牌实际更新的房间（PlateRoom）
+    /**
+     * 这次的门牌整理交给云端跑了，结果还在路上（几分钟后落地）。
+     * 缺字段 = 这条日志是这个标记出现之前记的，当 false 看。
+     */
+    plateCloudPending?: boolean;
 }
 
 /** 每角色保留的消化报告条数上限 */

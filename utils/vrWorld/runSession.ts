@@ -22,7 +22,7 @@ import {
 import { DB } from '../db';
 import { buildChatRequestPayload } from '../chatRequestPayload';
 import { safeFetchJson } from '../safeApi';
-import { processNewMessages } from '../memoryPalace/pipeline';
+import { processNewMessagesWithAutoArchive } from '../memoryPalace/autoArchive';
 import { loadMusicCfgStandalone } from '../../context/MusicContext';
 import { getCharLyricSnippet } from '../charLyricCache';
 import { getRoom, VR_DEFAULT_INTERVAL_MIN, rollPoemLines, signalActFor, SIGNAL_EVENT_ENDED } from './constants';
@@ -646,7 +646,7 @@ export async function runVRSession(deps: VRSessionDeps): Promise<VRSessionResult
             const mpLLM = (mpLLMConfigured?.baseUrl) ? mpLLMConfigured : { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model };
             if (char.memoryPalaceEnabled && mpEmb?.baseUrl && mpEmb?.apiKey && mpLLM.baseUrl) {
                 const recentMsgs = await DB.getRecentMessagesByCharId(char.id, 50);
-                void processNewMessages(recentMsgs, char.id, char.name, mpEmb as any, mpLLM as any, userProfile?.name || '', false).catch(() => {});
+                void processNewMessagesWithAutoArchive(recentMsgs, char.id, char.name, mpEmb as any, mpLLM as any, userProfile?.name || '', false).catch(() => {});
             }
         } catch { /* 记忆失败不影响主流程 */ }
 

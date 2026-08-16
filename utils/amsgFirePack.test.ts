@@ -14,9 +14,10 @@ import {
   SELF_LOG_TEXT_MAX,
   appendSelfLogEntry,
   buildAwayHint,
-  buildStreakReminder,
   buildUserClockHint,
+  countUnansweredSends,
   createSelfLog,
+  DEFAULT_MAX_UNANSWERED_SENDS,
   describeLastSkip,
   formatFireTimeFull,
   formatFireTimeShort,
@@ -25,9 +26,10 @@ import {
   parseLastSkip,
   parseSelfLog,
   packStateValue,
+  reconcileSelfLogWithPack,
   renderFirePack,
   renderSelfLogBlock,
-  selfLogMatchesPack,
+  resolveMaxUnansweredSends,
   unpackStateValue,
 } from './amsgFirePack';
 
@@ -114,7 +116,7 @@ describe('formatFireTimeFull / formatFireTimeShort（角色参照系的自然中
 
 describe('renderFirePack', () => {
   const basePack: AmsgFirePack = {
-    v: 6, builtAt: 1_700_000_000_000, pendingTasks: [], scene: null,
+    v: FIRE_PACK_VERSION, builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
     template: [
       `当前本地时间：${AMSG_SLOT_CURRENT_TIME}`,
       AMSG_SLOT_TIME_SINCE_USER,
@@ -170,7 +172,7 @@ describe('对方那边现在几点（AMSG_SLOT_USER_CLOCK）', () => {
   // 纽约角色 / 上海用户：2026-08-02T13:00Z = 纽约 09:00、上海 21:00。
   const AT = Date.UTC(2026, 7, 2, 13, 0);
   const nyChar: AmsgFirePack = {
-    v: 6, builtAt: 1, pendingTasks: [], scene: null, lastUserMessageAt: null,
+    v: FIRE_PACK_VERSION, builtAt: 1, pendingTasks: [], scene: null, selfScheduleEnabled: true, lastUserMessageAt: null,
     template: `当前本地时间（你所在地）：${AMSG_SLOT_CURRENT_TIME}${AMSG_SLOT_USER_CLOCK}`,
     tzId: 'America/New_York',
     userTzId: 'Asia/Shanghai',
@@ -204,8 +206,8 @@ describe('对方那边现在几点（AMSG_SLOT_USER_CLOCK）', () => {
 
 describe('parseFirePack', () => {
   const valid: AmsgFirePack = {
-    v: 6, template: 'x', lastUserMessageAt: null, tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: 'A',
-    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null,
+    v: FIRE_PACK_VERSION, template: 'x', lastUserMessageAt: null, tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: 'A',
+    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
   };
 
   it('合法 JSON 原样返回', () => {
@@ -222,6 +224,14 @@ describe('parseFirePack', () => {
 
   it('lastUserMessageAt 数字也合法', () => {
     expect(parseFirePack(JSON.stringify({ ...valid, lastUserMessageAt: 123 }))?.lastUserMessageAt).toBe(123);
+  });
+
+  it('maxUnansweredSends 可选：缺省合法、非负数字透传、坏值整包打回', () => {
+    expect(parseFirePack(JSON.stringify(valid))?.maxUnansweredSends).toBeUndefined();
+    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: 5 }))?.maxUnansweredSends).toBe(5);
+    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: 0 }))?.maxUnansweredSends).toBe(0);
+    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: '5' }))).toBeNull();
+    expect(parseFirePack(JSON.stringify({ ...valid, maxUnansweredSends: -1 }))).toBeNull();
   });
 
   it('tzId 必填：缺失 / 空串 / 非字符串整包打回（渲染时间没有第二套算法可退）', () => {
@@ -254,8 +264,8 @@ describe('parseFirePack', () => {
 describe('self_log', () => {
   const packAt = 1_700_000_000_000;
   const pack: AmsgFirePack = {
-    v: 6, template: 'x', lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: '小明同学',
-    builtAt: packAt, pendingTasks: [], scene: null,
+    v: FIRE_PACK_VERSION, template: 'x', lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: '小明同学',
+    builtAt: packAt, pendingTasks: [], scene: null, selfScheduleEnabled: true,
   };
   const entry = (id: string, text: string, at = packAt) => ({ id, at, text });
 
@@ -294,31 +304,135 @@ describe('self_log', () => {
     });
   });
 
-  describe('selfLogMatchesPack', () => {
-    it('basePackAt 对得上才算数', () => {
-      expect(selfLogMatchesPack(createSelfLog(packAt), pack)).toBe(true);
+  // 回归守卫（炸屏事故的根）：连发计数以前挂在 basePackAt 上，客户端每认领一条推送就
+  // 重传一次 fire_pack，计数被自己发的消息洗回零——在线时连排提醒永远不出现。
+  // 现在两段各管各的生死：entries 只认「用户开口了」，tasks 只认「fire_pack 换代了」。
+  describe('reconcileSelfLogWithPack', () => {
+    const task = (uuid: string) => ({
+      taskUuid: uuid, clientTaskId: `${uuid}-c`, mode: 'auto', firstSendTime: '2026-08-07T09:00:00.000Z',
+      recurrenceType: 'none', expirePolicy: 'expire', source: 'character', status: 'scheduled', createdAt: packAt,
+    } as AmsgSelfLog['tasks'][number]);
+
+    const seeded = (): AmsgSelfLog => {
+      let log = createSelfLog(packAt, 500);
+      log = appendSelfLogEntry(log, entry('t1@1', '第一条'));
+      log = appendSelfLogEntry(log, entry('t1@2', '第二条'));
+      return { ...log, tasks: [task('u1')] };
+    };
+
+    it('没有日志 → 从空的建一份，锚定当前的 lastUserMessageAt', () => {
+      const log = reconcileSelfLogWithPack(null, pack, 500);
+      expect(log.entries).toHaveLength(0);
+      expect(log.tasks).toHaveLength(0);
+      expect(log.basePackAt).toBe(packAt);
+      expect(log.anchorUserMsgAt).toBe(500);
     });
 
-    it('客户端传了新模板（builtAt 变了）→ 整份作废，避免同一段话在 prompt 里出现两次', () => {
-      expect(selfLogMatchesPack(createSelfLog(packAt), { ...pack, builtAt: packAt + 1 })).toBe(false);
+    it('fire_pack 换代（builtAt 变了）→ 只丢 tasks（已随 pendingTasks 回来），entries 原样保留', () => {
+      const log = reconcileSelfLogWithPack(seeded(), { ...pack, builtAt: packAt + 1 }, 500);
+      expect(log.entries.map((e) => e.text)).toEqual(['第一条', '第二条']);
+      expect(log.tasks).toHaveLength(0);
+      expect(log.basePackAt).toBe(packAt + 1);
     });
 
-    it('没有日志 → false', () => {
-      expect(selfLogMatchesPack(null, pack)).toBe(false);
+    it('用户开口了（lastUserMessageAt 比锚新）→ 清 entries、锚前进，tasks 不动', () => {
+      const log = reconcileSelfLogWithPack(seeded(), pack, 900);
+      expect(log.entries).toHaveLength(0);
+      expect(log.anchorUserMsgAt).toBe(900);
+      expect(log.tasks).toHaveLength(1);
+    });
+
+    it('用户没有新发言（同锚 / 更旧 / null）→ entries 原样保留', () => {
+      expect(reconcileSelfLogWithPack(seeded(), pack, 500).entries).toHaveLength(2);
+      expect(reconcileSelfLogWithPack(seeded(), pack, 400).entries).toHaveLength(2);
+      expect(reconcileSelfLogWithPack(seeded(), pack, null).entries).toHaveLength(2);
+    });
+
+    it('换代与用户开口同时发生 → entries、tasks 都清', () => {
+      const log = reconcileSelfLogWithPack(seeded(), { ...pack, builtAt: packAt + 1 }, 900);
+      expect(log.entries).toHaveLength(0);
+      expect(log.tasks).toHaveLength(0);
+    });
+  });
+
+  describe('countUnansweredSends（连发上限的计数口径）', () => {
+    it('只数主动发出的条目，即时对话的回复（reply 标记）不算连发', () => {
+      let log = createSelfLog(packAt);
+      log = appendSelfLogEntry(log, { id: 'r@1', at: packAt, text: '嗯嗯我在', reply: true });
+      log = appendSelfLogEntry(log, entry('t1@2', '主动第一条'));
+      log = appendSelfLogEntry(log, entry('t1@3', '主动第二条'));
+      expect(countUnansweredSends(log)).toBe(2);
+      expect(countUnansweredSends(createSelfLog(packAt))).toBe(0);
+      expect(countUnansweredSends(null)).toBe(0);
+    });
+
+    // 回归守卫：计数以前是数 entries 数出来的，而 entries 只留最近 SELF_LOG_MAX_ENTRIES
+    // （8）条——计数因此永远不会超过 8，用户把连发上限设成 9 或 10 时，到点兜底闸的
+    // 「计数 >= 上限」恒为 false，那道闸整个失效（等于「不限」）。
+    it('连发条数不被 entries 上限压平：发 10 条就数到 10（上限设 9 / 10 时闸才拦得住）', () => {
+      let log = createSelfLog(packAt);
+      for (let i = 0; i < 10; i += 1) {
+        log = appendSelfLogEntry(log, entry(`t1@${i}`, `第 ${i + 1} 条`));
+      }
+      expect(log.entries).toHaveLength(SELF_LOG_MAX_ENTRIES);   // 前提：entries 确实被削过
+      expect(countUnansweredSends(log)).toBe(10);
+    });
+
+    it('同一次触发重跑（同 id 再追加一次）不多记一条连发', () => {
+      let log = createSelfLog(packAt);
+      log = appendSelfLogEntry(log, entry('t1@100', '在干嘛呢'));
+      log = appendSelfLogEntry(log, entry('t1@100', '在干嘛呢'));
+      expect(countUnansweredSends(log)).toBe(1);
+    });
+
+    it('用户开口 → 连发条数跟 entries 一起归零', () => {
+      let log = createSelfLog(packAt, 500);
+      for (let i = 0; i < 10; i += 1) log = appendSelfLogEntry(log, entry(`t1@${i}`, `第 ${i} 条`));
+      const after = reconcileSelfLogWithPack(log, pack, 900);
+      expect(after.entries).toHaveLength(0);
+      expect(countUnansweredSends(after)).toBe(0);
+    });
+
+    it('fire_pack 换代（客户端认领重传）不清连发条数', () => {
+      let log = createSelfLog(packAt, 500);
+      for (let i = 0; i < 10; i += 1) log = appendSelfLogEntry(log, entry(`t1@${i}`, `第 ${i} 条`));
+      expect(countUnansweredSends(reconcileSelfLogWithPack(log, { ...pack, builtAt: packAt + 1 }, 500)))
+        .toBe(10);
+    });
+  });
+
+  describe('resolveMaxUnansweredSends（用户设置的连发上限）', () => {
+    it('没设 → 默认值；0 → 不限（Infinity）；正整数原样；坏值回默认', () => {
+      expect(resolveMaxUnansweredSends(undefined)).toBe(DEFAULT_MAX_UNANSWERED_SENDS);
+      expect(resolveMaxUnansweredSends(0)).toBe(Infinity);
+      expect(resolveMaxUnansweredSends(5)).toBe(5);
+      expect(resolveMaxUnansweredSends(-2)).toBe(DEFAULT_MAX_UNANSWERED_SENDS);
+      expect(resolveMaxUnansweredSends(Number.NaN)).toBe(DEFAULT_MAX_UNANSWERED_SENDS);
+      expect(resolveMaxUnansweredSends('3' as unknown)).toBe(DEFAULT_MAX_UNANSWERED_SENDS);
     });
   });
 
   describe('parseSelfLog', () => {
-    it('合法 JSON 原样返回', () => {
-      const log = appendSelfLogEntry(createSelfLog(packAt), entry('t1@1', '喂'));
-      expect(parseSelfLog(JSON.stringify(log))).toEqual(log);
+    it('合法 JSON 原样返回（含 reply 标记与锚）', () => {
+      let log = createSelfLog(packAt, 500);
+      log = appendSelfLogEntry(log, entry('t1@1', '喂'));
+      log = appendSelfLogEntry(log, { id: 'r@2', at: packAt, text: '在的', reply: true });
+      const parsed = parseSelfLog(JSON.stringify(log));
+      expect(parsed).toEqual(log);
+      expect(parsed?.anchorUserMsgAt).toBe(500);
+      expect(parsed?.entries[1].reply).toBe(true);
     });
 
-    it('坏形状 → null（调用方当没有、从空的重新攒）', () => {
+    it('坏形状 / 旧版本 → null（调用方当没有、从空的重新攒）', () => {
       expect(parseSelfLog('')).toBeNull();
       expect(parseSelfLog('not json')).toBeNull();
+      expect(parseSelfLog(JSON.stringify({ v: 2, basePackAt: packAt, entries: [], tasks: [] }))).toBeNull();
       expect(parseSelfLog(JSON.stringify({ v: 1, basePackAt: packAt }))).toBeNull();
-      expect(parseSelfLog(JSON.stringify({ v: 1, basePackAt: packAt, entries: [{ id: 'a' }] }))).toBeNull();
+      // v3（连发条数还数在 entries 里的那版）不认：读出来的计数会是错的，宁可从空的重攒
+      expect(parseSelfLog(JSON.stringify({ v: 3, basePackAt: packAt, anchorUserMsgAt: null, entries: [], tasks: [] }))).toBeNull();
+      // 缺连发计数字段的一样不认（少了它计数会静默从 0 开始，闸又白装了）
+      expect(parseSelfLog(JSON.stringify({ v: 4, basePackAt: packAt, anchorUserMsgAt: null, entries: [], tasks: [] }))).toBeNull();
+      expect(parseSelfLog(JSON.stringify({ v: 4, basePackAt: packAt, anchorUserMsgAt: null, entries: [{ id: 'a' }], unansweredSends: 0, tasks: [] }))).toBeNull();
     });
   });
 
@@ -328,13 +442,13 @@ describe('self_log', () => {
       template: `【最近对话上下文】\n用户：在吗${AMSG_SLOT_SELF_LOG}\n\n【本次任务】\n${AMSG_SLOT_TASK_INSTRUCTION}`,
     };
 
-    it('有自述时接在对话上下文后面，正文原样出现', () => {
+    it('有自述时接在对话上下文后面，正文原样出现、时间用相对口径', () => {
       let log = createSelfLog(packAt);
       log = appendSelfLogEntry(log, entry('t1@1', '刚看到楼下那只猫又来了', Date.UTC(2026, 6, 30, 21, 30)));
       const rendered = renderFirePack(slotted, Date.UTC(2026, 6, 30, 23, 0), '本次任务指令', { selfLog: log });
 
       expect(rendered).toContain('刚看到楼下那只猫又来了');
-      expect(rendered).toContain('7月30日 21:30');
+      expect(rendered).toContain('1小时前');
       // 位置：夹在对话上下文和本次任务之间，不能跑到任务指令后面去当新指令读。
       expect(rendered.indexOf('刚看到楼下那只猫又来了')).toBeGreaterThan(rendered.indexOf('用户：在吗'));
       expect(rendered.indexOf('刚看到楼下那只猫又来了')).toBeLessThan(rendered.indexOf('本次任务指令'));
@@ -360,66 +474,98 @@ describe('self_log', () => {
   });
 
   it('renderSelfLogBlock 空日志返回空串', () => {
-    expect(renderSelfLogBlock(null, { tzId: 'UTC' })).toBe('');
-    expect(renderSelfLogBlock(createSelfLog(packAt), { tzId: 'UTC' })).toBe('');
+    const now = Date.UTC(2026, 6, 30, 23, 0);
+    expect(renderSelfLogBlock(null, now, { tzId: 'UTC' })).toBe('');
+    expect(renderSelfLogBlock(createSelfLog(packAt), now, { tzId: 'UTC' })).toBe('');
   });
 
-  it('renderSelfLogBlock 用 pack 的时区换算，不是 UTC', () => {
-    const log: AmsgSelfLog = appendSelfLogEntry(
-      createSelfLog(packAt),
-      entry('t1@1', '睡了', Date.UTC(2026, 6, 30, 14, 0)),
-    );
-    expect(renderSelfLogBlock(log, { tzId: 'Asia/Shanghai' })).toContain('7月30日 22:00');   // UTC+8
-    expect(renderSelfLogBlock(log, { tzId: 'UTC' })).toContain('7月30日 14:00');
-    expect(renderSelfLogBlock(log, { tzId: 'Asia/Tokyo' })).toContain('7月30日 23:00');
+  it('renderSelfLogBlock 时间口径：一天内相对（分钟/小时前），更久回绝对时刻并按 pack 时区换算', () => {
+    const now = Date.UTC(2026, 6, 31, 14, 0);
+    let log = createSelfLog(packAt);
+    log = appendSelfLogEntry(log, entry('t1@1', '前天说的', Date.UTC(2026, 6, 29, 14, 0)));
+    log = appendSelfLogEntry(log, entry('t1@2', '三分钟前说的', now - 3 * 60_000));
+
+    const sh = renderSelfLogBlock(log, now, { tzId: 'Asia/Shanghai' });
+    expect(sh).toContain('3分钟前');
+    expect(sh).toContain('7月29日 22:00');   // UTC+8 的绝对时刻
+    expect(renderSelfLogBlock(log, now, { tzId: 'UTC' })).toContain('7月29日 14:00');
   });
 
-  // ② 的回归守卫：同一个 pack 渲染出来的当前时间 / 自述时间戳必须落在同一参照系。
+  // ② 的回归守卫：同一个 pack 渲染出来的当前时间 / 自述绝对时间戳必须落在同一参照系。
   // 旧实现里当前时间和别处各写各的换算，参照系一混角色就会算错「几小时前」。
-  it('同一个 pack 里当前时间与自述时间戳同参照系（tzId 一把尺）', () => {
+  // 一天内的条目现在渲染相对时间（与参照系无关），所以拿一条超过一天的老条目守这条线。
+  it('同一个 pack 里当前时间与自述绝对时间戳同参照系（tzId 一把尺）', () => {
     const slotted: AmsgFirePack = {
       ...pack,
       tzId: 'Asia/Tokyo',
       template: `当前 ${AMSG_SLOT_CURRENT_TIME}${AMSG_SLOT_SELF_LOG}\n【本次任务】\n${AMSG_SLOT_TASK_INSTRUCTION}`,
     };
-    const at = Date.UTC(2026, 6, 30, 13, 0);       // 东京 22:00
-    const now = Date.UTC(2026, 6, 30, 14, 0);      // 东京 23:00
+    const at = Date.UTC(2026, 6, 28, 13, 0);       // 东京 7月28日 22:00
+    const now = Date.UTC(2026, 6, 30, 14, 0);      // 东京 7月30日 23:00
     const log = appendSelfLogEntry(createSelfLog(packAt), entry('t1@1', '睡了', at));
     const rendered = renderFirePack(slotted, now, '指令', { selfLog: log });
     expect(rendered).toContain('2026年7月30日 周四 深夜 23:00');
-    expect(rendered).toContain('7月30日 22:00');
+    expect(rendered).toContain('7月28日 22:00');
   });
 });
 
-// ④ 连排提醒：对方未回应期间的第 x 条（x = 自述条数 + 1），x ≥ 2 时插在【本次任务】前。
-describe('连排提醒', () => {
+// ④ 连发提醒：计数/上限就长在自述块里——模型看到的是「几分钟前发过什么」这个频率本身，
+// 而不是一句抽象的「第 x 条」。计数随 reconcileSelfLogWithPack 只在用户开口时清零，
+// 在线认领推送不再冲掉它（炸屏事故里提醒正是被这条回路洗没的）。
+describe('连发提醒（自述块内的计数与上限）', () => {
   const packAt = 1_700_000_000_000;
   const slotted: AmsgFirePack = {
-    v: 6, lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: '小明同学',
-    builtAt: packAt, pendingTasks: [], scene: null,
+    v: FIRE_PACK_VERSION, lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: '小明同学',
+    builtAt: packAt, pendingTasks: [], scene: null, selfScheduleEnabled: true,
     template: `【最近对话上下文】\n用户：在吗${AMSG_SLOT_SELF_LOG}\n\n【本次任务】\n${AMSG_SLOT_TASK_INSTRUCTION}`,
   };
   const entry = (id: string, text: string) => ({ id, at: packAt, text });
 
-  it('已有 1 条未回应自述 → 本条是第 2 条，提醒插在【本次任务】前', () => {
-    const log = appendSelfLogEntry(createSelfLog(packAt), entry('t1@1', '第一条'));
-    const rendered = renderFirePack(slotted, packAt, '指令', { selfLog: log });
-    expect(rendered).toContain(buildStreakReminder(2));
-    expect(rendered).toContain('第 2 条主动消息');
-    expect(rendered.indexOf(buildStreakReminder(2))).toBeLessThan(rendered.indexOf('【本次任务】'));
+  it('有未回应连发时，块里写明已连发几条、上限几条（默认上限）', () => {
+    let log = createSelfLog(packAt);
+    log = appendSelfLogEntry(log, entry('t1@1', '第一条'));
+    log = appendSelfLogEntry(log, entry('t1@2', '第二条'));
+    const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
+    expect(rendered).toContain('你已连发 2 条');
+    expect(rendered).toContain(`上限 ${DEFAULT_MAX_UNANSWERED_SENDS} 条`);
   });
 
-  it('没有未回应自述（第 1 条）→ 不插，输出与改动前一致', () => {
-    expect(renderFirePack(slotted, packAt, '指令', { selfLog: createSelfLog(packAt) }))
-      .not.toContain('条主动消息');
-    expect(renderFirePack(slotted, packAt, '指令')).not.toContain('条主动消息');
+  it('pack 带用户自设上限时按用户的来；0（不限）不渲染上限半句', () => {
+    let log = createSelfLog(packAt);
+    log = appendSelfLogEntry(log, entry('t1@1', '第一条'));
+    const custom = renderFirePack(
+      { ...slotted, maxUnansweredSends: 8 }, packAt + 60_000, '指令', { selfLog: log },
+    );
+    expect(custom).toContain('上限 8 条');
+    const unlimited = renderFirePack(
+      { ...slotted, maxUnansweredSends: 0 }, packAt + 60_000, '指令', { selfLog: log },
+    );
+    expect(unlimited).toContain('你已连发 1 条');
+    expect(unlimited).not.toContain('上限');
   });
 
-  it('不做强制拦截：x 再大也只是提醒，正文照常渲染', () => {
+  it('只有即时回复（reply 条目）→ 列出但不算连发，不出现计数行', () => {
+    const log = appendSelfLogEntry(createSelfLog(packAt), { id: 'r@1', at: packAt + 1000, text: '嗯我在', reply: true });
+    const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
+    expect(rendered).toContain('嗯我在');
+    expect(rendered).not.toContain('你已连发');
+  });
+
+  it('已进转写的条目（at ≤ basePackAt）不再重复渲染正文，但计数保留', () => {
+    let log = createSelfLog(packAt);
+    log = appendSelfLogEntry(log, { id: 's@1', at: packAt - 1000, text: '已在转写里的那条' });
+    log = appendSelfLogEntry(log, { id: 's@2', at: packAt + 1000, text: '转写之后新发的' });
+    const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
+    expect(rendered).not.toContain('已在转写里的那条');
+    expect(rendered).toContain('转写之后新发的');
+    expect(rendered).toContain('你已连发 2 条');
+  });
+
+  it('不再往【本次任务】前面插旧版 streak 提醒行', () => {
     let log = createSelfLog(packAt);
     for (let i = 0; i < 4; i += 1) log = appendSelfLogEntry(log, entry(`t1@${i}`, `第${i}条`));
-    const rendered = renderFirePack(slotted, packAt, '指令', { selfLog: log });
-    expect(rendered).toContain(buildStreakReminder(5));
+    const rendered = renderFirePack(slotted, packAt + 60_000, '指令', { selfLog: log });
+    expect(rendered).not.toContain('条主动消息。请注意边界');
     expect(rendered).toContain('指令');
   });
 });
@@ -429,9 +575,10 @@ describe('last_skip 新原因', () => {
   const base = { v: 1 as const, taskUuid: null, occurrenceMs: 1_700_000_000_000, skippedAt: 1_700_000_100_000 };
   const fmt = (ms: number) => `T${ms}`;
 
-  it('parseLastSkip 认 empty-generation / stale', () => {
+  it('parseLastSkip 认 empty-generation / stale / unanswered-limit', () => {
     expect(parseLastSkip(JSON.stringify({ ...base, reason: 'empty-generation' }))?.reason).toBe('empty-generation');
     expect(parseLastSkip(JSON.stringify({ ...base, reason: 'stale' }))?.reason).toBe('stale');
+    expect(parseLastSkip(JSON.stringify({ ...base, reason: 'unanswered-limit' }))?.reason).toBe('unanswered-limit');
     expect(parseLastSkip(JSON.stringify({ ...base, reason: 'nonsense' }))).toBeNull();
   });
 
@@ -440,15 +587,26 @@ describe('last_skip 新原因', () => {
     expect(describeLastSkip({ ...base, reason: 'stale' }, fmt)).toContain('过去太久');
     expect(describeLastSkip({ ...base, reason: 'active-chat-presence' }, fmt)).toContain('让路');
     expect(describeLastSkip({ ...base, reason: 'conversation-moved-on' }, fmt)).toContain('过时');
+    expect(describeLastSkip({ ...base, reason: 'unanswered-limit' }, fmt)).toContain('连发上限');
+  });
+
+  // 被连发上限拦下的那一次是**真的跳过了**：上游把 { skip: true } 当成功消费，一次性
+  // 任务的行当场就删了，循环任务也只是快进到下一次，都不会把这一条补回来。文案要是说
+  // 「等你回复后恢复」，用户就会一直等一条永远不会来的消息（角色在正文里承诺过的
+  // 「等下再来找你」也跟着蒸发）。
+  it('连发上限那次说清「不会补发」，不许承诺恢复', () => {
+    const text = describeLastSkip({ ...base, reason: 'unanswered-limit' }, fmt);
+    expect(text).toContain('不会补发');
+    expect(text).not.toContain('等你回复后恢复');
   });
 });
 
 describe('fire_pack 任务指令槽', () => {
   const pack: AmsgFirePack = {
-    v: 6,
+    v: FIRE_PACK_VERSION,
     template: `头部\n${AMSG_SLOT_TASK_INSTRUCTION}\n尾部 ${AMSG_SLOT_CURRENT_TIME}`,
     lastUserMessageAt: null, tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: '小明同学',
-    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null,
+    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
   };
 
   it('renderFirePack 用传入的任务指令填槽', () => {
@@ -467,7 +625,7 @@ describe('fire_pack 任务指令槽', () => {
 describe('client_state 值压缩', () => {
   // fire_pack 有几万字，随手编一小段压不出效果也测不出真问题，拿重复的中文段落凑量。
   const bigJson = JSON.stringify({
-    v: 6,
+    v: FIRE_PACK_VERSION,
     template: '【角色系统设定】你是一个会在深夜突然想起对方的人。\n'.repeat(400),
     lastUserMessageAt: 1_700_000_000_000,
     tzId: 'Asia/Shanghai',
@@ -476,6 +634,7 @@ describe('client_state 值压缩', () => {
     builtAt: 1_700_000_000_000,
     pendingTasks: [],
     scene: null,
+    selfScheduleEnabled: true,
   });
 
   it('压完再解回来，一个字都不差', async () => {
@@ -539,7 +698,7 @@ describe('client_state 值压缩', () => {
 describe('fire_pack 版本对不上时说清该做什么', () => {
   const pack = (v: unknown) => JSON.stringify({
     v, template: 'x', lastUserMessageAt: null, tzId: 'UTC', userTzId: 'UTC', targetName: 'A',
-    builtAt: 1, pendingTasks: [], scene: null,
+    builtAt: 1, pendingTasks: [], scene: null, selfScheduleEnabled: true,
   });
 
   it('旧包（worker 新、前端旧）→ 让用户打开一次网页重传', () => {
@@ -563,3 +722,90 @@ describe('fire_pack 版本对不上时说清该做什么', () => {
     expect(describeFirePackVersion('{}')).toContain('没有版本号');
   });
 });
+
+// ─── v7：即时对话的 chat 段 ───
+//
+// 开发期规矩：版本对不上整包打回，不做任何形状兼容。v6 的包被放行的话，标了即时对话
+// 的任务会拿不到 chat 段——而那时 worker 已经走过版本门，只能一路跑到「用主动消息模板
+// 答用户刚说的话」，出来的东西驴唇不对马嘴且没有报错。
+describe('fire_pack v7 的 chat 段', () => {
+  const base: AmsgFirePack = {
+    v: FIRE_PACK_VERSION, template: 'x', lastUserMessageAt: null,
+    tzId: 'Asia/Shanghai', userTzId: 'Asia/Shanghai', targetName: '小明',
+    builtAt: 1_700_000_000_000, pendingTasks: [], scene: null, selfScheduleEnabled: true,
+  };
+  const chat = { messages: [{ role: 'user', content: '在吗' }], builtAt: 1_700_000_000_000 };
+
+  it('当前版本号是 7（升版要前端和 worker 一起动）', () => {
+    expect(FIRE_PACK_VERSION).toBe(7);
+  });
+
+  it('v6 的包直接拒（不做旧格式兼容）', () => {
+    expect(parseFirePack(JSON.stringify({ ...base, v: 6 }))).toBeNull();
+    expect(describeFirePackVersion(JSON.stringify({ ...base, v: 6 })))
+      .toContain('前端比 worker 旧');
+  });
+
+  it('不带 chat 段照样合法（没开即时对话的角色就是这样）', () => {
+    expect(parseFirePack(JSON.stringify(base))).toEqual(base);
+  });
+
+  it('带了 chat 段就原样返回', () => {
+    const withChat = { ...base, chat };
+    expect(parseFirePack(JSON.stringify(withChat))).toEqual(withChat);
+  });
+
+  it('chat 段形状不对 → 整包打回（半份对话消息比没有更糟）', () => {
+    const bad = (value: unknown) => parseFirePack(JSON.stringify({ ...base, chat: value }));
+    expect(bad(null)).toBeNull();
+    expect(bad({ messages: [], builtAt: 1 })).toBeNull();                     // 空数组
+    expect(bad({ messages: [{ role: 'user' }], builtAt: 1 })).toBeNull();     // 缺 content
+    expect(bad({ messages: [{ content: '在吗' }], builtAt: 1 })).toBeNull();  // 缺 role
+    expect(bad({ messages: chat.messages })).toBeNull();                      // 缺 builtAt
+    expect(bad({ messages: chat.messages, builtAt: 'x' })).toBeNull();
+  });
+
+  // 带图片的消息本地就是结构化分段，云端这条路要原样送到模型面前——parse 认不了
+  // 这种形状的话，整包被打回、fire 硬失败，用户看到的是「一直在输入」。
+  it('结构化分段的 content 照收（图片消息本地就长这样）', () => {
+    const structured = {
+      ...base,
+      chat: {
+        builtAt: 1_700_000_000_000,
+        messages: [
+          { role: 'user', content: [
+            { type: 'text', text: '08:00 [User sent an image]' },
+            { type: 'image_url', image_url: { url: 'data:image/png;base64,AAAA' } },
+          ] },
+          { role: 'assistant', content: '好可爱' },   // 同一串里混着纯文本也行
+        ],
+      },
+    };
+    expect(parseFirePack(JSON.stringify(structured))).toEqual(structured);
+  });
+
+  it('分段只查到 type 为止（图片那套方言归 chat API 管，这层只负责搬）', () => {
+    const withOddPart = {
+      ...base,
+      chat: {
+        builtAt: 1,
+        messages: [{ role: 'user', content: [{ type: '将来才有的新分段', 随便什么字段: 1 }] }],
+      },
+    };
+    expect(parseFirePack(JSON.stringify(withOddPart))).toEqual(withOddPart);
+  });
+
+  it('分段数组本身不合格 → 整包打回', () => {
+    const bad = (content: unknown) => parseFirePack(JSON.stringify({
+      ...base, chat: { builtAt: 1, messages: [{ role: 'user', content }] },
+    }));
+    expect(bad([])).toBeNull();                          // 空数组 = 没内容
+    expect(bad([{ text: '缺 type' }])).toBeNull();
+    expect(bad([{ type: 123 }])).toBeNull();             // type 不是字符串
+    expect(bad(['纯字符串分段'])).toBeNull();
+    expect(bad([null])).toBeNull();
+    expect(bad([[{ type: 'text' }]])).toBeNull();        // 嵌套数组不算分段对象
+    expect(bad(42)).toBeNull();
+  });
+});
+

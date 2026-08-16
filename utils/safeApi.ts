@@ -24,7 +24,7 @@ import {
 
 const log = makeDebugLogger('api', 'SafeAPI');
 
-function isChatCompletionUrl(url: string): boolean {
+export function isChatCompletionUrl(url: string): boolean {
     return url.includes('/chat/completions');
 }
 
@@ -369,8 +369,10 @@ async function readBodyWithStreaming(
 }
 
 /**
- * Fetch with automatic retry for transient errors.
- * Retries on: 429, 500, 502, 503, 504 and network failures.
+ * Fetch with automatic retry for transient errors on non-billable endpoints.
+ * Chat completions never retry automatically: a timeout/network error does not
+ * prove the upstream generation stopped, so retrying can charge the user twice.
+ * Other endpoints retry on: 429, 500, 502, 503, 504 and network failures.
  * Returns the parsed JSON data directly.
  *
  * `timeoutMs`：每次尝试的硬超时。如果调用方没在 options.signal 里自带 AbortController，
@@ -390,6 +392,9 @@ export async function safeFetchJson(
     const retryableStatuses = new Set([429, 500, 502, 503, 504]);
     let lastError: Error | null = null;
     const urlStr = String(url);
+    const automaticRetryLimit = isChatCompletionUrl(urlStr)
+        ? 0
+        : Math.max(0, Math.floor(Number(maxRetries) || 0));
     let lastStatus: number | undefined;
     let graceRetryUsed = false; // 回前台恢复窗口额外补枪：只允许一次，防止无限循环
 
@@ -399,7 +404,7 @@ export async function safeFetchJson(
     let forcedBodyOverride: string | null = null;
     const logMeta = meta || getApiCallAmbientContext();
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    for (let attempt = 0; attempt <= automaticRetryLimit; attempt++) {
         // 全局 fetch 拦截器和这里的“已解析响应兜底”共享 ID。前者覆盖裸 fetch，
         // 后者不依赖 Response.clone()，避免部分 iOS/WebView 克隆流不结束时漏记。
         const requestId = `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -507,10 +512,10 @@ export async function safeFetchJson(
 
             if (!response.ok) {
                 // For retryable status codes, retry before giving up
-                if (retryableStatuses.has(response.status) && attempt < maxRetries) {
+                if (retryableStatuses.has(response.status) && attempt < automaticRetryLimit) {
                     const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
-                    log.warn('HTTP retry', { status: response.status, attempt: attempt + 1, maxRetries, delay });
-                    try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries, reason: `http:${response.status}`, message: `HTTP ${response.status}`, delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
+                    log.warn('HTTP retry', { status: response.status, attempt: attempt + 1, maxRetries: automaticRetryLimit, delay });
+                    try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: automaticRetryLimit, reason: `http:${response.status}`, message: `HTTP ${response.status}`, delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
                     await new Promise(r => setTimeout(r, delay));
                     continue;
                 }
@@ -572,10 +577,10 @@ export async function safeFetchJson(
             const isNativeTransportError = /Native job|NativeRuntime|native.*timeout|Connection refused|Unable to resolve host|timeout|unexpected end of stream|connection reset|connection abort|broken pipe|ssl|handshake|econnreset|epipe|stream.*reset/i.test(e?.message || '');
 
             // Network errors (fetch itself failed) are retryable
-            if ((e?.name === 'TypeError' || isAbort || isNativeTransportError) && attempt < maxRetries) {
+            if ((e?.name === 'TypeError' || isAbort || isNativeTransportError) && attempt < automaticRetryLimit) {
                 const delay = Math.pow(2, attempt) * 1000;
-                log.warn(isAbort ? 'Timeout/Abort retry' : 'Network error retry', { attempt: attempt + 1, maxRetries, delay, message: e?.message });
-                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries, reason: isAbort ? 'timeout' : 'network', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
+                log.warn(isAbort ? 'Timeout/Abort retry' : 'Network error retry', { attempt: attempt + 1, maxRetries: automaticRetryLimit, delay, message: e?.message });
+                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: automaticRetryLimit, reason: isAbort ? 'timeout' : 'network', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
                 await new Promise(r => setTimeout(r, delay));
                 continue;
             }
@@ -596,7 +601,7 @@ export async function safeFetchJson(
             }
 
             // For HTML/parse errors on non-ok responses during retry, continue
-            if (attempt < maxRetries && e?.message?.includes('API返回了HTML')) {
+            if (attempt < automaticRetryLimit && e?.message?.includes('API返回了HTML')) {
                 const delay = Math.pow(2, attempt) * 1000;
                 log.warn('HTML response retry', { attempt: attempt + 1, maxRetries, delay });
                 try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries, reason: 'html', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
@@ -631,8 +636,25 @@ export async function safeFetchJson(
  */
 export function extractContent(data: any): string {
     const msg = data?.choices?.[0]?.message;
-    let text: string = msg?.content || '';
-    if (!text.trim()) text = msg?.reasoning_content || '';
+    const contentToText = (value: unknown): string => {
+        if (typeof value === 'string') return value;
+        if (Array.isArray(value)) {
+            return value.map(part => {
+                if (typeof part === 'string') return part;
+                if (!part || typeof part !== 'object') return '';
+                const record = part as Record<string, unknown>;
+                return contentToText(record.text ?? record.content ?? record.value);
+            }).filter(Boolean).join('');
+        }
+        if (value && typeof value === 'object') {
+            const record = value as Record<string, unknown>;
+            return contentToText(record.text ?? record.content ?? record.value);
+        }
+        return '';
+    };
+
+    let text = contentToText(msg?.content);
+    if (!text.trim()) text = contentToText(msg?.reasoning_content);
     // Strip hidden chain-of-thought blocks: <think> / <thinking> / <thought>
     text = text.replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, '');
     text = text.replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, '');

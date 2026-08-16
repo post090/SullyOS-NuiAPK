@@ -27,6 +27,7 @@ import {
   postSsePayloadToServiceWorker,
 } from './instantPushClient';
 import { pushXhsCaches, pushLastXhsNotesRef } from './activeMsgRuntime';
+import { describeToolForUser } from './amsgToolTrace';
 import { ReiClient } from '@rei-standard/amsg-client';
 import type { APIConfig, RealtimeConfig, UserProfile, InstantPushPendingToolCall } from '../types';
 
@@ -34,12 +35,16 @@ type InstantToolStatusPhase = 'running' | 'continuing' | 'done' | 'failed';
 
 function getToolStatusLabel(toolCalls: InstantPushPendingToolCall['toolCalls']): string {
   const names = toolCalls.map((call) => call.function.name);
-  if (names.some((name) => name.startsWith('xhs_'))) return '读取小红书';
-  if (names.some((name) => name === 'notion_read_diary' || name === 'read_note')) return '读取 Notion';
-  if (names.some((name) => name === 'feishu_read_diary')) return '读取飞书';
-  if (names.some((name) => name === 'web_search')) return '搜索网页';
-  if (names.some((name) => name === 'recall')) return '读取记忆';
-  return '调用工具';
+  // 优先级只管「一批混着跑时挑哪个说」，说法本身从共享词表取（amsgToolTrace 的
+  // TOOL_DISPLAY_LABELS）——状态条和气泡底下的事后灰字必须同词，改词表两处一起变。
+  const pick = names.find((name) => name.startsWith('xhs_'))
+    ?? names.find((name) => name === 'notion_read_diary' || name === 'read_note')
+    ?? names.find((name) => name === 'feishu_read_diary')
+    ?? names.find((name) => name === 'web_search')
+    ?? names.find((name) => name === 'recall');
+  if (!pick) return '调用工具';
+  const label = describeToolForUser(pick);
+  return label && label !== pick ? label : '调用工具';
 }
 
 function emitToolStatus(

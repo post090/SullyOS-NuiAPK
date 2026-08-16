@@ -615,13 +615,20 @@ const buildDateHistory = (
     char: CharacterProfile,
     userProfile: UserProfile | null | undefined,
     emojis: Emoji[],
+    useVisionDescriptions: boolean = false,
 ): ApiMessage[] => {
     const limit = char.contextLimit || 500;
     const hwm = parseInt(localStorage.getItem(`mp_lastMsgId_${char.id}`) || '0', 10);
     const palaceFiltered = hwm > 0 ? allMsgs.filter(m => m.id > hwm) : allMsgs;
     const historyForBuild = palaceFiltered.slice(0, -1);
     const { apiMessages } = ChatPrompts.buildMessageHistory(
-        historyForBuild, limit, char, userProfile || ({} as UserProfile), emojis,
+        historyForBuild,
+        limit,
+        char,
+        userProfile || ({} as UserProfile),
+        emojis,
+        undefined,
+        { useVisionDescriptions },
     );
     return apiMessages;
 };
@@ -639,6 +646,7 @@ export const DatePrompts = {
         userProfile: UserProfile;
         allMsgs: Message[];
         emojis: Emoji[];
+        useVisionDescriptions?: boolean;
     }): { messages: ApiMessage[] } => {
         const { char, userProfile, allMsgs, emojis } = input;
         const charTz = resolveCharTimeZone(char);
@@ -650,7 +658,13 @@ export const DatePrompts = {
         const gapHint = getTimeGapHint(lastMsg?.timestamp, charTz);
 
         const { apiMessages } = ChatPrompts.buildMessageHistory(
-            allMsgs, peekLimit, char, userProfile || ({} as UserProfile), emojis,
+            allMsgs,
+            peekLimit,
+            char,
+            userProfile || ({} as UserProfile),
+            emojis,
+            undefined,
+            { useVisionDescriptions: input.useVisionDescriptions === true },
         );
         const recentMsgs = flattenHistoryToText(apiMessages);
 
@@ -702,10 +716,17 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         emojis: Emoji[];
         userText: string;
         variant: 'send' | 'reroll';
+        useVisionDescriptions?: boolean;
     }): Promise<{ messages: ApiMessage[] }> => {
         const { char, userProfile, allMsgs, emojis, userText, variant } = input;
 
-        const historyMsgs = buildDateHistory(allMsgs, char, userProfile, emojis);
+        const historyMsgs = buildDateHistory(
+            allMsgs,
+            char,
+            userProfile,
+            emojis,
+            input.useVisionDescriptions === true,
+        );
 
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);

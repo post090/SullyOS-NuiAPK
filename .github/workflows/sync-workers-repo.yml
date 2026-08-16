@@ -110,6 +110,18 @@ jobs:
             # CF 的 Root directory 指到子目录、构建命令的 cwd 就是那里。
             cp worker/deploy-prepare.sh "staging/$name/deploy-prepare.sh"
             chmod +x "staging/$name/deploy-prepare.sh"
+            # 「Deploy to Cloudflare」按钮要的两份元数据，有就带上：
+            #   .dev.vars.example  部署页面据此为每个密钥列一个输入框
+            #   deploy-meta.json   输入框旁边的说明文字，到了部署仓库得叫 package.json
+            #
+            # 在本仓库不能直接叫 package.json：worker/* 在 pnpm workspace 里，多一个
+            # package.json 会让这个目录变成独立包，pnpm build:workers 就解析不到依赖了。
+            if [ -f "$src/.dev.vars.example" ]; then
+              cp "$src/.dev.vars.example" "staging/$name/.dev.vars.example"
+            fi
+            if [ -f "$src/deploy-meta.json" ]; then
+              cp "$src/deploy-meta.json" "staging/$name/package.json"
+            fi
           done
           cp docs/self-deploy-workers.md staging/README.md
 

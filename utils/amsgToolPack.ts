@@ -63,6 +63,7 @@ export interface AmsgToolConfig extends AgenticToolRealtimeConfig {
     enabled: boolean;
     serverUrl: string;
     cookie?: string;
+    platform?: 'xhs' | 'rednote';
     loggedInUserId?: string;
     loggedInNickname?: string;
     userXsecToken?: string;
@@ -153,6 +154,7 @@ export const buildToolConfig = (
             enabled: !!xhs.enabled,
             serverUrl: xhs.serverUrl,
             ...(xhs.cookie ? { cookie: xhs.cookie } : {}),
+            ...(xhs.platform ? { platform: xhs.platform } : {}),
             ...(xhs.loggedInUserId ? { loggedInUserId: xhs.loggedInUserId } : {}),
             ...(xhs.loggedInNickname ? { loggedInNickname: xhs.loggedInNickname } : {}),
             ...(xhs.userXsecToken ? { userXsecToken: xhs.userXsecToken } : {}),

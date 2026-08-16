@@ -122,6 +122,21 @@ describe('构建时门禁', () => {
     });
 });
 
+describe('统计请求识别', () => {
+    it('只识别统计站自己的发送端点', async () => {
+        const a = await loadModule(true);
+        expect(a.isAnalyticsRequestUrl('https://umami.example.com/api/send')).toBe(true);
+        expect(a.isAnalyticsRequestUrl('https://umami.example.com/api/send/')).toBe(true);
+        expect(a.isAnalyticsRequestUrl('https://umami.example.com/api/other')).toBe(false);
+        expect(a.isAnalyticsRequestUrl('https://api.example.com/api/send')).toBe(false);
+    });
+
+    it('未配置统计时不误判同路径的业务请求', async () => {
+        const a = await loadModule(false);
+        expect(a.isAnalyticsRequestUrl('https://stats.friedsully.com/api/send')).toBe(false);
+    });
+});
+
 describe('tracker 标签', () => {
     it('属性齐全：DNT、关掉自动发的页面访问、开性能指标', async () => {
         const a = await loadModule(true);

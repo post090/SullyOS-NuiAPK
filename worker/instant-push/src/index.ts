@@ -23,6 +23,7 @@ import {
 import { classifyLLMOutput } from './classifier';
 import { sanitizeIntoSegments, type Segment } from '../../../utils/sanitize';
 import { INSTANT_WORKER_VERSION } from '../../../utils/instantWorkerVersion';
+import { requestEmotionEval, restoreEvalPrompt } from '../../../utils/emotionEvalCore';
 
 export interface Env {
   VAPID_PUBLIC_KEY: string;
@@ -469,80 +470,20 @@ async function runEmotionEval(body: any): Promise<{ raw: string; error?: string 
     return { raw: '', error: '评估配置不完整（缺 prompt / baseUrl / apiKey / model）' };
   }
 
-  const charId = (body?.metadata && typeof body.metadata === 'object') ? body.metadata.charId : '';
   // 情绪评估 = 单条 user 消息, 与本地 buildEmotionEvalPrompt 输出**逐字对齐**. 客户端把 prompt 里
-  // 两段大文本 (system prompt、对话历史) 留成占位符, 这里用本次请求已有的 messages 还原后替换回原位:
-  //   - body.messages[0] (role=system) = 本地的 mainSystemPrompt
-  //   - body.messages[1..]             = 本地的 cleanedApiMessages → 同格式拼成 recentLines
+  // 两段大文本 (system prompt、对话历史) 留成占位符, 用本次请求已有的 messages 还原后替换回原位,
   // 这样上下文不必在请求体里重复发 (keepalive 不被降级), 评估质量/顺序与本地完全一致.
+  // 还原 + 请求 + 失败文案（含 apiKey 打码红线）收敛在 utils/emotionEvalCore.ts,
+  // 与 amsg worker 的即时对话评估共用同一份——改格式两边一起动, 不再手工同步两份副本.
   const priorMessages = Array.isArray(body?.messages) ? body.messages : [];
   const contactName = body?.contactName || '角色';
-  const flattenContent = (content: any): string => {
-    if (typeof content === 'string') return content;
-    if (Array.isArray(content)) {
-      return content
-        .map((p: any) => (p?.type === 'text' ? (p.text || '') : (p?.type === 'image_url' ? '[图片]' : '')))
-        .filter(Boolean)
-        .join(' ');
-    }
-    return '';
-  };
-  let systemPromptText = '';
-  let conversation = priorMessages;
-  if (priorMessages.length > 0 && priorMessages[0]?.role === 'system') {
-    systemPromptText = flattenContent(priorMessages[0].content);
-    conversation = priorMessages.slice(1);
-  }
-  // 与本地 recentLines 完全同格式: `[用户]: ...` / `[角色名]: ...` / `[系统]: ...`, 用 \n 连接.
-  const recentLines = conversation
-    .map((m: any) => {
-      const role = m.role === 'user' ? '用户' : (m.role === 'assistant' ? contactName : '系统');
-      return `[${role}]: ${flattenContent(m.content)}`;
-    })
-    .join('\n');
-  // 用函数式 replacer: 避免 systemPrompt / 对话里出现 $&、$1 等被 String.replace 当成替换模式解析.
-  const evalContent = String(ee.prompt)
-    .replace('__EMOTION_EVAL_SYSTEM_PROMPT__', () => systemPromptText)
-    .replace('__EMOTION_EVAL_HISTORY__', () => recentLines);
-  const evalMessages = [{ role: 'user', content: evalContent }];
-  try {
-    const baseUrl = String(ee.api.baseUrl).replace(/\/+$/, '');
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ee.api.apiKey || 'sk-none'}`,
-      },
-      body: JSON.stringify({
-        model: ee.api.model,
-        messages: evalMessages,
-        temperature: 0.85,
-        // 显式给足输出额度: 部分代理不传 max_tokens 时默认很小, eval 输出很长, 会被截断成半截 JSON
-        max_tokens: 8000,
-        stream: false,
-      }),
-    });
-    if (!res.ok) {
-      // 失败原因带回客户端 toast。正文可能是 HTML 错误页, 截一小段够定位即可。
-      let snippet = '';
-      try { snippet = (await res.text()).replace(/\s+/g, ' ').slice(0, 120); } catch { /* ignore */ }
-      console.error('[emotion-eval] LLM call failed', res.status);
-      return { raw: '', error: `副 API HTTP ${res.status}${snippet ? `：${snippet}` : ''}` };
-    }
-    const data: any = await res.json();
-    // content 可能是分块数组; 个别代理把全部输出塞进 reasoning_content 而 content 留空 —
-    // 与客户端 utils/emotionApply.ts:extractAssistantText 同一套兜底 (解析容错在客户端 applyEmotionEvalRaw).
-    const msg = data?.choices?.[0]?.message;
-    const raw = flattenContent(msg?.content)
-      || (typeof msg?.reasoning_content === 'string' ? msg.reasoning_content : '');
-    if (!raw) {
-      return { raw: '', error: `评估模型没有输出内容 (finish_reason: ${data?.choices?.[0]?.finish_reason ?? '?'})` };
-    }
-    return { raw };
-  } catch (e: any) {
-    console.error('[emotion-eval] failed', e);
-    return { raw: '', error: `评估请求异常：${e?.message || String(e)}` };
-  }
+  const outcome = await requestEmotionEval(
+    ee.api,
+    restoreEvalPrompt(String(ee.prompt), priorMessages, contactName),
+  );
+  return outcome.raw != null
+    ? { raw: outcome.raw }
+    : { raw: '', error: outcome.error ?? undefined };
 }
 
 /**
@@ -705,7 +646,7 @@ export type PushDecision =
  *
  * amsg-instant 0.8+ hook 返回 pushPayloads 数组, lib 不做 split, hook
  * 自己负责把内容切成 N 个独立 push. 我们用 sanitizeIntoSegments 把 LLM 输出
- * 切成 segments (按换行 + CJK 空格切, 跟客户端 chatParser.chunkText 一致),
+ * 切成 segments (只按显式换行切, 跟客户端 chatParser.chunkText 一致),
  * 每个 segment 一条 push, banner 显示 sanitized 版本, message 保留 raw 让客户端
  * Step 9/5/8 渲染.
  *

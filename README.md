@@ -363,6 +363,8 @@ VITE_HIDE_BUILD_BADGE=1 npm run build
 
 ### Instant Push 走独立 Worker
 
+聊天上云的主力是主动消息 2.0 的即时对话；Instant Push 为独立可选部署（与即时对话在设置页互斥）。
+
 Instant Push 是基于 `@rei-standard/amsg-instant 0.8` 的 LLM-driven Web Push 通道
 （跟上面 sfworker 里的 push 加速器是两套独立链路）。每个 fork 用户自己部署一个
 Cloudflare Worker，跟仓库作者的 sully-n / 备份 Worker 完全无关。零数据库、零 cron、
@@ -424,8 +426,6 @@ Phase 2 Round 2 起 push 路径跟本地 fetch 路径**功能对齐**，不再�
 **③ 彼方（VRWorld）的后端不用你操心 —— 但二次发布要删**
 
 彼方里的**邮局 / 漂流瓶**和**信号坠落处（特别活动）**连的是作者【所有用户共用】的后端 `noir2.cc.cd`（源码 `worker/post-office/`）——跨实例合写诗、投递漂流瓶全靠它。你自己 fork 玩**不用改、能直接连**。
-
-一次性忠实用户招募使用第三个独立服务 `worker/loyal-recruitment/`：拥有自己的 Worker、D1、路由和 secrets，只接收通过者 QQ，不复用邮局数据库。
 
 但**如果你二改是为了二次发布**：请把彼方的**邮局**和**特别活动（信号坠落处）删掉**。那些请求打在作者后端上，你**既管不到、也控制不了**，别把你用户的数据往作者服务器上灌。
 

@@ -46,11 +46,16 @@ export const CARD_STRIPPED_FIELDS = [
   'chatVoiceEnabled',
   'chatVoiceAutoPlay',
   'dateVoiceEnabled',
+  'memoryPalaceWaterline', // 发卡人的使用节奏；接收方按自己的聊天习惯选择
 
   // 4) 运行时状态残留
   'activeBuffs',
   'buffInjection',
   'memoryPalaceInjection',
+  'videoCallPerformancePersona',
+  'videoCallPerformancePersonaGeneratedAt',
+  'companionTouchSettings',
+  'companionAvatar',
   'savedDateState',
   'savedRoomState',
   'lastRoomDate',

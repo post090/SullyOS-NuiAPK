@@ -139,6 +139,22 @@ export const isMcpChatAvailable = (charId?: string): boolean => getEnabledMcpSer
 // CF worker 够不够得着的判断搬去了 utils/amsgToolPack.ts —— 小红书配置那边要用同一份。
 
 /**
+ * 这个聊天里有没有「本地用得上、但 worker 够不着」的服务器（localhost / 私网 / *.local
+ * 这类，判据见 amsgToolPack.isWorkerReachableUrl）。
+ *
+ * 谁在乎：即时对话那一轮的 prompt 是交给 worker 补 MCP 说明的，前端这份整段不注入
+ * （chatRequestPayload 的 timelyByWorker 分支）；而上云的清单 collectMcpFireServers
+ * 恰好把这类地址过滤掉了。两边都不说 = 角色这一轮彻底不知道自己有工具，设置页却还
+ * 显示「已连接」。所以有这种服务器时那一轮别上云，留在本地跑（本地连得上 localhost，
+ * 工具照常用），见 useChatAI 的 instantChatVeto。
+ *
+ * 口径跟 isMcpChatAvailable 同源（都走 getEnabledMcpServers）：本地这一轮真会写进
+ * prompt 的是哪几台，就拿哪几台来判，别把别的角色绑定的服务器算进来。
+ */
+export const hasWorkerUnreachableMcpServer = (charId?: string): boolean =>
+    getEnabledMcpServers(charId).some((s) => !isWorkerReachableUrl(s.url));
+
+/**
  * 上云给 amsg worker 用的服务器子集。注意不走 getEnabledMcpServers：
  * 那个函数缺 charId 时只回通用服务器，而这里要的是全部 enabled（含绑定角色的），
  * charIds 原样带上、由 worker 在 fire 时按角色过滤。

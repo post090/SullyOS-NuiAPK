@@ -117,6 +117,64 @@ const describeNoticeLine = (r: Amsg2ExpiredNoticeRecord, charTz: string | undefi
   return `- [${shortTaskId(r.id)}] 原定 ${formatTaskTime(r.occurrenceMs, charTz)}，${describeTaskMode(r)}${recurrence}`;
 };
 
+/**
+ * 回执的两个段落（闸自动作废 / 用户手动取消）。给角色的交代完全不同（前者可以续期
+ * 补上，后者是用户不要了），分成两段说；没有 kind 的老记录按自动作废处理。
+ * 完整排程现状块和「回执单独成块」（即时对话云端路径）共用这一份文案。
+ */
+const buildNoticeSections = (
+  expired: Amsg2ExpiredNoticeRecord[],
+  charTz: string | undefined,
+): string[] => {
+  const parts: string[] = [];
+  const autoExpired = expired.filter((r) => r.kind !== 'user-cancelled');
+  const userCancelled = expired.filter((r) => r.kind === 'user-cancelled');
+
+  if (autoExpired.length) {
+    parts.push('已作废（到点时对话正在进行，为避免撞车自动取消）：');
+    for (const r of autoExpired) {
+      parts.push(describeNoticeLine(r, charTz));
+    }
+    parts.push([
+      '作废条目的处理由你判断，三选一：',
+      '1. 就地消化：只在当前时间与话题都合适时自然带进对话——先想「现在提这个还合不合适」（早安任务拖到晚上就别再道早安），不要因为看到这份回执就强行转移当前话题。',
+      '2. 续期：还想之后专门说，用 renew_active_message 换个时间（循环任务续期只补当次，原来的节奏照旧）；内容或方向变了，改用 cancel_active_message + schedule_active_message 重新创建。',
+      '3. 放弃：已经没意义就只字不提。',
+    ].join('\n'));
+  }
+
+  if (userCancelled.length) {
+    parts.push('已被手动取消：');
+    for (const r of userCancelled) {
+      parts.push(describeNoticeLine(r, charTz));
+    }
+    parts.push('这几条是用户直接取消的，相关约定不再生效，自然接受即可、不必向用户求证，也别再拿它们许诺。还想在别的时间说的话，用 schedule_active_message 重新排一条。');
+  }
+
+  return parts;
+};
+
+/**
+ * 作废回执单独成块（即时对话云端路径用）。
+ *
+ * 云端到点会自己渲染排程清单和「给自己排下一条」（instant timely block），chat 段里
+ * 只欠回执这一样——所以这里不带常驻简介、不带进行中清单，避免和到点渲染的那份撞车。
+ * 没有回执时返回 null，整块不出现（与本地「有料才出现」同一个做法）。
+ */
+export function buildAmsg2NoticesText(
+  expired: Amsg2ExpiredNoticeRecord[],
+  charTz: string | undefined,
+  targetName?: string,
+): string | null {
+  if (!expired.length) return null;
+  const target = targetName?.trim() || '对方';
+  return [
+    '【你的主动消息排程·仅你可见】',
+    ...buildNoticeSections(expired, charTz),
+    AMSG2_SCHEDULE_SECRECY_NOTE.replace('用户', target),
+  ].join('\n');
+}
+
 /** 纯拼文案，方便单测。常驻简介总在，进行中/回执两段有料才各自出现。 */
 export function buildAmsg2TaskContextText(
   pending: ActiveMsg2TaskRecord[],
@@ -142,10 +200,6 @@ export function buildAmsg2TaskContextText(
   const isNewThisTurn = (taskUuid: string) => !!createdThisTurn?.has(taskUuid);
   const hasNewThisTurn = pending.some((t) => isNewThisTurn(t.taskUuid));
   const parts: string[] = ['【你的主动消息排程·仅你可见】', buildAmsg2ChatScheduleBrief(target)];
-  // 闸自动作废 / 用户手动取消，两种回执给角色的交代完全不同（前者可以续期补上，
-  // 后者是用户不要了），分成两段说。没有 kind 的老记录按自动作废处理。
-  const autoExpired = expired.filter((r) => r.kind !== 'user-cancelled');
-  const userCancelled = expired.filter((r) => r.kind === 'user-cancelled');
 
   if (pending.length) {
     parts.push('进行中：');
@@ -162,26 +216,7 @@ export function buildAmsg2TaskContextText(
       + '）');
   }
 
-  if (autoExpired.length) {
-    parts.push('已作废（到点时对话正在进行，为避免撞车自动取消）：');
-    for (const r of autoExpired) {
-      parts.push(describeNoticeLine(r, charTz));
-    }
-    parts.push([
-      '作废条目的处理由你判断，三选一：',
-      '1. 就地消化：只在当前时间与话题都合适时自然带进对话——先想「现在提这个还合不合适」（早安任务拖到晚上就别再道早安），不要因为看到这份回执就强行转移当前话题。',
-      '2. 续期：还想之后专门说，用 renew_active_message 换个时间（循环任务续期只补当次，原来的节奏照旧）；内容或方向变了，改用 cancel_active_message + schedule_active_message 重新创建。',
-      '3. 放弃：已经没意义就只字不提。',
-    ].join('\n'));
-  }
-
-  if (userCancelled.length) {
-    parts.push('已被手动取消：');
-    for (const r of userCancelled) {
-      parts.push(describeNoticeLine(r, charTz));
-    }
-    parts.push('这几条是用户直接取消的，相关约定不再生效，自然接受即可、不必向用户求证，也别再拿它们许诺。还想在别的时间说的话，用 schedule_active_message 重新排一条。');
-  }
+  parts.push(...buildNoticeSections(expired, charTz));
 
   // 约束放在块尾，管住上面每一种形态。挂在某一段里的话，只有进行中任务的那次就是裸奔的：
   // 短 id、「遇忙作废」这些系统腔会被角色当成可以复述的内容念出来。

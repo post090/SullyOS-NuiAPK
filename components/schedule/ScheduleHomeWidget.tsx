@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { CharacterProfile, DailySchedule, ScheduleSlot } from '../../types';
 import ScheduleCard, { REVISION_SOURCE_ICON, revisionsForSlot } from './ScheduleCard';
 import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
@@ -41,7 +41,7 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
 
     const palette = resolveScheduleCardPalette(
         theme.scheduleCardAppearance,
-        character?.themeColor ?? theme.hue ?? 260,
+        theme.hue ?? 260,
         inheritedContentColor,
     );
     const contentColor = palette.text;
@@ -193,7 +193,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
 
     const palette = resolveScheduleCardPalette(
         theme.scheduleCardAppearance,
-        character?.themeColor ?? theme.hue ?? 260,
+        theme.hue ?? 260,
         inheritedContentColor,
     );
     const effectivePaper = paper && palette.isOriginal;
@@ -516,10 +516,8 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
         return () => window.removeEventListener('keydown', onKey);
     }, [open, onClose]);
 
-    const accentHsl = useMemo(
-        () => `hsl(${activeCharacter?.themeColor ?? 260}, 70%, 65%)`,
-        [activeCharacter?.themeColor]
-    );
+    // 这层全屏查看器不跟随卡片配色，固定用默认色相做强调色
+    const accentHsl = 'hsl(260, 70%, 65%)';
 
     if (!open) return null;
 
@@ -583,7 +581,7 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
                                                 ? `2px solid ${accentHsl}`
                                                 : '2px solid rgba(255,255,255,0.12)',
                                             boxShadow: isActive
-                                                ? `0 6px 18px hsla(${c.themeColor ?? 260}, 70%, 55%, 0.45)`
+                                                ? '0 6px 18px hsla(260, 70%, 55%, 0.45)'
                                                 : 'none',
                                         }}
                                     >

@@ -115,6 +115,45 @@ export const makeStoryTheaterId = (): string => (
 
 export const storyTheaterThreadId = (entryId: string): string => `story-theater:${entryId}`;
 
+const formatStoryExportTime = (timestamp: number): string => {
+    const date = new Date(timestamp);
+    if (!Number.isFinite(date.getTime())) return '未知时间';
+    const pad = (value: number) => String(value).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+
+/** 把一条剧情的完整中央线程导出为便于长期保存与检索的纯文字原文。 */
+export const formatStoryTheaterExport = (
+    entry: Pick<StoryTheaterEntry, 'title' | 'premise' | 'writesToCharacterMemory'>,
+    identityName: string,
+    actorNames: string[],
+    messages: Message[],
+    exportedAt: number = Date.now(),
+): string => {
+    const title = entry.title.trim() || '未命名剧情';
+    const userLabel = identityName.trim() || '你';
+    const lines = [
+        `剧情记录 · ${title}`,
+        `模式：${entry.writesToCharacterMemory ? '真实时间陪伴' : '虚构剧场'}`,
+        `你：${userLabel}`,
+        `角色：${actorNames.filter(Boolean).join('、') || '暂无'}`,
+        `导出时间：${formatStoryExportTime(exportedAt)}`,
+    ];
+    if (entry.premise.trim()) lines.push(`剧情简介：${entry.premise.trim()}`);
+    lines.push('', '===== 完整原文 =====');
+
+    for (const message of [...messages].sort((a, b) => a.id - b.id)) {
+        const speaker = message.role === 'user' ? userLabel : message.role === 'assistant' ? '剧场正文' : '系统';
+        lines.push('', `[${formatStoryExportTime(message.timestamp)}] ${speaker}`, message.content?.trim() || '（无内容）');
+    }
+    return `\uFEFF${lines.join('\n')}`;
+};
+
+export const makeStoryTheaterFileName = (title: string, now: number = Date.now()): string => {
+    const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').trim() || '未命名剧情';
+    return `${safeTitle}_剧情记录_${formatStoryExportTime(now).slice(0, 10)}.txt`;
+};
+
 export const createStoryTheaterDraft = (now: number = Date.now()): StoryTheaterEntry => ({
     id: makeStoryTheaterId(),
     title: '',
@@ -131,6 +170,7 @@ export const createStoryTheaterDraft = (now: number = Date.now()): StoryTheaterE
     archiveStrategy: 'summary',
     archives: [],
     selectedWorldbookIds: [],
+    forceUserLastMessage: false,
     createdAt: now,
     updatedAt: now,
 });
@@ -161,6 +201,7 @@ export const normalizeStoryTheater = (entry: StoryTheaterEntry): StoryTheaterEnt
         selectedWorldbookIds: Array.isArray(entry.selectedWorldbookIds) ? entry.selectedWorldbookIds.filter(Boolean) : [],
         presetId: /^builtin-night-screening-v\d/i.test(String(entry.presetId || '')) ? 'builtin-night-screening' : entry.presetId,
         presetOverride: entry.presetOverride?.schema === 'sullyos.story-preset' && Array.isArray(entry.presetOverride.prompts) ? entry.presetOverride : undefined,
+        forceUserLastMessage: entry.forceUserLastMessage === true,
         createdAt: Number(entry.createdAt) || Date.now(),
         updatedAt: Number(entry.updatedAt) || Number(entry.createdAt) || Date.now(),
     };
@@ -491,6 +532,7 @@ export const createBlankStoryPreset = (name = '新剧情预设', now = Date.now(
         generation: { temperature: 0.9, topP: 1, frequencyPenalty: 0, presencePenalty: 0, maxTokens: 8000 },
         prompts: [
             { id: makeStoryTheaterId(), name: '主叙事规则', enabled: true, role: 'system', content: '直接续写连续的第三人称故事，让人物保持独立动机与知识边界。' },
+            { id: makeStoryTheaterId(), name: '世界书 · 角色设定前', enabled: true, role: 'system', content: '', marker: 'world_before' },
             { id: makeStoryTheaterId(), name: '角色资料', enabled: true, role: 'system', content: '', marker: 'characters' },
             { id: makeStoryTheaterId(), name: '世界书', enabled: true, role: 'system', content: '', marker: 'world_after' },
             { id: makeStoryTheaterId(), name: '剧情设定', enabled: true, role: 'system', content: '', marker: 'scenario' },
@@ -806,10 +848,33 @@ export const compileStoryPreset = (input: {
     const document = (preset || BUILTIN_NIGHT_SCREENING_PRESET).document;
     const messages: StoryApiMessage[] = [];
 
+    const worldBeforePrompts = document.prompts.filter(prompt => prompt.marker === 'world_before');
+    const enabledWorldBeforePrompt = worldBeforePrompts.find(prompt => prompt.enabled);
+    const firstEnabledCharacterIndex = document.prompts.findIndex(prompt => prompt.enabled && prompt.marker === 'characters');
+    const shouldBackfillWorldBefore = worldBeforePrompts.length === 0 && Boolean(slots.worldBefore.trim());
+    const shouldMoveWorldBeforeAheadOfCharacters = Boolean(
+        enabledWorldBeforePrompt
+        && firstEnabledCharacterIndex >= 0
+        && document.prompts.indexOf(enabledWorldBeforePrompt) > firstEnabledCharacterIndex
+        && slots.worldBefore.trim(),
+    );
+
     // 糯米机原生 Prompt Manager 按数组顺序送出；同一个 marker 只注入一次，
     // 角色资料始终使用一份完整的沙盒上下文。
     const injectedMarkers = new Set<string>();
-    for (const prompt of document.prompts) {
+    for (let index = 0; index < document.prompts.length; index += 1) {
+        const prompt = document.prompts[index];
+        if (
+            index === firstEnabledCharacterIndex
+            && (shouldBackfillWorldBefore || shouldMoveWorldBeforeAheadOfCharacters)
+        ) {
+            pushPromptMessage(
+                messages,
+                enabledWorldBeforePrompt?.role || 'system',
+                macroReplace(slots.worldBefore, userName, characterNames),
+            );
+            injectedMarkers.add('world_before');
+        }
         if (!prompt.enabled) continue;
         let raw = prompt.content;
         if (prompt.marker) {
@@ -819,6 +884,11 @@ export const compileStoryPreset = (input: {
         }
         if (!raw.trim()) continue;
         pushPromptMessage(messages, prompt.role, macroReplace(raw, userName, characterNames));
+    }
+
+    // 兼容没有任何原生槽位的旧自定义预设，确保角色设定前世界书不会静默丢失。
+    if (shouldBackfillWorldBefore && firstEnabledCharacterIndex < 0 && !injectedMarkers.has('world_before')) {
+        messages.unshift({ role: 'system', content: macroReplace(slots.worldBefore, userName, characterNames).trim() });
     }
 
     const prefill = String(document.assistantPrefill || '').trim();
@@ -837,6 +907,49 @@ export const compileStoryPreset = (input: {
     };
 };
 
+/**
+ * 部分 OpenAI 兼容模型硬性要求请求最后一条消息必须是 user，不能接受
+ * SillyTavern 常用的 assistant prefill。把预填充改写成紧邻用户消息前的
+ * system 约束，调用方仍可在返回文本缺失前缀时本地补齐。
+ */
+export const buildStoryPrefillInstruction = (assistantPrefill?: StoryApiMessage): StoryApiMessage | undefined => {
+    const content = assistantPrefill?.content?.trim();
+    if (!content) return undefined;
+    return {
+        role: 'system',
+        content: [
+            '### 回复起始文本（兼容模式）',
+            '你的最终回复必须直接以下列文本开头；不要解释、转述或把它放进代码块：',
+            content,
+        ].join('\n'),
+    };
+};
+
+/**
+ * 默认完整保留原生 assistant prefill；只有用户为当前剧情显式开启 400 兼容模式时，
+ * 才把预填改成 system 约束并让最终消息保持 user。这样个别严格接口不会改变所有人的预设效果。
+ */
+export const appendStoryUserTurn = (
+    messages: StoryApiMessage[],
+    userContent: string,
+    assistantPrefill?: StoryApiMessage,
+    forceUserLastMessage = false,
+): StoryApiMessage[] => {
+    if (forceUserLastMessage) {
+        const instruction = buildStoryPrefillInstruction(assistantPrefill);
+        return [
+            ...messages,
+            ...(instruction ? [instruction] : []),
+            { role: 'user', content: userContent },
+        ];
+    }
+    return [
+        ...messages,
+        { role: 'user', content: userContent },
+        ...(assistantPrefill ? [assistantPrefill] : []),
+    ];
+};
+
 export const dedupeTheaterWorldbooks = (characters: CharacterProfile[]): MountedWorldbook[] => {
     const seen = new Set<string>();
     const output: MountedWorldbook[] = [];
@@ -845,7 +958,6 @@ export const dedupeTheaterWorldbooks = (characters: CharacterProfile[]): Mounted
             const keys = [
                 book.id ? `id:${book.id}` : '',
                 `body:${book.title.trim().toLocaleLowerCase()}\u0000${book.content.trim()}`,
-                book.sourceUid !== undefined ? `source:${book.sourceUid}` : '',
             ].filter(Boolean);
             if (keys.length === 0 || keys.some(key => seen.has(key))) continue;
             keys.forEach(key => seen.add(key));
@@ -853,6 +965,21 @@ export const dedupeTheaterWorldbooks = (characters: CharacterProfile[]): Mounted
         }
     }
     return output.sort((a, b) => (a.category || '').localeCompare(b.category || '', 'zh-CN') || a.title.localeCompare(b.title, 'zh-CN'));
+};
+
+export const buildStoryWorldbookScanMessages = (
+    history: WorldbookScanMessage[],
+    currentUserContent: string,
+    limit = 20,
+): WorldbookScanMessage[] => {
+    const safeLimit = Math.max(1, Math.floor(limit));
+    const current = currentUserContent.trim();
+    if (!current) return history.slice(-safeLimit);
+    const historyLimit = safeLimit - 1;
+    return [
+        ...(historyLimit > 0 ? history.slice(-historyLimit) : []),
+        { role: 'user', content: current },
+    ];
 };
 
 export const buildTheaterWorldbookSlots = (
@@ -1145,6 +1272,43 @@ export const estimateStoryTokens = (text: string): number => {
     const cjk = (text.match(/[\u3400-\u9fff\uf900-\ufaff]/g) || []).length;
     const rest = Math.max(0, text.length - cjk);
     return cjk + Math.ceil(rest / 4);
+};
+
+const storyApiDetail = (value: unknown): string => {
+    if (typeof value === 'string') return value.trim();
+    if (!value || typeof value !== 'object') return '';
+    const record = value as Record<string, unknown>;
+    return storyApiDetail(record.message)
+        || storyApiDetail(record.detail)
+        || storyApiDetail(record.error)
+        || storyApiDetail(record.code);
+};
+
+/** 保留上游 4xx 的真正原因，避免调试日志里只剩一条没有信息量的 “API Error 400”。 */
+export const describeStoryApiError = (status: number, data: unknown): string => {
+    const detail = storyApiDetail((data as Record<string, unknown> | null)?.error)
+        || storyApiDetail((data as Record<string, unknown> | null)?.message)
+        || storyApiDetail((data as Record<string, unknown> | null)?.detail);
+    return `API Error ${status}${detail ? `：${detail.slice(0, 500)}` : ''}`;
+};
+
+export const isStoryUserLastCompatibilityError = (message: string): boolean => (
+    /(?:last|final)[^\n]{0,80}(?:message|role)[^\n]{0,80}user/i.test(message)
+    || /(?:最后|末尾)[^\n]{0,40}(?:消息|角色)[^\n]{0,40}user/i.test(message)
+);
+
+/** 200 但正文为空时把 finish_reason 带出来，区分截断、内容过滤和代理空包。 */
+export const describeEmptyStoryCompletion = (data: unknown): string => {
+    const record = data as Record<string, any> | null;
+    const choice = record?.choices?.[0];
+    const finishReason = String(choice?.finish_reason || choice?.finishReason || '').trim();
+    const providerDetail = storyApiDetail(record?.error) || storyApiDetail(record?.message);
+    if (providerDetail) return `没有生成正文：${providerDetail.slice(0, 500)}`;
+    if (finishReason === 'length' || finishReason === 'max_tokens') {
+        return '没有生成正文：模型在写出正文前已用完输出额度（finish_reason=length）。请提高“最大输出”，或降低模型思考量后重试';
+    }
+    if (finishReason === 'content_filter') return '没有生成正文：上游内容过滤拦截了本次回复（finish_reason=content_filter）';
+    return `没有生成正文${finishReason ? `（finish_reason=${finishReason}）` : '：上游返回了空内容'}，请重试`;
 };
 
 export const memoryTimestampForCharacter = (entry: StoryTheaterEntry, charId: string, realTimestamp: number): number => {

@@ -45,6 +45,14 @@ export const toolCallFingerprint = (name: string, args: unknown): string => {
 export interface ToolCallRecord {
   name: string;
   fingerprint: string;
+  /**
+   * 这次调用到底跑没跑起来（`!neverRan(result)`）。没配 key / 连不上 / 服务器没开机的
+   * 那些压根没发出请求，跟「跑了但没查到」不是一回事。
+   *
+   * 只有需要分辨这件事的地方才填（云端工具痕迹要靠它筛）。没填时按「跑过了」算，
+   * 跟 neverRan 认不出形状时的兜底同一个口径。
+   */
+  ran?: boolean;
 }
 
 /** 工具名 → 给模型看的说法。认不出来的直接用原名，不编。 */
@@ -124,7 +132,7 @@ const NEVER_RAN_REASONS = new Set([
 ]);
 
 /** 结果是不是「这次没跑成」。形状认不出来时当作跑过了（不硬加一句可能不对的告诫）。 */
-const neverRan = (result: unknown): boolean => {
+export const neverRan = (result: unknown): boolean => {
   if (!result || typeof result !== 'object') return false;
   const r = result as { ok?: unknown; reason?: unknown };
   return r.ok === false && typeof r.reason === 'string' && NEVER_RAN_REASONS.has(r.reason);

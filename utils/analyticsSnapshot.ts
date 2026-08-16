@@ -35,11 +35,12 @@ import { isStandaloneDisplayMode } from './iosStandalone';
 import { loadMcpServers, getMcpUseNativeTools } from './mcpClient';
 import { getLuckinToken, isLuckinEnabled } from './luckinMcpClient';
 import { getMcdToken, isMcdEnabled } from './mcdMcpClient';
-import { isInstantConfigReady, loadInstantConfig } from './instantPushClient';
+import { loadInstantConfig } from './instantPushClient';
 import { isPushVapidReady } from './pushVapid';
-import { getPendingTasks } from './amsg2Tasks';
+import { getPendingTasks, isAmsg2EnabledForChar } from './amsg2Tasks';
 import { ActiveMsgStore } from './activeMsgStore';
 import { getVRApi } from './vrWorld/vrApi';
+import { isBuiltinSullyLive2D } from './builtinSullyLive2D';
 
 /** 布尔开关转「开 / 关」，带默认值。 */
 const onOff = (v: boolean | undefined, dflt = false) => ((v ?? dflt) ? '开' : '关');
@@ -132,12 +133,47 @@ export function collectAppearance(
     };
 }
 
+/** 桌面陪伴形象来源的中文标签，跟「切换桌面陪伴形象来源」事件的取值一致，方便两张表对照着看。 */
+const COMPANION_SOURCE_LABELS: Record<string, string> = {
+    model: '动态模型',
+    upload: '静态图片',
+    date: '见面立绘',
+};
+
+/**
+ * 用户自己导入的通话形象。内置 Sully 那份不算——预置角色开箱就绑着它，
+ * 数进去的话人人至少 1，真正想知道的「有多少人自己导过模型」会被这个底噪盖住。
+ */
+const importedAvatars = (characters: CharacterProfile[]) =>
+    characters.filter(c => c.videoAvatar && !isBuiltinSullyLive2D(c.videoAvatar));
+
+/** 自己导入的是哪种格式。两种都导过的人单独占一档，不然会被算进先判断的那一边。 */
+function importedAvatarFormat(characters: CharacterProfile[]): string {
+    const formats = new Set(importedAvatars(characters).map(c => c.videoAvatar?.format));
+    if (formats.has('live2d') && formats.has('vrm')) return '都有';
+    if (formats.has('live2d')) return 'live2d';
+    if (formats.has('vrm')) return 'vrm';
+    return '没导入';
+}
+
+/**
+ * 用内置 Sully 的人选了哪档纹理。2K 和 4K 差一倍多的下载量和显存，
+ * 「有多少人切到 4K 了」直接关系到要不要继续维护两份贴图。
+ */
+function builtinSullyQuality(characters: CharacterProfile[]): string {
+    const builtin = characters.map(c => c.videoAvatar).filter(isBuiltinSullyLive2D);
+    if (!builtin.length) return '没用内置';
+    return builtin.some(cfg => cfg.builtinQuality === 'hd') ? '4K' : '2K';
+}
+
 /**
  * 收集角色级设置。两种问法，别混：
  *   · 开关类 → 问「有没有人开过 / 有没有人特意关掉」，看的是这个功能有没有人要
  *   · 选择类 → 报当前活跃角色选的那个，看的是各选项的占比
  *
  * 全程只有枚举值和「有/无」，不带角色名、不带任何设定内容。
+ * 形象这一族尤其要注意：`videoAvatar.fileName` 是用户自己的文件名，
+ * 只能拿来判断格式，一个字都不许进上报。
  *
  * 刻意没报的：每个世界一份（家园）、每局一份（跑团）的那些设置。一个用户能有十几个
  * 世界，报哪个都不代表他，而且这些选择本来就有「选择世界时间模式」这类事件在记。
@@ -192,6 +228,23 @@ export function collectCharSettings(
         ),
         // 角色专属提示音同样只分「内置哪个 / 自己弄的」
         角色提示音: presetOrCustom(c.chatSound?.src, Object.keys(BUILTIN_SOUNDS), '没设'),
+
+        // ── 桌面陪伴与通话形象 ──
+        // 「有多少人在用桌面陪伴」不在这里问：「当前外观」的桌面皮肤已经回答了
+        // （skin === 'companion'）。这几格问的是用起来的人手上是什么形象。
+        //
+        // 都数全部角色，不是当前活跃角色：一个人挂十几个角色时，导了模型的
+        // 恰好不是当前这个的概率很大，只看活跃角色会把重度用户报成没导过。
+        自己导入形象的角色数: bucketFewCount(importedAvatars(characters).length),
+        导入的形象格式: importedAvatarFormat(characters),
+        内置Sully画质: builtinSullyQuality(characters),
+        // 缺省就是「动态模型」，所以这一格里的「动态模型」含从没设过的人；
+        // 有信息量的是另外两档，只有主动换过的人才会落进去。
+        // 认不出的取值一并算「动态模型」，跟界面的渲染回落同口径（见 companionAvatarSource）。
+        桌面陪伴形象来源: COMPANION_SOURCE_LABELS[c.companionAvatar?.source || 'model'] ?? '动态模型',
+        换掉动态模型的角色数: bucketFewCount(
+            characters.filter(x => x.companionAvatar?.source && x.companionAvatar.source !== 'model').length,
+        ),
     };
 }
 
@@ -315,9 +368,10 @@ export interface FeatureSources {
     characters: CharacterProfile[];
     /**
      * 主动消息 2.0 的全局配置，存 IndexedDB，得由调用方 await 出来。
-     * 只看「地址填没填」「连接成功过没有」两位，Worker 地址和共享密钥本身不进上报。
+     * 只看「地址填没填」「连接成功过没有」「即时对话开没开」三位，
+     * Worker 地址和共享密钥本身不进上报。
      */
-    amsg2Global: { workerUrl?: string; initializedAt?: number };
+    amsg2Global: { workerUrl?: string; initializedAt?: number; instantChatEnabled?: boolean };
 }
 
 /**
@@ -332,12 +386,9 @@ export function collectFeatureFlags(src: FeatureSources): Record<string, string>
     const instant = loadInstantConfig();
     const luckinToken = getLuckinToken().length > 0;
     const mcdToken = getMcdToken().length > 0;
-    // 「用起来了的角色」不能用 isAmsg2EnabledForChar 数：那个判定是「没被关掉就算开」，
-    // 从没碰过 2.0 的角色（config 缺失）也返回 true，拿它数等于把角色总数报成 2.0 用户数。
-    // 有 activeMsg2Config = 用户在这个角色的面板里存过、或角色自己排过任务，是真痕迹。
-    const amsg2ActiveChars = src.characters.filter(
-        c => c.activeMsg2Config != null && c.activeMsg2Config.enabled !== false,
-    );
+    // 「用起来了的角色」= 在面板里把开关打开过的（enabled:true 是用户表过态的真痕迹），
+    // 与工具注入门同一个判定。
+    const amsg2ActiveChars = src.characters.filter(isAmsg2EnabledForChar);
 
     return {
         // ── 外部服务接入 ──
@@ -418,16 +469,15 @@ export function collectFeatureFlags(src: FeatureSources): Record<string, string>
         // 上面那一档只分「有没有角色在用」，这里补深度：只开了一个是尝鲜，
         // 好几个才说明真的用起来了。
         '开了2.0的角色数': bucketFewCount(amsg2ActiveChars.length),
-        // 两个都开着时聊天走 Instant Push，2.0 挂在本地那条路上的三样（角色排任务、
-        // 角色知道自己有任务、防打断）**静默**失效：没报错、没提示，功能就是不响。
-        // 面板里只有一块黄框提醒 + 一个手动关掉的按钮，没有任何强制互斥，所以这个
-        // 状态能长期挂着。这一格数的是真踩在上面的人——占比高的话该做的是把两者
-        // 做成真互斥，而不是继续加提示文案。
-        //
-        // 没有复用聊天路径那个 isAmsg2SuppressedByInstant：它按「这个角色的能力这一轮
-        // 会不会被顶掉」判，而没碰过 2.0 的角色也算开着，用在这里会让答案恒为「是」。
-        // 两处问的问题不同——那边是「要不要留 trace」，这里是「有多少人真受影响」。
-        '2.0与InstantPush同开': amsg2ActiveChars.length > 0 && isInstantConfigReady() ? '是' : '否',
+        // 聊天主路径搬没搬上云端。只有开/关：配置到哪一步由上面那格四态回答，
+        // 这一格问的是「配好了的人里有多少真把聊天切过去了」。
+        即时对话: onOff(src.amsg2Global.instantChatEnabled),
+        // 全局开着、却在某几个角色上单独关掉的有多少。角色级开关是「跟随全局」缺省，
+        // 只有显式关才落 false——这一格数的就是这种显式关，回答「按角色区分有没有人用」。
+        // 一个都没有的话这个开关可以从角色面板收掉。
+        单独关了即时对话的角色数: bucketFewCount(
+            amsg2ActiveChars.filter((ch) => ch.activeMsg2Config?.instantChatEnabled === false).length,
+        ),
     };
 }
 
