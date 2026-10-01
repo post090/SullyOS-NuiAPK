@@ -31,8 +31,10 @@ type KvRecord<T = unknown> = {
 
 // Keep the shared web/PWA build unchanged. The private Capacitor build may
 // provide its own Worker URL so the native shell works without manual setup.
-const capacitorDefaultWorkerUrl = import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true'
-  ? String(import.meta.env.VITE_AMSG_DEFAULT_WORKER_URL || '').trim()
+// `?.`：worker bundle（esbuild neutral）里 import.meta.env 不存在，顶层直接读
+// 会在 Cloudflare 上传校验时炸掉（10021）。
+const capacitorDefaultWorkerUrl = import.meta.env?.VITE_AMSG_NATIVE_PUSH === 'true'
+  ? String(import.meta.env?.VITE_AMSG_DEFAULT_WORKER_URL || '').trim()
   : '';
 
 const defaultGlobalConfig: ActiveMsg2GlobalConfig = {

@@ -809,7 +809,7 @@ var BEAUTY_SHARE_URL;
 var init_beautyShareConfig = __esm({
   "utils/beautyShareConfig.ts"() {
     "use strict";
-    BEAUTY_SHARE_URL = (import.meta.env.VITE_BEAUTY_SHARE_URL || "https://beauty.friedsully.com").replace(/\/$/, "");
+    BEAUTY_SHARE_URL = (import.meta.env?.VITE_BEAUTY_SHARE_URL || "https://beauty.friedsully.com").replace(/\/$/, "");
   }
 });
 
@@ -1025,8 +1025,14 @@ var init_mcdMcpClient = __esm({
   }
 });
 
+// scripts/worker-stubs/capacitor-core.ts
+var init_capacitor_core = __esm({
+  "scripts/worker-stubs/capacitor-core.ts"() {
+    "use strict";
+  }
+});
+
 // utils/mcpClient.ts
-import { Capacitor, CapacitorHttp } from "@capacitor/core";
 function exportMcpLocal() {
   try {
     const out = {};
@@ -1051,6 +1057,7 @@ var MCP_SERVERS_KEY, MCP_USE_NATIVE_TOOLS_KEY;
 var init_mcpClient = __esm({
   "utils/mcpClient.ts"() {
     "use strict";
+    init_capacitor_core();
     init_mcpFireCore();
     init_amsgToolPack();
     MCP_SERVERS_KEY = "aetheros.mcp.servers";
@@ -1097,7 +1104,7 @@ var init_activeMsgStore = __esm({
     EXPIRED_NOTICES_PREFIX = "amsg2_expired_notices_";
     EXPIRED_NOTICES_MAX = 10;
     EXPIRED_NOTICES_TTL_MS = 48 * 36e5;
-    capacitorDefaultWorkerUrl = import.meta.env.VITE_AMSG_NATIVE_PUSH === "true" ? String(import.meta.env.VITE_AMSG_DEFAULT_WORKER_URL || "").trim() : "";
+    capacitorDefaultWorkerUrl = import.meta.env?.VITE_AMSG_NATIVE_PUSH === "true" ? String(import.meta.env?.VITE_AMSG_DEFAULT_WORKER_URL || "").trim() : "";
     defaultGlobalConfig = {
       userId: "",
       workerUrl: capacitorDefaultWorkerUrl

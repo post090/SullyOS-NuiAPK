@@ -59,11 +59,18 @@ const sharedOpts = {
   bundle: true,
   minify: false,
   conditions: ['worker', 'browser', 'import', 'default'],
-  // @capacitor/* 是浏览器原生桥（仅 APK WebView 里有），worker 永远跑不到这些代码路径，
-  // 但 db.ts → mcpClient.ts 的 import 链会把它拖进 bundle。标 external 让 esbuild 不去 resolve。
+  // @capacitor/* 不能标 external：external 会在 bundle 顶上留一行裸导入，而 Cloudflare
+  // 的模块 Worker 上传（面板粘贴 / 自更新 / wrangler deploy）不认裸导入，一律 10021
+  // 拒收（2026-10 实际发生过：mcpClient.ts 引入 Capacitor 后所有更新全挂）。db.ts →
+  // mcpClient.ts 的 import 链会把它拖进 bundle，但 worker 永远跑不到原生分支——alias
+  // 到假身，让死分支保持死。以后再冒出别的 @capacitor/* 导入，esbuild 会当场报
+  // resolve 失败，比静默塞进裸导入强。
+  alias: {
+    '@capacitor/core': resolve(root, 'scripts/worker-stubs/capacitor-core.ts'),
+  },
   // cloudflare:* 是运行时自带的内置模块（amsg 用 cloudflare:workers 的 DurableObject
   // 基类）。它们不在 node_modules 里，不标 external 的话 esbuild 会当成缺失依赖报错。
-  external: ['@capacitor/*', 'cloudflare:*'],
+  external: ['cloudflare:*'],
 };
 
 console.log(`Building ${WORKERS.length} worker bundle(s)...`);
