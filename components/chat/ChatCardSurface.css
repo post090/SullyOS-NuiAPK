@@ -1,0 +1,11 @@
+.sully-chat-card { min-width:0; max-width:100%; }
+.sully-chat-card-surface {
+  background:var(--sully-card-background,transparent);
+  color:var(--sully-card-color,inherit);
+  border:var(--sully-card-border,0 solid transparent);
+  border-radius:var(--sully-card-radius,0);
+  box-shadow:var(--sully-card-shadow,none);
+  max-width:100%;
+}
+.sully-chat-card-content { min-width:0; max-width:100%; overflow-wrap:anywhere; }
+.sully-chat-card-content > * { max-width:100%; }

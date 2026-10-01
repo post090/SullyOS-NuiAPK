@@ -1,10 +1,10 @@
 /**
  * Shared VAPID credentials store.
  *
- * Both Instant Push (utils/instantPushClient.ts) and Proactive Push
- * (utils/proactivePushConfig.ts) read VAPID from here so they don't fight
- * over the single per-origin pushManager.subscription — same VAPID → no
- * unsubscribe-and-rebuild churn.
+ * The 主动消息 2.0 one-click deploy reuses the key pair stored here (and
+ * writes the generated pair back), so redeploying keeps browser push
+ * subscriptions valid. Proactive Push (utils/proactivePushConfig.ts) reads
+ * the public key from here as well.
  *
  * Private key is intentionally persisted too: the user has to paste it
  * into their Cloudflare Worker env, and re-displaying it later is much
@@ -13,12 +13,12 @@
  * does not change the threat model.
  *
  * Default values are empty by design — there is no hardcoded fallback.
- * The user must generate (or paste) their own VAPID key pair via the
- * Instant Push settings modal, then mirror it into the Worker env.
+ * The user generates their own VAPID key pair via the 推送凭据 (VAPID)
+ * settings modal (or lets the one-click deploy create one), then mirrors
+ * it into the Worker env when deploying by hand.
  */
 
 const PUSH_VAPID_KEY = 'push_vapid_v1';
-const LEGACY_INSTANT_KEY = 'instant_push_config_v1';
 
 export interface PushVapid {
   vapidPublicKey: string;
@@ -32,36 +32,9 @@ const EMPTY: PushVapid = {
   vapidPrivateKey: '',
 };
 
-let migrated = false;
-
-// One-shot migration: the previous Instant Push config stored vapidPublicKey
-// inline. Copy it across on first read so existing users don't lose their
-// subscription. Private key was never persisted before — user has to
-// re-enter / regenerate to round-trip it back.
-function migrateFromInstantConfigIfNeeded(): void {
-  if (migrated) return;
-  migrated = true;
-  if (typeof localStorage === 'undefined') return;
-  try {
-    if (localStorage.getItem(PUSH_VAPID_KEY)) return;
-    const legacy = localStorage.getItem(LEGACY_INSTANT_KEY);
-    if (!legacy) return;
-    const parsed = JSON.parse(legacy) as { vapidPublicKey?: string };
-    const pub = (parsed?.vapidPublicKey || '').trim();
-    if (!pub) return;
-    const next: PushVapid = {
-      vapidPublicKey: pub,
-      vapidPrivateKey: '',
-      updatedAt: Date.now(),
-    };
-    localStorage.setItem(PUSH_VAPID_KEY, JSON.stringify(next));
-  } catch { /* ignore */ }
-}
-
 export function loadPushVapid(): PushVapid {
   if (typeof localStorage === 'undefined') return { ...EMPTY };
   try {
-    migrateFromInstantConfigIfNeeded();
     const raw = localStorage.getItem(PUSH_VAPID_KEY);
     if (raw) return { ...EMPTY, ...(JSON.parse(raw) as Partial<PushVapid>) };
   } catch { /* ignore */ }

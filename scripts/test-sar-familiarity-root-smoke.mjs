@@ -1,0 +1,34 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import { mkdir, writeFile } from 'node:fs/promises';
+const out='output/fishing-qa/npc-lines/root-smoke';await mkdir(out,{recursive:true});
+const browser=await chromium.launch({headless:true}),context=await browser.newContext({viewport:{width:390,height:844},reducedMotion:'reduce'}),page=await context.newPage();
+const errors=[],modelCalls=[];page.on('pageerror',e=>errors.push(e.message));
+await context.route('**/*',route=>{const url=new URL(route.request().url());if(url.pathname.includes('/chat/completions'))modelCalls.push(url.pathname);return ['127.0.0.1','localhost'].includes(url.hostname)?route.continue():route.fulfill({status:200,body:'',headers:{'access-control-allow-origin':'*'}});});
+await page.addInitScript(()=>localStorage.setItem('vr_sar_club_state_v1',JSON.stringify({version:1,updateSeenVersion:1,npcPreference:'show',caianMet:true})));
+const button=name=>page.getByRole('button',{name,exact:true});
+const state=()=>page.evaluate(()=>JSON.parse(window.render_game_to_text?.()||'{}'));
+const idle=()=>page.waitForFunction(()=>{const state=JSON.parse(window.render_game_to_text?.()||'{}');return state.mode==='sar-familiarity'&&!state.busy&&!state.error&&state.text!=='正在走进活动室…';});
+const shot=async name=>page.screenshot({path:`out/${name}.png`.replace(/^out/,out)});
+const offer=async(npc,sceneId)=>page.evaluate(async({npc,sceneId})=>{const {readFishingMarketState,saveFishingMarketState}=await import('/utils/vrWorld/fishingMarket.ts'),{freshFamiliarity}=await import('/utils/vrWorld/sarFamiliarity/storageTypes.ts'),{familiarityDay}=await import('/utils/vrWorld/sarFamiliarity/state.ts');const state=readFishingMarketState();state.sarFamiliarity ||= freshFamiliarity();state.sarFamiliarity.npcs[npc].day=familiarityDay();state.sarFamiliarity.npcs[npc].offerId=sceneId;saveFishingMarketState(state);},{npc,sceneId});
+try{
+    await page.goto(`${process.env.SAR_QA_URL||'http://127.0.0.1:5177'}/test/fixtures/kanata.html?npcs=show`);await button('SAR').click();await button('与凯恩交谈').waitFor();
+    await offer('caian','C1-01');await button('与凯恩交谈').click();await idle();assert.equal((await state()).scene,'C1-01');
+    await page.waitForFunction(()=>document.querySelector('.srf-stage [data-speaker="caian"] img:not(.sar-npc-portrait__pending)')?.getAttribute('src')?.includes('/sar-portraits/'));
+    await shot('01-caian-topic');await button('继续对话').click();await idle();await button('确实').click();await idle();assert.equal((await state()).node,'answer-1');await shot('02-caian-reply');
+    await button('继续对话').click();await page.locator('.srf-dialog').waitFor({state:'detached'});await shot('03-topic-collected');
+    const caianRecord=await page.evaluate(()=>JSON.parse(localStorage.getItem('vr_fishing_market_v1')).sarFamiliarity.npcs.caian);assert(caianRecord.completed['C1-01']);assert.equal(caianRecord.stars,0);assert.equal(caianRecord.pending,undefined);
+    await button('与凯恩交谈').click();await idle();assert.equal((await state()).scene,undefined,'same day does not repeat the topic');await button('离开对话').click();
+    await offer('aiven','A1-02');await button('与艾文交谈').click();await idle();assert.equal((await state()).scene,'A1-02');await button('继续对话').click();await idle();await shot('04-aiven-topic');
+    await button('那我不说了').click();await idle();await button('继续对话').click();await page.locator('.srf-dialog').waitFor({state:'detached'});
+    await button('打开仓库').click();await button('打开收集图鉴').click();await button('名册').click();await button('回忆 1').click();
+    await button('回顾彼方也太方便了吧').waitFor();await shot('05-root-roster');
+    const before=await page.evaluate(()=>JSON.parse(localStorage.getItem('vr_fishing_market_v1')));
+    await button('回顾彼方也太方便了吧').click();await idle();assert.equal((await state()).replay,true);await shot('06-replay');await button('继续对话').click();await idle();await button('你重点错了').click();await idle();await button('继续对话').click();await page.locator('.srf-dialog').waitFor({state:'detached'});
+    const after=await page.evaluate(()=>JSON.parse(localStorage.getItem('vr_fishing_market_v1')));
+    assert.deepEqual(after.sarFamiliarity,before.sarFamiliarity,'replay leaves progress, rewards and choices intact');assert.deepEqual(after.inventory,before.inventory);assert.deepEqual(after.sarCommerce,before.sarCommerce);
+    await page.locator('.sar-familiarity-roster').waitFor();assert.equal(await page.locator('.srf-dialog').count(),0);
+    assert(await page.evaluate(()=>!!document.activeElement?.closest('.sar-familiarity-roster')),'focus returns into roster');
+    await page.keyboard.press('Escape');await page.getByRole('heading',{name:'收集图鉴',exact:true}).waitFor();await page.keyboard.press('Escape');await page.getByRole('heading',{name:'随身仓库',exact:true}).waitFor();
+    assert.deepEqual(errors,[]);assert.deepEqual(modelCalls,[]);await writeFile(`${out}/report.json`,JSON.stringify({errors,modelCalls,checks:['real root NPC entry','local expressions','one-time daily topic','both NPC progression','roster replay callback','replay changes no state/rewards','modal back chain']},null,2));console.log('Real root familiarity smoke passed; both NPC topics, local portraits, collection replay and unchanged replay rewards.');
+}finally{await page.screenshot({path:`${out}/last.png`}).catch(()=>{});await browser.close();}

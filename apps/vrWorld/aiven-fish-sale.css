@@ -1,0 +1,10 @@
+.fish-aiven-sale{display:flex;align-items:center;gap:12px;overflow:hidden;border-top:1px solid #a8d4ca28;margin-top:14px;color:#d4e8df;text-align:left}
+.fish-aiven-sale-art{width:110px;height:148px;flex:none;overflow:hidden;align-self:flex-end;mask-image:linear-gradient(#000 85%,transparent)}
+.fish-aiven-sale-art .sar-npc-portrait{position:relative;width:100%;height:100%;overflow:hidden}
+.fish-aiven-sale-art .sar-npc-portrait__image{position:absolute;width:230%;height:auto;max-width:none;left:-65%;top:-9%;object-fit:contain}
+.fish-aiven-sale-copy{min-width:0;flex:1;padding:16px 4px 16px 0}
+.fish-aiven-sale-copy small{font-size:10px;letter-spacing:2px;color:#9bbeb6}
+.fish-aiven-sale-copy p{font-size:17px;line-height:1.65;margin:8px 0 12px;overflow-wrap:anywhere}
+.fish-aiven-sale-copy span{font-size:11px;color:#9bbeb6}.fish-aiven-sale-copy strong{font-size:17px;color:#e2d8ae}
+.fish-aiven-sale-copy blockquote{font-size:11px;line-height:1.7;margin:12px 0 0;padding-left:8px;border-left:1px solid #9bbeb655;overflow-wrap:anywhere}
+@media(max-width:350px){.fish-aiven-sale-art{width:88px;height:134px}.fish-aiven-sale-copy p{font-size:15px}}

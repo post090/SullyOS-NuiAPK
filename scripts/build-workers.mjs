@@ -17,7 +17,7 @@
 // through this pipeline.
 
 import { build } from 'esbuild';
-import { existsSync, statSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, statSync, copyFileSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -28,17 +28,6 @@ const root = resolve(__dirname, '..');
 //   - per-worker dirs (worker/<name>/src/index.ts → worker/<name>/worker.bundle.js + public/<outName>)
 //   - flat single-file workers (worker/<name>.ts → public/<name>.js only — no worker.bundle.js sibling)
 const WORKERS = [
-  { name: 'instant-push', outName: 'instant-worker.bundle.js' },
-  // instant-push 的 Deno Deploy 入口: 同一份 worker, 换 Deno.serve 包装。
-  // worker.deno.bundle.js 供整份贴进 dash.deno.com Playground;
-  // public/ 副本让站点把它当静态文件发布, Playground 里一行
-  // `import "https://<站点>/instant-worker.deno.bundle.js"` 即可加载运行。
-  {
-    name: 'instant-push-deno',
-    entryPath: 'worker/instant-push/src/deno.ts',
-    outWorker: 'worker/instant-push/worker.deno.bundle.js',
-    outPublic: 'public/instant-worker.deno.bundle.js',
-  },
   // sw-keep-alive 是 SullyOS 的 service worker, 唯一消费者是浏览器从 /public 静态读, 不需要
   // CF wrangler 单独部署 (没 worker.bundle.js sibling). 之前 bundle 是手工跑 esbuild, Round 2
   // 起接进 build:workers 一起做, 避免 worker/sw-keep-alive.ts 跟 public/sw-keep-alive.js 漂移.
@@ -56,13 +45,13 @@ const WORKERS = [
   },
   // amsg = 主动消息 2.0 的单用户 worker（amsg-server/cloudflare, D1 + Cron Trigger）。
   // public/ 副本给设置页「复制 Worker 代码」按钮 fetch。amsg-server 2.6.0-next.2 起
-  // 全 Web Crypto，和 instant 一样免 nodejs_compat flag。
+  // 全 Web Crypto，免 nodejs_compat flag。
   { name: 'amsg', outName: 'amsg-worker.bundle.js' },
 ];
 
-// amsg-instant 0.3.0+ uses only Web Crypto (globalThis.crypto.subtle); the
-// bundle has zero Node crypto imports, so CF Workers / Vercel Edge / Netlify
-// Edge run with no compatibility flags and no runtime polyfill.
+// The bundled workers use only Web Crypto (globalThis.crypto.subtle) and have
+// zero Node crypto imports, so they run on CF Workers with no compatibility
+// flags and no runtime polyfill.
 const sharedOpts = {
   format: 'esm',
   target: 'es2022',
@@ -138,15 +127,3 @@ for (const { from, to } of VERBATIM_COPIES) {
   const sizeKb = (statSync(src).size / 1024).toFixed(1);
   console.log(`✓ ${from.split('/').pop().padEnd(16)} ${sizeKb} KB  → ${to} (原样复制)`);
 }
-
-// instant-worker.version.txt — Deno loader 冷启动时拉这个文件决定 bundle 版本号
-// (见 utils/instantPushClient.ts 的 buildDenoLoaderSnippet)。从
-// utils/instantWorkerVersion.ts 提取, 与 /version 路由同源, 不会漂移。
-const versionSrc = readFileSync(resolve(root, 'utils/instantWorkerVersion.ts'), 'utf8');
-const versionMatch = versionSrc.match(/INSTANT_WORKER_VERSION\s*=\s*'([^']+)'/);
-if (!versionMatch) {
-  console.error('ERROR: cannot extract INSTANT_WORKER_VERSION from utils/instantWorkerVersion.ts');
-  process.exit(1);
-}
-writeFileSync(resolve(root, 'public/instant-worker.version.txt'), `${versionMatch[1]}\n`);
-console.log(`✓ instant-worker.version.txt → ${versionMatch[1]}`);

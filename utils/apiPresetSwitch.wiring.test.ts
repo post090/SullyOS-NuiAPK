@@ -10,6 +10,8 @@
 //      → 上一条冲回来的旧值被写进预设，那条预设从此永久坏掉，只能删了重建
 //   3. 点预设绕开 commitApiConfig 自己写配置
 //      → 聊天换了 API，后台已排程的主动消息还拿旧 Key 打请求，到点一片 401
+//   4. 模型弹窗的「确定」又退回成只关弹窗
+//      → 用户以为换好了，离开设置页再回来，模型「自己跳回」旧的
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -62,9 +64,20 @@ describe('保存配置不反写预设', () => {
     expect(handleSaveApi).not.toMatch(/updateApiPreset/);
   });
 
-  it('改预设只有编辑弹窗这一个入口', () => {
-    expect(settings.match(/updateApiPreset\(/g) ?? []).toHaveLength(1);
+  it('改预设只有两个入口：编辑弹窗，和保存后用户点头的「存回预设」', () => {
+    expect(settings.match(/updateApiPreset\(/g) ?? []).toHaveLength(2);
     expect(bodyOf('handleUpdatePreset')).toMatch(/updateApiPreset\(preset\.id, name, nextConfig\)/);
+    expect(bodyOf('confirmPresetWriteback')).toMatch(/updateApiPreset\(preset\.id, preset\.name, /);
+  });
+
+  it('保存后预设对不上了就问一句，问的是保存前在用的那条', () => {
+    const handleSaveApi = bodyOf('handleSaveApi');
+    // 来源预设必须在 commitApiConfig 之前取：存完 activePresetId 就反查不到它了
+    expect(handleSaveApi).toMatch(
+      /const sourcePreset = apiPresets\.find\(preset => preset\.id === activePresetId\);[\s\S]*commitApiConfig\(nextConfig\)/,
+    );
+    expect(handleSaveApi).toMatch(/presetDiffersFromConfig\(sourcePreset, nextConfig\)[\s\S]*setPresetWriteback\(/);
+    expect(settings).toMatch(/若不保存，当前配置为临时配置，切换预设后消失。/);
   });
 
   it('改的正好是在用的那条时，当前配置一起跟着走', () => {
@@ -75,6 +88,28 @@ describe('保存配置不反写预设', () => {
     );
     expect(handleUpdatePreset).toMatch(/if \(wasActive\) commitApiConfig\(/);
   });
+
+  it('铅笔编辑会读取并保存每条预设自己的流式与温度', () => {
+    const openEditPreset = bodyOf('openEditPreset');
+    const handleUpdatePreset = bodyOf('handleUpdatePreset');
+
+    // 正在使用的那条优先拿主表单值：改完高级设置后，点铅笔再保存就能真正写回预设。
+    expect(openEditPreset).toMatch(/const isActive = activePresetId === preset\.id/);
+    expect(openEditPreset).toMatch(/setEditPresetStream\([\s\S]*isActive \? localStream/);
+    expect(openEditPreset).toMatch(/setEditPresetTemperature\([\s\S]*isActive[\s\S]*localTemperature/);
+    // 非当前预设仍读自己的值，不能被当前 API 的高级设置覆盖。
+    expect(openEditPreset).toMatch(/typeof preset\.config\.stream === 'boolean'/);
+    expect(openEditPreset).toMatch(/setEditPresetTemperature\([\s\S]*preset\.config\.temperature/);
+    expect(handleUpdatePreset).toMatch(/stream:\s*editPresetStream/);
+    expect(handleUpdatePreset).toMatch(/temperature:\s*editPresetTemperature/);
+  });
+
+  it('用当前配置填入时不会漏掉高级设置', () => {
+    expect(settings).toMatch(/setEditPresetStream\(localStream\)/);
+    expect(settings).toMatch(/setEditPresetTemperature\(localTemperature\)/);
+    expect(settings).toMatch(/aria-pressed=\{editPresetStream\}/);
+    expect(settings).toMatch(/value=\{editPresetTemperature\}/);
+  });
 });
 
 describe('换 API 一定连着换云端凭据', () => {
@@ -83,5 +118,28 @@ describe('换 API 一定连着换云端凭据', () => {
     expect(commitApiConfig).toMatch(/updateApiConfig\(patch\)/);
     expect(commitApiConfig).toMatch(/syncAmsgLlmCredentials\(\{ \.\.\.apiConfig, \.\.\.patch \}\)/);
     expect(commitApiConfig).toMatch(/refreshApiCredentialsForPendingTasks\(\{ \.\.\.apiConfig, \.\.\.patch \}\)/);
+  });
+});
+
+describe('模型弹窗选定即生效', () => {
+  it('「确定」和点列表项都走 confirmModelPicker，它会直接保存', () => {
+    expect(bodyOf('confirmModelPicker')).toMatch(/handleSaveApi\(model\)/);
+    expect(settings).toMatch(/onClick=\{\(\) => confirmModelPicker\(localModel\)\}/);
+    expect(settings).toMatch(/onClick=\{\(\) => confirmModelPicker\(m\)\}/);
+  });
+
+  it('刚选的模型直接递给保存，不等 setLocalModel 下一轮渲染', () => {
+    expect(bodyOf('handleSaveApi')).toMatch(/model: normalizeApiModel\(modelOverride \?\? localModel\)/);
+  });
+
+  it('× 关弹窗 = 放弃，退回打开前的模型名', () => {
+    expect(settings).toMatch(/title="选择模型" onClose=\{cancelModelPicker\}/);
+    expect(bodyOf('cancelModelPicker')).toMatch(/setLocalModel\(modelBeforePickerRef\.current\)/);
+  });
+
+  it('刷新模型列表不覆盖已经填好的模型名', () => {
+    const fetchModels = bodyOf('fetchModels');
+    expect(fetchModels).not.toMatch(/!models\.includes\(localModel\)/);
+    expect(fetchModels).toMatch(/if \(!localModel\.trim\(\)\) setLocalModel\(models\[0\]\)/);
   });
 });

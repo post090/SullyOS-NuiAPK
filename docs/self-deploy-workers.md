@@ -7,7 +7,6 @@
 | 目录 | 是什么 | 需要 D1 数据库 |
 |------|--------|---------------|
 | `amsg/` | 主动消息 2.0：角色到点主动发消息给你 | 需要 |
-| `instant-push/` | Instant Push：聊天回复走后台推送，关掉页面也能收 | 不需要（可选） |
 | `mcp-proxy/` | MCP 工具代理：让角色能连你自己配的 MCP 工具服务器 | 不需要 |
 
 每个都是独立的，只部署你要用的那个就行。
@@ -47,7 +46,7 @@ Cloudflare 面板 → **Compute** → **Workers & Pages** → 右上角 **Create
 
 | 位置 | 填什么 |
 |------|--------|
-| Path | 你要部署的那个子目录：`/amsg`、`/instant-push` 或 `/mcp-proxy` |
+| Path | 你要部署的那个子目录：`/amsg` 或 `/mcp-proxy` |
 | API token | 下拉选 **Create new token**，名字随便起 |
 | Variable name / value | 只有 `amsg/` 需要：`D1_DATABASE_ID` = 上一步复制的 Database ID |
 
@@ -74,8 +73,6 @@ Secrets 要等**部署完**再填：Worker 页面 → **Settings** → 最上面
 填完点右下角 **Deploy**。
 
 > ⚠️ VAPID 那一对**必须和 SullyOS 面板里的是同一对**。整个站点共用一个浏览器推送订阅，Worker 用别的密钥对去签，推送会被浏览器拒掉（403），表现是「一切正常但就是收不到」。
-
-**`instant-push/`** 需要 `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`（同一对），`VAPID_EMAIL` 可选。
 
 **`mcp-proxy/`** 不需要密钥。
 
@@ -134,7 +131,8 @@ SullyOS 里点「连接并验证」时也会先读一次这个自检，缺什么
 |------|------|------|
 | `storage.missingColumns` | 列出了几个列名 | 换了新版本但没重新点「连接并验证」，定时任务会每分钟静默失败。点一次就好 |
 | `storage.pushSubscriptionRegistered` | `false` | 云端没有推送订阅，消息发不出去。去 SullyOS 把推送开关关掉再打开 |
-| `tick` | `stalled` | 有任务到点很久没被处理，多半是定时触发器没配（**Settings → Trigger events**）|
+| `tick` | `stalled` | 有任务卡住了：到点很久一直没人处理，或者开始发过又没了下文。多半是定时触发器没配（**Settings → Trigger events**），或者 Worker 半路被 Cloudflare 掐掉 |
+| `tick` | `failing` | 有任务在失败重试。报错原文不在这个地址里，去 SullyOS 体检面板的「定时任务」那一行看 |
 | `vapidPublicKey` | 和 SullyOS 面板里的对不上 | 推送会被拒（403），表现是「一切正常但收不到」|
 
 这个地址是只读的，也不需要密钥，但它**不会**返回任何密钥的值、你的用户标识或消息内容——贴出来是安全的。

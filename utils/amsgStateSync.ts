@@ -141,15 +141,59 @@ const bindLifecycleListener = () => {
   });
 };
 
+/**
+ * 打脏的两种理由。
+ *
+ * 分开是因为下面那道门对它们不是一个答案：门问的是「这个角色有没有待触发的 AI 任务」，
+ * 没有就不必把 fire_pack 传上去（省一次几十 KB 的上行）。对「内容更新了」这是对的——
+ * 反正没人会读那份旧的，下次真要用时排程会重传一份新的。
+ *
+ * 但「用户删掉了内容」不一样：云端那份 fire_pack 里存着最近 30 条对话原文，用户在
+ * 聊天里把历史清了，那份原文却因为这道门被留在 D1 里，而且角色命名空间在 worker 侧
+ * 没有 TTL、之后也不会再有人来刷新它——那就是永久留着。所以这种脏要么刷新，要么清掉，
+ * 不能悄悄丢掉。
+ */
+export type AmsgDirtyReason =
+  /** 内容变了，云端那份该跟着刷新（默认）。 */
+  | 'refresh'
+  /** 用户删掉了内容，云端那份必须作废：刷不上去就把它清掉。 */
+  | 'invalidate';
+
 /** 一轮聊完（或角色资料变更后）打脏标记；非 amsg2 AI 任务角色直接忽略。 */
-export const markAmsgStateDirty = (snapshot: AmsgSyncSnapshot) => {
+export const markAmsgStateDirty = (
+  snapshot: AmsgSyncSnapshot,
+  reason: AmsgDirtyReason = 'refresh',
+) => {
   const config = snapshot.char.activeMsg2Config;
-  if (!config?.enabled || !hasActiveAiTask(config)) return;
+  if (!config?.enabled || !hasActiveAiTask(config)) {
+    if (reason === 'invalidate') void invalidateCharCloudState(snapshot.char.id);
+    return;
+  }
 
   dirty.set(snapshot.char.id, snapshot);
   persistDirtyMark(snapshot.char.id);
   bindLifecycleListener();
   queueFlush();
+};
+
+/**
+ * 把云端那份角色上下文清掉。用在「用户删了内容、而这个角色又轮不到重传」的时候。
+ *
+ * 只清 client_state，不碰凭据行、不碰任务表：这不是在注销一个角色，只是让云端那份
+ * 停在旧内容上的快照消失。清完不补——真要用的时候（排程、即时对话）都会重新传一份，
+ * 那份才是带着用户新意愿的。
+ *
+ * 尽力而为：清不掉只记一行。这条路是收拾残留，失败不该打断用户正在做的事（清空聊天
+ * 记录本身已经在本地生效了）。
+ */
+export const invalidateCharCloudState = async (charId: string): Promise<void> => {
+  try {
+    const workerUrl = (await ActiveMsgStore.getGlobalConfig()).workerUrl?.trim();
+    if (!workerUrl) return;
+    await ActiveMsgClient.clearCharClientState(charId);
+  } catch (error) {
+    console.warn(`${HEADER} 作废云端角色上下文失败（本地删除不受影响）`, charId, error);
+  }
 };
 
 /**
@@ -634,10 +678,13 @@ export interface AmsgCloudWipeResult {
  * @param options.pushRegistered 本机当前有没有推送订阅。有就覆盖登记一份新的
  *   （worker 上按 user_id 存单行，PUT 一次就顶掉旧行，不用先删、也就没有「删完没
  *   登记上」的裸奔窗口）；没有就只把云端那行删掉，不去申请通知权限。
+ * @param options.restoreToolConfig 清完要不要把全局工具凭据补传回去。默认补——
+ *   设置页那个按钮清完之后 App 还在用，不补的话已排程的任务到点会一直硬失败。
+ *   「重置全部数据」传 false：那边本地马上就要删库，补上去的一行谁也不会再读。
  */
 export const wipeAmsgCloudData = async (
   realtimeConfig: RealtimeConfig | undefined,
-  options: { pushRegistered: boolean },
+  options: { pushRegistered: boolean; restoreToolConfig?: boolean },
 ): Promise<AmsgCloudWipeResult> => {
   // 先收任务：清空过程中就不会再有任务到点触发，跑到一半的状态不至于被现场读走。
   const tasks = await cancelAllRemoteAmsgTasks();
@@ -645,7 +692,9 @@ export const wipeAmsgCloudData = async (
   let stateDeleted: number | null = null;
   let toolConfigRestored = false;
   try {
-    const cleared = await ActiveMsgClient.clearClientState(realtimeConfig);
+    const cleared = await ActiveMsgClient.clearClientState(realtimeConfig, {
+      restoreToolConfig: options.restoreToolConfig,
+    });
     stateDeleted = cleared.deleted;
     toolConfigRestored = cleared.toolConfigRestored;
   } catch (error) {
@@ -675,6 +724,44 @@ export const wipeAmsgCloudData = async (
   }
 
   return { tasks, stateDeleted, toolConfigRestored, llmCredentialsDeleted, push };
+};
+
+/** wipeAmsgCloudDataForReset 的结果，failed 时带上 worker 地址供界面转告用户。 */
+export type AmsgResetCloudWipe =
+  /** 压根没配过 worker，云端一个字节都没写过。 */
+  | { status: 'skipped' }
+  | { status: 'cleared' }
+  | { status: 'failed'; workerUrl: string; detail: string };
+
+/**
+ * 「重置全部数据」专用的云端收尾：不补传工具凭据、不重新登记推送，清完就是清完。
+ *
+ * 为什么判「清干净了没有」只看任务和角色上下文这两样：前者不清会继续到点跑、继续烧
+ * 用户的 API 额度，后者是聊天原文，这两样留下来才是用户真正在意的。凭据行和推送订阅
+ * 没清成只当一笔账记着——老 worker 上根本没有凭据表，那一步注定失败，拿它当判据会把
+ * 一批压根没东西可清的人堵在重置门口。
+ */
+export const wipeAmsgCloudDataForReset = async (): Promise<AmsgResetCloudWipe> => {
+  let workerUrl = '';
+  try {
+    workerUrl = (await ActiveMsgStore.getGlobalConfig()).workerUrl?.trim() || '';
+  } catch {
+    // 连本地配置都读不到，等于无从判断有没有云端；按没有处理，别为它拦下重置。
+    return { status: 'skipped' };
+  }
+  if (!workerUrl) return { status: 'skipped' };
+
+  const result = await wipeAmsgCloudData(undefined, {
+    pushRegistered: false,
+    restoreToolConfig: false,
+  });
+
+  const reasons: string[] = [];
+  if (!result.tasks.listed) reasons.push('读不到云端任务清单');
+  else if (result.tasks.failed > 0) reasons.push(`${result.tasks.failed} 个定时任务没取消掉`);
+  if (result.stateDeleted === null) reasons.push('角色上下文没清掉');
+  if (reasons.length === 0) return { status: 'cleared' };
+  return { status: 'failed', workerUrl, detail: reasons.join('、') };
 };
 
 const writeChatPresence = (charId: string, lastUserMessageAt: number | null) => {

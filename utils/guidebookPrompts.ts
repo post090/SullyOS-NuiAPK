@@ -13,7 +13,7 @@
  */
 
 import { CharacterProfile, UserProfile, GuidebookOption, GuidebookRound } from '../types';
-import { ContextBuilder } from './context';
+// Character context is assembled by ContextBuilder at the request boundary.
 
 /** 构建包含最近聊天记录的上下文片段 */
 function buildRecentChatBlock(recentMessages?: string): string {
@@ -38,7 +38,6 @@ export function buildOpeningPrompt(
     recentMessages?: string,
     pastInsights?: string[]
 ): string {
-    const coreContext = ContextBuilder.buildCoreContext(char, user, true);
     const chatBlock = buildRecentChatBlock(recentMessages)?.replace('{user}', user.name);
 
     const insightsBlock = pastInsights && pastInsights.length > 0 ? `
@@ -49,7 +48,7 @@ ${pastInsights.map((s, i) => `${i + 1}. ${s}`).join('\n')}
 ---
 ` : '';
 
-    return `${coreContext}
+    return `
 ${chatBlock}
 ${insightsBlock}
 ---
@@ -113,7 +112,6 @@ export function buildRoundPrompt(
     directionHint?: string,
     roundScenario?: string
 ): string {
-    const coreContext = ContextBuilder.buildCoreContext(char, user, true);
     const chatBlock = buildRecentChatBlock(recentMessages)?.replace('{user}', user.name);
 
     let roundHistory = '';
@@ -145,7 +143,7 @@ ${worldContext}
     const directionBlock = directionHint ? `\n用户希望剧情往这个方向发展: ${directionHint}` : '';
     const roundScenarioBlock = roundScenario ? `\n### 本回合场景设定（${user.name}指定的）\n${roundScenario}\nGM 请在这个场景基础上展开叙事！` : '';
 
-    return `${coreContext}
+    return `
 ${chatBlock}
 ${worldBlock}
 ---
@@ -216,7 +214,6 @@ export function buildAutoRoundPrompt(
     worldContext?: string,
     directionHint?: string
 ): string {
-    const coreContext = ContextBuilder.buildCoreContext(char, user, true);
     const chatBlock = buildRecentChatBlock(recentMessages)?.replace('{user}', user.name);
 
     let roundHistory = '';
@@ -236,7 +233,7 @@ ${worldContext}
 ` : '';
     const directionBlock = directionHint ? `\n用户希望剧情往这个方向发展: ${directionHint}` : '';
 
-    return `${coreContext}
+    return `
 ${chatBlock}
 ${worldBlock}
 ---
@@ -293,7 +290,6 @@ export function buildOptionAssistPrompt(
     worldContext?: string,
     directionHint?: string
 ): string {
-    const coreContext = ContextBuilder.buildCoreContext(char, user, true);
     const chatBlock = buildRecentChatBlock(recentMessages)?.replace('{user}', user.name);
 
     let roundHistory = '';
@@ -312,7 +308,7 @@ ${worldContext}
 ` : '';
     const directionBlock = directionHint ? `\n用户希望剧情往这个方向发展: ${directionHint}` : '';
 
-    return `${coreContext}
+    return `
 ${chatBlock}
 ${worldBlock}
 ---
@@ -358,7 +354,6 @@ export function buildEndCardPrompt(
     rounds: GuidebookRound[],
     recentMessages?: string
 ): string {
-    const coreContext = ContextBuilder.buildCoreContext(char, user, true);
     const chatBlock = buildRecentChatBlock(recentMessages)?.replace('{user}', user.name);
 
     const roundSummary = rounds.map(r => {
@@ -369,7 +364,7 @@ export function buildEndCardPrompt(
     const affinityChange = finalAffinity - initialAffinity;
     const trend = affinityChange > 0 ? '上升' : affinityChange < 0 ? '下降' : '不变';
 
-    return `${coreContext}
+    return `
 ${chatBlock}
 ---
 

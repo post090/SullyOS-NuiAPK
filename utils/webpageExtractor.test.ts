@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach, vi } from 'vitest';
-import { detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, parseWebpageHtml, extractWebpageContent } from './webpageExtractor';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { detectFirstUrl, detectXhsShortUrl, extractXhsShareTitle, isXhsUrl, extractXhsNoteId, extractXhsNoteLink, expandShortUrl, parseWebpageHtml, extractWebpageContent } from './webpageExtractor';
 
 describe('detectFirstUrl', () => {
   it('从一句话里揪出 http(s) 链接', () => {
@@ -93,6 +93,45 @@ describe('extractXhsNoteId', () => {
   });
 });
 
+describe('手机小红书分享回归', () => {
+  const noteId = '6aa4aaf6000000000b00eab5';
+  const shortUrl = 'https://xhslink.cn/o/2KuQOsv8aMN';
+  const noteUrl = `http://www.xiaohongshu.com/discovery/item/${noteId}?xsec_source=app_share&xsec_token=test%2Btoken%3D`;
+  const captchaUrl = `https://www.xiaohongshu.com/website-login/captcha?redirectPath=${encodeURIComponent(noteUrl)}&verifyType=217`;
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('识别用户手机分享文案以及 Markdown 链接', () => {
+    for (const link of [shortUrl, `[${shortUrl}](${shortUrl})`]) {
+      const text = `胡闹厨房别太胡闹 敌人8双人满血的含金量 两个人重开... ${link} 先复制一下，打开【小红书】看看这篇好文！`;
+      expect(detectXhsShortUrl(text)).toBe(shortUrl);
+      expect(extractXhsShareTitle(text)).toBe('胡闹厨房别太胡闹 敌人8双人满血的含金量 两个人重开');
+    }
+  });
+
+  it('兼容线上旧代理的验证码页响应，恢复笔记和 token', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      success: true, data: { finalUrl: captchaUrl },
+    }))));
+    const expanded = await expandShortUrl(shortUrl);
+    expect(extractXhsNoteLink(expanded)).toEqual({ noteId, xsecToken: 'test+token=' });
+    expect(extractXhsNoteId(expanded)).toBe(noteId);
+  });
+
+  it('兼容直接笔记 URL 和电脑版文案，token 仅解码一次', () => {
+    expect(extractXhsNoteLink(noteUrl)).toEqual({ noteId, xsecToken: 'test+token=' });
+    expect(extractXhsNoteLink(`80 【胡闹厨房别太胡闹 - 兮橙 | 小红书】 😆 code 😆 [https://www.xiaohongshu.com/discovery/item/${noteId}?xsec_token=desktop_token=](https://www.xiaohongshu.com/discovery/item/${noteId}?xsec_token=desktop_token=)`))
+      .toEqual({ noteId, xsecToken: 'desktop_token=' });
+    expect(extractXhsNoteLink(noteUrl.replace('test%2Btoken%3D', 'test%253D'))?.xsecToken).toBe('test%3D');
+  });
+
+  it('不从外站或无效验证码回跳链接中提取笔记', () => {
+    expect(extractXhsNoteLink(captchaUrl.replace('https://www.xiaohongshu.com/', 'https://example.com/'))).toBeNull();
+    expect(extractXhsNoteLink(`https://www.xiaohongshu.com/website-login/captcha?redirectPath=${encodeURIComponent(noteUrl.replace('www.xiaohongshu.com', 'example.com'))}`)).toBeNull();
+    expect(extractXhsNoteLink('https://www.xiaohongshu.com/website-login/captcha?verifyType=217')).toBeNull();
+  });
+});
+
 describe('parseWebpageHtml', () => {
   // node 测试环境无 DOMParser，会走正则 fallback（htmlToText）。两条路径都应产出标题/正文。
   const html = `
@@ -126,7 +165,7 @@ describe('parseWebpageHtml', () => {
   });
 });
 
-describe('extractWebpageContent 提取链路（apizero 主 → sfworker/Jina 降级）', () => {
+describe('extractWebpageContent 提取链路（apizero → Firecrawl → sfworker/Jina）', () => {
   // 长到能过 MIN_EXTRACT_CHARS(80) 的正文样例。
   const LONG_BODY = 'curl 是常用的命令行工具，用来请求 Web 服务器。'.repeat(10);
 
@@ -158,6 +197,10 @@ describe('extractWebpageContent 提取链路（apizero 主 → sfworker/Jina 降
     return fn;
   };
 
+  beforeEach(() => {
+    localStorage.removeItem('sully_firecrawl_api_key_v1');
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -171,10 +214,35 @@ describe('extractWebpageContent 提取链路（apizero 主 → sfworker/Jina 降
     expect(wp.image).toBe('https://www.ruanyifeng.com/blog/images/cover.png');
     expect(wp.excerpt.length).toBeGreaterThan(0);
     expect(wp.video).toBeUndefined();
+    expect(wp.provider).toBe('apizero-content');
     // 只调了 apizero 一次，没走 worker
     expect(fn).toHaveBeenCalledTimes(1);
     expect(String(fn.mock.calls[0][0])).toContain('apizero.cn/api/content-extract');
-    expect(String(fn.mock.calls[0][0])).toContain('key=sk_live_'); // 内置 key 带上了
+    expect(String(fn.mock.calls[0][0])).toContain('key=sk_live_'); // 默认携带项目方共享 key
+  });
+
+  it('配置 Firecrawl 后：apizero 失败 → Firecrawl 成功，不再请求 Worker', async () => {
+    localStorage.setItem('sully_firecrawl_api_key_v1', 'fc-test');
+    const firecrawlMarkdown = '# 动态网页\n\n' + LONG_BODY;
+    const fn = vi.fn(async (input: any) => {
+      const target = String(input);
+      const body = target.includes('apizero.cn')
+        ? { code: 5020, msg: '目标网页无法访问' }
+        : target.includes('api.firecrawl.dev')
+          ? { success: true, data: { markdown: firecrawlMarkdown, metadata: { title: 'Firecrawl 标题', sourceURL: 'https://dynamic.example.com/final', ogImage: 'https://dynamic.example.com/cover.jpg' } } }
+          : undefined;
+      if (body === undefined) throw new Error(`unexpected fetch: ${target}`);
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    });
+    vi.stubGlobal('fetch', fn);
+
+    const wp = await extractWebpageContent('https://dynamic.example.com/page');
+    expect(wp.title).toBe('Firecrawl 标题');
+    expect(wp.content).toContain(LONG_BODY);
+    expect(wp.image).toBe('https://dynamic.example.com/cover.jpg');
+    expect(wp.provider).toBe('firecrawl');
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(String(fn.mock.calls[1][0])).toContain('api.firecrawl.dev/v2/scrape');
   });
 
   it('apizero 业务失败（code≠0）→ 降级 sfworker/Jina 老链路', async () => {
@@ -185,6 +253,7 @@ describe('extractWebpageContent 提取链路（apizero 主 → sfworker/Jina 降
     const wp = await extractWebpageContent('https://example.com/a');
     expect(wp.title).toBe('Jina 抓到的标题');
     expect(wp.content).toBe(LONG_BODY);
+    expect(wp.provider).toBe('jina');
     expect(fn).toHaveBeenCalledTimes(2); // apizero 一次 + worker 一次
   });
 

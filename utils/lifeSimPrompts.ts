@@ -5,7 +5,7 @@
  */
 
 import { LifeSimState, SimFamily, SimNPC, SimAction, CharacterProfile, UserProfile, SimSeason, CharNarrative, SimEventType, SimStoryAttachmentDraft } from '../types';
-import { ContextBuilder } from './context';
+// Character context is assembled by ContextBuilder at the request boundary.
 import {
     getFamilyMembers, getIndependentNPCs, getMoodLabel, getFamilyAtmosphere,
     SEASON_INFO, TIME_INFO, WEATHER_INFO, getProfessionInfo, getChaosLabel, getRelLabel
@@ -502,7 +502,6 @@ export function buildCharTurnSystemPrompt(
     actionLog: SimAction[]
 ): string {
     // 1. 角色核心上下文
-    const coreContext = ContextBuilder.buildCoreContext(char, user, true);
 
     // 2. 季节/天气信息
     const season = state.season ?? 'spring';
@@ -595,7 +594,7 @@ DO_NOTHING示例：
 记住你是玩家不是游戏里的人物。用你自己的说话风格。
 `;
 
-    return [coreContext, dramaSetup, worldContextSection, gameStateSection, chatSection, logSection, availableResources, outputFormat].join('\n');
+    return [dramaSetup, worldContextSection, gameStateSection, chatSection, logSection, availableResources, outputFormat].join('\n');
 }
 
 function buildAvailableResources(state: LifeSimState): string {

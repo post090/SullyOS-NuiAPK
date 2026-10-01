@@ -24,6 +24,7 @@ import {
 } from '@phosphor-icons/react';
 import { DB } from '../utils/db';
 import { getChibi } from '../utils/vrWorld/chibi';
+import TokenImg from '../components/os/TokenImg';
 import { WorldScheduler, toTickEntries } from '../utils/worldHome/scheduler';
 import { isWorldRunning, injectWorldCard } from '../utils/worldHome/engine';
 import { worldTimeLabel, worldTzLabel, isNightWorld, houseOf, NARRATIVE_STYLES, buildNpcRollPrompt, parseRolledNpcs, realObserveTarget, clampRealClockToNow, migrateWorldDaySegs, SEGMENTS_PER_DAY } from '../utils/worldHome/prompts';
@@ -151,8 +152,8 @@ const ChibiFigure: React.FC<{ char: CharacterProfile; size?: number; bob?: boole
     }
     return (
         <div className="flex flex-col items-center" style={{ width: size, animation: bob ? 'wh-bob 2.6s ease-in-out infinite' : undefined }}>
-            <img
-                src={c.img}
+            <TokenImg
+                value={c.img}
                 alt={char.name}
                 className={c.isFallback ? 'rounded-full object-cover' : 'object-contain'}
                 style={{
@@ -202,7 +203,7 @@ const ThreadBubbles: React.FC<{
             <div key={m.id} className={`flex items-end gap-1.5 ${mine ? 'justify-end' : 'justify-start'}`}>
                 {!mine && (
                     avatarOf(m.fromId)
-                        ? <img src={avatarOf(m.fromId)} className="w-[22px] h-[22px] rounded-full object-cover shrink-0" alt="" />
+                        ? <TokenImg value={avatarOf(m.fromId)} className="w-[22px] h-[22px] rounded-full object-cover shrink-0" alt="" />
                         : <div className="w-[22px] h-[22px] rounded-full bg-white/15 flex items-center justify-center text-[11px] shrink-0">{isNpc(m.fromId) ? emojiOf(m.fromId) : m.fromName.slice(0, 1)}</div>
                 )}
                 <div className={`max-w-[78%] ${mine ? 'items-end' : 'items-start'} flex flex-col`}>
@@ -330,7 +331,7 @@ const PhoneModal: React.FC<{
                         {/* 机主栏 */}
                         <div className="px-4 pt-2 pb-3 flex items-center gap-2.5 shrink-0">
                             {avatar
-                                ? <img src={avatar} className="w-9 h-9 rounded-2xl object-cover ring-2 ring-white/20" alt="" />
+                                ? <TokenImg value={avatar} className="w-9 h-9 rounded-2xl object-cover ring-2 ring-white/20" alt="" />
                                 : <div className="w-9 h-9 rounded-2xl bg-white/15 flex items-center justify-center text-white font-bold">{ownerName.slice(0, 1)}</div>}
                             <div className="min-w-0">
                                 <div className="text-[13px] font-bold text-white truncate">{ownerName} 的手机</div>
@@ -362,7 +363,7 @@ const PhoneModal: React.FC<{
                                                 <div key={i} className="rounded-2xl bg-white/95 p-3 shadow-sm">
                                                     <div className="flex items-center gap-2">
                                                         {avatar
-                                                            ? <img src={avatar} className="w-6 h-6 rounded-full object-cover" alt="" />
+                                                            ? <TokenImg value={avatar} className="w-6 h-6 rounded-full object-cover" alt="" />
                                                             : <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-600">{ownerName.slice(0, 1)}</div>}
                                                         <div>
                                                             <div className="text-[10.5px] font-bold text-slate-800 leading-none">{ownerName}</div>
@@ -458,7 +459,7 @@ const PhoneModal: React.FC<{
                                                         <button key={t.id} onClick={() => setDmOpenId(t.id)}
                                                             className="w-full flex items-center gap-2.5 rounded-2xl bg-white/95 px-3 py-2.5 text-left active:scale-[0.98] transition-transform">
                                                             {av
-                                                                ? <img src={av} className="w-9 h-9 rounded-full object-cover shrink-0" alt="" />
+                                                                ? <TokenImg value={av} className="w-9 h-9 rounded-full object-cover shrink-0" alt="" />
                                                                 : <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-[14px] shrink-0">{isNpc ? (world.npcs.find(n => n.id === otherId)?.emoji || '🙂') : otherName.slice(0, 1)}</div>}
                                                             <div className="min-w-0 flex-1">
                                                                 <div className="flex items-center gap-1.5">
@@ -865,7 +866,7 @@ const WorldEditor: React.FC<{
                     {filterCharactersByGroup(characters, characterGroups, memberGroupId).map(c => (
                         <button key={c.id} onClick={() => toggleMember(c.id)}
                             className={`flex items-center gap-1.5 pl-1 pr-2.5 py-1 rounded-full border transition-all ${w.memberIds.includes(c.id) ? 'bg-stone-900 border-stone-900 text-white shadow-md' : 'bg-white border-stone-200 text-stone-700'}`}>
-                            <img src={c.avatar} className="w-6 h-6 rounded-full object-cover" alt="" />
+                            <TokenImg value={c.avatar} className="w-6 h-6 rounded-full object-cover" alt="" />
                             <span className="text-[12px] font-semibold">{c.name}</span>
                         </button>
                     ))}
@@ -1330,8 +1331,7 @@ const WorldView: React.FC<{
         setRerollTarget(null); setRerollDir('');
     };
 
-    // 手动把某角色最新一拍补发到「和 ta 的聊天」（保底）：重 roll 后不会自动注入 world_card，
-    // 删掉旧卡片想换上新观测、或当时漏注入时，点这里补一张进上下文与记忆。
+    // 手动补发漏掉的观测卡片；重演会自动原地同步已有卡片。
     const injectBeatToChat = async (charId: string) => {
         if (!latest) { addToast('还没有可发送的观测', 'error'); return; }
         const beat = latest.beats.find(b => b.charId === charId);
@@ -1363,7 +1363,7 @@ const WorldView: React.FC<{
 
     /** 修改世界并刷新（决策/伏笔引爆都走这里）。 */
     const mutateWorld = async (updates: Partial<WorldProfile>) => {
-        await DB.saveWorld({ ...world, ...updates, updatedAt: Date.now() });
+        await DB.updateWorld(world.id, { ...updates, updatedAt: Date.now() });
         onWorldUpdated();
     };
 
@@ -1394,7 +1394,7 @@ const WorldView: React.FC<{
             const fr = { ...world.feedReactions };
             if (comments.length === 0 && !rx.likes) delete fr[target.key];
             else fr[target.key] = { ...rx, comments };
-            await DB.saveWorld({ ...world, feedReactions: fr, updatedAt: Date.now() });
+            await DB.updateWorld(world.id, { feedReactions: fr, updatedAt: Date.now() });
             onWorldUpdated();
             addToast('已删除', 'success');
             return;
@@ -1433,7 +1433,7 @@ const WorldView: React.FC<{
             }
             const updatedEp: WorldEpisode = { ...ep, beats: ep.beats.map(b => b.charId === target.charId ? newBeat : b) };
             await DB.saveWorldEpisode(updatedEp);
-            if (reactionUpdate) await DB.saveWorld({ ...world, feedReactions: reactionUpdate, updatedAt: Date.now() });
+            if (reactionUpdate) await DB.updateWorld(world.id, { feedReactions: reactionUpdate, updatedAt: Date.now() });
             await loadEpisodes();
             if (reactionUpdate) onWorldUpdated();
         } else {
@@ -1588,7 +1588,7 @@ const WorldView: React.FC<{
                     <div className="w-full max-w-[320px] rounded-2xl bg-[#f7f3ea] shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
                         <div className="px-4 pt-4 pb-3">
                             <div className="text-[14px] font-black text-stone-800 flex items-center gap-1.5"><Sparkle size={15} weight="fill" className="text-violet-500" />重演 {rerollTarget.charName} 这一段</div>
-                            <p className="text-[10.5px] text-stone-400 mt-1.5 leading-relaxed">会重新生成 ta 这一轮的演绎。可以给个大致方向（选填），留空就完全重写。</p>
+                            <p className="text-[10.5px] text-stone-400 mt-1.5 leading-relaxed">会替换 ta 这一轮的剧情、发出的私信与群消息、伏笔及关系变化，并同步聊天里的观测卡片。其他人的这一段保持原样。可以给个重写方向（选填）。</p>
                             <textarea value={rerollDir} onChange={e => setRerollDir(e.target.value)} rows={3}
                                 className="mt-2.5 w-full px-3 py-2 rounded-xl bg-white border border-stone-200 text-[12px] text-stone-800 focus:outline-none focus:border-violet-300 resize-none"
                                 placeholder="比如：让 ta 这次主动去找 XX 摊牌 / 心情写得更低落些 / 别提工作的事…" />
@@ -1952,7 +1952,7 @@ const WorldView: React.FC<{
                                     <div key={ep.id} className={`rounded-2xl border overflow-hidden ${t.panel}`}>
                                         <button className="w-full flex items-center gap-2.5 p-3 text-left" onClick={() => setOpenEpisodeId(open ? null : ep.id)}>
                                             <div className="w-8 h-8 rounded-xl shrink-0 flex items-center justify-center font-black text-[11px] text-amber-950" style={{ background: 'linear-gradient(135deg,#ffd76e,#ffb347)' }}>
-                                                {ep.round}
+                                                {ep.observationNumber ?? ep.round}
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <div className={`text-[12px] font-black font-serif ${t.textMain}`}>{ep.storyTime}
@@ -2095,7 +2095,12 @@ const WorldHomeApp: React.FC<{ embedded?: boolean; onFullscreen?: (full: boolean
     };
 
     const saveWorld = async (w: WorldProfile) => {
-        await DB.saveWorld(w);
+        const existing = worlds.some(item => item.id === w.id);
+        if (existing && draft) {
+            const patch = Object.fromEntries(Object.entries(w).filter(([key, value]) =>
+                JSON.stringify(value) !== JSON.stringify((draft as any)[key]))) as Partial<WorldProfile>;
+            await DB.updateWorld(w.id, patch);
+        } else await DB.saveWorld(w);
         // 调度表对账：所有世界的离线 tick 设置一起重建
         const all = await DB.getWorlds();
         WorldScheduler.reconcile(toTickEntries(all));

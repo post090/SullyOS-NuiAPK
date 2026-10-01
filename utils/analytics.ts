@@ -236,6 +236,30 @@ export function trackEvent(
  */
 const reportedScales = new Set<string>();
 
+/** 每次冷启动只选一组，新增 SAR 槽位也参与同一次选择。 */
+const SNAPSHOT_SLOTS = ['data-scale', 'appearance', 'char-settings', 'features', 'sar'] as const;
+export type SnapshotSlot = (typeof SNAPSHOT_SLOTS)[number];
+
+/**
+ * 五组快照随机选一组：数据规模最多 8、外观 36、角色设置 36、功能 33、SAR 10 个属性。
+ * 每次平均约 24 行，避免加宽已有功能事件；未选中的组也不读取数据。
+ * 轮转与上报标记只留在内存，不在用户设备保存统计账本。样本量足够时各组均匀出现；
+ * 跨组关联仍需要同一 session 多次冷启动，不把多组重新合成一条事件。
+ */
+const activeSnapshotSlot: SnapshotSlot =
+  SNAPSHOT_SLOTS[Math.floor(Math.random() * SNAPSHOT_SLOTS.length)];
+
+/**
+ * 这次冷启动轮到的是不是这一组。
+ *
+ * 取数那侧（analyticsSnapshot 的几个 collector，其中两个要读 IndexedDB）也该先问一句
+ * 再动手，没轮到就别白跑。上报函数内部还会再问一次，两处都判不是重复——取数点漏了
+ * 只是白费一次 CPU，上报点漏了就是白发一条事件。
+ */
+export function shouldReportSnapshot(slot: SnapshotSlot): boolean {
+  return activeSnapshotSlot === slot;
+}
+
 /** 记忆条数档位。区间与公告一致。 */
 export function bucketMemoryCount(count: number): string {
   if (count <= 0) return '0';
@@ -302,6 +326,20 @@ export function bucketStorageBytes(bytes: number): string {
 }
 
 /**
+ * 存储水位档位：本机数据占掉了浏览器给的配额的多少。
+ * 光看字节数判断不了「会不会被系统清掉」——同样 800MB，桌面 Chrome 配额几十 GB
+ * 无所谓，iOS Safari 只给 1GB 出头就是随时挨清。跟「持久化许可」放在同一条里，
+ * 才框得出「快满了、又没拿到许可」这批最该被催备份的人。
+ */
+export function bucketStorageWatermark(usageBytes: number, quotaBytes: number): string {
+  const ratio = usageBytes / quotaBytes;
+  if (ratio < 0.25) return '<25%';
+  if (ratio < 0.5) return '25-50%';
+  if (ratio < 0.8) return '50-80%';
+  return '80%+';
+}
+
+/**
  * 上报数据规模档位，每次会话最多一次。
  *
  * 全部是区间，没有一项是精确值，也没有一项来自内容本身——
@@ -313,8 +351,11 @@ export function trackDataScaleOnce(params: {
   maxMemoryCount: number;
   maxMessageCount: number;
   storageBytes: number | null;
+  storageQuotaBytes: number | null;
+  persistedStorage: boolean | null;
   standalone: boolean;
 }): void {
+  if (!shouldReportSnapshot('data-scale')) return;
   if (reportedScales.has('data-scale')) return;
   reportedScales.add('data-scale');
   trackEvent('数据规模', {
@@ -324,6 +365,14 @@ export function trackDataScaleOnce(params: {
     单角色最大聊天条数: bucketMessageCount(params.maxMessageCount),
     // 浏览器不给配额信息时（Safari 部分版本、隐私模式）这一项直接缺席，不猜、不填 0。
     ...(params.storageBytes === null ? {} : { 本地存储占用: bucketStorageBytes(params.storageBytes) }),
+    // 占了配额的百分之多少。配额读不到、或者浏览器回了个 0（隐私模式下有这种），
+    // 这一项就缺席：拿 0 去除会算出 Infinity，直接变成一条假的「80%+」。
+    ...(params.storageBytes === null || !params.storageQuotaBytes
+      ? {}
+      : { 存储水位: bucketStorageWatermark(params.storageBytes, params.storageQuotaBytes) }),
+    // 有没有拿到「系统别清我」的许可。跟上面的占用放同一条，才能看出
+    // 「数据大且没许可」这批高危用户有多少；查不了的浏览器同样缺席，不猜。
+    ...(params.persistedStorage === null ? {} : { 持久化许可: params.persistedStorage ? '已获得' : '未获得' }),
     全屏运行: params.standalone ? '是' : '否',
   });
 }
@@ -339,6 +388,7 @@ export function trackDataScaleOnce(params: {
  * 所有取值都必须是内置预设的 id。用户自己捏的一律传 'custom'，绝不能传他起的名字。
  */
 export function trackCurrentAppearanceOnce(params: Record<string, string>): void {
+  if (!shouldReportSnapshot('appearance')) return;
   if (reportedScales.has('appearance')) return;
   reportedScales.add('appearance');
   trackEvent('当前外观', params);
@@ -379,6 +429,7 @@ export function anyCharToggle(values: Array<boolean | undefined>, defaultOn: boo
 
 /** 每次会话最多一次，报当前活跃角色的选择 + 全部角色的开关汇总。 */
 export function trackCurrentCharSettingsOnce(params: Record<string, string>): void {
+  if (!shouldReportSnapshot('char-settings')) return;
   if (reportedScales.has('char-settings')) return;
   reportedScales.add('char-settings');
   trackEvent('当前角色设置', params);
@@ -395,9 +446,18 @@ export function trackCurrentCharSettingsOnce(params: Record<string, string>): vo
  * 账号名、服务器名一个字都不进这里。
  */
 export function trackCurrentFeaturesOnce(params: Record<string, string>): void {
+  if (!shouldReportSnapshot('features')) return;
   if (reportedScales.has('features')) return;
   reportedScales.add('features');
   trackEvent('当前功能启用', params);
+}
+
+/** SAR / 私聊输入 / 周年赠礼，与其他快照互斥，每会话最多一次。 */
+export function trackCurrentSARFeaturesOnce(params: Record<string, string>): void {
+  if (!shouldReportSnapshot('sar')) return;
+  if (reportedScales.has('sar')) return;
+  reportedScales.add('sar');
+  trackEvent('当前SAR与聊天输入', params);
 }
 
 // ===== 本次会话聊了多少 =====
@@ -445,16 +505,3 @@ export function noteMessageSent(): void {
   });
 }
 
-/**
- * 取本地存储占用字节数。浏览器不支持或拒绝回答时返回 null——
- * 这种情况就让这一项在事件里缺席，不要拿 0 顶上去污染分布。
- */
-export async function readStorageBytes(): Promise<number | null> {
-  if (typeof navigator === 'undefined') return null;
-  try {
-    const estimate = await navigator.storage?.estimate?.();
-    return typeof estimate?.usage === 'number' ? estimate.usage : null;
-  } catch {
-    return null;
-  }
-}

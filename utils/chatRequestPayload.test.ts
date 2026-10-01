@@ -3,6 +3,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { buildChatRequestPayload } from './chatRequestPayload';
 import type { BuildChatPayloadInput } from './chatRequestPayload';
 import { RealtimeContextManager } from './realtimeContext';
+import { installSARModuleOnCharacter, installSARModuleOnUser } from './vrWorld/sarModuleRuntime';
+import { SAR_MODULE_CATALOG } from './vrWorld/sarModuleShop';
+import { ChatPrompts } from './chatPrompts';
 
 // 即时对话（这一轮交给用户自己的 amsg worker 生成）那份 prompt 里，凡是 worker 到点
 // 会自己补一遍的时效段，前端就不再烤进去：当前时间块、【真实世界感知系统】（节日 /
@@ -34,6 +37,47 @@ const baseInput = (): BuildChatPayloadInput => ({
 const joinMessages = (messages: Array<{ content: any }>): string =>
     messages.map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
 
+it('本地仅节假日感知可独立注入一句，云端生成不烤进本地提醒', async () => {
+    // 只冻结 Date：这条路径会查 IndexedDB（fake-indexeddb 靠真实 timer 调度回调），
+    // 全量 fake timers 会把 DB 查询冻在 pending，buildSystemPromptParts 的并发取数
+    // 永远不 settle。本测试只关心"今天是 2026-09-27"，冻结时钟就够了。
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 8, 27, 12));
+    const input = baseInput();
+    input.realtimeConfig = { ...realtimeConfig, weatherEnabled: false, newsEnabled: false, userHolidays: { enabled: true, countryCode: 'CN' } };
+    const reminder = '小明所在地中国 2026-09-27 为中秋节公共假期，实际休息与否以小明自己的日程和说明为准。';
+    vi.spyOn(RealtimeContextManager, 'getUserHoliday').mockResolvedValue(reminder);
+    const local = await buildChatRequestPayload(input);
+    expect(joinMessages(local.fullMessages)).toContain(reminder);
+    expect(RealtimeContextManager.getUserHoliday).toHaveBeenCalledWith(input.realtimeConfig, '小明');
+    const disabled = await buildChatRequestPayload({ ...input, char: { ...input.char, timeAwarenessEnabled: false } });
+    expect(joinMessages(disabled.fullMessages)).not.toContain(reminder);
+    const cloud = await buildChatRequestPayload({ ...input, timelyByWorker: true });
+    expect(joinMessages(cloud.fullMessages)).not.toContain(reminder);
+    vi.useRealTimers();
+});
+
+it('keeps this request history when the archive waterline advances during async prompt construction', async () => {
+    const input = baseInput();
+    input.char = { ...input.char, autoArchiveEnabled: true, contextRangeMode: 'adaptive' };
+    const key = `mp_lastMsgId_${input.char.id}`;
+    localStorage.setItem(key, '0');
+    const original = ChatPrompts.buildSystemPromptParts;
+    vi.spyOn(ChatPrompts, 'buildSystemPromptParts').mockImplementation(async (...args) => {
+        const result = await original(...args);
+        localStorage.setItem(key, '99999');
+        return result;
+    });
+    try {
+        const payload = await buildChatRequestPayload(input);
+        expect(payload.cleanedApiMessages.some(m => m.role === 'user' && String(m.content).includes('在吗'))).toBe(true);
+        expect(localStorage.getItem(key)).toBe('99999');
+        // 新请求仍须遵守推进后的水位，不能把快照变成永久绕过。
+        const next = await buildChatRequestPayload(input);
+        expect(next.cleanedApiMessages).toEqual([]);
+        expect(localStorage.getItem(key)).toBe('99999');
+    } finally { localStorage.removeItem(key); }
+});
+
 beforeEach(() => {
     // 天气/热搜真去联网太慢也不稳定，桩成固定内容；测的是「这一段进没进 prompt」。
     vi.spyOn(RealtimeContextManager, 'fetchWeather').mockResolvedValue({
@@ -50,6 +94,9 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.restoreAllMocks();
+    // 兜底：某个用例中途被中止（超时/断言失败）时也不让 fake timers 泄漏到后续用例
+    // ——泄漏会冻结 fake-indexeddb 的调度，把后面所有测试冻挂。
+    vi.useRealTimers();
     localStorage.removeItem(MCP_SERVERS_KEY);
 });
 
@@ -114,4 +161,225 @@ describe('timelyByWorker —— 时效段交给 worker，前端这份不重复�
         });
         expect(joinMessages(withMode.fullMessages)).not.toContain('【今日特殊】');
     });
+
+    it('M2 只把当下交流节奏注入 ChatApp，不进入其他 App 的写作提示', async () => {
+        localStorage.setItem('os_memory_palace_config', JSON.stringify({
+            featureFlags: { interactionAdaptation: true },
+        }));
+        const energeticInput = {
+            ...baseInput(),
+            char: { id: 'char-timely', name: '阿一', memoryPalaceEnabled: false } as any,
+            historyMsgs: [
+                { id: 1, charId: 'char-timely', role: 'user', type: 'text', content: '我过啦！！！', timestamp: Date.now() },
+            ] as any[],
+        };
+
+        const chatApp = await buildChatRequestPayload({
+            ...energeticInput,
+            recallEntryPoint: 'chat_app',
+        });
+        const anotherApp = await buildChatRequestPayload({
+            ...energeticInput,
+            recallEntryPoint: 'world_home',
+        });
+
+        expect(joinMessages(chatApp.fullMessages)).toContain('### 此刻的交流节奏');
+        expect(joinMessages(anotherApp.fullMessages)).not.toContain('### 此刻的交流节奏');
+        localStorage.removeItem('os_memory_palace_config');
+    });
+
+    it('M3 v2 只把谈话参与策略注入 ChatApp', async () => {
+        localStorage.setItem('os_memory_palace_config', JSON.stringify({
+            featureFlags: { deepEngagement: true },
+        }));
+        const depthInput = {
+            ...baseInput(),
+            char: { id: 'char-timely', name: '测试角色', memoryPalaceEnabled: false } as any,
+            historyMsgs: [
+                {
+                    id: 1,
+                    charId: 'char-timely',
+                    role: 'user',
+                    type: 'text',
+                    content: '我想认真分析一个虚构规则：它一边要求开放，一边不断增加限制，这背后的逻辑是什么？',
+                    timestamp: Date.now(),
+                },
+            ] as any[],
+        };
+
+        const chatApp = await buildChatRequestPayload({ ...depthInput, recallEntryPoint: 'chat_app' });
+        const anotherApp = await buildChatRequestPayload({ ...depthInput, recallEntryPoint: 'world_home' });
+
+        expect(joinMessages(chatApp.fullMessages)).toContain('### 当前谈话参与策略');
+        expect(joinMessages(chatApp.fullMessages)).toContain('### 谈话参与原则');
+        expect(joinMessages(chatApp.fullMessages)).toContain('对方出现负面情绪，不代表当前谈话的目标是消除这种情绪');
+        expect(joinMessages(chatApp.fullMessages)).toContain('情绪是谈话的一部分，不应覆盖谈话本身');
+        expect(joinMessages(anotherApp.fullMessages)).not.toContain('### 当前谈话参与策略');
+        expect(joinMessages(anotherApp.fullMessages)).not.toContain('### 谈话参与原则');
+        localStorage.removeItem('os_memory_palace_config');
+    });
+
+    it('M3 v2 的核心原则不依赖当轮是否命中 opening', async () => {
+        localStorage.setItem('os_memory_palace_config', JSON.stringify({
+            featureFlags: { deepEngagement: true },
+        }));
+        const payload = await buildChatRequestPayload({
+            ...baseInput(),
+            char: { id: 'char-m3-core', name: '测试角色', memoryPalaceEnabled: false } as any,
+            historyMsgs: [{
+                id: 102,
+                charId: 'char-m3-core',
+                role: 'user',
+                type: 'text',
+                content: '这个函数返回什么？',
+                timestamp: Date.now(),
+            }] as any[],
+            recallEntryPoint: 'chat_app',
+        });
+        const joined = joinMessages(payload.fullMessages);
+
+        expect(joined).toContain('### 谈话参与原则');
+        expect(joined).toContain('对方出现负面情绪，不代表当前谈话的目标是消除这种情绪');
+        expect(joined).toContain('先听见，再了解，再形成看法');
+        expect(joined).not.toContain('### 当前谈话参与策略');
+        localStorage.removeItem('os_memory_palace_config');
+    });
+
+    it('M3 关闭时不注入核心原则', async () => {
+        localStorage.setItem('os_memory_palace_config', JSON.stringify({
+            featureFlags: { deepEngagement: false },
+        }));
+        const payload = await buildChatRequestPayload({
+            ...baseInput(),
+            recallEntryPoint: 'chat_app',
+        });
+
+        expect(joinMessages(payload.fullMessages)).not.toContain('### 谈话参与原则');
+        localStorage.removeItem('os_memory_palace_config');
+    });
+
+    it('M3 v2 会把“我很累，事情很多”识别为尚未讲完的 opening', async () => {
+        localStorage.setItem('os_memory_palace_config', JSON.stringify({
+            featureFlags: { deepEngagement: true },
+        }));
+        const payload = await buildChatRequestPayload({
+            ...baseInput(),
+            char: { id: 'char-opening', name: '测试角色', memoryPalaceEnabled: false } as any,
+            historyMsgs: [{
+                id: 101,
+                charId: 'char-opening',
+                role: 'user',
+                type: 'text',
+                content: '我很累，事情很多。',
+                timestamp: Date.now(),
+            }] as any[],
+            recallEntryPoint: 'chat_app',
+        });
+        const joined = joinMessages(payload.fullMessages);
+
+        expect(joined).toContain('### 当前谈话参与策略');
+        expect(joined).toContain('对方正在开启一件还没有讲完的事情');
+        expect(joined).toContain('不要用“别想了”“回来就好”“一切都会过去”');
+        expect(joined).not.toContain('### 此刻的交流深度');
+    });
+
+    it('角色和 User 都没有模块时，Chat prompt 不增加 SAR 文本或输出容器', async () => {
+        const payload = await buildChatRequestPayload({
+            ...baseInput(),
+            char: {
+                id: 'char-sar-empty',
+                name: '测试角色',
+                memoryPalaceEnabled: false,
+                vrState: { enabled: true, intervalMinutes: 120 },
+            } as any,
+            userProfile: { ...userProfile, vrState: { enabled: true } } as any,
+            recallEntryPoint: 'chat_app',
+        });
+        const joined = joinMessages(payload.fullMessages);
+
+        expect(payload.flags.sarModuleActive).toBe(false);
+        expect(joined).not.toContain('### SAR 临时模块');
+        expect(joined).not.toContain('<SAR_MODULE_OUTPUT>');
+        expect(joined).not.toContain('[SAR MODULE REMINDER:');
+    });
+
+    it('SAR 与内置翻译同时开启时，以 SAR 为外层、翻译标签留在两个内容字段内', async () => {
+        const runtime = installSARModuleOnCharacter(SAR_MODULE_CATALOG[0], 1);
+        const payload = await buildChatRequestPayload({
+            ...baseInput(),
+            char: {
+                id: 'char-sar-bilingual',
+                name: '测试角色',
+                memoryPalaceEnabled: false,
+                vrState: { enabled: true, intervalMinutes: 120, sarModule: runtime },
+            } as any,
+            userProfile: { ...userProfile, vrState: { enabled: true } } as any,
+            historyMsgs: [{
+                id: 201,
+                charId: 'char-sar-bilingual',
+                role: 'user',
+                type: 'text',
+                content: '你怎么说话怪怪的？',
+                timestamp: Date.now(),
+            }] as any[],
+            recallEntryPoint: 'chat_app',
+            translationConfig: { enabled: true, sourceLang: '日语', targetLang: '中文' },
+        });
+        const joined = joinMessages(payload.fullMessages);
+
+        expect(payload.flags.sarModuleActive).toBe(true);
+        expect(payload.flags.bilingualActive).toBe(true);
+        expect(joined).toContain('最外层必须是 <SAR_MODULE_OUTPUT>');
+        expect(joined).toContain('CHAR_TRUE 和 CHAR_SURFACE 内的每个气泡');
+        expect(joined).toContain('原文/译文语义一致');
+    });
+});
+
+describe('volatileTailIndex —— 想插在钢印之前的块按它定位', () => {
+    it('指向易变尾段那条 system，「回到你自己」在它末尾', async () => {
+        const payload = await buildChatRequestPayload({ ...baseInput() });
+        // 排程清单这类「有用但不该抢最后一眼」的块插在这个下标前；下标要是错位了，
+        // 块会落进历史消息中间（读起来像用户说的话）或者又跑到钢印后面去。
+        expect(payload.volatileTailIndex).toBeGreaterThan(0);
+        const tail = payload.fullMessages[payload.volatileTailIndex];
+        expect(tail?.role).toBe('system');
+        expect(String(tail?.content)).toContain('回到你自己');
+        // 它前面一条是本轮用户消息（前缀缓存的断点在那儿，插入不影响命中）
+        expect(payload.fullMessages[payload.volatileTailIndex - 1]?.role).toBe('user');
+    });
+});
+
+it('ChatApp user modules explicitly identify the pending messages without changing other callers', async () => {
+    const input = baseInput();
+    input.userProfile = { ...input.userProfile, vrState: { enabled: true, sarModule: installSARModuleOnUser(SAR_MODULE_CATALOG[0], input.char, 1) } } as any;
+    const chat = await buildChatRequestPayload({ ...input, recallEntryPoint: 'chat_app' });
+    const request = chat.fullMessages.find(m => typeof m.content === 'string' && m.content.startsWith('USER_SURFACE 的聊天专用格式'));
+    expect(request?.content).toContain(JSON.stringify(input.historyMsgs.map(({ id, content }) => ({ id, content }))));
+    const other = await buildChatRequestPayload(input);
+    expect(joinMessages(other.fullMessages)).not.toContain('USER_SURFACE 的聊天专用格式');
+});
+
+it('聊天深度世界书由消息层插入，公共上下文兜底不会再重复一份', async () => {
+    const input = baseInput();
+    input.char.mountedWorldbooks = [{ id: 'depth-test', title: '深度测试', content: 'UNIQUE_DEPTH_BOOK', constant: true, position: 4, depth: 0, role: 0 }];
+    const payload = await buildChatRequestPayload(input);
+    expect(joinMessages(payload.fullMessages).split('UNIQUE_DEPTH_BOOK')).toHaveLength(2);
+    expect(payload.fullMessages[0].content).not.toContain('UNIQUE_DEPTH_BOOK');
+});
+
+it('单串提示词消费者也从同一管线拿到深度世界书', async () => {
+    const input = baseInput();
+    input.char.mountedWorldbooks = [{ id: 'text-depth', title: '单串深度', content: 'TEXT_ONLY_DEPTH_BOOK', constant: true, position: 4 }];
+    const result = await ChatPrompts.buildSystemPrompt(input.char, input.userProfile, [], [], [], input.historyMsgs);
+    expect(result.split('TEXT_ONLY_DEPTH_BOOK')).toHaveLength(2);
+});
+
+it('文本入口误传 history 时仍保留深度世界书，不丢弃移交后的消息', async () => {
+    const input = baseInput();
+    input.char.mountedWorldbooks = [{ id: 'text-depth', title: '单串深度', content: 'TEXT_ONLY_DEPTH_BOOK', constant: true, position: 4 }];
+    const result = await ChatPrompts.buildSystemPrompt(
+        input.char, input.userProfile, [], [], [], input.historyMsgs,
+        undefined, undefined, undefined, undefined, undefined, { history: [] },
+    );
+    expect(result.split('TEXT_ONLY_DEPTH_BOOK')).toHaveLength(2);
 });

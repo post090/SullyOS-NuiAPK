@@ -6,6 +6,7 @@ const read = (relative: string): string =>
     readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
 
 const storySource = read('../components/date/story/StoryTheaterSession.tsx');
+const editorSource = read('../components/date/story/StoryTheaterEditor.tsx');
 const osContextSource = read('../context/OSContext.tsx');
 
 const sliceBetween = (source: string, startAnchor: string, endAnchor: string): string => {
@@ -35,5 +36,19 @@ describe('story theater billing safety wiring', () => {
         expect(interceptorSource.match(/await originalFetch\(/g) || []).toHaveLength(4);
         expect(interceptorSource).toContain('await originalFetch(...sendArgs)');
         // fork 有采样参数自愈 + stream 升级回退，这些是有日志的显式重试，不是 billing safety 问题
+    });
+
+    it('labels story requests and wires same-endpoint evidence into CORS diagnostics', () => {
+        const interceptorSource = sliceBetween(osContextSource, 'const patchedFetch = async', 'window.fetch = patchedFetch;');
+
+        expect(storySource).toContain("purpose: '剧情见面生成'");
+        expect(storySource).toContain('prepareStoryGenerationSettings(settings, entry.omitSamplingParams === true)');
+        expect(editorSource).toContain("value={draft.omitSamplingParams === true}");
+        expect(editorSource).toContain("update('omitSamplingParams', value)");
+        expect(editorSource).toContain('默认关闭');
+        expect(storySource).toContain('剧情请求被上游/网关断开');
+        expect(interceptorSource).toContain('recentSuccessfulFetches.set(requestComparisonKey');
+        expect(interceptorSource).toContain('summarizeFetchRequestBody((sendArgs[1] as any)?.body)');
+        expect(interceptorSource).toContain('recentSuccessfulSameRequest: recentSuccess');
     });
 });

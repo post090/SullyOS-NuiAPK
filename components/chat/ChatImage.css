@@ -1,0 +1,8 @@
+.chat-image-thumbnail{display:block;border:0;padding:0;background:none;cursor:zoom-in;max-width:100%}
+.chat-image-viewer{position:fixed;inset:0;z-index:11000;background:#151519f5;color:white;display:flex;flex-direction:column;overscroll-behavior:contain}
+.chat-image-viewer header{display:flex;justify-content:space-between;padding:var(--safe-top,0px) 12px 4px;flex-shrink:0}.chat-image-viewer header>div{display:flex}
+.chat-image-viewer button,.chat-image-viewer a{width:48px;height:48px;display:inline-flex;align-items:center;justify-content:center;background:none;color:inherit;border:0;cursor:pointer}
+.chat-image-viewer :focus-visible{outline:2px solid white;outline-offset:-3px}
+.chat-image-stage{flex:1;min-height:0;overflow:auto;display:flex;align-items:center;justify-content:center;padding:12px 12px max(12px,var(--safe-bottom,0px));touch-action:pan-x pan-y pinch-zoom}
+.chat-image-stage img{display:block;max-width:100%;max-height:100%;object-fit:contain;user-select:auto!important;-webkit-user-select:auto!important;-webkit-touch-callout:default!important;pointer-events:auto!important}
+.chat-image-stage.is-zoomed{display:block}.chat-image-stage.is-zoomed img{width:200%;max-width:none;max-height:none}

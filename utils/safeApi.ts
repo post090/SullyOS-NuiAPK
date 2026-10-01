@@ -21,6 +21,8 @@ import {
     sendNativeChatAttempt,
     stripSamplingFromNativeBody,
 } from './runtime/nativeChatRequest';
+import { resolveBlobRefsInRequestBody } from './apiBlobRefs';
+import { waitForPalaceRequest } from './memoryPalace/maintenanceMode';
 
 const log = makeDebugLogger('api', 'SafeAPI');
 
@@ -118,6 +120,8 @@ export function parseSseToCompletion(raw: string): any | null {
 interface SseFeedDelta {
     content: string;
     reasoning: string;
+    /** The provider has explicitly finished this completion. */
+    done: boolean;
 }
 
 class SseAssembler {
@@ -142,11 +146,12 @@ class SseAssembler {
 
     /** 喂一行 SSE 文本，分别返回正文与思考增量（没有则为空串）。 */
     feedLine(line: string): SseFeedDelta {
-        if (!line.startsWith('data:')) return { content: '', reasoning: '' };
+        if (!line.startsWith('data:')) return { content: '', reasoning: '', done: false };
         const payload = line.slice(5).trim();
-        if (!payload || payload === '[DONE]') return { content: '', reasoning: '' };
+        if (!payload) return { content: '', reasoning: '', done: false };
+        if (payload === '[DONE]') return { content: '', reasoning: '', done: true };
         let chunk: any;
-        try { chunk = JSON.parse(payload); } catch { return { content: '', reasoning: '' }; }
+        try { chunk = JSON.parse(payload); } catch { return { content: '', reasoning: '', done: false }; }
         return this.feedChunk(chunk);
     }
 
@@ -157,7 +162,7 @@ class SseAssembler {
         // 始终取最后一个非空的 usage，兼容各家代理。
         if (chunk.usage) this.usage = chunk.usage;
         const choice = chunk.choices?.[0];
-        if (!choice) return { content: '', reasoning: '' };
+        if (!choice) return { content: '', reasoning: '', done: false };
         let delta = '';
         let reasoningDelta = '';
         // delta 路径（OpenAI 流式常见）
@@ -211,7 +216,7 @@ class SseAssembler {
             if (Array.isArray(choice.message.tool_calls)) this.toolCalls.push(...choice.message.tool_calls);
         }
         if (choice.finish_reason) this.finishReason = choice.finish_reason;
-        return { content: delta, reasoning: reasoningDelta };
+        return { content: delta, reasoning: reasoningDelta, done: Boolean(choice.finish_reason) };
     }
 
     get reasoningContent(): string {
@@ -294,9 +299,11 @@ async function readBodyWithStreaming(
     let pending = '';       // SSE 模式下未消费完的半行缓冲
     let mode: 'undecided' | 'sse' | 'raw' = 'undecided';
     let sawFirstDelta = false;
+    let sawTerminalEvent = false;
     const contentType = response.headers.get('content-type');
 
     const emit = (delta: SseFeedDelta) => {
+        if (delta.done) sawTerminalEvent = true;
         if (delta.content) {
             if (!sawFirstDelta) {
                 sawFirstDelta = true;
@@ -352,6 +359,13 @@ async function readBodyWithStreaming(
             pending += textChunk;
         }
         if (mode === 'sse') consumeLines();
+        if (sawTerminalEvent) {
+            // A few OpenAI-compatible Claude proxies send [DONE]/finish_reason but
+            // keep the HTTP socket alive. The completion is already whole; waiting
+            // for reader.done would leave the Qixi loader spinning forever.
+            try { await reader.cancel(); } catch { /* completion is already assembled */ }
+            break;
+        }
     }
     const tail = decoder.decode();
     if (tail) {
@@ -404,15 +418,26 @@ export async function safeFetchJson(
     let forcedBodyOverride: string | null = null;
     const logMeta = meta || getApiCallAmbientContext();
 
+    // 图片在本机存成 `blobref:` 令牌，发出去对面读不懂——在这里统一还原成 data URL。
+    // 各处构造请求的地方就不用各记一遍这件事了（详见 utils/apiBlobRefs.ts）。
+    // 循环外做一次：重试用的是同一份 body。
+    const resolvedBody = await resolveBlobRefsInRequestBody(metaOptions.body);
+    const sendOptions: RequestInit = resolvedBody === metaOptions.body
+        ? metaOptions
+        : { ...metaOptions, body: resolvedBody as BodyInit };
+
     for (let attempt = 0; attempt <= automaticRetryLimit; attempt++) {
+        if (meta?.appName === '记忆宫殿') await waitForPalaceRequest(options.signal ?? undefined);
         // 全局 fetch 拦截器和这里的“已解析响应兜底”共享 ID。前者覆盖裸 fetch，
         // 后者不依赖 Response.clone()，避免部分 iOS/WebView 克隆流不结束时漏记。
         const requestId = `api-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
         // 每次 attempt 建一个独立的 AbortController（仅用于 timeout）
         // 调用方自己的 options.signal 仍然有效，两者任一触发就 abort
+        // sendOptions 带 blobref 还原后的 body；forcedBodyOverride（原生运行时采样参数
+        // 被拒后的重试 body）在其上再覆盖一层。
         let attemptOptions = forcedBodyOverride != null
-            ? { ...metaOptions, body: forcedBodyOverride, __sullyApiCallId: requestId } as RequestInit
-            : { ...metaOptions, __sullyApiCallId: requestId } as RequestInit;
+            ? { ...sendOptions, body: forcedBodyOverride, __sullyApiCallId: requestId } as RequestInit
+            : { ...sendOptions, __sullyApiCallId: requestId } as RequestInit;
         let timeoutHandle: any = null;
         if (timeoutMs > 0) {
             const ac = new AbortController();
@@ -783,7 +808,26 @@ function repairTruncatedJson(text: string): string | null {
     return repaired;
 }
 
-export function extractJson(raw: string): any | null {
+/** Repair formatting outside strings; preserve apostrophes and literal `, }` in prose. */
+function repairJsonPresentation(text: string): string {
+    let result = '';
+    let inString = false;
+    let escaped = false;
+    for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (escaped) { result += ch; escaped = false; continue; }
+        if (inString && ch === '\\') { result += ch; escaped = true; continue; }
+        if (ch === '"') inString = !inString;
+        if (inString && ch.charCodeAt(0) < 32) {
+            result += JSON.stringify(ch).slice(1, -1);
+        } else if (!inString && ch === ',' && /^[\s]*[}\]]/.test(text.slice(i + 1))) {
+            continue;
+        } else result += ch;
+    }
+    return result;
+}
+
+export function extractJson(raw: string, options: { allowTruncated?: boolean; silent?: boolean } = {}): any | null {
     if (!raw) return null;
 
     // 1. Strip markdown code fences
@@ -811,6 +855,7 @@ export function extractJson(raw: string): any | null {
 
     // 4. Try parsing the extracted substring
     try { return JSON.parse(jsonStr); } catch {}
+    try { return JSON.parse(repairJsonPresentation(jsonStr)); } catch {}
 
     // 5. Fix common AI formatting issues and retry
     let fixed = jsonStr
@@ -829,6 +874,7 @@ export function extractJson(raw: string): any | null {
     // — the inner " breaks JSON parsing because they're not \-escaped.
     const innerQuoteFixed = escapeUnescapedInnerQuotes(jsonStr);
     if (innerQuoteFixed && innerQuoteFixed !== jsonStr) {
+        try { return JSON.parse(repairJsonPresentation(innerQuoteFixed)); } catch {}
         try { return JSON.parse(innerQuoteFixed); } catch {}
         try {
             return JSON.parse(innerQuoteFixed
@@ -840,7 +886,7 @@ export function extractJson(raw: string): any | null {
     // 7. Try to repair truncated JSON (LLM hit max_tokens)
     // Find the first { and attempt to close any open strings/brackets
     const firstBrace = text.indexOf('{');
-    if (firstBrace >= 0) {
+    if (firstBrace >= 0 && options.allowTruncated !== false) {
         let truncated = text.slice(firstBrace);
         const repaired = repairTruncatedJson(truncated);
         if (repaired) {
@@ -886,6 +932,6 @@ export function extractJson(raw: string): any | null {
         } catch {}
     }
 
-    console.error('[extractJson] All attempts failed. Raw:', raw.slice(0, 300));
+    if (!options.silent) console.error('[extractJson] All attempts failed. Raw:', raw.slice(0, 300));
     return null;
 }

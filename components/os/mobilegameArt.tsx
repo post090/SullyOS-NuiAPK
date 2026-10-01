@@ -158,6 +158,7 @@ const Gear: React.FC = () => (
 
 const MG_ART: Partial<Record<AppID, React.FC>> = {
     [AppID.Character]: Planet,
+    [AppID.VRWorld]: Planet,
     [AppID.MemoryPalace]: Brain,
     [AppID.Call]: Phone,
     [AppID.Room]: House,

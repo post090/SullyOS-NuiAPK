@@ -17,9 +17,9 @@
 // ═══════════════════════════════════════════════════════════════════
 //   FILL THESE IN AFTER DEPLOYING THE CLOUDFLARE WORKER
 //
-//   VAPID 公私钥已迁移到 utils/pushVapid.ts (push_vapid_v1) — 默认空，由
-//   用户在 Settings → Instant Push 里生成；Proactive 和 Instant 共用同一份
-//   VAPID，避免两边互相 unsubscribe 抢同一个 pushManager 订阅。
+//   VAPID 公私钥在 utils/pushVapid.ts (push_vapid_v1) — 默认空，由用户在
+//   Settings → 推送凭据 (VAPID) 里生成；跟主动消息 2.0 用同一份，避免互相
+//   unsubscribe 抢同一个 pushManager 订阅。
 // ═══════════════════════════════════════════════════════════════════
 const WORKER_URL = 'https://noir2.cc.cd';
 const CLIENT_TOKEN = 'weqwqewqeqwdcsccagdgs32132';
@@ -96,7 +96,7 @@ export function isPushConfigAvailable(): boolean {
 //
 // b64uToBytes / bytesToB64u / isDeadPushEndpoint / explainSubscribeError /
 // subscribeWithRetry / SUBSCRIBE_SETTLE_MS 全部从 pushSubscribeShared.ts 取,
-// 与 instantPushClient.ts 共用同一份实现.
+// 与主动消息 2.0 共用同一份实现.
 
 interface SubscriptionInfo {
   endpoint: string;
@@ -316,7 +316,7 @@ export async function ensureSubscribed(): Promise<SubscribeResult> {
     return { ok: false, reason: 'Worker URL 未配置' };
   }
   if (!isPushVapidReady()) {
-    return { ok: false, reason: 'VAPID 公钥未配置, 请到 Settings → Instant Push 生成' };
+    return { ok: false, reason: 'VAPID 公钥未配置, 请到 Settings → 推送凭据 (VAPID) 生成' };
   }
   const capabilityGap = describePushCapabilityGap();
   if (capabilityGap) {
@@ -403,7 +403,7 @@ export async function resetSubscription(): Promise<{ ok: boolean; reason?: strin
     return { ok: false, reason: 'Worker URL 未配置' };
   }
   if (!isPushVapidReady()) {
-    return { ok: false, reason: 'VAPID 公钥未配置, 请到 Settings → Instant Push 生成' };
+    return { ok: false, reason: 'VAPID 公钥未配置, 请到 Settings → 推送凭据 (VAPID) 生成' };
   }
   const capabilityGap = describePushCapabilityGap();
   if (capabilityGap) {
@@ -460,7 +460,7 @@ export async function deepResetSubscription(): Promise<{ ok: boolean; reason?: s
     return { ok: false, reason: 'Worker URL 未配置' };
   }
   if (!isPushVapidReady()) {
-    return { ok: false, reason: 'VAPID 公钥未配置, 请到 Settings → Instant Push 生成' };
+    return { ok: false, reason: 'VAPID 公钥未配置, 请到 Settings → 推送凭据 (VAPID) 生成' };
   }
   const capabilityGap = describePushCapabilityGap();
   if (capabilityGap) {

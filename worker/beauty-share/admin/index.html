@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="referrer" content="no-referrer"><title>美化提交管理</title><link rel="stylesheet" href="/admin/style.css"></head>
+<body><main>
+  <header><span>SULLYOS / STUDIO</span><h1>美化工作台</h1><p>审核作品，整理心意。这里的投稿与 Repo 都不会公开列出。</p></header>
+  <form id="login"><h2 id="login-title">管理员登录</h2><label>账号<input id="username" required autocomplete="username" minlength="3" maxlength="40"></label><label>密码<input id="password" required type="password" autocomplete="current-password" minlength="12" maxlength="128"></label><label id="password-confirm-label" hidden>确认密码<input id="password-confirm" type="password" autocomplete="new-password" minlength="12" maxlength="128"></label><button id="login-button">登录</button><p id="setup-note" hidden>这是一次性管理员初始化。请自行设置账号与密码并妥善保存，初始化完成后此链接失效。</p></form>
+  <section id="workspace" hidden>
+    <nav class="workspace-tabs" aria-label="管理分类"><button id="tab-submissions" aria-pressed="true">作品审核</button><button id="tab-repos" aria-pressed="false">私密 Repo</button><button id="logout">退出登录</button></nav>
+    <div class="toolbar"><label>状态<select id="filter"><option value="pending">审核中</option><option value="approved">已通过</option><option value="rejected">已退回</option><option value="all">全部</option></select></label><label class="search-label">查找<input id="search" maxlength="80" placeholder="作品名 / 作者码 / 美化码"></label><button id="search-button">查找</button><button id="refresh">刷新</button></div>
+    <p id="scope-note">文件内容请下载后人工检查，不直接执行投稿中的 CSS。</p>
+    <div class="results-top"><span id="result-count"></span><button id="export-selected" hidden>生成所选 Repo 合集卡</button></div>
+    <div id="submissions" aria-live="polite"></div>
+    <nav class="pagination" aria-label="结果分页"><button id="previous">上一页</button><span id="page-label"></span><button id="more">下一页</button></nav>
+  </section>
+  <p id="notice" role="status" aria-live="polite"></p>
+</main><script src="/admin/repo-card.js" defer></script><script src="/admin/app.js" defer></script></body></html>

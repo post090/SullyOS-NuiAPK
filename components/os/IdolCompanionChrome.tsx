@@ -9,6 +9,7 @@ import {
   VideoCamera,
 } from '@phosphor-icons/react';
 import { Icons } from '../../constants';
+import TokenImg from './TokenImg';
 import { AppID, type CharacterProfile, type ScheduleSlot } from '../../types';
 import './IdolCompanionChrome.css';
 
@@ -55,7 +56,7 @@ const IdolCompanionChrome: React.FC<IdolCompanionChromeProps> = ({
     <div className="companion-idol-chrome pointer-events-none absolute inset-0 z-30" data-testid="companion-idol-chrome">
       <header className="idol-live-header pointer-events-auto">
         <button type="button" className="idol-live-identity" onClick={() => openApp(AppID.Character)}>
-          <span className="idol-live-avatar"><img src={character.avatar} alt="" /></span>
+          <span className="idol-live-avatar"><TokenImg value={character.avatar} alt="" /></span>
           <span className="idol-live-copy"><small>NOW ON STAGE</small><strong>{character.name}</strong></span>
         </button>
         <div className="idol-live-status" aria-label="正在直播">

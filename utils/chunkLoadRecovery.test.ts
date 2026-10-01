@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { isChunkLoadError, tryAutoReloadForChunkError } from './chunkLoadRecovery';
+import { isChunkLoadError, markModuleLoadError, tryAutoReloadForChunkError } from './chunkLoadRecovery';
 
 // 锁住 "Importing a module script failed." 自愈链路:
 // iOS Safari standalone PWA 下动态 import 失败会被缓存进模块表, 本页内重试必失败,
@@ -15,6 +15,10 @@ describe('isChunkLoadError', () => {
         expect(isChunkLoadError(new TypeError('error loading dynamically imported module'))).toBe(true);
         // Vite CSS 依赖预载失败
         expect(isChunkLoadError(new Error('Unable to preload CSS for /assets/Chat-D3xq.css'))).toBe(true);
+        // Safari / WebKit：部署更新后旧 chunk URL 被 SPA fallback 回成 index.html。
+        expect(isChunkLoadError(new TypeError("'text/html' is not a valid JavaScript MIME type."))).toBe(true);
+        // Chromium 对同一类 HTML-as-module 响应的报错文案。
+        expect(isChunkLoadError(new TypeError('Expected a JavaScript module script but the server responded with a MIME type of "text/html".'))).toBe(true);
         // 字符串形态也接受
         expect(isChunkLoadError('Importing a module script failed.')).toBe(true);
     });
@@ -25,6 +29,29 @@ describe('isChunkLoadError', () => {
         expect(isChunkLoadError(null)).toBe(false);
         expect(isChunkLoadError(undefined)).toBe(false);
         expect(isChunkLoadError(42)).toBe(false);
+    });
+
+    it.each(['Unexpected EOF', 'Unexpected end of input', 'Unexpected end of script.'])('只有加载阶段的 %s 才走资源恢复', message => {
+        const error = Object.freeze(new SyntaxError(message));
+        expect(isChunkLoadError(error)).toBe(false);
+        markModuleLoadError(error);
+        expect(isChunkLoadError(error)).toBe(true);
+    });
+
+    it('带 JSON 提示的解析失败、组件运行异常不自动刷新', () => {
+        for (const error of [
+            new SyntaxError('JSON Parse error: Unexpected EOF'),
+            new SyntaxError('Unexpected end of JSON input'),
+            new TypeError("Cannot read properties of undefined (reading 'map')"),
+            new Error('Unexpected EOF'),
+        ]) {
+            markModuleLoadError(error);
+            expect(isChunkLoadError(error)).toBe(false);
+        }
+        markModuleLoadError(null);
+        markModuleLoadError('Unexpected EOF');
+        expect(isChunkLoadError('Unexpected EOF')).toBe(false);
+        expect(isChunkLoadError(new SyntaxError('Unexpected EOF'))).toBe(false);
     });
 });
 

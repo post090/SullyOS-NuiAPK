@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from './chatContextRange';
 import type {
   APIConfig,
   CharacterProfile,
@@ -254,7 +255,6 @@ export const requestCompanionStartupDraft = async (options: {
   apiConfig: APIConfig;
   modelActions?: AvatarTouchModelAction[];
   hint?: string;
-  recentMessageLimit?: number;
 }): Promise<CompanionStartupDraft> => {
   const {
     character,
@@ -262,33 +262,25 @@ export const requestCompanionStartupDraft = async (options: {
     apiConfig,
     modelActions = [],
     hint = '',
-    recentMessageLimit = 28,
   } = options;
   const baseUrl = apiConfig.baseUrl?.replace(/\/+$/, '');
   if (!baseUrl) throw new Error('请先在设置中配置主聊天 API');
 
   const [allMessages, emojis] = await Promise.all([
-    DB.getMessagesByCharId(character.id, true),
+    loadCharacterContextMessages(character),
     DB.getEmojis().catch(() => []),
   ]);
   const recentMessages = allMessages
-    .filter(message => message.role === 'user' || message.role === 'assistant')
-    .slice(-Math.max(8, Math.min(60, recentMessageLimit)));
+    .filter(message => message.role === 'user' || message.role === 'assistant');
   const eventText = `[陪伴桌面开机演出设置] ${user.name || '用户'}希望你为每次回到陪伴主界面准备一句符合本人性格的短开场。`;
-  const coreContext = ContextBuilder.buildCoreContext(
-    character,
-    user,
-    true,
-    undefined,
-    undefined,
-    {
+  const characterContextInput = { char: character, user, includeDetailedMemories: true, timeOptions: {
       lastInteractionTs: recentMessages[recentMessages.length - 1]?.timestamp,
       worldbookMessages: [
         ...recentMessages.map(message => ({ role: message.role, content: message.content })),
         { role: 'user', content: eventText },
       ],
-    },
-  );
+    } };
+
   const { apiMessages } = ChatPrompts.buildMessageHistory(
     recentMessages,
     recentMessages.length,
@@ -304,11 +296,11 @@ export const requestCompanionStartupDraft = async (options: {
     },
     body: JSON.stringify({
       model: apiConfig.model,
-      messages: [
-        { role: 'system', content: buildCompanionStartupPrompt(coreContext, character.name, user.name || '用户', modelActions, hint) },
+      messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+        { role: 'system', content: buildCompanionStartupPrompt('', character.name, user.name || '用户', modelActions, hint) },
         ...apiMessages,
         { role: 'user', content: eventText },
-      ],
+      ]),
       temperature: 0.86,
       max_tokens: 1400,
       stream: false,

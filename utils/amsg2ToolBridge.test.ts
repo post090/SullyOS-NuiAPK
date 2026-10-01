@@ -12,7 +12,8 @@ vi.mock('./activeMsgStore', () => ({
   ActiveMsgStore: { getGlobalConfig: vi.fn() },
 }));
 
-import { createAmsg2ToolSession, executeAmsg2Tool } from './amsg2ToolBridge';
+import { buildAmsg2Tools, createAmsg2ToolSession, executeAmsg2Tool, executeAmsg2ToolWithOutcome } from './amsg2ToolBridge';
+import { resolveAmsgLimits } from './amsgLimits';
 import { isAmsg2EnabledForChar } from './amsg2Tasks';
 import { ActiveMsgClient } from './activeMsgClient';
 
@@ -142,12 +143,15 @@ describe('amsg2ToolBridge 同一轮多次调用累加', () => {
   // 「每天 9:00 的早安」被角色顺手续到 11:00「晚点补上」，从明天起就永久变成 11:00 了，
   // 编号还跟着换一个。现在改成只补当次，原序列一条不动。
   it('循环任务 renew → 原任务留着，另加一条一次性补发', async () => {
-    const { deps, persisted } = makeSession();
+    // 这条测的是补当次的语义：先放开「可以排重复的」，角色才排得出那条每天的。
+    const { deps, persisted } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [], allowSelfRecurring: true },
+    });
     await executeAmsg2Tool('schedule_active_message', {
       send_at: future(), mode: 'prompted', prompt_hint: '道早安', recurrence: 'daily',
     }, deps);
     const renewResult = await executeAmsg2Tool('renew_active_message', {
-      send_at: future(), task_id: shortOf(UUIDS[0]),
+      send_at: future(2), task_id: shortOf(UUIDS[0]),
     }, deps);
 
     const tasks = lastTasks(persisted);
@@ -402,8 +406,59 @@ describe('连发上限·本地排程闸', () => {
     const { deps } = makeSession({
       activeMsg2Config: { enabled: true, tasks: [userTask('u1'), userTask('u2'), userTask('u3')] },
     });
-    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(1) }, deps);
+    // 错开那几条一小时之外：这条测的是连发额度，别撞上两条之间的间隔要求。
+    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(3) }, deps);
     expect(reply).toContain('已创建');
+  });
+
+  it('默认不许排重复的：带 recurrence=daily 直接打回，不发远端请求', async () => {
+    const { deps } = makeSession();
+    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(2), recurrence: 'daily' }, deps);
+    expect(reply).toContain('一次性');
+    expect(ActiveMsgClient.scheduleCharacterTask).not.toHaveBeenCalled();
+  });
+
+  it('默认没放开「到点必发」：角色要 force 也按普通的排', async () => {
+    const { deps } = makeSession();
+    await executeAmsg2Tool('schedule_active_message', { send_at: future(2), expire_policy: 'force' }, deps);
+    expect(ActiveMsgClient.scheduleCharacterTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({ task: expect.objectContaining({ expirePolicy: 'expire' }) }),
+    );
+  });
+
+  it('跟已经排着的挨得太近 → 打回（默认至少隔 10 分钟）', async () => {
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [{ ...selfTask('u1'), source: 'user' }] },
+    });
+    const nearby = new Date(Date.now() + 3600_000 + 5 * 60_000).toISOString();
+    const reply = await executeAmsg2Tool('schedule_active_message', { send_at: nearby }, deps);
+    expect(reply).toContain('太近');
+    expect(ActiveMsgClient.scheduleCharacterTask).not.toHaveBeenCalled();
+  });
+
+  // 回归守卫：用户自己排的「8 点叫我」被角色改期，还是用户的任务——不打自排标记、
+  // 不降成普通的，到点那几道只管角色自排的闸不拦它。
+  it('改期用户自己排的「到点必发」：不打自排标记、不降级、仍算用户的', async () => {
+    const mine = { ...selfTask('u1'), source: 'user', expirePolicy: 'force' };
+    const { deps, persisted } = makeSession({ activeMsg2Config: { enabled: true, tasks: [mine] } });
+    await executeAmsg2Tool('renew_active_message', { send_at: future(3), task_id: 'u1' }, deps);
+    expect(ActiveMsgClient.scheduleCharacterTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        task: expect.objectContaining({ selfScheduled: false, expirePolicy: 'force' }),
+        replaceTaskUuid: 'u1',
+      }),
+    );
+    expect(lastTasks(persisted).find((t: any) => t.taskUuid !== 'u1')?.source).toBe('user');
+  });
+
+  it('工具签名跟着设置走：默认没有 recurrence / expire_policy，任务名额写实数', () => {
+    const locked = buildAmsg2Tools(resolveAmsgLimits({ maxActiveTasks: 3 }))[0].function;
+    expect(locked.parameters.properties).not.toHaveProperty('recurrence');
+    expect(locked.parameters.properties).not.toHaveProperty('expire_policy');
+    expect(locked.description).toContain('最多同时挂 3 个任务');
+    const open = buildAmsg2Tools(resolveAmsgLimits({ allowSelfRecurring: true, allowSelfForce: true }))[0].function;
+    expect(open.parameters.properties).toHaveProperty('recurrence');
+    expect(open.parameters.properties).toHaveProperty('expire_policy');
   });
 
   it('用户把上限设成 1 → 第一条自排就打回第二条', async () => {
@@ -411,7 +466,70 @@ describe('连发上限·本地排程闸', () => {
       activeMsg2Config: { enabled: true, maxUnansweredSends: 1, tasks: [selfTask('u1')] },
     });
     const reply = await executeAmsg2Tool('schedule_active_message', { send_at: future(1) }, deps);
-    expect(reply).toContain('连发上限是 1 条');
+    expect(reply).toContain('连发上限是 1 次');
     expect(ActiveMsgClient.scheduleCharacterTask).not.toHaveBeenCalled();
+  });
+});
+
+// 工具循环靠结局判断「这一轮办成事没有」、决定要不要逼模型收尾，trace 也照它记。
+// 回话是给模型读的散文，拿它判成败靠不住，所以结局必须跟清单的真实变化对上。
+describe('工具调用的结局', () => {
+  beforeEach(() => {
+    (ActiveMsgClient.scheduleCharacterTask as any).mockReset();
+    (ActiveMsgClient.scheduleCharacterTask as any).mockImplementation(async () => ({
+      uuid: UUIDS[0], clientTaskId: 'ct-outcome', firstSendAt: RESOLVED_ISO, anchorMs: null,
+    }));
+  });
+
+  const selfTask = (uuid: string, hours = 1) => ({
+    taskUuid: uuid, clientTaskId: `${uuid}-c`, mode: 'auto', recurrenceType: 'none',
+    expirePolicy: 'expire', source: 'character', status: 'scheduled',
+    firstSendTime: new Date(Date.now() + hours * 3600_000).toISOString(), createdAt: Date.now(),
+  });
+
+  it('排上了 → done', async () => {
+    const { deps } = makeSession();
+    const { outcome } = await executeAmsg2ToolWithOutcome('schedule_active_message', { send_at: future(2) }, deps);
+    expect(outcome).toEqual({ tool: 'schedule_active_message', status: 'done' });
+  });
+
+  it('连发额度满了 → rejected，带原因码', async () => {
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [selfTask('u1'), selfTask('u2', 2), selfTask('u3', 3)] },
+    });
+    const { outcome } = await executeAmsg2ToolWithOutcome('schedule_active_message', { send_at: future(5) }, deps);
+    expect(outcome).toEqual({ tool: 'schedule_active_message', status: 'rejected', reason: 'unanswered_limit' });
+  });
+
+  it('离排着的太近 → rejected / min_gap', async () => {
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [{ ...selfTask('u1'), source: 'user' }] },
+    });
+    const nearby = new Date(Date.now() + 3600_000 + 5 * 60_000).toISOString();
+    const { outcome } = await executeAmsg2ToolWithOutcome('schedule_active_message', { send_at: nearby }, deps);
+    expect(outcome.status).toBe('rejected');
+    expect(outcome.reason).toBe('min_gap');
+  });
+
+  it('同名同参再来一次 → duplicate；排程接口抛错 → error 带报错开头', async () => {
+    const { deps } = makeSession();
+    const args = { send_at: future(2) };
+    await executeAmsg2ToolWithOutcome('schedule_active_message', args, deps);
+    const second = await executeAmsg2ToolWithOutcome('schedule_active_message', { ...args }, deps);
+    expect(second.outcome.status).toBe('duplicate');
+
+    (ActiveMsgClient.scheduleCharacterTask as any).mockRejectedValueOnce(new Error('名额满了'));
+    const failed = await executeAmsg2ToolWithOutcome('schedule_active_message', { send_at: future(4) }, deps);
+    expect(failed.outcome).toEqual({ tool: 'schedule_active_message', status: 'error', message: '名额满了' });
+  });
+
+  it('上一次的打回原因不会串到下一次成功的调用上', async () => {
+    const { deps } = makeSession({
+      activeMsg2Config: { enabled: true, tasks: [{ ...selfTask('u1'), source: 'user' }] },
+    });
+    const nearby = new Date(Date.now() + 3600_000 + 5 * 60_000).toISOString();
+    await executeAmsg2ToolWithOutcome('schedule_active_message', { send_at: nearby }, deps);
+    const ok = await executeAmsg2ToolWithOutcome('schedule_active_message', { send_at: future(3) }, deps);
+    expect(ok.outcome).toEqual({ tool: 'schedule_active_message', status: 'done' });
   });
 });

@@ -28,6 +28,8 @@ import { announceEmotionDone } from './chatGenEvents';
 import { dispatchAmsgResult } from './amsgResults';
 import { DB } from './db';
 import type { AmsgEmotionEvalSpec } from '../worker/amsg/src/emotionEval';
+import { AMSG_BUNDLE_VERSION } from './amsgBundleVersion';
+import type { AmsgSarModuleSnapshot } from './vrWorld/sarEnvelopeCore';
 
 const HEADER = '[AmsgInstantChat]';
 
@@ -241,7 +243,31 @@ export type InstantChatReadinessReason =
 export interface InstantChatReadiness {
   ready: boolean;
   reason?: InstantChatReadinessReason;
+  /**
+   * 那台 Worker 贴的是不是本 App 认的这一版 bundle（存量 workerBundleVersion 与
+   * AMSG_BUNDLE_VERSION 相等）。只在 ready 时给：true / false 是探到过的结论，
+   * undefined = 不知道。不传 ensureBundleVersion 时它就是「还没探过」；传了的话
+   * 存量为空会当场现探一次，那时 undefined 意味着「现探也没问到」。
+   *
+   * 能不能上云不看它——那是 instantChatSupported 的事。它只给「这一轮要用到新协议」
+   * 的调用方做额外否决（SAR 模块生效期的信封回复，旧 bundle 会把信封当正文切碎）。
+   */
+  workerBundleCurrent?: boolean;
 }
+
+/** 存量里那台 Worker 的 bundle 版本是不是当前这一版；没探过（undefined）返回 undefined。 */
+const resolveWorkerBundleCurrent = (
+  config: { workerBundleVersion?: string | null },
+): boolean | undefined => (
+  config.workerBundleVersion === undefined
+    ? undefined
+    : config.workerBundleVersion === AMSG_BUNDLE_VERSION
+);
+
+/** ready 的那一档带上 bundle 结论；不知道就不带这个键。 */
+const readyWithBundle = (workerBundleCurrent: boolean | undefined): InstantChatReadiness => (
+  workerBundleCurrent === undefined ? { ready: true } : { ready: true, workerBundleCurrent }
+);
 
 // ─── 存量说「跑不动」时的现探 ───
 //
@@ -268,7 +294,10 @@ let reprobeInFlight: Promise<InstantChatProbeOutcome> | null = null;
  * 把冷却清零，让下一条消息立刻重探。
  * 网络刚恢复时调（online 事件），换 Worker / 改配置的地方也可以调。
  */
-export const resetInstantChatReprobeCooldown = (): void => { lastReprobeAt = 0; };
+export const resetInstantChatReprobeCooldown = (): void => {
+  lastReprobeAt = 0;
+  lastBundleProbeAt = 0;
+};
 
 // 切代理节点不会触发 online，所以这个监听只是「便宜的加速」，不是恢复的唯一指望——
 // 真正兜底的是上面那道冷却到期后的现探。
@@ -302,6 +331,50 @@ const reprobeInstantChatSupport = async (): Promise<InstantChatProbeOutcome> => 
   }
 };
 
+// ─── bundle 版本没探过时的现探（ensureBundleVersion）───
+//
+// 存量 workerBundleVersion 只在握手 / 设置页探测时写。老用户刚更新 App、握手那次探测还没
+// 回来就发了一条要信封的消息（SAR 模块生效期），存量是空的——这时放行等于赌那台 Worker
+// 认得信封，赌输了信封整段切碎上屏。所以这类回合当场问一次，问不到就不上云。
+// 跟上面的懒重探一样带超时、冷却、并发合并：只在「存量为空 + 这一轮需要新协议」时付这点延迟，
+// 探到了会存下来，之后的回合一次都不再探。
+
+let lastBundleProbeAt = 0;
+let lastBundleProbeResult: boolean | undefined;
+let bundleProbeInFlight: Promise<boolean | undefined> | null = null;
+
+const probeBundleCurrentNow = async (): Promise<boolean | undefined> => {
+  if (bundleProbeInFlight) return bundleProbeInFlight;
+  if (Date.now() - lastBundleProbeAt < INSTANT_CHAT_REPROBE_COOLDOWN_MS) return lastBundleProbeResult;
+  lastBundleProbeAt = Date.now();
+  const task = (async () => {
+    try {
+      // 问到答案时 probeWorkerVersion 会顺手把版本存进 workerBundleVersion。
+      const { state } = await ActiveMsgClient.probeWorkerVersion({ timeoutMs: INSTANT_CHAT_REPROBE_TIMEOUT_MS });
+      return state === 'current' ? true : state === 'outdated' ? false : undefined;
+    } catch {
+      return undefined;
+    }
+  })();
+  bundleProbeInFlight = task;
+  try {
+    lastBundleProbeResult = await task;
+    return lastBundleProbeResult;
+  } finally {
+    bundleProbeInFlight = null;
+  }
+};
+
+/** 存量优先；存量为空且调用方要求时，当场现探一次。 */
+const resolveBundleCurrent = async (
+  config: { workerBundleVersion?: string | null },
+  ensureBundleVersion: boolean,
+): Promise<boolean | undefined> => {
+  const stored = resolveWorkerBundleCurrent(config);
+  if (stored !== undefined || !ensureBundleVersion) return stored;
+  return probeBundleCurrentNow();
+};
+
 /**
  * 即时对话此刻走不走得通，外加「走不通是因为什么」。
  *
@@ -325,10 +398,17 @@ const reprobeInstantChatSupport = async (): Promise<InstantChatProbeOutcome> => 
  * 锁屏，本地 fetch 被系统掐掉，回来时既没有回复也没有报错，设置页还写着「已开启」。
  * 所以这里就地 warn 一声，调用方按这个 reason 单独收场（useChatAI 里这一档会留一条
  * trace，并且明确报错等用户重发，不发起本地生成）。
+ *
+ * ready 时顺带给出 workerBundleCurrent（那台 Worker 是不是当前 bundle，平时读存量，
+ * 不多探一次）。它不参与这里的放行判断，留给「这一轮要用新协议」的调用方自己否决。
+ * 这类调用方传 `ensureBundleVersion: true`：存量为空时当场现探一次（带超时与冷却），
+ * 探不到就给 undefined，由调用方决定怎么处理（useChatAI 里是否决这一轮上云）。
  */
 export const resolveInstantChatReadiness = async (
   char?: Pick<CharacterProfile, 'activeMsg2Config'>,
+  options?: { ensureBundleVersion?: boolean },
 ): Promise<InstantChatReadiness> => {
+  const ensureBundleVersion = !!options?.ensureBundleVersion;
   // 角色自己关了 → 这一轮回到本地前台生成。这是用户的主动选择，跟「全局没开」同一
   // 待遇：静默走本地，不 warn 不留 trace。undefined = 跟随全局默认开，只认显式 false；
   // 全局配置都不用读——读出什么这一轮都不上云。
@@ -355,7 +435,10 @@ export const resolveInstantChatReadiness = async (
     const outcome = await reprobeInstantChatSupport();
     if (outcome === 'supported') {
       console.info(`${HEADER} 重探到那台 Worker 现在跑得动即时对话（存量是过期结论），这一轮照常上云`);
-      return { ready: true };
+      // 现探会顺手刷新 bundle 版本的存量，重读一次拿新结论；读不出来就用探测前那份。
+      let refreshed: typeof config = config;
+      try { refreshed = await ActiveMsgStore.getGlobalConfig(); } catch { /* 沿用旧存量 */ }
+      return readyWithBundle(await resolveBundleCurrent(refreshed, ensureBundleVersion));
     }
     // 静默让位正是「静默分流」那个老坑，所以两档都就地 warn 一声，调用方还会额外留一条
     // trace——用户至少查得到「为什么开了却走本地」。两档的去向不同，别混：
@@ -367,7 +450,7 @@ export const resolveInstantChatReadiness = async (
     console.warn(`${HEADER} 开关是开的，但这一刻够不着云端（问不出新结论）：这一轮本地生成，连上了会自己回到云端`);
     return { ready: false, reason: 'worker-unreachable' };
   }
-  return { ready: true };
+  return readyWithBundle(await resolveBundleCurrent(config, ensureBundleVersion));
 };
 
 /** 只关心「走不走得通」的调用点用这个（设置页的互斥门）。要区分原因走上面那个。 */
@@ -385,8 +468,11 @@ export const AMSG_INSTANT_CHAT_ROUTE_EVENT = 'amsg-instant-chat-route';
 
 export interface InstantChatRouteDetail {
   charId: string;
-  /** null = 这一轮走的云端（界面上把提示收起来）；否则是让位给本地生成的原因。 */
-  reason: InstantChatReadinessReason | null;
+  /**
+   * null = 这一轮走的云端（界面上把提示收起来）；否则是让位给本地生成的原因：readiness 的
+   * reason，或 useChatAI 路由段的否决名（如 'sar-module-worker-outdated'）。提示条只认名单里的。
+   */
+  reason: InstantChatReadinessReason | string | null;
 }
 
 export const announceInstantChatRoute = (detail: InstantChatRouteDetail): void => {
@@ -444,6 +530,11 @@ export const sendInstantChatTurn = async (params: {
    * 不传就是这一轮不评估（角色没开情绪评估 / 本轮跳过）。
    */
   emotionEval?: AmsgEmotionEvalSpec;
+  /**
+   * SAR 临时模块的请求时快照（buildAmsgSarModuleSnapshot 组的那份）。只在角色或用户
+   * 身上有模块时传；worker 拆信封、落库侧收尾都只认它，不在回程时现算。
+   */
+  sarModule?: AmsgSarModuleSnapshot;
 }): Promise<InstantChatSendResult> => {
   const supersedes = getInstantChatPending(params.char.id);
   inFlightSends.add(params.char.id);
@@ -469,6 +560,7 @@ export const sendInstantChatTurn = async (params: {
       groups: params.groups,
       realtimeConfig: params.realtimeConfig,
       ...(params.emotionEval ? { emotionEval: params.emotionEval } : {}),
+      ...(params.sarModule ? { sarModule: params.sarModule } : {}),
       ...(supersedes ? { supersedesUuid: supersedes.uuid } : {}),
     });
     // 先记待收再释放占位（finally），挡板的两个信号无缝交接，不留「都不认」的空窗。
@@ -586,21 +678,45 @@ export const outboxPushToInbox = (
 /**
  * 补收的时效窗口：比这更早落账的条目不再往聊天流里放，直接销账。
  *
- * 两个理由。一是**噪音**：隔了一天才补上来的「早上好」既尴尬又打断当下的对话，
+ * 两个理由。一是**噪音**：隔太久才补上来的「早上好」既尴尬又打断当下的对话，
  * 而这条路本来是为「推送刚刚丢了」准备的，正常补收都在几十秒到几分钟内完成。
  * 二是**接上账本这一刻的存量**：账本从建表起就在攒行，而客户端是这一版才开始销账的，
  * 头一次拉会把历史积压一次性倒出来——不掐时效的话，那些早就落过库的老消息会因为
  * 超出近史去重的查询窗口而重新上屏。
+ *
+ * 定在两天而不是一天：真实场景里用户是「周五晚上丢了一条，周日才想起来打开」，
+ * 一天的窗口连隔夜加一个白天都盖不住，人还没意识到丢了消息，唯一的副本就已经在
+ * 上一次开 App 时被销掉了。两天能盖住「隔一夜 + 第二天想起来」这个最常见的节奏。
+ *
+ * 超窗的那些不会无声无息地消失，见 OutboxDrainResult.staleDropped。
  */
-export const OUTBOX_BACKFILL_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+export const OUTBOX_BACKFILL_MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
 export interface OutboxDrainResult {
   /** 写进收件箱、等着冲刷落库的条数。 */
   written: number;
+  /**
+   * 写进收件箱的那几条的 messageId。
+   *
+   * 「写进收件箱」离「上了屏」还差一道冲刷（防穿帮闸、落库去重、多段等齐都可能把它
+   * 拦下）。调用方要如实告诉用户「补回了几条」时，得拿这份名单跟冲刷那边真正落库的
+   * 名单对一次，光看 written 会把被拦下的也算成补回来了。
+   */
+  writtenIds: string[];
   /** 不走聊天流、当场就能销账的 messageId（太老的、不进聊天流的那几类）。 */
   ackNow: string[];
   /** 这一趟从账本上读到的全部条目。调用方按轮次下结论时要看它。 */
   entries: AmsgOutboxEntry[];
+  /**
+   * 这一趟里**因为超出时效窗口**被销掉的聊天内容条数。
+   *
+   * 单独数出来，是因为这一档跟 ackNow 里其它几类的性质完全不同：思维链、工具请求
+   * 那些本来就不该进聊天流，销掉不损失任何东西；而这一档是**用户本该收到、现在
+   * 永久拿不回来的消息**。混在一起的话，「开一次 App 就把唯一的副本销掉了」这件事
+   * 从头到尾没有任何一处说得出口——用户后来去点「找回没收到的消息」，只会看到
+   * 一句「账本上没有漏收的消息，这条链路是通的」。
+   */
+  staleDropped: number;
 }
 
 /**
@@ -661,14 +777,52 @@ const adoptOutboxBacklog = async (entries: AmsgOutboxEntry[]): Promise<OutboxDra
       await ActiveMsgClient.ackOutboxMessages(backlogIds);
     } catch (error) {
       console.warn(`${HEADER} 账本存量没销干净，这一趟先不接管（下次重来）`, error);
-      return { written: 0, ackNow: [], entries };
+      return { written: 0, writtenIds: [], ackNow: [], entries, staleDropped: 0 };
     }
   }
   markOutboxAdopted();
   console.log(`${HEADER} 第一次接上云端账本：存量 ${backlogIds.length} 条直接销账，不往聊天流里放`);
 
-  const { written, ackNow } = await backfillOutboxEntries(entries.filter(keep));
-  return { written, ackNow, entries };
+  // 上面整批销掉的存量走的是 ackOutboxMessages，不经过 backfillOutboxEntries，所以
+  // 不会计进 staleDropped——那批是「这台设备接上账本之前的历史」，不是「本该收到却
+  // 过期了」，报给用户只会让人以为刚丢了一堆消息。
+  return { ...await backfillOutboxEntries(entries.filter(keep)), entries };
+};
+
+/**
+ * 这条账本行对应的消息，本地聊天记录里是不是已经有了。
+ *
+ * 判据跟冲刷那侧的落库去重是同一条：每条落库气泡都继承 `metadata.activeMsg2.messageId`
+ * （见 activeMsgRuntime.flushInboxToChatImpl 里的 isAlreadyPersisted）。两处各留一份是
+ * 因为这个模块不能反过来 import activeMsgRuntime（会成环，见文件头），改判据时两边一起改。
+ *
+ * 近史查询按角色缓存：一趟补收里同一个角色常常有好几条要核对。查不出来就按「本地没有」
+ * 处理——这一档只决定要不要跟用户说「拿不回来了」，宁可多说一次也别把丢消息说成没事。
+ */
+const isPushAlreadyInChat = async (
+  push: Record<string, any>,
+  cache: Map<string, Set<string>>,
+): Promise<boolean> => {
+  const charId = push?.metadata?.charId;
+  const messageId = push?.messageId;
+  if (typeof charId !== 'string' || !charId) return false;
+  if (typeof messageId !== 'string' || !messageId) return false;
+  let ids = cache.get(charId);
+  if (!ids) {
+    try {
+      const recent = await DB.getRecentMessagesByCharId(charId, 200);
+      ids = new Set(
+        recent
+          .map((m: any) => m?.metadata?.activeMsg2?.messageId)
+          .filter((id: unknown): id is string => typeof id === 'string' && !!id),
+      );
+    } catch (error) {
+      console.warn(`${HEADER} 核对本地聊天记录失败，这条按「本地没有」处理`, { charId, error });
+      ids = new Set<string>();
+    }
+    cache.set(charId, ids);
+  }
+  return ids.has(messageId);
 };
 
 /**
@@ -688,13 +842,35 @@ const backfillOutboxEntries = async (
 ): Promise<Omit<OutboxDrainResult, 'entries'>> => {
   const now = Date.now();
   const ackNow: string[] = [];
+  const writtenIds: string[] = [];
   let written = 0;
+  let staleDropped = 0;
+  // 超龄行核对本地聊天记录时用的近史缓存，一趟补收内每个角色只查一次。
+  const persistedIdsByChar = new Map<string, Set<string>>();
+  // 收件箱里已经躺着的那些，各自是什么时候到这台设备的。
+  //
+  // 补收拉回来的这批，跟 Service Worker 直送进收件箱的那批是同一批消息、同一个主键，
+  // 写进去就是整条覆盖。如果连「到达时间」也一起覆盖成现在，这条消息在收件箱里躺了多久
+  // 就再也查不出来了（永远显示「刚到」），而「送达时用户在不在场」正是靠它判的——判错
+  // 的后果是：明明是用户离开时到的、通知早就完整念过一遍的消息，回来还要一条条重演打字。
+  // 所以已经有到达时间的，保留原值；这一趟只覆盖内容，不改它第一次落地的时刻。
+  const knownReceivedAt = new Map<string, number>();
+  try {
+    for (const existing of await ActiveMsgStore.listInboxMessages()) {
+      if (typeof existing.receivedAt === 'number' && existing.receivedAt > 0) {
+        knownReceivedAt.set(existing.messageId, existing.receivedAt);
+      }
+    }
+  } catch (error) {
+    // 读不到就按「全是新的」处理：顶多是时间戳记成现在，不该拦住补收本身。
+    console.warn(`${HEADER} 读收件箱已有到达时间失败（这批按新到处理）`, { error });
+  }
 
   for (const entry of entries) {
     const push = entry.push || {};
     const kind = typeof push.messageKind === 'string' ? push.messageKind : 'content';
     if (kind === 'result') {
-      // 聊天那道 24 小时的时效窗刻意不套在结果上：结果晚到本来就是常态（正是为此才上云的），
+      // 聊天那道两天的时效窗刻意不套在结果上：结果晚到本来就是常态（正是为此才上云的），
       // 隔一天回来照样该落地，跟「隔一天才弹出来的报错」不是一回事。
       // 但「多晚算太晚」得有人管——账本留 28 天，换设备 / 重装 PWA 的用户第一次接上账本
       // 会把老结果一次性拉回来。这里不替各种产物定规矩，只把账本上记的时间原样交给认领
@@ -707,6 +883,16 @@ const backfillOutboxEntries = async (
       continue;
     }
     if (entry.createdAt > 0 && now - entry.createdAt > OUTBOX_BACKFILL_MAX_AGE_MS) {
+      // 超龄不等于用户没收到。账本行躺到超龄，最常见的成因恰恰是**消息早就送达了**，
+      // 只是收尾那笔销账是 fire-and-forget（锁屏 / 切后台就被掐断），账一直挂着没销。
+      // 所以先拿 messageId 去本地聊天记录里核对一遍：找得到就只是补一次销账，既不算
+      // 「拿不回来了」，也不该弹那句「已经拿不回来了」的红字——用户明明看过这条消息。
+      if (await isPushAlreadyInChat(push, persistedIdsByChar)) {
+        ackNow.push(entry.messageId);
+        continue;
+      }
+      // 数出来交给调用方说给用户听：这一销，这条消息就永久没了（见 staleDropped）。
+      staleDropped += 1;
       ackNow.push(entry.messageId);
       continue;
     }
@@ -719,9 +905,13 @@ const backfillOutboxEntries = async (
     // 情绪结果在 SW 那侧是单独一条写法，这里显式对齐：冲刷管线靠这个字段分流，
     // 认不出来就会被当成一条正文气泡渲染出去。
     if (kind === 'emotion_update') message.messageType = 'emotion_update';
+    // 这条 SW 早就送到过（只是还没被冲刷消费）：保住它真正落地的那个时刻。
+    const firstSeenAt = knownReceivedAt.get(message.messageId);
+    if (firstSeenAt != null) message.receivedAt = firstSeenAt;
     try {
       await ActiveMsgStore.saveInboxMessage(message);
       written += 1;
+      writtenIds.push(message.messageId);
     } catch (error) {
       // 写不进去就**不销账**，下次拉回来再试。
       console.warn(`${HEADER} 补收写入收件箱失败（账没销，下次再来）`, { messageId: entry.messageId, error });
@@ -729,7 +919,10 @@ const backfillOutboxEntries = async (
   }
 
   if (written > 0) console.log(`${HEADER} 从云端账本补收 ${written} 条（推送多半是丢了）`);
-  return { written, ackNow };
+  if (staleDropped > 0) {
+    console.warn(`${HEADER} 账本上有 ${staleDropped} 条超出补收窗口，只销账不上屏（这些消息拿不回来了）`);
+  }
+  return { written, writtenIds, ackNow, staleDropped };
 };
 
 /**
@@ -743,7 +936,8 @@ const backfillOutboxEntries = async (
  * 「我丢了的消息」。
  *
  * 调用方拿到 written > 0 之后要自己 flush 一次收件箱（见文件头注：不在这里 flush
- * 是为了避免和 activeMsgRuntime 成环）。
+ * 是为了避免和 activeMsgRuntime 成环）。要跟用户报「补回了几条」的，还得拿 writtenIds
+ * 跟冲刷返回的落库名单对一次——写进收件箱不等于上了屏。
  */
 export const drainOutbox = async (
   options?: {
@@ -762,8 +956,7 @@ export const drainOutbox = async (
     if (!options?.treatBacklogAsMissed) return await adoptOutboxBacklog(entries);
     markOutboxAdopted();
   }
-  const { written, ackNow } = await backfillOutboxEntries(entries);
-  return { written, ackNow, entries };
+  return { ...await backfillOutboxEntries(entries), entries };
 };
 
 /**

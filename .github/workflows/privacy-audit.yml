@@ -115,8 +115,12 @@ jobs:
           # 1b. 线上产物核对：CI 审计的实例，就是用户浏览器真正在请求的那个
           #
           # 上面那两条只证明「文档 == Variables」，而 Variables 只是构建的输入。
-          # 用户实际加载的是 GitHub Pages 上那个 bundle —— 中间隔着一次构建。
+          # 用户实际加载的是 GitHub Pages 上那些文件 —— 中间隔着一次构建。
           # 所以这里直接把线上产物抓下来，在里面找这两个值。
+          #
+          # 具体怎么抓、为什么要抓全站而不是只看入口那一个文件，见脚本里的说明。
+          # 判定逻辑放在 scripts/ 下有测试守着（scripts/audit-online-bundle.test.ts），
+          # 省得它哪天悄悄退化成「只看一个文件、看不见就报没有」。
           #
           # 只在 Variables 读得到时跑：读不到就说明这是 fork 或没配统计的仓库，
           # 它的 Pages 上本来就不该有这些值，没有可核对的对象。
@@ -126,55 +130,28 @@ jobs:
             owner=${GITHUB_REPOSITORY%%/*}
             repo=${GITHUB_REPOSITORY##*/}
             PAGES="https://${owner}.github.io/${repo}/"
-            echo "  Pages: $PAGES"
+            echo "  Pages: $PAGES ｜ node $(node --version)"
 
-            tmp=$(mktemp -d)
-            entry=""
-            code=""
+            # 人看的进度走 stderr（直接落进日志），stdout 是给这里解析的 JSON。
+            bundle_json=$(node scripts/audit-online-bundle.mjs \
+              --base "$PAGES" \
+              --public-dir public \
+              --website-id "$WID" \
+              --script-url "$VAR_SCRIPT_URL") || true
 
-            # 改这个 workflow 的 push 会同时触发 deploy-pages（那条没有 paths 限制），
-            # 两边撞车时，index.html 指向的 chunk 可能正在被换掉，抓下来是 404。
-            # 所以「读 index → 抓 chunk」整个重试，每轮都重新读 index —— 部署一次
-            # chunk 名就变一次，只重试下载是没用的。
-            for attempt in 1 2 3; do
-              curl -sSL --max-time 20 "$PAGES" -o "$tmp/index.html" || true
-              entry=$(grep -oE 'assets/index-[A-Za-z0-9_-]+\.js' "$tmp/index.html" 2>/dev/null | head -1 || true)
-              if [[ -z "$entry" ]]; then
-                echo "  第 $attempt 次没能从 index.html 定位入口 chunk，等 20 秒重试"
-                sleep 20
-                continue
+            before=${#rows[@]}
+            while IFS=$'\t' read -r name expected actual; do
+              if [[ -n "$name" ]]; then
+                check "$name" "$expected" "$actual"
               fi
-              code=$(curl -sSL --max-time 60 -w '%{http_code}' "${PAGES}${entry}" -o "$tmp/bundle.js" || echo 000)
-              [[ "$code" == "200" ]] && break
-              echo "  第 $attempt 次抓 $entry 得到 $code，等 20 秒重试（多半是正撞上部署）"
-              sleep 20
-            done
+            done < <(printf '%s' "$bundle_json" | jq -r '.checks[]? | [.name, .expected, .actual] | @tsv' 2>/dev/null || true)
 
-            check "线上产物入口 chunk 可下载" "200" "${code:-（没定位到 chunk）}"
-
-            if [[ "$code" == "200" ]]; then
-              echo "  入口 chunk: $entry（$(wc -c < "$tmp/bundle.js") 字节）"
-
-              # ⚠️ 必须 grep 文件，不能写成 `printf '%s' "$bundle" | grep -qF ...`。
-              # grep -q 一匹配上就立刻退出，printf 随即被 SIGPIPE 打死，pipefail
-              # 把整个管道的退出码抬成 141 —— 于是「找到了」被判成「没找到」。
-              # 而真没找到时 grep 会读完全部输入、正常返回 1，同样是 no。
-              # 两条路都通向 no：那种写法下这条断言恒为假，一次都绿不了。
-              # （第一次上线就是这么红的，日志里那句 `printf: write error:
-              #   Broken pipe` 就是 grep 提前退出的证据 —— 换句话说，
-              #   那行报错本身证明了它其实找到了。）
-              hits=$(grep -cF "$WID" "$tmp/bundle.js" || true)
-              check "线上产物内含该站点 id" "yes" "$( (( ${hits:-0} > 0 )) && echo yes || echo no )"
-
-              # 产物里出现的 tracker 脚本地址去重后必须只有一个，且就是配的那个。
-              # 多出一个 = 页面上还挂着第二个上报端点，这必须被发现。
-              # （这条的管道是安全的：grep -oE 不会提前退出，会读完整个文件。）
-              got=$(grep -oE 'https://[A-Za-z0-9.-]+/script\.js' "$tmp/bundle.js" \
-                    | sort -u | paste -sd',' - || true)
-              check "线上产物内 tracker 地址唯一且相符" "$VAR_SCRIPT_URL" "${got:-（没找到）}"
+            # 脚本自己崩了 / 输出解析不出来时，上面那个循环一条都读不到，
+            # 于是「线上产物」这一整块悄无声息地消失，整份审计照样绿。
+            # 这种时候必须留下一条红的。
+            if (( ${#rows[@]} == before )); then
+              check "线上产物核对脚本跑通" "yes" "no（没有可解析的输出，看上面的报错）"
             fi
-
-            rm -rf "$tmp"
             echo
           fi
 

@@ -43,7 +43,8 @@ describe('buildAmsg2TaskContextText', () => {
     expect(text).toContain('schedule_active_message');
     expect(text).toContain('排成真任务'); // 嘴上许了就要排成真任务
     expect(text).toContain('不要只在正文里答应'); // 承诺不能只停在台词里
-    expect(text).toContain('优先排下来'); // 有自然联系的倾向时往执行侧推半步
+    expect(text).toContain('会就排');     // 真想联系就排
+    expect(text).toContain('随口一想');   // 拿不准的不排：每一条都要花一次 API
     expect(text).toContain('硬排');       // 人设优先，不为排而排
     expect(text).toContain('自己的日程'); // 内容从角色自己的生活里长出来
     expect(text).not.toContain('进行中：');
@@ -204,11 +205,16 @@ describe('collectAmsg2TaskContext 的送达证据窗口', () => {
   const CLIENT_TASK_ID = 'cid-morning';
   const TASK_UUID = 'aabbccdd-1111-4111-8111-111111111111';
 
-  /** 触发时刻（2h 前）+ 排程锚点（3h 前）。 */
+  /** 触发时刻（2h 前）+ 任务创建时刻（3h 前）。 */
   const occurrenceMs = NOW - 2 * H;
-  const anchorMs = NOW - 3 * H;
+  const createdAtMs = NOW - 3 * H;
 
-  /** 送达证据（这一次确实发出去了）在最老的位置，后面压着一大堆用户消息。 */
+  /**
+   * 送达证据（这一次确实发出去了）在最老的位置，后面压着一大堆用户消息。
+   *
+   * 用户消息落在触发时刻之后的热聊窗内——闸认的就是「到点前后十分钟在不在聊」，
+   * 落在窗外的话这一批根本不会被检出作废，两条用例都测不到想测的东西。
+   */
   const buildHistory = (chatterCount: number) => {
     const delivered = {
       id: 1, role: 'assistant', timestamp: occurrenceMs + 60_000,
@@ -216,7 +222,7 @@ describe('collectAmsg2TaskContext 的送达证据窗口', () => {
     };
     const chatter = Array.from({ length: chatterCount }, (_, i) => ({
       id: i + 2, role: 'user',
-      timestamp: NOW - H + i * 1_000,
+      timestamp: occurrenceMs + 2 * 60_000 + i * 1_000,
       metadata: {},
     }));
     return [delivered, ...chatter];
@@ -229,8 +235,8 @@ describe('collectAmsg2TaskContext 的送达证据窗口', () => {
       tasks: [{
         taskUuid: TASK_UUID, clientTaskId: CLIENT_TASK_ID, mode: 'auto',
         firstSendTime: new Date(occurrenceMs).toISOString(), recurrenceType: 'none',
-        expirePolicy: 'expire', anchorLastUserMsgAt: anchorMs,
-        source: 'character', status: 'scheduled', createdAt: anchorMs,
+        expirePolicy: 'expire',
+        source: 'character', status: 'scheduled', createdAt: createdAtMs,
       }],
     },
   } as unknown as CharacterProfile);

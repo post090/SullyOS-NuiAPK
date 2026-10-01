@@ -108,7 +108,7 @@ cron 到点
 | 期 | 内容 | 备注 |
 |----|------|------|
 | v1 | 状态表 + 同步层 + fire 时新鲜组装（无工具） | 满血的主要价值（新鲜上下文/情绪/多气泡）在这一期就兑现 |
-| v2 | 服务端工具循环：副作用 directive + 九个数据工具就地执行 | **已落地**。classifier 原样复用 instant 那份（`worker/instant-push/src/classifier.ts`）；决策纯逻辑在 `worker/amsg/src/agentic.ts`（旁白 / 副作用跨轮累积，finish 一起出），工具执行走共享的 `utils/agenticTools.ts` dispatch（搜索 / Notion / 飞书的 fetch 核心抽在 `utils/realtimeFetchCore.ts` 叶子里，前端 Manager 委托同一份）。副作用 directives 挂最后一条 push 的 metadata，收侧与 instant 共用重放 |
+| v2 | 服务端工具循环：副作用 directive + 九个数据工具就地执行 | **已落地**。classifier 原样复用 instant 那份（`worker/amsg/src/classifier.ts`）；决策纯逻辑在 `worker/amsg/src/agentic.ts`（旁白 / 副作用跨轮累积，finish 一起出），工具执行走共享的 `utils/agenticTools.ts` dispatch（搜索 / Notion / 飞书的 fetch 核心抽在 `utils/realtimeFetchCore.ts` 叶子里，前端 Manager 委托同一份）。副作用 directives 挂最后一条 push 的 metadata，收侧与 instant 共用重放 |
 
 ## 依赖与坑
 

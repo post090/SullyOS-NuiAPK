@@ -19,43 +19,35 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
  */
 
 import {
+    callMcpToolCore,
     createMcpSessionState,
+    discoverMcpToolsCore,
     normalizeMcpToolArguments,
     MCP_REQUEST_TIMEOUT_MS,
+    type McpFetchLike,
     type McpSessionState,
     type McpToolResult,
+    type McpTransportTarget,
     type McpFireServer,
 } from './mcpFireCore';
 import { isWorkerReachableUrl } from './amsgToolPack';
 
 export { MCP_REQUEST_TIMEOUT_MS, normalizeMcpToolArguments };
-
-// JSON-RPC 收发类型（mcpFireCore 里有同名定义但未导出——这里是浏览器侧自带的收发实现，
-// 各自维护 requestIdCounter，与 luckinMcpClient / mcdMcpClient 同样的模式）。
-interface McpJsonRpcRequest {
-    jsonrpc: '2.0';
-    method: string;
-    params?: any;
-    id?: number;
-}
-
-interface McpJsonRpcResponse {
-    jsonrpc: '2.0';
-    id?: number;
-    result?: any;
-    error?: { code: number; message: string; data?: any };
-}
-
-let requestIdCounter = 0;
-
-/** initialize 握手声明的协议版本（与 mcpFireCore 保持一致）。 */
-const MCP_PROTOCOL_VERSION = '2024-11-05';
 export type { McpToolResult };
 
 export interface McpToolDef {
     name: string;
+    title?: string;
     description?: string;
     inputSchema?: any;
+    outputSchema?: any;
+    annotations?: {
+        title?: string;
+        readOnlyHint?: boolean;
+        destructiveHint?: boolean;
+        idempotentHint?: boolean;
+        openWorldHint?: boolean;
+    };
 }
 
 export interface McpCustomHeader {
@@ -78,6 +70,13 @@ export interface McpServerConfig {
     enabled: boolean;
     /** 「发现工具」后持久化的工具清单（聊天注入直接读这里，不用每次握手） */
     tools?: McpToolDef[];
+    /** 最近一次真实握手的诊断快照；连接字段变化时会清掉，避免展示假绿灯。 */
+    lastConnection?: {
+        testedAt: number;
+        protocolVersion: string;
+        serverName?: string;
+        serverVersion?: string;
+    };
     /**
      * 绑定聊天：空/缺省 = 通用（所有私聊和群聊可用）；非空 = 只有这些角色/群聊能用。
      * 为兼容已有本地配置沿用 charIds 字段名，数组项也可以是 GroupProfile.id。
@@ -166,13 +165,26 @@ export const hasWorkerUnreachableMcpServer = (charId?: string): boolean =>
 export const collectMcpFireServers = (): McpFireServer[] =>
     loadMcpServers()
         .filter((s) => s.enabled && s.url && (s.tools?.length || 0) > 0 && isWorkerReachableUrl(s.url))
-        .map((s) => ({
-            id: s.id, name: s.name, url: s.url,
-            ...(s.token ? { token: s.token } : {}),
-            ...(s.customHeaders?.length ? { customHeaders: s.customHeaders } : {}),
-            ...(s.charIds?.length ? { charIds: s.charIds } : {}),
-            tools: (s.tools || []).map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
-        }));
+        .map((s) => {
+            // 无人值守的后台没有确认弹窗：服务端明确标成 destructive 的工具只留在
+            // 前台并自动询问，不把提示词当权限系统，也不额外暴露用户配置项。
+            const backgroundTools = (s.tools || []).filter((t) => t.annotations?.destructiveHint !== true);
+            return {
+                id: s.id, name: s.name, url: s.url,
+                ...(s.token ? { token: s.token } : {}),
+                ...(s.customHeaders?.length ? { customHeaders: s.customHeaders } : {}),
+                ...(s.charIds?.length ? { charIds: s.charIds } : {}),
+                tools: backgroundTools.map((t) => ({
+                    name: t.name,
+                    title: t.title,
+                    description: t.description,
+                    inputSchema: t.inputSchema,
+                    outputSchema: t.outputSchema,
+                    annotations: t.annotations,
+                })),
+            };
+        })
+        .filter((s) => s.tools.length > 0);
 
 // ── 备份用：随「设置 → 导出/导入备份」一起带走（存 localStorage） ──
 export function exportMcpLocal(): Record<string, string> | undefined {
@@ -226,6 +238,7 @@ export const buildMcpFetchUrl = (server: Pick<McpServerConfig, 'url' | 'proxyUrl
 export const buildMcpRequestHeaders = (
     server: Pick<McpServerConfig, 'token' | 'customHeaders' | 'proxyUrl' | 'proxyKey'>,
     sessionId?: string | null,
+    protocolVersion?: string | null,
 ): Headers => {
     const headers = new Headers({
         'Content-Type': 'application/json',
@@ -247,257 +260,86 @@ export const buildMcpRequestHeaders = (
     if (server.proxyUrl && server.proxyKey) headers.set('X-Proxy-Key', server.proxyKey);
     if (server.proxyUrl && customNames.length) headers.set('X-MCP-Forward-Headers', customNames.join(','));
     if (sessionId) headers.set('Mcp-Session-Id', sessionId);
+    if (protocolVersion) headers.set('MCP-Protocol-Version', protocolVersion);
     return headers;
-};
-
-const buildRequest = (method: string, params?: any, isNotification = false): McpJsonRpcRequest => {
-    const req: McpJsonRpcRequest = { jsonrpc: '2.0', method, params };
-    if (!isNotification) req.id = ++requestIdCounter;
-    return req;
-};
-
-const parseSse = (text: string): McpJsonRpcResponse | null => {
-    const dataLines: string[] = [];
-    for (const line of text.split('\n')) {
-        if (line.startsWith('data: ')) dataLines.push(line.slice(6));
-        else if (line.startsWith('data:')) dataLines.push(line.slice(5));
-    }
-    for (let i = dataLines.length - 1; i >= 0; i--) {
-        try { return JSON.parse(dataLines[i]); } catch { /* try previous */ }
-    }
-    return null;
-};
-
-const parseResp = (text: string, contentType: string): McpJsonRpcResponse => {
-    if (contentType.includes('text/event-stream') || /^\s*(event:|data:)/.test(text)) {
-        const parsed = parseSse(text);
-        if (parsed) return parsed;
-    }
-    try { return JSON.parse(text); } catch {
-        const m = text.match(/\{[\s\S]*\}/);
-        if (m) { try { return JSON.parse(m[0]); } catch { /* fall through */ } }
-        throw new Error(`MCP: 无法解析响应: ${text.slice(0, 300)}`);
-    }
-};
-
-/** Streamable HTTP 的 SSE 可能保持连接；读到当前 JSON-RPC id 的结果即可返回。 */
-const readSseResponse = async (resp: Response, expectedId: number | string | undefined): Promise<McpJsonRpcResponse> => {
-    const reader = resp.body?.getReader();
-    if (!reader) return parseResp(await resp.text(), 'text/event-stream');
-    const decoder = new TextDecoder();
-    let buffer = '';
-    const parseEvent = (event: string): McpJsonRpcResponse | null => {
-        const data = event.split(/\r?\n/)
-            .filter(line => line.startsWith('data:'))
-            .map(line => line.slice(5).trimStart())
-            .join('\n');
-        if (!data || data === '[DONE]') return null;
-        try {
-            const parsed = JSON.parse(data) as McpJsonRpcResponse;
-            return expectedId == null || parsed.id === expectedId ? parsed : null;
-        } catch { return null; }
-    };
-    try {
-        while (true) {
-            const { done, value } = await reader.read();
-            buffer += decoder.decode(value, { stream: !done });
-            const events = buffer.split(/\r?\n\r?\n/);
-            buffer = events.pop() || '';
-            for (const event of events) {
-                const parsed = parseEvent(event);
-                if (parsed) return parsed;
-            }
-            if (done) {
-                const parsed = parseEvent(buffer);
-                if (parsed) return parsed;
-                throw new Error('MCP SSE 流结束，但没有收到本次请求的响应');
-            }
-        }
-    } finally {
-        await reader.cancel().catch(() => { /* 已结束或已 abort */ });
-    }
 };
 
 const isNativePlatform = (): boolean => {
     try { return Capacitor.isNativePlatform(); } catch { return false; }
 };
 
-// CapacitorHttp 对 JSON 响应可能已自动解析成对象，对 SSE/文本则是字符串。统一兜底成 McpJsonRpcResponse。
-const parseCapacitorBody = (data: any, contentType: string): McpJsonRpcResponse => {
-    if (data && typeof data === 'object') return data as McpJsonRpcResponse;
-    const text = typeof data === 'string' ? data : String(data ?? '');
-    return parseResp(text, contentType);
-};
-
-const post = async (
-    server: McpServerConfig,
-    body: McpJsonRpcRequest,
-    expectResponse = true,
-): Promise<{ response: McpJsonRpcResponse | null }> => {
-    const session = getSession(server.id);
-    const headers = buildMcpRequestHeaders(server, session.sessionId);
-
-    // 原生平台（Android/iOS WebView）走 CapacitorHttp：用系统 HTTP 栈绕过浏览器 CORS，
-    // 也能正常读到 Mcp-Session-Id 响应头。代价：不支持流式，整包响应一次拿回——
-    // initialize/tools/list/tools/call 的答复通常一坨就回来，parseCapacitorBody 解析即可。
-    // 极少数用 SSE 长连接挂着不关流的服务器可能等到超时；这是 CapacitorHttp 的固有限制，
-    // 但比之前手机上 MCP 被 CORS 挡死强得多。
-    if (isNativePlatform()) {
-        const url = buildMcpFetchUrl(server);
-        let timeoutId: ReturnType<typeof setTimeout> | undefined;
-        const timeoutPromise = new Promise<never>((_, reject) => {
-            timeoutId = setTimeout(() => reject(new Error(`MCP 请求超时（${Math.round(MCP_REQUEST_TIMEOUT_MS / 1000)} 秒）`)), MCP_REQUEST_TIMEOUT_MS);
-        });
-        try {
-            const headersObj: Record<string, string> = {};
-            headers.forEach((value, key) => { headersObj[key] = value; });
-            let r: { status: number; headers: Record<string, string>; data: any };
-            try {
-                r = await Promise.race([
-                    CapacitorHttp.request({
-                        url,
-                        method: 'POST',
-                        headers: headersObj,
-                        data: body,
-                    }),
-                    timeoutPromise,
-                ]) as { status: number; headers: Record<string, string>; data: any };
-            } catch (e: any) {
-                throw new Error(`MCP 请求失败: ${e?.message || e}。`);
-            }
-            const respHeaders: Record<string, string> = r.headers || {};
-            const getHeader = (name: string): string | null => {
-                const lower = name.toLowerCase();
-                for (const k of Object.keys(respHeaders)) {
-                    if (k.toLowerCase() === lower) return respHeaders[k];
-                }
-                return null;
-            };
-            const newSid = getHeader('Mcp-Session-Id');
-            if (newSid) session.sessionId = newSid;
-            if (r.status === 401 || r.status === 403) {
-                throw new Error(`MCP 鉴权失败 (${r.status}): Token 可能无效或过期。${String(r.data ?? '').slice(0, 120)}`);
-            }
-            if (r.status === 202) return { response: null };
-            if (r.status < 200 || r.status >= 300) {
-                throw new Error(`MCP HTTP ${r.status}: ${String(r.data ?? '').slice(0, 200)}`);
-            }
-            if (!expectResponse) return { response: null };
-            const ct = getHeader('Content-Type') || getHeader('content-type') || '';
-            return { response: parseCapacitorBody(r.data, ct) };
-        } finally {
-            if (timeoutId) clearTimeout(timeoutId);
+/**
+ * 原生平台（Android/iOS WebView）的 MCP 传输：CapacitorHttp 走系统 HTTP 栈，
+ * 绕过 WebView 的 CORS 限制、也能正常读到 Mcp-Session-Id 响应头。以 fetchImpl
+ * 注入 mcpFireCore（core 是环境无关叶子、不能 import Capacitor，所以由浏览器侧
+ * 把传输递进去），JSON/SSE 解析、session、超时、400/404 重握手全部复用 core。
+ * 代价：CapacitorHttp 不支持流式，整包响应一次拿回——initialize/tools/list/
+ * tools/call 的答复通常一坨就回来；极少数 SSE 长连接挂着不关流的服务器会等到
+ * 超时（signal abort 传导给 core 统一报「请求超时」），但比手机上被 CORS 挡死强。
+ */
+const nativeMcpFetch: McpFetchLike = (url, init) =>
+    new Promise<Response>((resolve, reject) => {
+        const signal = init.signal;
+        if (signal?.aborted) {
+            reject(new Error('aborted'));
+            return;
         }
-    }
+        const onAbort = () => reject(new Error('MCP 请求超时'));
+        signal?.addEventListener('abort', onAbort, { once: true });
 
-    let resp: Response;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), MCP_REQUEST_TIMEOUT_MS);
-    try {
-        try {
-            resp = await fetch(buildMcpFetchUrl(server), {
-                method: 'POST', headers, body: JSON.stringify(body), signal: controller.signal,
-            });
-        } catch (e: any) {
-            if (controller.signal.aborted) {
-                throw new Error(`MCP 请求超时（${Math.round(MCP_REQUEST_TIMEOUT_MS / 1000)} 秒）`);
-            }
-            // 直连时 fetch 抛 TypeError 十有八九是 CORS，把排查方向直接告诉用户
-            const hint = server.proxyUrl
-                ? '请检查代理 URL 是否可访问、代理密钥是否正确。'
-                : '很可能是浏览器 CORS 限制。请在这个服务器的「代理 URL」里配置代理（本地 node scripts/mcp-proxy.mjs 或自部署 worker/mcp-proxy）。';
-            throw new Error(`MCP 请求失败: ${e?.message || e}。${hint}`);
-        }
+        const headersObj: Record<string, string> = {};
+        const h = init.headers;
+        if (h instanceof Headers) h.forEach((v, k) => { headersObj[k] = v; });
+        else if (h) Object.assign(headersObj, h);
+        // CapacitorHttp 拿到对象会按 JSON 序列化；body 本来就是 JSON 字符串，解回去再发
+        let data: any;
+        try { data = JSON.parse(init.body); } catch { data = init.body; }
 
-        // fetch 拿到响应头不代表 SSE 响应体已经结束；DeepWiki / 代理若一直不关流，
-        // resp.text() 同样必须受同一个超时控制。
-        const readText = async (): Promise<string> => {
-            try { return await resp.text(); }
-            catch (e) {
-                if (controller.signal.aborted) {
-                    throw new Error(`MCP 请求超时（${Math.round(MCP_REQUEST_TIMEOUT_MS / 1000)} 秒）`);
-                }
-                throw e;
-            }
-        };
-
-        const newSid = resp.headers.get('Mcp-Session-Id') || resp.headers.get('mcp-session-id');
-        if (newSid) session.sessionId = newSid;
-
-        if (resp.status === 401 || resp.status === 403) {
-            const txt = await readText().catch(() => '');
-            throw new Error(`MCP 鉴权失败 (${resp.status}): Token 可能无效或过期。${txt.slice(0, 120)}`);
-        }
-        if (resp.status === 202) return { response: null };
-        if (!resp.ok) {
-            const txt = await readText().catch(() => '');
-            throw new Error(`MCP HTTP ${resp.status}: ${txt.slice(0, 200)}`);
-        }
-        if (!expectResponse) return { response: null };
-
-        const ct = resp.headers.get('content-type') || '';
-        try {
-            if (ct.includes('text/event-stream')) {
-                return { response: await readSseResponse(resp, body.id) };
-            }
-            const text = await readText();
-            return { response: parseResp(text, ct) };
-        } catch (e) {
-            if (controller.signal.aborted) {
-                throw new Error(`MCP 请求超时（${Math.round(MCP_REQUEST_TIMEOUT_MS / 1000)} 秒）`);
-            }
-            throw e;
-        }
-    } finally {
-        clearTimeout(timeoutId);
-    }
-};
-
-const doInitialize = async (server: McpServerConfig): Promise<void> => {
-    const session = getSession(server.id);
-    const initReq = buildRequest('initialize', {
-        protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: {},
-        clientInfo: { name: 'SullyOS-MCP', version: '1.0.0' },
+        CapacitorHttp.request({
+            url,
+            method: 'POST',
+            headers: headersObj,
+            data,
+        }).then(
+            (r: { status: number; headers: Record<string, string>; data: any }) => {
+                signal?.removeEventListener('abort', onAbort);
+                // CapacitorHttp 对 JSON 响应可能已自动解析成对象，SSE/文本则是字符串；
+                // 统一转回字符串装进标准 Response，core 的 JSON/SSE 解析不用分叉。
+                const dataStr = typeof r.data === 'string' ? r.data : (r.data == null ? '' : JSON.stringify(r.data));
+                const respHeaders = new Headers();
+                for (const [k, v] of Object.entries(r.headers || {})) respHeaders.set(k, String(v));
+                resolve(new Response(dataStr, { status: r.status, headers: respHeaders }));
+            },
+            (e: any) => {
+                signal?.removeEventListener('abort', onAbort);
+                reject(new Error(e?.message || String(e)));
+            },
+        );
     });
-    const { response } = await post(server, initReq);
-    if (response?.error) throw new Error(`Initialize 失败: ${response.error.message}`);
 
-    // 直连模式下读不到 Session-Id 说明 CORS 没暴露响应头（服务器可能有会话但我们拿不到），
-    // Streamable HTTP 无状态服务器也可能压根不发。这里不硬报错：tools/list 能通就算能用。
-    const notif = buildRequest('notifications/initialized', {}, true);
-    await post(server, notif, false).catch(() => { /* notification 失败不阻塞 */ });
-
-    session.initialized = true;
-};
-
-const ensureInitialized = async (server: McpServerConfig): Promise<void> => {
-    const session = getSession(server.id);
-    if (session.initialized) return;
-    if (!session.initPromise) {
-        session.initPromise = doInitialize(server).catch((e) => {
-            session.initPromise = null;
-            throw e;
-        });
-    }
-    await session.initPromise;
-};
+/** 一次请求的目标：代理包装和请求头都是浏览器侧独有的，在这里落地后交给 core。 */
+const targetFor = (server: McpServerConfig): McpTransportTarget => ({
+    url: buildMcpFetchUrl(server),
+    headers: (sessionId, protocolVersion) => buildMcpRequestHeaders(server, sessionId, protocolVersion),
+    // 直连时 fetch 抛 TypeError 十有八九是 CORS，把排查方向直接告诉用户
+    fetchErrorHint: server.proxyUrl
+        ? '请检查代理 URL 是否可访问、代理密钥是否正确。'
+        : '很可能是浏览器 CORS 限制。请在这个服务器的「代理 URL」里配置代理（本地 node scripts/mcp-proxy.mjs 或自部署 worker/mcp-proxy）。',
+    // 原生平台注入 CapacitorHttp 传输；web 侧留空走 core 的全局 fetch
+    ...(isNativePlatform() ? { fetchImpl: nativeMcpFetch } : {}),
+});
 
 // ========== 公开 API ==========
 
 /** 握手 + tools/list。调用方负责把返回的工具清单存回 McpServerConfig.tools */
-export const discoverMcpTools = async (server: McpServerConfig): Promise<McpToolDef[]> => {
+export type McpConnectionStage = 'initialize' | 'tools';
+
+export const discoverMcpTools = async (
+    server: McpServerConfig,
+    onStage?: (stage: McpConnectionStage) => void,
+): Promise<McpToolDef[]> => {
     resetMcpSession(server.id);
-    await ensureInitialized(server);
-    const { response } = await post(server, buildRequest('tools/list'));
-    if (response?.error) throw new Error(`tools/list 失败: ${response.error.message}`);
-    const tools = response?.result?.tools;
-    if (!Array.isArray(tools)) return [];
-    return tools.map((t: any) => ({
-        name: t.name,
-        description: t.description || '',
-        inputSchema: t.inputSchema || t.input_schema || { type: 'object', properties: {} },
-    }));
+    return discoverMcpToolsCore(targetFor(server), getSession(server.id), MCP_REQUEST_TIMEOUT_MS, { onStage });
 };
 
 /**
@@ -508,65 +350,60 @@ export const callMcpTool = async (
     toolName: string,
     args: Record<string, any> = {},
 ): Promise<McpToolResult> => {
-    const inputSchema = (server.tools || []).find(tool => tool.name === toolName)?.inputSchema;
-    const normalizedArgs = normalizeMcpToolArguments(args, inputSchema);
-    const finish = (result: McpToolResult): McpToolResult => {
-        let resultPreview = '';
-        if (result.success) {
-            try { resultPreview = JSON.stringify(result.data).slice(0, 800); }
-            catch { resultPreview = String(result.data).slice(0, 800); }
-        }
-        console.info('🔌 [MCP] tools/call 完成', {
-            server: server.name,
-            tool: toolName,
-            args: normalizedArgs,
-            success: result.success,
-            ...(result.success ? { result: resultPreview } : { error: result.error }),
-        });
-        return result;
-    };
-    try {
-        await ensureInitialized(server);
-        const body = buildRequest('tools/call', { name: toolName, arguments: normalizedArgs });
-        let response: McpJsonRpcResponse | null;
-        try {
-            ({ response } = await post(server, body));
-        } catch (e: any) {
-            // 404/400 常见于服务器重启后 session 失效，重握手再试一次
-            if (/HTTP (400|404)/.test(e?.message || '')) {
-                resetMcpSession(server.id);
-                await ensureInitialized(server);
-                ({ response } = await post(server, buildRequest('tools/call', { name: toolName, arguments: normalizedArgs })));
-            } else {
-                throw e;
-            }
-        }
-        if (!response) return finish({ success: false, error: '空响应' });
-        if (response.error) return finish({ success: false, error: `MCP 错误 [${response.error.code}]: ${response.error.message}` });
-
-        const result = response.result;
-        if (result?.content && Array.isArray(result.content)) {
-            const textParts = result.content.filter((c: any) => c?.type === 'text').map((c: any) => c.text || '');
-            const fullText = textParts.join('\n').trim();
-            if (result.isError) return finish({ success: false, error: fullText || 'MCP 工具执行失败', rawText: fullText });
-            try {
-                return finish({ success: true, data: JSON.parse(fullText), rawText: fullText });
-            } catch {
-                return finish({ success: true, data: fullText, rawText: fullText });
-            }
-        }
-        return finish({ success: true, data: result });
-    } catch (e: any) {
-        return finish({ success: false, error: e?.message || String(e) });
+    // 前台才有的确认弹窗：服务端明确标成 destructive 的工具先问用户；
+    // 无人值守的后台 fire 不走这里，collectMcpFireServers 已把这类工具剔除。
+    const tool = (server.tools || []).find(item => item.name === toolName);
+    if (tool?.annotations?.destructiveHint === true && typeof window !== 'undefined') {
+        let argsPreview = '';
+        try { argsPreview = JSON.stringify(args, null, 2).slice(0, 600); }
+        catch { argsPreview = String(args).slice(0, 600); }
+        const approved = window.confirm(
+            `Sully 想通过「${server.name || '未命名服务器'}」调用 ${tool?.title || toolName}。\n\n` +
+            `${argsPreview || '这次调用没有参数。'}\n\n允许这一次吗？`,
+        );
+        if (!approved) return { success: false, error: '用户拒绝了这次 MCP 调用。' };
     }
+    return callMcpToolCore(targetFor(server), getSession(server.id), toolName, args, {
+        inputSchema: tool?.inputSchema,
+        serverLabel: server.name,
+    });
 };
 
 /** 测试连接: 验证握手 + tools/list 能通，返回工具清单供持久化 */
-export const testMcpConnection = async (server: McpServerConfig): Promise<{ ok: boolean; message: string; tools?: McpToolDef[] }> => {
+export const testMcpConnection = async (
+    server: McpServerConfig,
+    onStage?: (stage: McpConnectionStage) => void,
+): Promise<{
+    ok: boolean;
+    message: string;
+    tools?: McpToolDef[];
+    connection?: NonNullable<McpServerConfig['lastConnection']>;
+}> => {
     try {
-        const tools = await discoverMcpTools(server);
-        if (!tools.length) return { ok: true, message: '已连接, 但工具清单为空', tools };
-        return { ok: true, message: `已连接, 发现 ${tools.length} 个工具: ${tools.map(t => t.name).slice(0, 8).join('、')}${tools.length > 8 ? '…' : ''}`, tools };
+        const tools = await discoverMcpTools(server, onStage);
+        const session = getSession(server.id);
+        const info = session.serverInfo;
+        const connection: NonNullable<McpServerConfig['lastConnection']> = {
+            testedAt: Date.now(),
+            protocolVersion: session.protocolVersion || '未知',
+            ...(info?.title || info?.name ? { serverName: info.title || info.name } : {}),
+            ...(info?.version ? { serverVersion: info.version } : {}),
+        };
+        const serverLabel = connection.serverName
+            ? `${connection.serverName}${connection.serverVersion ? ` ${connection.serverVersion}` : ''}`
+            : '服务器';
+        if (!tools.length) return {
+            ok: true,
+            message: `${serverLabel}已响应 · 协议 ${connection.protocolVersion} · 工具清单为空`,
+            tools,
+            connection,
+        };
+        return {
+            ok: true,
+            message: `${serverLabel}已响应 · 协议 ${connection.protocolVersion} · 发现 ${tools.length} 个工具`,
+            tools,
+            connection,
+        };
     } catch (e: any) {
         return { ok: false, message: e?.message || String(e) };
     }

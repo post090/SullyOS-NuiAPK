@@ -16,6 +16,7 @@
  */
 
 import { PLATE_CONSOLIDATE_RESULT_KIND } from './amsgPlateJob';
+import { SCHEDULE_CHANGE_RESULT_KIND } from './amsgScheduleResult';
 
 const HEADER = '[amsg2:result]';
 
@@ -41,7 +42,7 @@ let dispatchChain: Promise<unknown> = Promise.resolve();
  *
  * 队是全局一条、所有 resultKind 共用的，所以「卡住」的代价不是这一条晚落地，而是**后面
  * 每一条都永远排不上**。而 handler 干的是 IndexedDB 的活儿：连接被别的标签页 block 住
- * （instant push 那次超时的连接风暴就是这么来的）、事务卡在那儿不 settle，都是真实发生
+ * （IndexedDB 连接风暴时就出过这种事）、事务卡在那儿不 settle，都是真实发生
  * 过的形态，promise 一辈子不 resolve。超时之后按「这条没处理成」算——账不销，下次上线
  * 还会拉回来重试；卡住那次的活儿还在后台跑，但至少不再挡着别人。
  *
@@ -108,6 +109,10 @@ const dispatchOne = async (payload: unknown, context?: AmsgResultContext): Promi
       case PLATE_CONSOLIDATE_RESULT_KIND: {
         const { applyPlateConsolidateResult } = await import('./memoryPalace/roomPlateCloud');
         return await applyPlateConsolidateResult(payload, context);
+      }
+      case SCHEDULE_CHANGE_RESULT_KIND: {
+        const { applyScheduleChangeResult } = await import('./amsgScheduleResultApply');
+        return await applyScheduleChangeResult(payload, context);
       }
       default:
         // 认不出来的多半是**前端比 worker 旧**：worker 可以脱开前端单独更新（fork 的

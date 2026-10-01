@@ -487,7 +487,7 @@ export const buildPrompt = (
     contextSegments: NovelSegment[],
     characters: CharacterProfile[]
 ) => {
-    const coreContext = ContextBuilder.buildCoreContext(char, userProfile, true);
+
     const writerPersona = char.writerPersona || analyzeWriterPersonaSimple(char);
     const fewShot = getFewShotExamples(char);
     const extractedTaboos = extractWritingTaboos(char); 
@@ -501,7 +501,7 @@ ${protagonistContext}
 `;
     
     const systemPrompt = `
-${coreContext}
+
 
 # 当前模式：小说共创 (Co-Writing Mode)
 你正在与 **${userProfile.name}** (用户) 合作撰写小说。

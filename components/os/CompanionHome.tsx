@@ -18,7 +18,7 @@ import {
   UploadSimple,
 } from '@phosphor-icons/react';
 import { useOS } from '../../context/OSContext';
-import { AppID, type AvatarTouchRegion, type CompanionStartupSettings, type CompanionTouchReaction, type DailySchedule } from '../../types';
+import { AppID, type AvatarTouchRegion, type CompanionStartupSettings, type CompanionTouchReaction, type CompanionTouchSettings, type DailySchedule } from '../../types';
 import { Icons, INSTALLED_APPS } from '../../constants';
 import VRMVideoCallStage from '../call/VRMVideoCallStage';
 import { ScheduleFullscreenViewer } from '../schedule/ScheduleHomeWidget';
@@ -53,18 +53,18 @@ import {
   type AvatarStageFraming,
 } from '../../utils/avatarPerformance';
 import { deleteBlobRef, deleteBlobRefIfUnreferenced, isBlobRef, putImageBlob, useBlobRefUrl } from '../../utils/blobRef';
+import TokenImg from './TokenImg';
 import { hslToHex, hueFromGradient, hueFromImage, normalizeHue } from '../../utils/dominantHue';
 import { characterHasVoice } from '../../utils/ttsRouter';
 import { CallAudioFeed } from '../../utils/callAudioFeed';
-import { VOICE_LANGUAGE_OPTIONS, voiceLanguageLabel } from '../../utils/voiceLanguage';
+import { VOICE_LANGUAGE_OPTIONS, voiceLanguageAnalyticsValue, voiceLanguageLabel } from '../../utils/voiceLanguage';
 import {
-  cleanupAvatarTouchVoiceAssets,
   generateCompanionStartupVoice,
-  collectAvatarTouchVoiceAssetIds,
   createAvatarTouchVoiceUrl,
   generateAvatarTouchVoicePack,
 } from '../../utils/avatarTouchVoice';
 import { DB } from '../../utils/db';
+import { isChatPreviewMessage } from '../../utils/chatMessageVisibility';
 import { getLastInnerState } from '../../utils/emotionApply';
 import { getFlowNarrativeKey } from '../../utils/scheduleFeature';
 import { getDailyScheduleForChar } from '../../utils/dailySchedule';
@@ -129,6 +129,16 @@ import {
   resolveCompanionPortrait,
 } from '../../utils/companionAvatar';
 import { trackEvent } from '../../utils/analytics';
+import {
+  activateCompanionStartupPreset,
+  activateCompanionTouchPreset,
+  collectCompanionVoiceAssetIds,
+  removeCompanionStartupPreset,
+  removeCompanionTouchPreset,
+  saveCompanionStartupPreset,
+  saveCompanionTouchPreset,
+} from '../../utils/companionPresets';
+import { deleteCompanionVoiceBlob } from '../../utils/companionVoiceAssets';
 
 // ── 时段氛围：陪伴桌面按虚拟时间换天色（晨曦 / 白日 / 黄昏 / 夜晚）──
 interface DayPeriod {
@@ -446,6 +456,10 @@ const CompanionHome: React.FC = () => {
   const [startupPerformanceCuePhase, setStartupPerformanceCuePhase] = useState<'start' | 'end'>('start');
   const [startupActionGenerating, setStartupActionGenerating] = useState(false);
   const [startupVoiceGenerating, setStartupVoiceGenerating] = useState(false);
+  const [startupPresetName, setStartupPresetName] = useState('');
+  const [touchPresetName, setTouchPresetName] = useState('');
+  const [selectedStartupPresetId, setSelectedStartupPresetId] = useState('');
+  const [selectedTouchPresetId, setSelectedTouchPresetId] = useState('');
   const [stageReady, setStageReady] = useState(() => staticCompanionActive || !character?.videoAvatar);
   const [stageCurtainPhase, setStageCurtainPhase] = useState<CompanionStageCurtainPhase>(() => (
     !staticCompanionActive && character?.videoAvatar ? 'covered' : 'hidden'
@@ -533,16 +547,17 @@ const CompanionHome: React.FC = () => {
       return () => { cancelled = true; };
     }
     void Promise.all([
-      DB.getRecentMessagesByCharId(character.id, 12, true),
-      getDailyScheduleForChar(character),
-    ]).then(([messages, schedule]) => {
-      if (cancelled) return;
-      const latestAssistant = [...messages].reverse().find(message =>
-        message.role === 'assistant'
+      DB.getRecentMessagesWithCount(character.id, 1, message =>
+        isChatPreviewMessage(message)
+        && message.role === 'assistant'
         && (!message.type || message.type === 'text')
         && typeof message.content === 'string'
-        && message.content.trim(),
-      );
+        && !!message.content.trim(),
+      ),
+      getDailyScheduleForChar(character),
+    ]).then(([recent, schedule]) => {
+      if (cancelled) return;
+      const latestAssistant = recent.messages[0];
       const scheduleThought = schedule?.flowNarrative?.[
         getFlowNarrativeKey(getScheduleWallClock(character).getHours())
       ];
@@ -590,17 +605,19 @@ const CompanionHome: React.FC = () => {
   };
 
   // ── 主色跟角色走：从头像提取主色相（跟电子宠物小窝同一套提取器）──
+  // 头像存的是 blobref 令牌，令牌喂给 new Image() 只会静默加载失败（取色器 onerror → null），
+  // 所以先解析成可加载的 URL 再取色（跟下面背景取色同一套路）。令牌没解析完时是 undefined，跳过。
+  const avatarImageUrl = useBlobRefUrl(character?.avatar);
   const [charHue, setCharHue] = useState<number | null>(null);
   useEffect(() => {
     let cancelled = false;
     setCharHue(null);
-    const source = character?.avatar;
-    if (!source) return;
-    void hueFromImage(source).then(hue => {
+    if (!avatarImageUrl) return;
+    void hueFromImage(avatarImageUrl).then(hue => {
       if (!cancelled && hue !== null) setCharHue(((Math.round(hue) % 360) + 360) % 360);
     });
     return () => { cancelled = true; };
-  }, [character?.id, character?.avatar]);
+  }, [avatarImageUrl]);
 
   // ── 背景：preset:<id> / blobref / http 直链；空 = 时段天光 ──
   const background = character?.companionBackground;
@@ -699,7 +716,7 @@ const CompanionHome: React.FC = () => {
 
   useEffect(() => {
     // StrictMode 会「装载→卸载→再装载」跑一遍 effect：cleanup 把 mounted 打成
-    // false 后必须在 effect 体里设回 true，否则 dev 下开机演出和触碰回应全被吞。
+    // false 后必须在 effect 体里设回 true，否则 dev 下开场演出和触碰回应全被吞。
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
@@ -732,6 +749,16 @@ const CompanionHome: React.FC = () => {
     setTouchVoiceProgress(null);
     setTouchGenerateVoice(Boolean(character?.companionTouchSettings?.voiceEnabled));
     setTouchVoiceLanguage(character?.companionTouchSettings?.voiceLanguage || '');
+    const activeStartupPreset = character?.companionTouchSettings?.startupPresets?.find(
+      preset => preset.id === character.companionTouchSettings?.activeStartupPresetId,
+    );
+    const activeTouchPreset = character?.companionTouchSettings?.touchPresets?.find(
+      preset => preset.id === character.companionTouchSettings?.activeTouchPresetId,
+    );
+    setSelectedStartupPresetId(activeStartupPreset?.id || '');
+    setStartupPresetName(activeStartupPreset?.name || '');
+    setSelectedTouchPresetId(activeTouchPreset?.id || '');
+    setTouchPresetName(activeTouchPreset?.name || '');
     const startup = character?.companionTouchSettings?.startup;
     setStartupEnabled(Boolean(startup?.enabled));
     setStartupLine(startup?.line || '');
@@ -841,7 +868,7 @@ const CompanionHome: React.FC = () => {
         return;
       }
       setStartupHeadLocked(true);
-      setLine({ text, translation: translation || undefined, label: '开机自启', kind: 'startup' });
+      setLine({ text, translation: translation || undefined, label: '开场演出', kind: 'startup' });
       setPerformance(normalizeCompanionStartupPerformance(cues?.[0]?.direction || startup.performance));
       setMotionState('speaking');
       scheduleCompanionPerformanceCues(cues, companionLineFallbackDuration(text.length));
@@ -892,7 +919,7 @@ const CompanionHome: React.FC = () => {
       : activeCompanionSource === 'upload'
         ? listUploadedCompanionOutfits(character?.companionAvatar).map(outfit => ({
             id: outfit.imageRef,
-            name: outfit.fileName || '静态图片',
+            name: outfit.fileName || '图片 / GIF',
             preview: outfit.imageRef,
             expressionCount: 1,
           }))
@@ -996,7 +1023,7 @@ const CompanionHome: React.FC = () => {
       || (item.dateSkinSets || []).some(skin => Object.values(skin.sprites).includes(imageRef))
     ));
     if (!usedElsewhere) await deleteBlobRefIfUnreferenced(imageRef);
-    addToast(`${removed.fileName || '静态图片'} 已从衣橱删除${usedElsewhere ? '（共享图片文件仍保留）' : ''}`, 'success');
+    addToast(`${removed.fileName || '图片 / GIF'} 已从衣橱删除${usedElsewhere ? '（共享图片文件仍保留）' : ''}`, 'success');
   };
 
   const deleteWardrobeAction = async (actionId: string) => {
@@ -1253,6 +1280,16 @@ const CompanionHome: React.FC = () => {
     );
     setTouchGenerateVoice(Boolean(character?.companionTouchSettings?.voiceEnabled));
     setTouchVoiceLanguage(character?.companionTouchSettings?.voiceLanguage || '');
+    const activeStartupPreset = character?.companionTouchSettings?.startupPresets?.find(
+      preset => preset.id === character.companionTouchSettings?.activeStartupPresetId,
+    );
+    const activeTouchPreset = character?.companionTouchSettings?.touchPresets?.find(
+      preset => preset.id === character.companionTouchSettings?.activeTouchPresetId,
+    );
+    setSelectedStartupPresetId(activeStartupPreset?.id || '');
+    setStartupPresetName(activeStartupPreset?.name || '');
+    setSelectedTouchPresetId(activeTouchPreset?.id || '');
+    setTouchPresetName(activeTouchPreset?.name || '');
     const startup = character?.companionTouchSettings?.startup;
     setStartupEnabled(Boolean(startup?.enabled));
     setStartupLine(startup?.line || '');
@@ -1267,6 +1304,7 @@ const CompanionHome: React.FC = () => {
   };
 
   const toggleTouchZone = (zone: AvatarTouchZone) => {
+    setSelectedTouchPresetId('');
     setTouchDraftZones(current => (
       current.includes(zone)
         ? current.filter(item => item !== zone)
@@ -1274,7 +1312,107 @@ const CompanionHome: React.FC = () => {
     ));
   };
 
+  const companionTouchSettingsBase = (): CompanionTouchSettings => ({
+    enabledZones: character?.companionTouchSettings?.enabledZones || DEFAULT_COMPANION_TOUCH_ZONES,
+    reactions: character?.companionTouchSettings?.reactions || {},
+    ...character?.companionTouchSettings,
+  });
+
+  const cleanupUnreferencedCompanionVoices = (
+    before: CompanionTouchSettings | undefined,
+    after: CompanionTouchSettings | undefined,
+  ) => {
+    const keep = collectCompanionVoiceAssetIds(after);
+    collectCompanionVoiceAssetIds(before).forEach(assetId => {
+      if (!keep.has(assetId)) {
+        void deleteCompanionVoiceBlob(assetId).catch(error => {
+          console.warn('[companion] unused preset voice cleanup skipped:', error);
+        });
+      }
+    });
+  };
+
+  const loadStartupDraft = (startup?: CompanionStartupSettings) => {
+    setStartupEnabled(Boolean(startup?.enabled));
+    setStartupLine(startup?.line || '');
+    setStartupTranslation(startup?.translation || '');
+    setStartupVoiceLanguage(startup?.voiceLanguage || '');
+    setStartupPerformance(normalizeCompanionStartupPerformance(startup?.performance));
+    setStartupPerformanceCues((startup?.performanceCues || []) as AvatarPerformanceCue[]);
+    setStartupPerformanceCueText(startup?.performanceCueText || '');
+    setStartupPerformanceCueIndex(0);
+    setStartupPerformanceCuePhase('start');
+  };
+
+  const selectStartupPreset = (presetId: string) => {
+    if (!character || settingsGenerating) return;
+    if (!presetId) {
+      setSelectedStartupPresetId('');
+      setStartupPresetName('');
+      return;
+    }
+    const preset = character.companionTouchSettings?.startupPresets?.find(item => item.id === presetId);
+    if (!preset) return;
+    const before = companionTouchSettingsBase();
+    const settings = activateCompanionStartupPreset(before, presetId);
+    updateCharacter(character.id, { companionTouchSettings: settings });
+    cleanupUnreferencedCompanionVoices(before, settings);
+    loadStartupDraft(preset.startup);
+    setSelectedStartupPresetId(preset.id);
+    setStartupPresetName(preset.name);
+    addToast(`已切换开场预设「${preset.name}」`, 'success');
+  };
+
+  const selectTouchPreset = (presetId: string) => {
+    if (!character || settingsGenerating) return;
+    if (!presetId) {
+      setSelectedTouchPresetId('');
+      setTouchPresetName('');
+      return;
+    }
+    const preset = character.companionTouchSettings?.touchPresets?.find(item => item.id === presetId);
+    if (!preset) return;
+    const before = companionTouchSettingsBase();
+    const settings = activateCompanionTouchPreset(before, presetId);
+    updateCharacter(character.id, { companionTouchSettings: settings });
+    cleanupUnreferencedCompanionVoices(before, settings);
+    setTouchDraftZones(preset.enabledZones as AvatarTouchZone[]);
+    setTouchVoiceLanguage(preset.voiceLanguage || '');
+    setTouchGenerateVoice(Boolean(preset.voiceEnabled));
+    setSelectedTouchPresetId(preset.id);
+    setTouchPresetName(preset.name);
+    touchCursorRef.current = {};
+    addToast(`已切换触摸预设「${preset.name}」`, 'success');
+  };
+
+  const deleteStartupPreset = () => {
+    if (!character || !selectedStartupPresetId || settingsGenerating) return;
+    const preset = character.companionTouchSettings?.startupPresets?.find(item => item.id === selectedStartupPresetId);
+    if (!preset || !window.confirm(`删除开场预设「${preset.name}」？`)) return;
+    const before = companionTouchSettingsBase();
+    const after = removeCompanionStartupPreset(before, selectedStartupPresetId);
+    updateCharacter(character.id, { companionTouchSettings: after });
+    cleanupUnreferencedCompanionVoices(before, after);
+    setSelectedStartupPresetId('');
+    setStartupPresetName('');
+    addToast('开场预设已删除；当前草稿仍保留', 'success');
+  };
+
+  const deleteTouchPreset = () => {
+    if (!character || !selectedTouchPresetId || settingsGenerating) return;
+    const preset = character.companionTouchSettings?.touchPresets?.find(item => item.id === selectedTouchPresetId);
+    if (!preset || !window.confirm(`删除触摸预设「${preset.name}」？`)) return;
+    const before = companionTouchSettingsBase();
+    const after = removeCompanionTouchPreset(before, selectedTouchPresetId);
+    updateCharacter(character.id, { companionTouchSettings: after });
+    cleanupUnreferencedCompanionVoices(before, after);
+    setSelectedTouchPresetId('');
+    setTouchPresetName('');
+    addToast('触摸预设已删除；当前反馈仍保留', 'success');
+  };
+
   const patchStartupPerformance = (patch: Partial<AvatarPerformanceDirection>) => {
+    setSelectedStartupPresetId('');
     const editsTimeline = companionPerformanceCuePackMatches(
       normalizeCompanionDialogue(startupLine, character?.name || ''),
       normalizeCompanionDialogue(startupTranslation, character?.name || ''),
@@ -1305,6 +1443,7 @@ const CompanionHome: React.FC = () => {
   };
 
   const patchStartupPrecision = (patch: Partial<AvatarPerformancePrecision>) => {
+    setSelectedStartupPresetId('');
     const editsTimeline = companionPerformanceCuePackMatches(
       normalizeCompanionDialogue(startupLine, character?.name || ''),
       normalizeCompanionDialogue(startupTranslation, character?.name || ''),
@@ -1373,25 +1512,25 @@ const CompanionHome: React.FC = () => {
     if (!character || settingsGenerating) return;
     const startup = makeStartupSettings();
     if (startup.enabled && !startup.line) {
-      addToast('开启开机自启前，请先填写中文原文', 'error');
+      addToast('开启开场演出前，请先填写中文原文', 'error');
       return;
     }
     if (startup.enabled && startup.voiceLanguage && !startup.translation) {
       addToast(`已选择 ${voiceLanguageLabel(startup.voiceLanguage)}，请填写对应的语音译文`, 'error');
       return;
     }
-    updateCharacter(character.id, prev => ({
-      companionTouchSettings: {
-        enabledZones: prev.companionTouchSettings?.enabledZones || DEFAULT_COMPANION_TOUCH_ZONES,
-        reactions: prev.companionTouchSettings?.reactions || {},
-        ...prev.companionTouchSettings,
-        startup,
-      },
-    }));
+    const saved = saveCompanionStartupPreset(
+      companionTouchSettingsBase(),
+      startup,
+      startupPresetName,
+    );
+    updateCharacter(character.id, { companionTouchSettings: saved.settings });
     setStartupLine(startup.line);
     setStartupTranslation(startup.translation || '');
     setStartupPerformance(normalizeCompanionStartupPerformance(startup.performance));
-    addToast(startup.enabled ? '开机自启演出已保存' : '开机自启已关闭，草稿仍为你保留', 'success');
+    setSelectedStartupPresetId(saved.preset.id);
+    setStartupPresetName(saved.preset.name);
+    addToast(`已保存新的开场预设「${saved.preset.name}」`, 'success');
   };
 
   const previewStartup = () => {
@@ -1409,7 +1548,7 @@ const CompanionHome: React.FC = () => {
     }
     setTouchSettingsOpen(false);
     setStartupHeadLocked(true);
-    setLine({ text, translation: translation || undefined, label: '开机预演', kind: 'startup' });
+    setLine({ text, translation: translation || undefined, label: '开场预演', kind: 'startup' });
     const cues = companionPerformanceCuePackMatches(
       text,
       translation,
@@ -1435,7 +1574,7 @@ const CompanionHome: React.FC = () => {
     const originalText = normalizeCompanionDialogue(startupLine, character.name);
     const translation = normalizeCompanionDialogue(startupTranslation, character.name);
     if (!originalText) {
-      addToast('请先填写开机中文原文', 'error');
+      addToast('请先填写开场中文原文', 'error');
       return;
     }
     if (startupVoiceLanguage && !translation) {
@@ -1467,11 +1606,12 @@ const CompanionHome: React.FC = () => {
       setStartupPerformanceCueIndex(0);
       setStartupPerformanceCuePhase('start');
       setStartupPerformance(cues[0].direction);
-      addToast(`已按台词编排 ${cues.length} 个动作拍点；点击“保存开机演出”后永久复用`, 'success');
+      setSelectedStartupPresetId('');
+      addToast(`已按台词编排 ${cues.length} 个动作拍点；点击“保存为新预设”后永久复用`, 'success');
     } catch (error: any) {
       if (!mountedRef.current || requestToken !== requestTokenRef.current) return;
       console.warn('[companion] startup performance direction failed:', error);
-      addToast(error?.message || '开机动作编排失败；未保存，也不会重试', 'error');
+      addToast(error?.message || '开场动作编排失败；未保存，也不会重试', 'error');
     } finally {
       if (requestToken === requestTokenRef.current) {
         busyRef.current = false;
@@ -1485,7 +1625,7 @@ const CompanionHome: React.FC = () => {
     const originalText = normalizeCompanionDialogue(startupLine, character.name);
     const translation = normalizeCompanionDialogue(startupTranslation, character.name);
     if (!originalText) {
-      addToast('先填写开机中文原文，再生成语音包', 'error');
+      addToast('先填写开场中文原文，再生成语音包', 'error');
       return;
     }
     if (startupVoiceLanguage && !translation) {
@@ -1528,21 +1668,22 @@ const CompanionHome: React.FC = () => {
         ...voice,
         updatedAt: Date.now(),
       };
-      updateCharacter(character.id, prev => ({
-        companionTouchSettings: {
-          enabledZones: prev.companionTouchSettings?.enabledZones || DEFAULT_COMPANION_TOUCH_ZONES,
-          reactions: prev.companionTouchSettings?.reactions || {},
-          ...prev.companionTouchSettings,
-          startup,
-        },
-      }));
+      const before = companionTouchSettingsBase();
+      const after: CompanionTouchSettings = {
+        ...before,
+        startup,
+        activeStartupPresetId: undefined,
+      };
+      updateCharacter(character.id, { companionTouchSettings: after });
+      cleanupUnreferencedCompanionVoices(before, after);
       setStartupLine(originalText);
       setStartupTranslation(translation);
-      addToast('开机语音包已生成并永久保存在本地，之后开机直接复用', 'success');
+      setSelectedStartupPresetId('');
+      addToast('开场语音包已生成并永久保存在本地；保存为预设后可随时切换', 'success');
     } catch (error: any) {
       if (!mountedRef.current || requestToken !== requestTokenRef.current) return;
       console.warn('[companion] startup voice pack generation failed:', error);
-      addToast(error?.message || '开机语音包生成失败', 'error');
+      addToast(error?.message || '开场语音包生成失败', 'error');
     } finally {
       if (requestToken === requestTokenRef.current) {
         busyRef.current = false;
@@ -1605,28 +1746,28 @@ const CompanionHome: React.FC = () => {
         voiceFailures = voiceResult.failures.length;
       }
 
-      updateCharacter(character.id, prev => ({
-        companionTouchSettings: {
-          ...prev.companionTouchSettings,
-          enabledZones: touchDraftZones,
-          reactions,
-          voiceLanguage: touchVoiceLanguage,
-          voiceEnabled: touchGenerateVoice,
-          voiceGeneratedCount: voiceGenerated,
-          generatedAt: Date.now(),
-        },
-      }));
-      const keepVoiceIds = collectAvatarTouchVoiceAssetIds(reactions);
-      void cleanupAvatarTouchVoiceAssets(character.companionTouchSettings?.reactions, keepVoiceIds);
+      const before = companionTouchSettingsBase();
+      const saved = saveCompanionTouchPreset(before, {
+        enabledZones: touchDraftZones,
+        reactions,
+        voiceLanguage: touchVoiceLanguage,
+        voiceEnabled: touchGenerateVoice,
+        voiceGeneratedCount: voiceGenerated,
+        generatedAt: Date.now(),
+      }, touchPresetName);
+      updateCharacter(character.id, { companionTouchSettings: saved.settings });
+      cleanupUnreferencedCompanionVoices(before, saved.settings);
+      setSelectedTouchPresetId(saved.preset.id);
+      setTouchPresetName(saved.preset.name);
       touchCursorRef.current = {};
       trackEvent('生成桌面触碰反馈', {
         形象: activeCompanionSource === 'upload'
-          ? '静态图片'
+          ? '图片 / GIF'
           : activeCompanionSource === 'date' ? '见面立绘' : '动态模型',
         语音: touchGenerateVoice,
       });
       const voiceSummary = touchGenerateVoice ? ` · 本地语音 ${voiceGenerated}/${voiceTotal}` : '';
-      addToast(`已为 ${touchDraftZones.length} 个部位准备本地反馈包${voiceSummary}`, 'success');
+      addToast(`已保存新的触摸预设「${saved.preset.name}」${voiceSummary}`, 'success');
       if (voiceFailures) {
         addToast(`${voiceFailures} 条语音未能保存，触摸时只演动作与台词，不会临时调用 TTS`, 'info');
       }
@@ -1816,6 +1957,8 @@ const CompanionHome: React.FC = () => {
   const framingOffsetXMax = character.videoAvatar?.format === 'live2d' ? 1.4 : 0.9;
   const framingOffsetYMax = character.videoAvatar?.format === 'live2d' ? 3.2 : 0.9;
   const savedTouchSettings = character.companionTouchSettings;
+  const startupPresets = savedTouchSettings?.startupPresets || [];
+  const touchPresets = savedTouchSettings?.touchPresets || [];
   const preparedReactionCount = Object.values(savedTouchSettings?.reactions || {})
     .reduce((total, reactions) => total + (reactions?.length || 0), 0);
   const preparedVoiceCount = Object.values(savedTouchSettings?.reactions || {})
@@ -2447,11 +2590,11 @@ const CompanionHome: React.FC = () => {
             <header className="flex h-12 items-center justify-between gap-3 px-3 sm:h-14 sm:px-4">
               <button onClick={() => openApp(AppID.Character)} className="flex min-w-0 items-center gap-2 text-left active:scale-[.98]">
                 <span className="companion-avatar-frame relative h-8 w-8 shrink-0 overflow-hidden border bg-black/20 p-0.5 sm:h-10 sm:w-10" style={{ borderColor: `${uiTint}c9`, clipPath: 'polygon(20% 0, 80% 0, 100% 20%, 100% 80%, 80% 100%, 20% 100%, 0 80%, 0 20%)' }}>
-                  <img src={character.avatar} alt="" className="h-full w-full object-cover" />
+                  <TokenImg value={character.avatar} alt="" className="h-full w-full object-cover" />
                 </span>
                 <span className="min-w-0">
                   <span className="block truncate text-[13px] font-semibold tracking-wide sm:text-[15px]">{character.name}</span>
-                  <span className="block text-[8px] tracking-[0.14em] text-white/50 sm:text-[9px]">{period.label} · {activeCompanionSource === 'upload' ? '静态形象' : activeCompanionSource === 'date' ? '见面表情同步' : character.videoAvatar ? '动作同步中' : '等待形象'}</span>
+                  <span className="block text-[8px] tracking-[0.14em] text-white/50 sm:text-[9px]">{period.label} · {activeCompanionSource === 'upload' ? '图片 / GIF' : activeCompanionSource === 'date' ? '见面表情同步' : character.videoAvatar ? '动作同步中' : '等待形象'}</span>
                 </span>
               </button>
               <div className="flex shrink-0 items-center gap-2">
@@ -2593,11 +2736,11 @@ const CompanionHome: React.FC = () => {
                 >
                   <div className="flex items-center gap-2">
                     <Sparkle size={14} weight="fill" style={{ color: uiTint }} />
-                    <h3 className="text-[12px] font-semibold tracking-wide text-white">开机自启</h3>
+                    <h3 className="text-[12px] font-semibold tracking-wide text-white">开场演出</h3>
                     <span className="border border-white/12 px-1.5 py-0.5 text-[7px] tracking-[0.16em] text-white/45">HOME INTRO</span>
                   </div>
                   <div className="mt-1 flex items-center gap-1.5 text-[9px] text-white/48">
-                    <span>{startupEnabled ? '已开启' : '未开启'} · {startupLine.trim() ? '已填写开机演出' : '点击展开设置'}</span>
+                    <span>{startupEnabled ? '已开启' : '未开启'} · {startupLine.trim() ? '已填写开场演出' : '点击展开设置'}</span>
                     <CaretDown
                       size={11}
                       className={`shrink-0 transition-transform ${startupSettingsExpanded ? 'rotate-180' : ''}`}
@@ -2611,7 +2754,10 @@ const CompanionHome: React.FC = () => {
                   aria-checked={startupEnabled}
                   data-testid="companion-startup-enabled"
                   disabled={settingsGenerating}
-                  onClick={() => setStartupEnabled(current => !current)}
+                  onClick={() => {
+                    setSelectedStartupPresetId('');
+                    setStartupEnabled(current => !current);
+                  }}
                   className="relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition disabled:opacity-45"
                   style={{
                     borderColor: startupEnabled ? uiTint : 'rgba(255,255,255,.24)',
@@ -2627,6 +2773,27 @@ const CompanionHome: React.FC = () => {
 
               {startupSettingsExpanded && (
               <div id="companion-startup-settings-body" data-testid="companion-startup-settings-body">
+              <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+                <select
+                  value={selectedStartupPresetId}
+                  disabled={settingsGenerating || !startupPresets.length}
+                  onChange={event => selectStartupPreset(event.target.value)}
+                  data-testid="companion-startup-preset-select"
+                  aria-label="选择开场预设"
+                  className="min-w-0 border border-white/12 bg-[#151021] px-3 py-2 text-[10px] text-white/82 outline-none disabled:opacity-45"
+                >
+                  <option value="">{startupPresets.length ? `选择已保存预设（${startupPresets.length}）` : '还没有开场预设'}</option>
+                  {startupPresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  disabled={settingsGenerating || !selectedStartupPresetId}
+                  onClick={deleteStartupPreset}
+                  data-testid="companion-delete-startup-preset"
+                  aria-label="删除所选开场预设"
+                  className="flex h-9 w-9 items-center justify-center border border-white/12 text-white/58 disabled:opacity-30"
+                ><Trash size={14} /></button>
+              </div>
               <p className="mt-3 text-[9px] leading-relaxed text-white/48">
                 中文原文、语音译文和动作都由你手动填写。每次刷新或重启后演一次；从 App 返回桌面不会重复播放。演出期间暂停随机转头。
               </p>
@@ -2639,7 +2806,10 @@ const CompanionHome: React.FC = () => {
                 value={startupLine}
                 maxLength={180}
                 disabled={settingsGenerating}
-                onChange={event => setStartupLine(event.target.value)}
+                onChange={event => {
+                  setSelectedStartupPresetId('');
+                  setStartupLine(event.target.value);
+                }}
                 placeholder="手动填写一句只有这个角色会说的话。"
                 className="mt-1 min-h-[72px] w-full resize-y border border-white/12 bg-black/15 px-3 py-2 text-[11px] leading-relaxed text-white outline-none placeholder:text-white/24 focus:border-white/30 disabled:opacity-45"
               />
@@ -2651,7 +2821,11 @@ const CompanionHome: React.FC = () => {
                 data-testid="companion-startup-voice-language"
                 value={startupVoiceLanguage}
                 disabled={settingsGenerating}
-                onChange={event => setStartupVoiceLanguage(event.target.value)}
+                onChange={event => {
+                  setSelectedStartupPresetId('');
+                  setStartupVoiceLanguage(event.target.value);
+                  trackEvent('设置桌面陪伴语音语种', { 用途: '开机', 语种: voiceLanguageAnalyticsValue(event.target.value) });
+                }}
                 className="mt-1 w-full border border-white/12 bg-[#151021] px-3 py-2 text-[10px] text-white/82 outline-none disabled:opacity-45"
               >
                 {VOICE_LANGUAGE_OPTIONS.map(option => (
@@ -2668,7 +2842,10 @@ const CompanionHome: React.FC = () => {
                 value={startupTranslation}
                 maxLength={240}
                 disabled={settingsGenerating}
-                onChange={event => setStartupTranslation(event.target.value)}
+                onChange={event => {
+                  setSelectedStartupPresetId('');
+                  setStartupTranslation(event.target.value);
+                }}
                 placeholder={startupVoiceLanguage ? `手动填写 ${voiceLanguageLabel(startupVoiceLanguage)} 译文。` : '默认中文时可留空，将直接朗读上面的中文原文。'}
                 className="mt-1 min-h-[64px] w-full resize-y border border-white/12 bg-black/15 px-3 py-2 text-[11px] leading-relaxed text-white outline-none placeholder:text-white/24 focus:border-white/30 disabled:opacity-45"
               />
@@ -2756,13 +2933,33 @@ const CompanionHome: React.FC = () => {
                       value={selectedStartupCue?.holdMs || 900}
                       disabled={settingsGenerating}
                       data-testid="companion-startup-cue-hold"
-                      onChange={event => setStartupPerformanceCues(cues => cues.map((cue, index) => index === selectedStartupCueIndex ? { ...cue, holdMs: Number(event.target.value) } : cue))}
+                      onChange={event => {
+                        setSelectedStartupPresetId('');
+                        setStartupPerformanceCues(cues => cues.map((cue, index) => index === selectedStartupCueIndex ? { ...cue, holdMs: Number(event.target.value) } : cue));
+                      }}
                       className="mt-1 h-1 w-full"
                       style={{ accentColor: uiTint }}
                     />
                   </label>
                 </div>
               )}
+
+              <label className="mt-3 block text-[8px] tracking-[0.12em] text-white/48" htmlFor="companion-startup-preset-name">
+                新预设名称
+              </label>
+              <input
+                id="companion-startup-preset-name"
+                data-testid="companion-startup-preset-name"
+                value={startupPresetName}
+                maxLength={40}
+                disabled={settingsGenerating}
+                onChange={event => setStartupPresetName(event.target.value)}
+                placeholder={`开场演出 ${startupPresets.length + 1}`}
+                className="mt-1 w-full border border-white/12 bg-black/15 px-3 py-2 text-[10px] text-white outline-none placeholder:text-white/24 disabled:opacity-45"
+              />
+              <div className="mt-1 text-[7px] leading-relaxed text-white/30">
+                保存始终新建一套，不会覆盖下拉菜单里的旧预设；已生成语音也随各自预设独立保留。
+              </div>
 
               <button
                 type="button"
@@ -2774,13 +2971,13 @@ const CompanionHome: React.FC = () => {
                 <SpeakerHigh size={12} style={{ color: uiTint }} />
                 {startupVoiceGenerating
                   ? '正在生成并永久保存语音包…'
-                  : startupVoiceMatchesDraft ? '重新生成开机语音包' : '生成并永久保存开机语音包'}
+                  : startupVoiceMatchesDraft ? '重新生成开场语音包' : '生成并永久保存开场语音包'}
               </button>
               <div className="mt-1 text-center text-[7px] leading-relaxed text-white/30">
                 {!touchVoiceAvailable
                   ? '角色尚未配置可用音色'
                   : startupVoiceMatchesDraft
-                    ? `已保存${savedStartup?.voiceGeneratedAt ? ` · ${new Date(savedStartup.voiceGeneratedAt).toLocaleString()}` : ''}，以后开机直接复用`
+                    ? `已保存${savedStartup?.voiceGeneratedAt ? ` · ${new Date(savedStartup.voiceGeneratedAt).toLocaleString()}` : ''}，以后开场直接复用`
                     : savedStartup?.voiceAssetId
                       ? '当前台词已变化；旧语音仍保存在本地，重新生成后才会播放'
                       : '生成一次后写入本地语音资产，刷新或重启不会重新调用 TTS'}
@@ -2921,7 +3118,7 @@ const CompanionHome: React.FC = () => {
                   </label>
                 </div>
                 <div className="mt-2 text-[7px] leading-relaxed text-white/30">
-                  精调只修改当前这一句，不会清空动作编排。开机台词播放完之前头部固定正中；身体、手臂、表情和模型专属动作保持独立。
+                  精调只修改当前这一句，不会清空动作编排。开场台词播放完之前头部固定正中；身体、手臂、表情和模型专属动作保持独立。
                 </div>
               </details>
 
@@ -2933,7 +3130,7 @@ const CompanionHome: React.FC = () => {
                 className="mt-3 w-full border py-2.5 text-[10px] font-semibold tracking-wide transition active:scale-[.99] disabled:opacity-45"
                 style={{ borderColor: `${uiTint}9c`, background: `${uiTint}18`, color: uiTint }}
               >
-                保存开机演出
+                保存为新预设
               </button>
               </div>
               )}
@@ -2943,6 +3140,27 @@ const CompanionHome: React.FC = () => {
               <span className="h-px flex-1 bg-white/10" />
               触摸反馈包
               <span className="h-px flex-1 bg-white/10" />
+            </div>
+            <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+              <select
+                value={selectedTouchPresetId}
+                disabled={settingsGenerating || !touchPresets.length}
+                onChange={event => selectTouchPreset(event.target.value)}
+                data-testid="companion-touch-preset-select"
+                aria-label="选择触摸预设"
+                className="min-w-0 border border-white/12 bg-[#151021] px-3 py-2 text-[10px] text-white/82 outline-none disabled:opacity-45"
+              >
+                <option value="">{touchPresets.length ? `选择已保存预设（${touchPresets.length}）` : '还没有触摸预设'}</option>
+                {touchPresets.map(preset => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+              </select>
+              <button
+                type="button"
+                disabled={settingsGenerating || !selectedTouchPresetId}
+                onClick={deleteTouchPreset}
+                data-testid="companion-delete-touch-preset"
+                aria-label="删除所选触摸预设"
+                className="flex h-9 w-9 items-center justify-center border border-white/12 text-white/58 disabled:opacity-30"
+              ><Trash size={14} /></button>
             </div>
             <div className="mt-4 grid grid-cols-2 gap-2">
               {(['head', 'face', 'hand', 'body', 'other'] as AvatarTouchZone[]).map(zone => {
@@ -2982,7 +3200,11 @@ const CompanionHome: React.FC = () => {
               data-testid="companion-touch-voice-language"
               value={touchVoiceLanguage}
               disabled={settingsGenerating}
-              onChange={event => setTouchVoiceLanguage(event.target.value)}
+              onChange={event => {
+                setSelectedTouchPresetId('');
+                setTouchVoiceLanguage(event.target.value);
+                trackEvent('设置桌面陪伴语音语种', { 用途: '触摸', 语种: voiceLanguageAnalyticsValue(event.target.value) });
+              }}
               className="mt-1 w-full border border-white/12 bg-[#151021] px-3 py-2 text-[10px] text-white/82 outline-none disabled:opacity-45"
             >
               {VOICE_LANGUAGE_OPTIONS.map(option => (
@@ -2999,7 +3221,10 @@ const CompanionHome: React.FC = () => {
               aria-checked={touchGenerateVoice}
               disabled={settingsGenerating || !touchVoiceAvailable}
               data-testid="companion-touch-generate-voice"
-              onClick={() => setTouchGenerateVoice(current => !current)}
+              onClick={() => {
+                setSelectedTouchPresetId('');
+                setTouchGenerateVoice(current => !current);
+              }}
               className="mt-3 flex w-full items-center gap-3 border px-3 py-2.5 text-left transition active:scale-[.99] disabled:opacity-45"
               style={{
                 borderColor: touchGenerateVoice ? `${uiTint}9f` : 'rgba(255,255,255,.12)',
@@ -3028,6 +3253,23 @@ const CompanionHome: React.FC = () => {
               </span>
             </button>
 
+            <label className="mt-3 block text-[8px] tracking-[0.12em] text-white/48" htmlFor="companion-touch-preset-name">
+              新预设名称
+            </label>
+            <input
+              id="companion-touch-preset-name"
+              data-testid="companion-touch-preset-name"
+              value={touchPresetName}
+              maxLength={40}
+              disabled={settingsGenerating}
+              onChange={event => setTouchPresetName(event.target.value)}
+              placeholder={`触摸反馈 ${touchPresets.length + 1}`}
+              className="mt-1 w-full border border-white/12 bg-black/15 px-3 py-2 text-[10px] text-white outline-none placeholder:text-white/24 disabled:opacity-45"
+            />
+            <div className="mt-1 text-[7px] leading-relaxed text-white/30">
+              每次生成都会保存为新预设；旧反馈包和它引用的本地语音不会被覆盖。
+            </div>
+
             <button
               onClick={() => { void generateTouchReactionPack(); }}
               disabled={settingsGenerating || !touchDraftZones.length}
@@ -3040,7 +3282,7 @@ const CompanionHome: React.FC = () => {
                 ? touchVoiceProgress
                   ? `正在合成本地语音 ${touchVoiceProgress.completed}/${touchVoiceProgress.total}…`
                   : `正在生成${touchPackContentLabel}…`
-                : preparedReactionCount ? '重新生成反馈包' : '一次生成反馈包'}
+                : '生成并保存新预设'}
             </button>
             <div className="mt-2 text-center text-[8px] tracking-wide text-white/30">
               {savedTouchSettings?.generatedAt
@@ -3145,7 +3387,7 @@ const CompanionHome: React.FC = () => {
                 <div className="flex items-center gap-2 text-[13px] font-semibold tracking-[0.16em] text-white">
                   <Sparkle size={15} weight="fill" style={{ color: uiTint }} /> 功能星盘
                 </div>
-                <div className="mt-0.5 text-[8px] tracking-[0.18em] text-white/35">SULLYOS · 全部真实功能</div>
+                <div className="mt-0.5 text-[8px] tracking-[0.18em] text-white/35">SullyOS·糯米机 · 全部真实功能</div>
               </div>
               <button onClick={() => setAppStarOpen(false)} className="h-7 w-7 border border-white/15 text-[12px] text-white/60 active:scale-90">×</button>
             </div>
@@ -3237,7 +3479,7 @@ const CompanionHome: React.FC = () => {
               <span className="companion-dock-primary-label text-[9px] font-semibold tracking-[0.18em] sm:text-[10px]" style={{ color: uiTint }}>功能</span>
             </button>
             {[
-              { id: AppID.Music, icon: Icons.Music, label: '音乐' },
+              { id: AppID.VRWorld, icon: Icons.VRWorld, label: '彼方' },
               { id: AppID.Settings, icon: Icons.Settings, label: '设置' },
             ].map(item => (
               <button key={item.id} onClick={() => launchCompanionApp(item.id)} className="companion-dock-item flex h-full flex-col items-center justify-center gap-1 text-white/90 active:scale-[.97]">

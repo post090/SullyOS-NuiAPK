@@ -10,8 +10,9 @@ import type {
     TopicBox, Anticipation, MemoryRoom, BoxStatus, AnticipationStatus,
     EventBox, RoomPlate, PlateRoom, DigestReport,
 } from './types';
-import { DIGEST_REPORT_KEEP } from './types';
+import { DIGEST_REPORT_KEEP, EVENT_BOX_SEAL_THRESHOLD } from './types';
 import { bm25Index } from './bm25Index';
+import { notifyMemoryNodesChanged } from './nodeChanges';
 import type { VectorIndexEntry as VectorBackupIndexEntry } from '../backupFormat';
 
 // ─── Store 名称常量 ────────────────────────────────────
@@ -118,6 +119,25 @@ function syncNodeMetadataToRemote(node: MemoryNode): void {
 }
 
 export const MemoryNodeDB = {
+    /** A vectorized batch is all-or-nothing: never expose new text with missing/old vectors. */
+    saveVectorizedMany: async (entries: { node: MemoryNode; vector: MemoryVector }[]): Promise<void> => {
+        if (!entries.length) return;
+        const db = await openDB();
+        await new Promise<void>((resolve, reject) => {
+            const tx = db.transaction([STORE_MEMORY_NODES, STORE_MEMORY_VECTORS], 'readwrite');
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+            tx.onabort = () => reject(tx.error || new Error('记忆和向量保存已回滚'));
+            try {
+                for (const { node, vector } of entries) {
+                    tx.objectStore(STORE_MEMORY_NODES).put(node);
+                    tx.objectStore(STORE_MEMORY_VECTORS).put({ ...vector, vector: vecForStorage(vector.vector) });
+                }
+            } catch (error) { tx.abort(); reject(error); }
+        });
+        bm25Index.onNodesSaved(entries.map(entry => entry.node));
+        for (const charId of new Set(entries.map(entry => entry.node.charId))) notifyMemoryNodesChanged(charId);
+    },
     save: async (node: MemoryNode) => {
         await put<MemoryNode>(STORE_MEMORY_NODES, node);
         // 写入验证：确认数据真的持久化了
@@ -130,6 +150,7 @@ export const MemoryNodeDB = {
         // touchAccess 之类只改 metadata 的写入会被自动跳过。
         bm25Index.onNodeSaved(node);
         syncNodeMetadataToRemote(node);
+        notifyMemoryNodesChanged(node.charId);
     },
 
     getById: (id: string) => getByKey<MemoryNode>(STORE_MEMORY_NODES, id),
@@ -137,6 +158,7 @@ export const MemoryNodeDB = {
     delete: async (id: string) => {
         await deleteByKey(STORE_MEMORY_NODES, id);
         bm25Index.onNodeDeleted(id);
+        notifyMemoryNodesChanged();
     },
 
     getByCharId: (charId: string) =>
@@ -171,6 +193,7 @@ export const MemoryNodeDB = {
             tx.onerror = () => reject(tx.error);
         });
         bm25Index.onNodesSaved(nodes);
+        for (const charId of new Set(nodes.map(node => node.charId))) notifyMemoryNodesChanged(charId);
     },
 
     /** 更新访问记录（检索后调用） */
@@ -598,6 +621,72 @@ export const TopicBoxDB = {
 // ─── EventBox CRUD ────────────────────────────────────
 
 export const EventBoxDB = {
+    /** Manual full regeneration: summary/vector, member flags and box lists commit together. */
+    commitRegeneration: async (
+        snapshot: EventBox,
+        sources: MemoryNode[],
+        entry: { node: MemoryNode; vector: MemoryVector },
+        name: string,
+        now: number,
+    ): Promise<{ box: EventBox; archived: MemoryNode[] }> => {
+        const db = await openDB();
+        const committed = await new Promise<{ box: EventBox; archived: MemoryNode[] }>((resolve, reject) => {
+            const tx = db.transaction([STORE_EVENT_BOXES, STORE_MEMORY_NODES, STORE_MEMORY_VECTORS], 'readwrite');
+            let failure: unknown;
+            let result: { box: EventBox; archived: MemoryNode[] };
+            tx.oncomplete = () => resolve(result);
+            tx.onerror = () => reject(failure || tx.error);
+            tx.onabort = () => reject(failure || tx.error || new Error('整合保存失败，原内容已保留'));
+            const boxes = tx.objectStore(STORE_EVENT_BOXES);
+            const nodes = tx.objectStore(STORE_MEMORY_NODES);
+            const boxRequest = boxes.get(snapshot.id);
+            const reads = sources.map(source => nodes.get(source.id));
+            let pending = reads.length + 1;
+            const finish = () => {
+                if (--pending) return;
+                try {
+                    const fresh = boxRequest.result as EventBox | undefined;
+                    if (!fresh || fresh.charId !== snapshot.charId) throw new Error('事件盒已删除，整合未保存');
+                    if (fresh.summaryNodeId !== snapshot.summaryNodeId || fresh.lastCompressedAt !== snapshot.lastCompressedAt) {
+                        throw new Error('事件盒已被其他整合更新，请重新整合');
+                    }
+                    const members = new Set([...fresh.archivedMemoryIds, ...fresh.liveMemoryIds]);
+                    const current = reads.map(read => read.result as MemoryNode | undefined);
+                    const contentKey = (node: MemoryNode) => JSON.stringify([
+                        node.charId, node.eventBoxId, node.content, node.room, node.createdAt, node.importance, node.mood, node.tags,
+                    ]);
+                    if (!sources.length || current.some((node, i) => !node || node.isBoxSummary
+                        || !members.has(node.id) || contentKey(node) !== contentKey(sources[i]))) {
+                        throw new Error('原始记忆已被修改、移出或删除，请重新整合；原总结已保留');
+                    }
+                    const included = new Set(sources.map(source => source.id));
+                    const archived = current.map(node => ({ ...node!, archived: true }));
+                    const hasNewArchive = current.some(node => !node!.archived) || fresh.liveMemoryIds.some(id => included.has(id));
+                    const archivedMemoryIds = [...new Set([...fresh.archivedMemoryIds, ...included])];
+                    const box: EventBox = {
+                        ...fresh, name, tags: entry.node.tags, summaryNodeId: entry.node.id,
+                        // Members added while the API was running were not summarized: leave them live.
+                        liveMemoryIds: fresh.liveMemoryIds.filter(id => !included.has(id)),
+                        archivedMemoryIds,
+                        compressionCount: fresh.compressionCount + (hasNewArchive ? 1 : 0),
+                        sealed: fresh.sealed || archivedMemoryIds.length >= EVENT_BOX_SEAL_THRESHOLD,
+                        updatedAt: now, lastCompressedAt: now,
+                    };
+                    for (const node of archived) nodes.put(node);
+                    nodes.put(entry.node);
+                    tx.objectStore(STORE_MEMORY_VECTORS).put({ ...entry.vector, vector: vecForStorage(entry.vector.vector) });
+                    boxes.put(box);
+                    result = { box, archived };
+                } catch (error) { failure = error; tx.abort(); }
+            };
+            boxRequest.onsuccess = finish;
+            for (const read of reads) read.onsuccess = finish;
+        });
+        bm25Index.onNodesSaved([...committed.archived, entry.node]);
+        for (const node of committed.archived) syncNodeMetadataToRemote(node);
+        notifyMemoryNodesChanged(snapshot.charId);
+        return committed;
+    },
     save: (box: EventBox) => put<EventBox>(STORE_EVENT_BOXES, box),
 
     getById: (id: string) => getByKey<EventBox>(STORE_EVENT_BOXES, id),

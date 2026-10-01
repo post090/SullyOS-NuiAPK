@@ -1,0 +1,36 @@
+/* Shared collection chrome follows the OS palette. Printed keepsakes keep their own material colors. */
+.sar-hub-panel{
+ --sar-ui-hue:var(--primary-hue,245);
+ --sar-ui-sat:clamp(12%,var(--primary-sat,25%),40%);
+ --sar-ui-bg:hsl(var(--sar-ui-hue),var(--sar-ui-sat),98%);
+ --sar-ui-surface:hsl(var(--sar-ui-hue),var(--sar-ui-sat),95%);
+ --sar-ui-line:hsl(var(--sar-ui-hue),var(--sar-ui-sat),88%);
+ --sar-ui-ink:hsl(var(--sar-ui-hue),min(var(--sar-ui-sat),22%),27%);
+ --sar-ui-muted:hsl(var(--sar-ui-hue),min(var(--sar-ui-sat),16%),43%);
+ --sar-ui-faint:hsl(var(--sar-ui-hue),min(var(--sar-ui-sat),16%),57%);
+ --sar-ui-disabled:hsl(var(--sar-ui-hue),min(var(--sar-ui-sat),16%),72%);
+ --sar-ui-accent:hsl(var(--sar-ui-hue),var(--sar-ui-sat),clamp(30%,var(--primary-lightness,65%),42%));
+}
+.sar-hub-panel.is-collection{--hub-ink:var(--sar-ui-ink);--hub-muted:var(--sar-ui-muted);background:var(--sar-ui-bg);color:var(--sar-ui-ink)}
+.sar-hub-panel.is-collection .sar-hub-header{border-color:var(--sar-ui-line)}
+.sar-hub-panel.is-collection .sar-hub-header>button,.sar-hub-panel.is-collection .sar-collection-pages button{background:var(--sar-ui-surface);border-color:var(--sar-ui-line);color:var(--sar-ui-accent)}
+.sar-hub-panel.is-collection .sar-hub-header small,.sar-hub-panel.is-collection .sar-hub-owner,.sar-hub-panel.is-collection .sar-hub-owner label>svg{color:var(--sar-ui-muted)}
+.sar-hub-panel.is-collection button:focus-visible,.sar-hub-panel.is-collection select:focus-visible,.sar-hub-panel.is-collection .sar-collection-controls label:focus-within{outline-color:var(--sar-ui-accent)}
+.sar-hub-panel.is-collection .sar-hub-owner select,.sar-collection .sar-collection-controls label,.sar-collection .sar-collection-controls select{background:var(--sar-ui-bg);border-color:var(--sar-ui-line);color:var(--sar-ui-ink)}
+.sar-collection .sar-collection-controls input{color:var(--sar-ui-ink)}
+.sar-collection .sar-collection-total,.sar-collection .sar-collection-categories strong,.sar-collection .sar-collection-category-progress,.sar-collection .sar-collection-source strong{color:var(--sar-ui-ink)}
+.sar-collection .sar-collection-total>svg,.sar-collection .sar-collection-large-art.is-collected,.sar-collection .sar-collection-tick{color:var(--sar-ui-accent)}
+.sar-collection .sar-collection-total span,.sar-collection .sar-collection-total small,.sar-collection .sar-collection-categories small,.sar-collection .sar-collection-categories p,.sar-collection .sar-collection-categories>button>svg,.sar-collection .sar-collection-category-progress small,.sar-collection .sar-collection-category-progress>span,.sar-collection .sar-collection-pages,.sar-collection .sar-collection-no-results,.sar-collection .sar-collection-entry-status,.sar-collection .sar-collection-entry>p,.sar-collection .sar-collection-source p,.sar-collection .sar-hub-item>small{color:var(--sar-ui-muted)}
+.sar-collection .sar-collection-categories>button,.sar-collection .sar-collection-source{border-color:var(--sar-ui-line)}
+.sar-collection .sar-collection-category-icon,.sar-collection .sar-hub-item-art{background:var(--sar-ui-surface);border-color:var(--sar-ui-line);color:var(--sar-ui-accent)}
+.sar-collection .sar-collection-categories i{background:var(--sar-ui-line)}
+.sar-collection .sar-collection-categories i>b{background:var(--sar-ui-accent)}
+.sar-collection .sar-collection-item>strong{color:var(--sar-ui-ink)}
+.sar-collection .sar-collection-item.is-missing>strong{color:var(--sar-ui-faint)}
+.sar-collection .sar-collection-item.is-missing .sar-hub-item-art,.sar-collection .sar-collection-large-art{color:var(--sar-ui-disabled)}
+
+.sar-collection .sar-collection-total strong,.sar-collection .sar-collection-category-progress>strong{color:var(--sar-ui-ink)}
+.sar-collection .sar-collection-footnote{border-color:var(--sar-ui-line)}
+.sar-collection .sar-collection-item.is-missing .sar-hub-item-art{background:var(--sar-ui-surface);border-color:var(--sar-ui-line)}
+.sar-hub-panel.is-collection .sar-hub-empty{color:var(--sar-ui-muted)}
+.sar-hub-panel.is-collection .sar-keepsake.is-embedded{position:relative;inset:auto;flex:1;min-height:0;z-index:auto;background:var(--sar-ui-bg);color:var(--sar-ui-ink)}

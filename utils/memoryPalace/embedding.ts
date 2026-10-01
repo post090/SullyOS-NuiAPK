@@ -5,6 +5,7 @@
  * 支持硅基流动 / 阿里云 / 字节等端点。
  */
 
+import { waitForPalaceRequest, readMaintenanceSettings } from './maintenanceMode';
 import type { EmbeddingConfig } from './types';
 import { fetchWithTimeout } from '../resilientFetch';
 
@@ -125,8 +126,10 @@ async function callEmbeddingAPI(
     }
 
     try {
+        // 记忆宫殿维护模式：排队等前面的请求跑完再发。
         // 30s 超时：弱网/切后台瞬断时裸 fetch 会无限挂起，拖死整条向量化流水线。
         // 重试不在这里做（retries:0）——下面 catch 里已有自己的网络错误/5xx/429 重试。
+        await waitForPalaceRequest();
         const response = await fetchWithTimeout(url, {
             method: 'POST',
             headers: {
@@ -164,7 +167,7 @@ async function callEmbeddingAPI(
         const status: number | undefined = err?.status;
         // 参数类 4xx 重试同样的请求不会变好；网络错误 / 5xx / 429 才值得重试一次
         const retryable = status === undefined || status >= 500 || status === 429;
-        if (retryable && retryCount < 1) {
+        if (retryable && retryCount < 1 && !(status === 429 && readMaintenanceSettings().enabled)) {
             console.warn(`⚡ [Embedding] Retry after error: ${err.message}`);
             await new Promise(r => setTimeout(r, 1000));
             return callEmbeddingAPI(input, config, retryCount + 1);

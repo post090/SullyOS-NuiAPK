@@ -352,7 +352,7 @@ export const submitPlateConsolidation = async (args: {
 /**
  * 一份整理结果最多还能用多久。
  *
- * 结果晚到是常态（正是为此才上云的），所以补收那条路刻意不拿聊天那 24 小时的窗口去卡它。
+ * 结果晚到是常态（正是为此才上云的），所以补收那条路刻意不拿聊天那两天的窗口去卡它。
  * 但不能真的没有上限：服务端账本留 28 天，换设备 / 重装 PWA / 清过 localStorage 的用户
  * 第一次接上账本时会把这些老结果一次性拉回来，那时候拿一份月前的快照去改写门牌，改的是
  * 一块早就被后来几十轮整理翻过好几遍的门牌。一周足够覆盖「关掉笔记本过个周末」，也拦得住
@@ -496,7 +496,7 @@ export const applyPlateConsolidateResult = async (
   // 「谁都可能被改过」保守处理（见 mergeCloudPlateEntries）。
   const snapshotAt = isCurrentJob ? (inFlight?.snapshotAt ?? 0) : 0;
 
-  // 逐块串行：并发跑会同时开好几个 IDB 事务，正是 instant push 那次超时的连接风暴成因。
+  // 逐块串行：并发跑会同时开好几个 IDB 事务，连接一挤爆，推送收件那边就会跟着超时。
   // 走 mutatePlate 而不是自己「读一份 → 改 → 存回去」：同一块门牌上还有别的路在写
   // （门牌面板的手改、本地整理、送达保证兜底），各写各的就是互相整块盖掉。
   for (const { room, entryIds } of result.rooms) {

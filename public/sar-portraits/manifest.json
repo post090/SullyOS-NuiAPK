@@ -1,0 +1,107 @@
+{
+  "source": "https://github.com/qegj567-cloud/SullyOS-assets/tree/main/SAR",
+  "files": [
+    {
+      "path": "Caian/aboutaster.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176858
+    },
+    {
+      "path": "Caian/avoidant.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176600
+    },
+    {
+      "path": "Caian/curious.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176974
+    },
+    {
+      "path": "Caian/embarrassed.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176168
+    },
+    {
+      "path": "Caian/Enduring Pain.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176820
+    },
+    {
+      "path": "Caian/happy.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176284
+    },
+    {
+      "path": "Caian/normal.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 177074
+    },
+    {
+      "path": "Caian/normal2.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 177056
+    },
+    {
+      "path": "Caian/serious.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 176842
+    },
+    {
+      "path": "Caian/shy.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 177988
+    },
+    {
+      "path": "Caian/warm.webp",
+      "width": 1360,
+      "height": 1500,
+      "bytes": 177052
+    },
+    {
+      "path": "Aiven/happy.webp",
+      "width": 1013,
+      "height": 1500,
+      "bytes": 206754
+    },
+    {
+      "path": "Aiven/interested.webp",
+      "width": 1013,
+      "height": 1500,
+      "bytes": 207556
+    },
+    {
+      "path": "Aiven/normal.webp",
+      "width": 1013,
+      "height": 1500,
+      "bytes": 207510
+    },
+    {
+      "path": "Aiven/sad.webp",
+      "width": 1013,
+      "height": 1500,
+      "bytes": 207870
+    },
+    {
+      "path": "Aiven/shy.webp",
+      "width": 1013,
+      "height": 1500,
+      "bytes": 208544
+    },
+    {
+      "path": "Aiven/sleeping.webp",
+      "width": 1013,
+      "height": 1500,
+      "bytes": 206572
+    }
+  ]
+}

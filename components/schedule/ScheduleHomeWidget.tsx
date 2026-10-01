@@ -5,6 +5,8 @@ import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/s
 import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
+import TokenImg from '../os/TokenImg';
+import { useBlobRefUrl } from '../../utils/blobRef';
 
 // ⑦ 修订微角标：时段若被事件修订过，在活动名旁标注 ↷+来源icon（点开日程详情可看 diff）
 const RevBadge: React.FC<{ schedule: DailySchedule | null; slot: ScheduleSlot | null }> = ({ schedule, slot }) => {
@@ -86,8 +88,8 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
             </div>
             {/* Background avatar */}
             {character?.avatar && (
-                <img
-                    src={character.avatar}
+                <TokenImg
+                    value={character.avatar}
                     alt=""
                     loading="lazy"
                     className="absolute inset-0 w-full h-full object-cover opacity-55"
@@ -185,6 +187,8 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
     paper = false,
 }) => {
     const { theme } = useOS();
+    // 头像光晕是 CSS 背景，拿不到 <img> 的自动解析，这里在组件顶层先把令牌解开
+    const avatarUrl = useBlobRefUrl(character?.avatar);
     const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
     const currentSlot = currentIdx >= 0 ? schedule!.slots[currentIdx] : null;
     const nextSlot = schedule && currentIdx < schedule.slots.length - 1
@@ -248,7 +252,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                         <div className="w-[64px] h-[64px] shrink-0 rounded-[22%] overflow-hidden bg-[#e8e2d6] flex items-center justify-center"
                             style={{ border: '3px solid #fff', boxShadow: '0 4px 10px -3px rgba(61,52,40,0.25)' }}>
                             {character?.avatar
-                                ? <img src={character.avatar} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 28%' }} />
+                                ? <TokenImg value={character.avatar} alt="" loading="lazy" className="w-full h-full object-cover" style={{ objectPosition: 'center 28%' }} />
                                 : <span className="text-lg font-bold" style={{ color: '#9f927d' }}>{character?.name?.[0] || '🍃'}</span>}
                         </div>
                         <div className="flex-1 min-w-0">
@@ -333,11 +337,11 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                 <ScheduleAppearanceButton compact />
             </div>
             {/* Blurred avatar glow（动森奶油底下省略，避免糊脏） */}
-            {!effectivePaper && palette.isOriginal && character?.avatar && (
+            {!effectivePaper && palette.isOriginal && avatarUrl && (
                 <div
                     className="absolute inset-0 opacity-25 pointer-events-none"
                     style={{
-                        backgroundImage: `url(${character.avatar})`,
+                        backgroundImage: `url(${avatarUrl})`,
                         backgroundSize: 'cover',
                         backgroundPosition: 'center 28%',
                         filter: 'blur(36px) saturate(1.6)',
@@ -374,8 +378,8 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                         }}
                     >
                         {character?.avatar ? (
-                            <img
-                                src={character.avatar}
+                            <TokenImg
+                                value={character.avatar}
                                 alt=""
                                 loading="lazy"
                                 className="w-full h-full object-cover"
@@ -586,7 +590,7 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
                                         }}
                                     >
                                         {c.avatar ? (
-                                            <img src={c.avatar} alt="" className="w-full h-full object-cover" loading="lazy" />
+                                            <TokenImg value={c.avatar} alt="" className="w-full h-full object-cover" loading="lazy" />
                                         ) : (
                                             <div className="w-full h-full bg-white/10 flex items-center justify-center text-sm font-bold">
                                                 {c.name[0]}

@@ -11,6 +11,7 @@ import {
   handleInstantChat,
   isInstantChatTask,
 } from './instantChat';
+import { TIME_FRAMING_CONVERSATIONAL } from '../../../utils/timeFramingNote';
 
 const USER_ID = '3637dae1-1461-4444-a747-34e406f67acc';
 const TASK_UUID = '7a1f0b4c-2c9d-4a3e-8b21-9f0f3c5d7e11';
@@ -28,6 +29,7 @@ const json = (status: number, body: unknown) =>
 const makeUpstream = (opts: {
   clientState?: { status: number; body?: unknown };
   scheduleMessage?: { status: number; body?: unknown };
+  llmCredentials?: { status: number; body?: unknown };
 } = {}) => {
   const calls: Array<{ method: string; path: string; search: string; headers: Record<string, string>; body: string }> = [];
   const reply = (spec: { status: number; body?: unknown } | undefined, fallback: unknown) =>
@@ -47,6 +49,9 @@ const makeUpstream = (opts: {
       }
       if (url.pathname.endsWith('/schedule-message')) {
         return reply(opts.scheduleMessage, { success: true, data: { uuid: TASK_UUID, id: 42 } });
+      }
+      if (url.pathname.endsWith('/llm-credentials')) {
+        return reply(opts.llmCredentials, { success: true, data: { upserted: 1 } });
       }
       return json(404, { success: false });
     }),
@@ -221,7 +226,7 @@ describe('POST /instant-chat — gzip 上行', () => {
   });
 
   // 最要命的一档：`Content-Encoding` 是标准头，链路上的边缘节点会替你把请求体解开
-  // 却把头留着（SullyOS 在 instant-push 那条路上实测过）。只看头就去解压的话，
+  // 却把头留着（SullyOS 实测遇到过）。只看头就去解压的话，
   // 这里拿到的是明文，解压器当场抛错，用户侧是一句「请求体不是合法的 JSON」。
   it('头写着 gzip、字节其实是明文（边缘替我们解过了）→ 照常按明文读', async () => {
     const { upstream } = makeUpstream();
@@ -497,6 +502,81 @@ describe('POST /instant-chat — 云端状态那一步遇到 5xx 会重试', () 
   });
 });
 
+// 凭据行跟任务同一个请求覆盖：客户端那份「传过什么」的底账只代表它自己那个入口，
+// 云端那行被别的入口 / 别的 Worker 改过时底账还写着「传过了」，本地切 API 之后云端
+// 照样拿别人留下的凭据答话。下面钉住「带了就每轮都覆盖、覆盖不上就不落任务」。
+describe('POST /instant-chat — 这一轮的凭据行（credPayload）', () => {
+  it('带了就在建任务之前覆盖凭据行，信封原样搬运，202 回 credentialsSynced', async () => {
+    const { upstream, calls, paths } = makeUpstream();
+    const response = await run({ request: post(validBody({ credPayload: envelope('cred') })), upstream });
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ status: 'accepted', uuid: TASK_UUID, credentialsSynced: true });
+    expect(paths()).toEqual(['PUT /client-state', 'PUT /llm-credentials', 'POST /schedule-message']);
+    const cred = calls.find((c) => c.path.endsWith('/llm-credentials'))!;
+    expect(JSON.parse(cred.body)).toEqual(envelope('cred'));
+    expect(cred.headers['x-payload-encrypted']).toBe('true');
+    expect(cred.headers['x-user-id']).toBe(USER_ID);
+  });
+
+  it('没带（旧客户端）→ 不多转发，202 也不带 credentialsSynced', async () => {
+    const { upstream, paths } = makeUpstream();
+    const response = await run({ request: post(validBody()), upstream });
+    expect(await response.json()).toEqual({ status: 'accepted', uuid: TASK_UUID });
+    expect(paths()).toEqual(['PUT /client-state', 'POST /schedule-message']);
+  });
+
+  it('形状不对 → 400，任何转发之前就挡住', async () => {
+    const { upstream, calls } = makeUpstream();
+    const response = await run({ request: post(validBody({ credPayload: 'sk-plain' })), upstream });
+    expect(response.status).toBe(400);
+    expect((await response.json() as any).error.code).toBe('INVALID_CRED_PAYLOAD');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('凭据写不进去 → 报 llm-credentials 那一步，而且**绝不建任务**', async () => {
+    const { upstream, paths } = makeUpstream({
+      llmCredentials: { status: 400, body: { success: false, error: { code: 'INVALID_CREDENTIAL' } } },
+    });
+    const response = await run({ request: post(validBody({ credPayload: envelope('cred') })), upstream });
+    expect(response.status).toBe(400);
+    const body = await response.json() as any;
+    expect(body.error.code).toBe('INSTANT_CHAT_CREDENTIALS_FAILED');
+    expect(body.error.step).toBe('llm-credentials');
+    expect(paths()).toEqual(['PUT /client-state', 'PUT /llm-credentials']);
+  });
+
+  it('200 包着 success:false 也算失败，不建任务', async () => {
+    const { upstream, paths } = makeUpstream({
+      llmCredentials: { status: 200, body: { success: false, error: { code: 'STORAGE_FAILED' } } },
+    });
+    const response = await run({ request: post(validBody({ credPayload: envelope('cred') })), upstream });
+    expect(response.status).toBe(502);
+    expect((await response.json() as any).error.code).toBe('INSTANT_CHAT_CREDENTIALS_FAILED');
+    expect(paths()).not.toContain('POST /schedule-message');
+  });
+
+  it('5xx 跟云端状态那步一样按梯子重试', async () => {
+    let seen = 0;
+    const upstream = {
+      fetch: vi.fn(async (request: Request) => {
+        const path = new URL(request.url).pathname;
+        if (path.endsWith('/client-state')) return json(200, { success: true, data: {} });
+        if (path.endsWith('/llm-credentials')) {
+          seen += 1;
+          return seen === 1
+            ? json(500, { success: false, error: { code: 'INTERNAL_ERROR', message: '服务器内部错误' } })
+            : json(200, { success: true, data: { upserted: 1 } });
+        }
+        if (path.endsWith('/schedule-message')) return json(200, { success: true, data: { uuid: TASK_UUID } });
+        return json(404, { success: false });
+      }),
+    };
+    const response = await run({ request: post(validBody({ credPayload: envelope('cred') })), upstream: upstream as any });
+    expect(response.status).toBe(202);
+    expect(seen).toBe(2);
+  });
+});
+
 describe('POST /instant-chat — 只有两次内部转发', () => {
   // 顶替上一条不再是包装层的事：supersedesUuid 在加密的任务体里，
   // 上游建新任务的同一事务里取消旧的。包装层多发一条 DELETE 才是回归。
@@ -586,6 +666,23 @@ describe('buildInstantTimelyBlock', () => {
     expect(block).toContain('2026年8月1日 周六 早晨 08:00');
   });
 
+  // 报时后面必须跟那句语境框定，而且跟前台聊天用的是同一份常量。少了它，深夜的那行钟
+  // 就够让角色每轮往「快睡吧、明天见」上收——本地聊天治好了、云端没治的话，同一个角色
+  // 走两条路的分寸不一样，而即时对话恰恰是主路径。
+  it('报时后面跟着语境框定，跟前台聊天同一份常量', () => {
+    const block = buildInstantTimelyBlock({ ...base, blocks: [] });
+    expect(block).toContain(TIME_FRAMING_CONVERSATIONAL);
+    // 顺序也钉住：框定必须紧跟在钟点后面（贴在注意力最强的位置才起作用）。
+    expect(block.indexOf('现在是')).toBeLessThan(block.indexOf(TIME_FRAMING_CONVERSATIONAL));
+  });
+
+  it('关了时间感知时框定也一起消失（没有钟就没有要框的东西）', () => {
+    const block = buildInstantTimelyBlock({
+      ...base, timeAwarenessEnabled: false, blocks: ['\n\n【热搜】\n- 某某'],
+    });
+    expect(block).not.toContain(TIME_FRAMING_CONVERSATIONAL);
+  });
+
   it('有时差时补一行「对方那边几点」，同时区不补（一份提示词里两个钟会打架）', () => {
     expect(buildInstantTimelyBlock({ ...base, userTzId: 'America/New_York', blocks: [] }))
       .toContain('对方所在时区参考');
@@ -630,12 +727,21 @@ describe('applyInstantNotificationPolicy', () => {
   // 订阅是按 userVisibleOnly 建的：推了却不弹，Firefox 按配额退订、iOS 过了宽限期直接
   // 吊销，两边都静默发生。所以即时对话这条必推的路只能标 always，打扰交给折叠 + 静音压。
   // 回到 when-hidden（或任何「有时候不弹」的档）就是把订阅重新押上去，这条守着别退回去。
-  it('标 always + 按角色折叠 + 静音：推了就一定弹，不靠不弹来防打扰', () => {
+  it('标 always + 按角色折叠：推了就一定弹，不靠不弹来防打扰', () => {
     const push = applyInstantNotificationPolicy(
-      { message: 'hi', notification: { title: '来自 Nyah', body: 'hi' } }, 'char-1');
+      { message: 'hi', notification: { title: '来自 Nyah', body: 'hi' } }, 'char-1', true);
     expect(push.notification).toEqual({
-      title: '来自 Nyah', body: 'hi', show: 'always', silent: true, tag: 'amsg-instant-char-1',
+      title: '来自 Nyah', body: 'hi', show: 'always',
+      silent: 'when-visible', tag: 'amsg-instant-char-1', renotify: true,
     });
+  });
+
+  // 静不静音是 SW 收到这条时按窗口可见性算的。写死 true 的话，切后台、锁屏收到回复
+  // 也不响——worker 发推那一刻并不知道用户在不在前台，这个判定只能推迟到 SW 去做。
+  it('静音标成 when-visible，不写死 true（写死了切后台也不响）', () => {
+    const push = applyInstantNotificationPolicy(
+      { message: 'hi', notification: { title: 't' } }, 'char-1');
+    expect((push.notification as any).silent).toBe('when-visible');
   });
 
   it('没显式传 charId 就从 metadata 上认', () => {
@@ -647,7 +753,7 @@ describe('applyInstantNotificationPolicy', () => {
   // 折叠是为了不刷屏，但两个角色共用一个 tag 会互相顶掉——那是真丢消息，宁可多几条。
   it('认不出角色就不折叠（tag 留空，交给库按 messageId 兜底）', () => {
     const push = applyInstantNotificationPolicy({ message: 'hi', notification: { title: 't' } });
-    expect(push.notification).toEqual({ title: 't', show: 'always', silent: true });
+    expect(push.notification).toEqual({ title: 't', show: 'always', silent: 'when-visible' });
   });
 
   it('载荷本来没有 notification 就不凭空造一个（造出来只会弹一条空白横幅）', () => {
@@ -659,6 +765,27 @@ describe('applyInstantNotificationPolicy', () => {
 
   // 信封的其余部分（messageId / sessionId / 段号 / 任务身份）全交给库去补。这里多写一份
   // 就是多一处会跟库漂掉的副本，而账本里存的本来就是库发出去的那一份。
+  // 同 tag 的通知默认是静默替换。上一轮的横幅还躺在通知栏没点掉时，新一轮的第一段
+  // 不带 renotify 就会被当成替换、不出声——用户那句「有时候响有时候不响」就是这么来的。
+  it('每一轮的第一段带 renotify，后面几段不带（一轮只响一声）', () => {
+    const first = applyInstantNotificationPolicy(
+      { message: 'hi', notification: { title: 't' } }, 'char-1', true);
+    expect((first.notification as any).renotify).toBe(true);
+
+    const rest = applyInstantNotificationPolicy(
+      { message: 'hi', notification: { title: 't' } }, 'char-1', false);
+    expect(rest.notification).not.toHaveProperty('renotify');
+  });
+
+  // renotify 为 true 而 tag 是空串时 showNotification 直接抛 TypeError，那一条就
+  // 一个字都弹不出来。认不出角色时不折叠 = 没有 tag，这时哪怕是第一段也不能带。
+  it('没有 tag 就绝不带 renotify（带了 showNotification 会抛 TypeError）', () => {
+    const push = applyInstantNotificationPolicy(
+      { message: 'hi', notification: { title: 't' } }, null, true);
+    expect(push.notification).not.toHaveProperty('tag');
+    expect(push.notification).not.toHaveProperty('renotify');
+  });
+
   it('除通知策略外一个字段都不添（正文 / metadata 原样保留）', () => {
     const push = applyInstantNotificationPolicy({ message: 'hi', metadata: { directives: [1] } });
     expect(push).toEqual({ message: 'hi', metadata: { directives: [1] } });

@@ -97,19 +97,13 @@ describe('song lyric prompt context', () => {
     });
 
     it('anchors the completion note in the full character context instead of a generic mentor role', () => {
-        const buildCoreContext = vi.spyOn(ContextBuilder, 'buildCoreContext')
-            .mockReturnValue('CHARACTER CONTEXT WITH RELATIONSHIP');
-        const systemPrompt = SongPrompts.buildCompletionSystemPrompt(
-            { id: 'char-1', name: 'C' } as any,
-            { name: 'U' } as any,
-        );
-
-        expect(buildCoreContext).toHaveBeenCalledWith(
-            expect.objectContaining({ name: 'C' }),
-            expect.objectContaining({ name: 'U' }),
-            true,
-        );
-        expect(systemPrompt).toContain('CHARACTER CONTEXT WITH RELATIONSHIP');
+        const char = { id: 'char-1', name: 'C', systemPrompt: 'CHARACTER CONTEXT WITH RELATIONSHIP' } as any;
+        const user = { name: 'U' } as any;
+        const systemPrompt = SongPrompts.buildCompletionSystemPrompt(char, user);
+        const messages = ContextBuilder.buildCharacterRequest({ char, user }, [
+            { role: 'system', content: systemPrompt }, { role: 'user', content: '歌曲已完成' },
+        ]);
+        expect(JSON.stringify(messages)).toContain('CHARACTER CONTEXT WITH RELATIONSHIP');
         expect(systemPrompt).toContain('不是老师批作业、评委写鉴定');
         expect(systemPrompt).toContain('完整角色设定、你和U的关系、相处方式与既有记忆');
         expect(systemPrompt).toContain('不要使用“作为你的导师”');

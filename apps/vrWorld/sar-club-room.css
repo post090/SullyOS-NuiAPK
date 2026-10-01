@@ -1,0 +1,49 @@
+.sar-club-room{position:absolute;inset:0;background:#fff;color:#544b41;font-family:inherit;--sar-footer-space:var(--safe-bottom,10px)}
+.sar-room-viewport{position:absolute;inset:54px 3px calc(var(--sar-footer-space) + 5px);overflow:hidden}
+.sar-room-canvas{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);isolation:isolate}
+.sar-room-background{position:absolute;inset:0;display:block;width:100%;height:100%;user-select:none;pointer-events:none}
+/* One framing for the live room and the dialogue backdrop: never refit to the shorter stage. */
+.vr-sar-light .sar-room-viewport,.srf-room-viewport{top:calc(var(--chrome-top,0px) + 88px);bottom:calc(18px + var(--safe-bottom,0px))}
+.srf-room-backdrop{position:absolute;inset:0;background:#fff;pointer-events:none}
+.srf-room-viewport{position:absolute;left:3px;right:3px;overflow:hidden}
+.srf-room-viewport>img{display:block;width:100%;height:100%;object-fit:contain;object-position:center;user-select:none;pointer-events:none}
+/* Facility labels sit above the room art and below all chibis (depth 20–50). */
+.sar-room-hotspots{position:absolute;inset:0;pointer-events:none;z-index:10}
+.sar-room-hotspot{position:absolute;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:2px;min-width:44px;min-height:44px;transform:translate(-50%,-50%);padding:3px;border:0;background:none;color:#54412b;cursor:pointer;pointer-events:auto;touch-action:manipulation}
+.sar-room-hotspot i{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:block;width:11px;height:11px;border-radius:50%;border:2px solid #fff9ea;background:#b78243;box-shadow:0 0 0 3px #b98c5559,0 1px 5px #4b372b55}
+.sar-room-hotspot span{position:absolute;top:calc(50% + 8px);white-space:nowrap;background:#fffbefeb;border:1px solid #d2b99599;border-radius:9px;padding:2px 6px;font-size:10px;line-height:1.35;box-shadow:0 2px 5px #59473518}
+.sar-room-hotspot.align-left{transform:translate(-100%,-50%)}.sar-room-hotspot.align-left i{left:100%}.sar-room-hotspot.align-left span{right:0}
+.sar-room-hotspot.align-right{transform:translate(0,-50%)}.sar-room-hotspot.align-right i{left:0}.sar-room-hotspot.align-right span{left:0}
+.sar-room-hotspot:hover span,.sar-room-hotspot:focus-visible span{background:#f7e5c2}
+.sar-room-hotspot:focus-visible,.sar-room-person:focus-visible,.sar-room-roster button:focus-visible{outline:2px solid #60836c;outline-offset:2px;border-radius:10px}
+.sar-room-person{position:absolute;display:block;width:12.5%;min-width:32px;transform:translate(-50%,-100%);padding:0;margin:0;border:0;background:none;cursor:pointer;touch-action:manipulation}
+.sar-room-person:before{content:'';position:absolute;inset:-4px;min-height:44px}
+.sar-room-person__body{display:block;width:100%;aspect-ratio:1;transform:translateY(9.534%);pointer-events:none}
+.sar-room-person__body.is-fallback{transform:none}
+.sar-room-person__shadow{position:absolute;left:34%;right:34%;bottom:-1px;height:5%;min-height:2px;border-radius:50%;background:#4b422c40;filter:blur(.6px)}
+.sar-room-person__name{position:absolute;left:50%;top:100%;transform:translateX(-50%);white-space:nowrap;border-radius:7px;padding:1px 4px;background:#fffcf0dc;color:#685846;font-size:8px;line-height:1.4;max-width:80px;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.sar-room-person__quest{position:absolute;right:3%;top:-14px;display:grid;place-items:center;width:17px;height:20px;border-radius:8px;background:#f5d27d;color:#634b23;box-shadow:0 1px 4px #54412b40;font:bold 15px/1 sans-serif;pointer-events:none}
+.sar-room-person__visitor{display:block;width:100%;height:100%;object-fit:contain;object-position:bottom;transform-origin:50% 90.466%;pointer-events:none;filter:drop-shadow(0 2px 2px #473b2833)}
+.sar-room-person__visitor.is-fallback{width:75%;aspect-ratio:1;object-fit:cover;border-radius:50%;margin:auto}
+.sar-room-person__fallback{display:grid;place-items:center;width:70%;aspect-ratio:1;margin:auto;border-radius:50%;background:#a5bba9;color:white;font-size:14px}
+.sar-room-roster{position:absolute;right:12px;top:13px;z-index:110;max-width:180px}.sar-room-roster>button{border:1px solid #cdbfa47a;border-radius:14px;background:#fffdf4e8;color:#84755e;font-size:10px;padding:6px 10px;min-height:32px}
+.sar-room-roster__list{position:absolute;right:0;top:calc(100% + 5px);width:160px;max-height:240px;overflow:auto;background:#fffdf4f5;border:1px solid #d8cdb7;border-radius:12px;padding:5px;box-shadow:0 5px 16px #67553c22}
+.sar-room-roster__list button{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:44px;gap:5px;border:0;border-bottom:1px solid #ded7c94d;background:none;color:#685846;padding:6px;font-size:11px}.sar-room-roster__list small{font-size:9px;color:#9c8d77}
+.sar-world-page{background:#fff}.sar-world-page .sar-club-room{--sar-footer-space:49px}
+.sar-world-page .sar-world-heading{pointer-events:none;color:#544735;top:12px}.sar-world-page .sar-world-heading h2{color:#534838;font-size:17px;margin-top:4px}.sar-world-page .sar-world-heading p{display:none}
+.sar-world-page .sar-world-heading .sar-world-eyebrow{color:#9a8c77;font-size:7px;letter-spacing:.18em}.sar-world-page .sar-world-heading .sar-world-npc-status{display:none}
+.sar-world-page .sar-world-pagination button,.sar-world-page .sar-world-pagination>span{color:#76664e!important;background:#f7f1e4!important;border-color:#b9a78b55!important;box-shadow:none}.sar-world-page .sar-world-pagination button{height:36px;width:44px}
+@media(max-width:360px){.sar-world-page .sar-world-heading h2{font-size:16px}.sar-room-hotspot span{font-size:9px;padding:2px 5px}}
+
+/* Warm ivory facility signs, plain names below feet, ornamental titles above heads. */
+.sar-room-hotspot i{width:8px;height:8px;background:#b39471;border-color:#fffaf0;box-shadow:0 0 0 3px #b3947126}
+.sar-room-hotspot span{display:flex;align-items:center;gap:4px;background:#fffaf0f5;border:1px solid #d5c2a9;border-radius:5px;padding:4px 7px;color:#69513b;font-size:10px;font-weight:500;box-shadow:0 2px 0 #8d6d4a2e}
+.sar-room-hotspot span svg{flex-shrink:0;opacity:.85}
+.sar-room-hotspot:hover span,.sar-room-hotspot:focus-visible span{background:#f2e5d0;border-color:#b99c78}
+.sar-room-person__name{top:calc(100% + 2px);border-radius:2px;padding:1px 4px;background:#fffdf4a6;color:#413f37;font-size:9px;font-weight:500;text-shadow:0 1px 2px #fff;line-height:1.45}
+.sar-room-person__title{position:absolute;bottom:calc(100% + 3px);left:50%;transform:translateX(-50%);max-width:106px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:1px 8px;color:#8b6229;font:500 9px/15px 'Noto Serif SC',serif;letter-spacing:.02em;text-shadow:0 1px 2px #fff,0 -1px 2px #fff;background:linear-gradient(90deg,#fffaf000,#fffaf0e8 18%,#fffaf0e8 82%,#fffaf000);border-bottom:1px solid #bb91594d;pointer-events:none}
+
+.sar-room-ui-hidden .sar-room-person__name,.sar-room-ui-hidden .sar-room-person__title,.sar-room-ui-hidden .sar-room-person__quest,.sar-room-ui-hidden .sar-room-hotspots,.sar-room-ui-hidden .sar-room-roster{display:none}
+.sar-room-ui-hidden .sar-room-person__fallback{font-size:0}
+.sar-room-view-names-hidden .sar-room-person__name,.sar-room-view-names-hidden .sar-room-person__title{display:none}
+.sar-room-view-characters-hidden .sar-room-person,.sar-room-view-characters-hidden .sar-room-roster{display:none}

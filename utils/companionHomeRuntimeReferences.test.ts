@@ -26,22 +26,27 @@ describe('CompanionHome touch request boundaries', () => {
   it('pre-generates touch voice only when opted in and plays persisted audio without per-tap TTS', () => {
     const source = readFileSync(path.resolve(__dirname, '../components/os/CompanionHome.tsx'), 'utf8');
     const voiceSource = readFileSync(path.resolve(__dirname, './avatarTouchVoice.ts'), 'utf8');
+    const voiceAssetSource = readFileSync(path.resolve(__dirname, './companionVoiceAssets.ts'), 'utf8');
 
     expect(source).toContain('data-testid="companion-touch-generate-voice"');
     expect(source).toContain('if (touchGenerateVoice)');
     expect(source).toContain('createAvatarTouchVoiceUrl(voice)');
     expect(source).not.toContain('synthesizeSpeechDetailed(');
     expect(voiceSource).toContain('synthesizeSpeechDetailed(');
-    expect(voiceSource).toContain('DB.putBlobAsset');
+    expect(voiceSource).toContain('saveCompanionVoiceBlob');
     expect(voiceSource).toContain('VOICE_CONCURRENCY = 2');
     expect(source).toContain('data-testid="companion-generate-startup-voice"');
     expect(source).toContain('data-testid="companion-startup-voice-language"');
     expect(source).toContain('data-testid="companion-touch-voice-language"');
     expect(source).toContain('data-testid="companion-startup-translation"');
     expect(source).toContain('generateCompanionStartupVoice');
-    expect(voiceSource).toContain('companion-startup-voice:');
+    expect(voiceAssetSource).toContain("COMPANION_STARTUP_VOICE_ASSET_PREFIX = 'companion-startup-voice:'");
     expect(voiceSource).toContain('voiceText: options.text');
     expect(voiceSource).toContain('languageBoost: options.voiceLanguage || undefined');
+    expect(source).toContain('data-testid="companion-startup-preset-select"');
+    expect(source).toContain('data-testid="companion-touch-preset-select"');
+    expect(source).toContain('保存为新预设');
+    expect(source).toContain('生成并保存新预设');
   });
 
   it('sequences a local touch impulse and uses the center star for real apps', () => {
@@ -92,7 +97,8 @@ describe('CompanionHome touch request boundaries', () => {
     expect(source).toContain('data-testid="companion-hud-thought"');
     expect(source).toContain('data-testid="companion-hud-chat"');
     expect(source).toContain('data-testid="companion-hud-schedule"');
-    expect(source).toContain('DB.getRecentMessagesByCharId');
+    expect(source).toContain('DB.getRecentMessagesWithCount(character.id, 1');
+    expect(source).toContain('isChatPreviewMessage(message)');
     expect(source).toContain('getLastInnerState(character.id)');
     expect(source).toContain('getDailyScheduleForChar(character)');
     expect(source).toContain('data-ui-scale="medium"');
@@ -400,7 +406,7 @@ describe('CompanionHome touch request boundaries', () => {
     expect(source).not.toContain('data-testid="companion-generate-startup"');
     expect(source).toContain('中文原文（界面显示）');
     expect(source).toContain('语音译文（实际朗读）');
-    expect(source).toContain("label: '开机自启'");
+    expect(source).toContain("label: '开场预演'");
     expect(source).toContain('onModelReady={handleStageModelReady}');
     expect(source).toContain('COMPANION_BOOT_LOCK_PERFORMANCE');
     expect(source).toContain('const companionStartupPlayedThisSession = new Set<string>()');
@@ -438,6 +444,8 @@ describe('CompanionHome touch request boundaries', () => {
     expect(live2dSource).toContain("core.setParameterValueById(resolveId('ParamEyeBallX'), finalEyeX)");
     expect(live2dSource).toContain("host.dataset.live2dFinalEyes = `${finalEyeX.toFixed(3)},${finalEyeY.toFixed(3)}`");
     expect(live2dSource).toContain("const finalMouth = motionStateRef.current === 'speaking' ? lastMouthLevel : 0");
+    expect(live2dSource).toContain('for (const id of mouthOpenParameterIds)');
+    expect(live2dSource).not.toContain("for (const id of config.lipSyncParameterIds.length ? config.lipSyncParameterIds : ['ParamMouthOpenY'])");
     expect(live2dSource).toContain("core.setParameterValueById(resolveId(id), finalMouth)");
     expect(live2dSource).toContain("host.dataset.live2dFinalMouth = finalMouth.toFixed(3)");
     expect(live2dSource).toContain('if (!locked || directedHead.motionOwnsHead || directedHead.paramsOwnHead) return;');

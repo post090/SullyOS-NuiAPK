@@ -6,11 +6,14 @@
  */
 
 import type { Message } from '../../types';
-import type { MemoryNode, MemoryRoom } from './types';
+import type { MemoryEntity, MemoryNode, MemoryRoom } from './types';
 import type { LightLLMConfig } from './pipeline';
 import { safeFetchJson } from '../safeApi';
 import { safeParseJsonArray } from './jsonUtils';
-import { formatMessageForPrompt } from '../messageFormat';
+import { buildSARMemoryBoundaryInstruction, formatMessageForPrompt } from '../messageFormat';
+import { readRecallRuntimeSnapshot } from './trace';
+import { hasRelativeTime, hasMatchingRelativeSource, relativeTimeEnabled } from './relativeTime';
+import { getLocalDateKey } from '../localDate';
 
 function generateId(): string {
     return `mn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -26,7 +29,11 @@ function generateId(): string {
 // 会让 embedding 语义轻微漂移。保持 palace 内置风格稳定，手动归档路径提供
 // 风格化的自由度——职责分离。
 
-function buildRulesBlock(charName: string, userLabel: string): string {
+function buildRulesBlock(charName: string, userLabel: string, includeEntities: boolean): string {
+    const entityRule = includeEntities
+        ? `.
+   **明确实体**（entities）：把对话中明确出现的人名、昵称、地点、组织、项目、产品、账号或域名单独列出。只收录专名，不要写“朋友”“他”“那个项目”等泛称，也不要猜别名。格式为 {"name":"雾岚","type":"person"}（虚构示例）。`
+        : '';
     return `## 规则
 
 1. **第一人称叙事**：用 ${charName} 的"我"视角来记录。用户直接用"${userLabel}"称呼。保持完整事件脉络，不要掐头去尾。
@@ -54,7 +61,7 @@ function buildRulesBlock(charName: string, userLabel: string): string {
    - valence（效价）：-1（极痛苦）→ +1（极愉悦）
    - arousal（唤醒度）：-1（极平静）→ +1（极激烈）
    参考："开心"约 (0.7, 0.5)，"平静"约 (0.5, -0.6)，"失落"约 (-0.5, -0.4)，"焦虑"约 (-0.6, 0.7)，"愤怒"约 (-0.7, 0.8)。
-6. **标签**（tags）：提取 2-5 个关键词标签
+6. **标签**（tags）：提取 2-5 个关键词标签${entityRule}
 7. **不要遗漏重要记忆，但也不要把每句话都变成记忆**。一个话题盒通常提取 1–5 条记忆。
 8. **便利贴置顶**（pinDays，可选）：如果这条记忆包含**有时效性的、近期需要持续记住的信息**，设置置顶天数（1-30天）。置顶期间每次对话都会想起这件事。适用场景：
    - 时间段状态："${userLabel}这周出差" → pinDays: 7
@@ -66,14 +73,14 @@ function buildRulesBlock(charName: string, userLabel: string): string {
 **日期标注（date，必填）**：每条消息前缀都带了 \`[YYYY-MM-DD HH:MM]\` 时间戳。每条记忆必须根据**该事件实际发生的那一天**填 date 字段（"YYYY-MM-DD"），而不是套用整批的某一天。同一批对话跨多天时，跨日的记忆要分别标各自的日期。`;
 }
 
-function buildConversationText(messages: Message[], charName: string, userLabel: string): string {
+function buildConversationText(messages: Message[], charName: string, userLabel: string, linkDates = false): string {
     // 每行带 [YYYY-MM-DD HH:MM] 时间戳前缀。
     // 没有这个 LLM 完全看不到日期，多日 batch 提取出来的记忆全部会被压到一个时间点
     // （见 parseMemoryNodesFromBuffer 的 midTime 兜底），跨日时间线就乱了。
     const pad2 = (n: number) => String(n).padStart(2, '0');
     return messages
-        .map(m => {
-            const body = formatMessageForPrompt(m, charName, userLabel).slice(0, 600);
+        .map((m, index) => {
+            const body = (linkDates ? `[M${index}] ` : '') + formatMessageForPrompt(m, charName, userLabel).slice(0, 600);
             const ts = m.timestamp;
             if (!ts || ts <= 0) return body;
             const d = new Date(ts);
@@ -90,7 +97,7 @@ const VALID_ROOMS: MemoryRoom[] = [
 
 /** 从消息缓冲区直接解析记忆节点（不依赖 TopicBox） */
 function parseMemoryNodesFromBuffer(
-    parsed: any[], charId: string, messages: Message[], _batchLabel: string,
+    parsed: any[], charId: string, messages: Message[], _batchLabel: string, includeEntities: boolean, linkDates = false,
 ): MemoryNode[] {
     if (parsed.length === 0) return [];
 
@@ -123,6 +130,30 @@ function parseMemoryNodesFromBuffer(
         return ts;
     };
 
+    const parseEntities = (value: unknown): MemoryEntity[] => {
+        if (!Array.isArray(value)) return [];
+        const validTypes = new Set<NonNullable<MemoryEntity['type']>>([
+            'person', 'place', 'organization', 'project', 'product', 'account', 'domain', 'other',
+        ]);
+        const seen = new Set<string>();
+        const result: MemoryEntity[] = [];
+        for (const raw of value) {
+            if (!raw || typeof raw !== 'object') continue;
+            const item = raw as Record<string, unknown>;
+            const name = typeof item.name === 'string' ? item.name.trim().slice(0, 80) : '';
+            const key = name.normalize('NFKC').toLocaleLowerCase();
+            if (name.length < 2 || !key || seen.has(key)) continue;
+            seen.add(key);
+            const entity: MemoryEntity = { name };
+            if (validTypes.has(item.type as NonNullable<MemoryEntity['type']>)) {
+                entity.type = item.type as NonNullable<MemoryEntity['type']>;
+            }
+            result.push(entity);
+            if (result.length >= 12) break;
+        }
+        return result;
+    };
+
     return parsed
         .filter(item => item.content && item.room)
         .map((item): MemoryNode => {
@@ -136,7 +167,7 @@ function parseMemoryNodesFromBuffer(
             // (v, a) 非必需：LLM 没给就不写，下游 getEmotionVA 查表兜底
             const v = typeof item.valence === 'number' ? clampVA(item.valence) : undefined;
             const a = typeof item.arousal === 'number' ? clampVA(item.arousal) : undefined;
-            return {
+            const memory: MemoryNode = {
                 id: generateId(),
                 charId,
                 content: item.content,
@@ -154,6 +185,19 @@ function parseMemoryNodesFromBuffer(
                 eventBoxId: null,  // 由 pipeline 在 binding 阶段设置
                 origin: 'extraction',
             };
+            if (includeEntities) memory.entities = parseEntities(item.entities);
+            // No anchor guesses from event dates or the extraction batch. Only a valid original message reference.
+            if (linkDates && relativeTimeEnabled() && hasRelativeTime(memory.content)
+                && typeof item.relativeTimeSource === 'string' && /^M\d+$/.test(item.relativeTimeSource)) {
+                const source = messages[Number(item.relativeTimeSource.slice(1))];
+                if (source && Number.isFinite(source.timestamp) && source.timestamp > 0
+                    && hasMatchingRelativeSource(memory.content, formatMessageForPrompt(source, '', '').slice(0, 600))) {
+                    memory.relativeTimeAnchor = {
+                        dateKey: getLocalDateKey(new Date(source.timestamp)), source: 'message', messageId: source.id,
+                    };
+                }
+            }
+            return memory;
         });
 }
 
@@ -359,8 +403,11 @@ export async function extractMemoriesFromBuffer(
 ): Promise<BufferExtractionResult> {
     if (messages.length === 0) return { memories: [], crossTimeLinks: [], eventBoxHints: [], unpinIds: [], corrections: [] };
 
+    const includeEntities = readRecallRuntimeSnapshot().featureFlagsSnapshot.recallRouter;
+    const linkDates = relativeTimeEnabled();
     const userLabel = userName || '用户';
-    const conversationText = buildConversationText(messages, charName, userLabel);
+    const conversationText = buildConversationText(messages, charName, userLabel, linkDates);
+    const sarMemoryBoundary = buildSARMemoryBoundaryInstruction(conversationText);
 
     const contextBlock = charContext
         ? `\n## 你的人设（供参考，帮助你理解对话中的关系和角色定位）\n${charContext}\n`
@@ -388,7 +435,10 @@ export async function extractMemoriesFromBuffer(
 
     const systemPrompt = `你是 ${charName}。根据给定的对话内容，以你的第一人称视角（"我"）提取值得记住的记忆。${contextBlock}${relatedBlock}${pinnedBlock}
 
-${buildRulesBlock(charName, userLabel)}${relatedToRule}${unpinRule}
+${buildRulesBlock(charName, userLabel, includeEntities)}${relatedToRule}${unpinRule}${sarMemoryBoundary ? `\n\n${sarMemoryBoundary}` : ''}${linkDates ? `
+
+## 相对时间来源
+content 保留原消息的相对时间措辞，不要自行添加日期括号。含“昨天、前天、几天前、上周、上个月、去年”等措辞时，额外输出 relativeTimeSource 字段，值为说出该措辞的原消息编号（例如 "M0"）。系统将以该消息的发送日补注，不使用 date 事件日。不同说话日期的相对时间应拆成不同记忆。没有可靠来源、跨时区语义不明或无法使用同一个参照日时，省略该字段，禁止猜测。` : ''}
 
 ## 输出格式
 
@@ -401,7 +451,8 @@ ${buildRulesBlock(charName, userLabel)}${relatedToRule}${unpinRule}
     "mood": "neutral",
     "valence": 0,
     "arousal": 0,
-    "tags": ["标签1", "标签2"],
+    "tags": ["标签1", "标签2"],${includeEntities ? `
+    "entities": [{"name": "明确出现的专名", "type": "person"}],` : ''}
     "date": "YYYY-MM-DD",
     "pinDays": 3${relatedToFormat}
   }
@@ -453,7 +504,7 @@ pinDays 仅在需要置顶时才写，大多数记忆不需要。
         const fmt = (d: Date) => `${d.getMonth() + 1}/${d.getDate()}`;
         const batchLabel = fmt(d1) === fmt(d2) ? fmt(d1) : `${fmt(d1)}-${fmt(d2)}`;
 
-        const memories = parseMemoryNodesFromBuffer(parsed, charId, messages, batchLabel);
+        const memories = parseMemoryNodesFromBuffer(parsed, charId, messages, batchLabel, includeEntities, linkDates);
 
         // 解析跨时间关联（→ EventBox 绑定信号）+ eventName/eventTags 提示
         const { crossTimeLinks, eventBoxHints } = parseRelatedToAndHints(
@@ -497,6 +548,7 @@ pinDays 仅在需要置顶时才写，大多数记忆不需要。
         return { memories, crossTimeLinks, eventBoxHints, unpinIds, corrections };
 
     } catch (err: any) {
+        if (llmConfig.deferPlateMaintenance) throw err;
         console.error(`❌ [Extraction] 缓冲区提取失败 (${messages.length} 条消息):`, err.message);
         return { memories: [], crossTimeLinks: [], eventBoxHints: [], unpinIds: [], corrections: [] };
     }

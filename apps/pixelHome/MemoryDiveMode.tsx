@@ -68,7 +68,7 @@ const MemoryDiveMode: React.FC<Props> = ({
   userName, homeState, assets, apiConfig, remoteVectorConfig, onExit,
 }) => {
   const fullCharContext = useMemo(() =>
-    ContextBuilder.buildCoreContext(charProfile, userProfile, true),
+    ({ char: charProfile, user: userProfile }),
     [charProfile, userProfile],
   );
 

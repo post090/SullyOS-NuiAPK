@@ -2,22 +2,23 @@ import {
   ActiveMsg2GlobalConfig,
   ActiveMsg2InboxMessage,
   Amsg2ExpiredNoticeRecord,
-  InstantPushOutboundSession,
-  InstantPushPendingToolCall,
-  InstantPushReasoningBufferEntry,
 } from '../types';
 
 const DB_NAME = 'ActiveMsg';
-// v2 (Phase 2 Round 1): added outbound_sessions / pending_tool_calls / reasoning_buffer
-// for agentic-loop /continue resume + reasoning correlation.
+// MUST be kept in sync with worker/sw-keep-alive.ts:ACTIVE_MSG_DB_VERSION.
 // IMPORTANT: once a client opens v2, downgrade to a v1 codebase will fail to open this DB.
 const DB_VERSION = 2;
 const STORE_KV = 'kv';
 const STORE_INBOX = 'inbox';
+// 下面三张表现在没人读写，只在 clearLegacyInstantPushStores 里清空一次旧数据。
+// 建表逻辑留着是为了不动库版本：删表就得升 DB_VERSION，页面和 SW 必须同步升级，
+// 否则老的一方打开库直接 VersionError、推送静默丢失。
 const STORE_OUTBOUND_SESSIONS = 'outbound_sessions';
 const STORE_PENDING_TOOL_CALLS = 'pending_tool_calls';
 const STORE_REASONING_BUFFER = 'reasoning_buffer';
 const GLOBAL_CONFIG_KEY = 'global-config';
+/** 删库被别的连接挡住时最多等多久（见 deleteDB 的注释）。 */
+const DELETE_DB_BLOCKED_TIMEOUT_MS = 3000;
 
 const EXPIRED_NOTICES_PREFIX = 'amsg2_expired_notices_';
 const EXPIRED_NOTICES_MAX = 10;
@@ -97,7 +98,7 @@ const openDB = (): Promise<IDBDatabase> => {
         db.createObjectStore(STORE_INBOX, { keyPath: 'messageId' });
       }
 
-      // Phase 2 Round 1 stores (v1 → v2 migration is additive — no data touch on existing stores)
+      // v2 的三张闲置表（见常量处注释），建出来只为跟 SW 那边的 schema 保持一致。
       if (!db.objectStoreNames.contains(STORE_OUTBOUND_SESSIONS)) {
         db.createObjectStore(STORE_OUTBOUND_SESSIONS, { keyPath: 'sessionId' });
       }
@@ -136,9 +137,9 @@ const setKv = async <T>(id: string, value: T): Promise<void> => {
   });
 };
 
-// XHS 跨轮笔记缓冲: round 1 工具跑完写, round 2 [[XHS_SHARE]]/评论/点赞 重放时读.
+// XHS 笔记缓冲: push 冲刷时把 worker 捎回的笔记写进来, [[XHS_SHARE]]/评论/点赞 重放时读.
 // 存在 KV 是因为内存单例 (pushLastXhsNotesRef) 跨 SW 唤醒 / 页面回收会清空 —— 移动端
-// instant 流程的 round 1 与 round 2 之间常隔一次后台重载, 笔记一丢 XHS_SHARE 就静默掉卡片.
+// 收到 push 和冲刷之间常隔一次后台重载, 笔记一丢 XHS_SHARE 就静默掉卡片.
 const XHS_SESSION_NOTES_PREFIX = 'xhs_session_notes:';
 const XHS_SESSION_NOTES_TTL_MS = 3 * 60 * 60 * 1000;
 
@@ -148,7 +149,7 @@ export type XhsSessionNotes = {
   savedAt: number;
 };
 
-// 写入时顺手清理过期条目, 防 KV 无界增长 (outbound_sessions 本身也没清理, 这里不重蹈覆辙).
+// 写入时顺手清理过期条目, 防 KV 无界增长.
 const pruneStaleXhsSessionNotes = async (): Promise<void> => {
   try {
     const db = await openDB();
@@ -187,6 +188,40 @@ const generateUuidV4 = () => {
 };
 
 export const ActiveMsgStore = {
+  /**
+   * 删掉整个 ActiveMsg 库。只给「重置全部数据」用。
+   *
+   * 2.0 的连接信息（worker 地址、共享密钥、主密钥、用户 id）住在这个库里，跟角色、
+   * 聊天记录那个主库（AetherOS_Data）是分开的两个库。重置只删主库的话，角色全没了
+   * 而连接信息还在，云端那批任务照样到点跑、照样烧 API 额度、照样往这台设备推消息，
+   * 本地却已经没有任何记录知道它们存在。
+   *
+   * Service Worker 也开着这个库（见 worker/sw-keep-alive.ts），它那条连接不归页面管，
+   * 所以 deleteDatabase 可能一直 blocked。超时后照常往下走，不把重置卡在这里：重置的
+   * 下一步就是刷新页面，页面一刷新连接就断，库会在那之后被删掉。
+   */
+  async deleteDB(): Promise<void> {
+    if (dbPromise) {
+      try { (await dbPromise).close(); } catch { /* ignore */ }
+      dbPromise = null;
+    }
+    await new Promise<void>((resolve) => {
+      const request = indexedDB.deleteDatabase(DB_NAME);
+      const finish = () => resolve();
+      // blocked 不是终态：占用方关闭后仍会触发 onsuccess。超时兜底只是不再等它。
+      const timer = setTimeout(finish, DELETE_DB_BLOCKED_TIMEOUT_MS);
+      const settle = () => { clearTimeout(timer); finish(); };
+      request.onsuccess = settle;
+      request.onerror = () => {
+        console.warn('[ActiveMsgStore] 删库失败', request.error);
+        settle();
+      };
+      request.onblocked = () => {
+        console.warn('[ActiveMsgStore] 删库被占用方挡住，等页面刷新后自行完成');
+      };
+    });
+  },
+
   async getGlobalConfig(): Promise<ActiveMsg2GlobalConfig> {
     const stored = await getKv<ActiveMsg2GlobalConfig>(GLOBAL_CONFIG_KEY);
     const config = { ...defaultGlobalConfig, ...(stored || {}) };
@@ -228,6 +263,22 @@ export const ActiveMsgStore = {
     });
   },
 
+  /**
+   * 收件箱里现在有几条。**只数个数，不读内容**——给前台那趟定期巡查用。
+   *
+   * 巡查每几秒就要跑一次，不能每回都把整表读出来再原样丢掉。count() 不反序列化任何
+   * 记录，空表时几乎不花时间；数出来是 0 就到此为止，有货才去走完整的冲刷。
+   */
+  async countInboxMessages(): Promise<number> {
+    const db = await openDB();
+    return new Promise<number>((resolve, reject) => {
+      const tx = db.transaction(STORE_INBOX, 'readonly');
+      const request = tx.objectStore(STORE_INBOX).count();
+      request.onsuccess = () => resolve(request.result || 0);
+      request.onerror = () => reject(request.error);
+    });
+  },
+
   async listInboxMessages(): Promise<ActiveMsg2InboxMessage[]> {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -263,10 +314,9 @@ export const ActiveMsgStore = {
       let messages: ActiveMsg2InboxMessage[] = [];
       request.onsuccess = () => {
         messages = (request.result || []) as ActiveMsg2InboxMessage[];
-        // amsg-instant 0.8+ 一个 user turn 可能产 N 条 push (multi-chunk
-        // pushPayloads). FCM 投递不严格保序, 必须按 (sessionId, messageIndex) 排序
-        // 才能拿到正确气泡顺序. 没 sessionId 的 (老 worker / proactive push 等)
-        // 走 sentAt fallback 保持兼容.
+        // 一个 user turn 可能产 N 条 push (multi-chunk pushPayloads). FCM 投递不严格
+        // 保序, 必须按 (sessionId, messageIndex) 排序才能拿到正确气泡顺序. 没 sessionId
+        // 的走 sentAt fallback.
         messages.sort((a, b) => {
           const aSess = a.metadata?.sessionId as string | undefined;
           const bSess = b.metadata?.sessionId as string | undefined;
@@ -286,40 +336,26 @@ export const ActiveMsgStore = {
     });
   },
 
-  // ─── Phase 2 Round 1: outbound_sessions ──────────────────────────────────
-  // sendInstantPush 写, /continue 续跑读, /continue 完成后 delete.
-
-  async saveOutboundSession(record: InstantPushOutboundSession): Promise<void> {
+  /**
+   * 清空 v2 的三张闲置表（outbound_sessions / pending_tool_calls / reasoning_buffer）。
+   * outbound_sessions 里存过 API key 副本和整段消息快照，从来没被清过；只给
+   * instantPushLegacyCleanup 调，一个事务清完。
+   */
+  async clearLegacyInstantPushStores(): Promise<void> {
     const db = await openDB();
+    const stores = [STORE_OUTBOUND_SESSIONS, STORE_PENDING_TOOL_CALLS, STORE_REASONING_BUFFER]
+      .filter((name) => db.objectStoreNames.contains(name));
+    if (stores.length === 0) return;
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_OUTBOUND_SESSIONS, 'readwrite');
-      tx.objectStore(STORE_OUTBOUND_SESSIONS).put(record);
+      const tx = db.transaction(stores, 'readwrite');
+      for (const name of stores) tx.objectStore(name).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('legacy store clear aborted'));
     });
   },
 
-  async getOutboundSession(sessionId: string): Promise<InstantPushOutboundSession | null> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_OUTBOUND_SESSIONS, 'readonly');
-      const request = tx.objectStore(STORE_OUTBOUND_SESSIONS).get(sessionId);
-      request.onsuccess = () => resolve((request.result as InstantPushOutboundSession | undefined) ?? null);
-      request.onerror = () => reject(request.error);
-    });
-  },
-
-  async deleteOutboundSession(sessionId: string): Promise<void> {
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_OUTBOUND_SESSIONS, 'readwrite');
-      tx.objectStore(STORE_OUTBOUND_SESSIONS).delete(sessionId);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  // ─── XHS 跨轮笔记缓冲 (持久化) ─────────────────────────────────────────────
+  // ─── XHS 笔记缓冲 (持久化) ─────────────────────────────────────────────────
   async saveXhsSessionNotes(
     sessionId: string,
     payload: { notes: unknown[]; xsecTokens: Array<[string, string]> },
@@ -336,157 +372,6 @@ export const ActiveMsgStore = {
   async getXhsSessionNotes(sessionId: string): Promise<XhsSessionNotes | null> {
     if (!sessionId) return null;
     return getKv<XhsSessionNotes>(`${XHS_SESSION_NOTES_PREFIX}${sessionId}`);
-  },
-
-  // ─── Phase 2 Round 2 wire: pending_tool_calls ─────────────────────────────
-  // SW writes when worker emits messageKind='tool_request'; main thread consumes
-  // on startup (or via postMessage). Atomic claim mirrors consumeInboxMessages.
-  // Round 1: empty by design (worker still 0.6 one-shot, won't emit tool_request).
-
-  async savePendingToolCall(record: InstantPushPendingToolCall): Promise<void> {
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_PENDING_TOOL_CALLS, 'readwrite');
-      tx.objectStore(STORE_PENDING_TOOL_CALLS).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  async consumePendingToolCalls(): Promise<InstantPushPendingToolCall[]> {
-    const db = await openDB();
-    return new Promise<InstantPushPendingToolCall[]>((resolve, reject) => {
-      const tx = db.transaction(STORE_PENDING_TOOL_CALLS, 'readwrite');
-      const store = tx.objectStore(STORE_PENDING_TOOL_CALLS);
-      const request = store.getAll();
-      let calls: InstantPushPendingToolCall[] = [];
-      request.onsuccess = () => {
-        calls = (request.result || []) as InstantPushPendingToolCall[];
-        calls.sort((a, b) => a.createdAt - b.createdAt);
-        calls.forEach((c) => store.delete(c.sessionId));
-      };
-      request.onerror = () => reject(request.error);
-      tx.oncomplete = () => resolve(calls);
-      tx.onabort = () => reject(tx.error || new Error('pending tool calls consume aborted'));
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  // ─── Phase 2 Round 2 wire: reasoning_buffer ───────────────────────────────
-  // New amsg-sw generic multipart restores complete reasoning payloads before
-  // business handling, so SW now writes a flat reasoningContent. Keep chunks[]
-  // fallback for pending rows written by older SW versions.
-
-  async saveReasoning(record: InstantPushReasoningBufferEntry): Promise<void> {
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_REASONING_BUFFER, 'readwrite');
-      tx.objectStore(STORE_REASONING_BUFFER).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  /**
-   * 列出 reasoning_buffer 里所有残留会话的 (sessionId, charId)。
-   * 用于启动/回前台时的孤儿回填兜底：reasoning push 到达时页面被杀,
-   * SW 的 'active-msg-reasoning' postMessage 进空气, buffer 里的思维链没人认领。
-   * 只读不删——真正认领仍走 claimReasoning（含 chunks 排序拼接语义）。
-   */
-  async listReasoningSessions(): Promise<Array<{ sessionId: string; charId: string; receivedAt: number }>> {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_REASONING_BUFFER, 'readonly');
-      const request = tx.objectStore(STORE_REASONING_BUFFER).getAll();
-      request.onsuccess = () => {
-        const rows = (request.result || []) as InstantPushReasoningBufferEntry[];
-        resolve(rows.map(r => ({ sessionId: r.sessionId, charId: r.charId, receivedAt: r.receivedAt ?? 0 })));
-      };
-      request.onerror = () => reject(request.error);
-    });
-  },
-
-  async claimReasoning(sessionId: string): Promise<InstantPushReasoningBufferEntry | null> {
-    const db = await openDB();
-    return new Promise<InstantPushReasoningBufferEntry | null>((resolve, reject) => {
-      const tx = db.transaction(STORE_REASONING_BUFFER, 'readwrite');
-      const store = tx.objectStore(STORE_REASONING_BUFFER);
-      const request = store.get(sessionId);
-      let entry: InstantPushReasoningBufferEntry | null = null;
-      request.onsuccess = () => {
-        const r = request.result as InstantPushReasoningBufferEntry | undefined;
-        if (r) {
-          const chunks = r.chunks ?? [];
-          const reasoningContent = chunks.length > 0
-            ? [...chunks]
-                .sort((a, b) =>
-                  a.messageIndex !== b.messageIndex
-                    ? a.messageIndex - b.messageIndex
-                    : a.chunkIndex - b.chunkIndex,
-                )
-                .map((c) => c.reasoningContent)
-                .join('')
-            : (r.reasoningContent ?? '');
-          entry = { ...r, reasoningContent };
-          store.delete(sessionId);
-        }
-      };
-      request.onerror = () => reject(request.error);
-      tx.oncomplete = () => resolve(entry);
-      tx.onabort = () => reject(tx.error || new Error('reasoning claim aborted'));
-      tx.onerror = () => reject(tx.error);
-    });
-  },
-
-  /**
-   * 客户端镜像 SW 的 clearReasoningBuffer — 启动续跑 / 异常恢复路径主动调,
-   * 避免 reasoning_buffer 里残留早期 round 的内心戏污染最终 thinking chain.
-   * 跟 SW 的 clearReasoningBuffer 字节等价.
-   */
-  async clearReasoning(sessionId: string): Promise<void> {
-    if (!sessionId) return;
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_REASONING_BUFFER, 'readwrite');
-      tx.objectStore(STORE_REASONING_BUFFER).delete(sessionId);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error || new Error('reasoning clear aborted'));
-    });
-  },
-
-  // ─── pending_emotion_evals (KV-backed) ────────────────────────────────────
-  // 当 push 落库后, useChatAI 没 mount 这个 char 时, 写一条 pending 记录占位; 用户切到
-  // 这个 chat 时 useChatAI useEffect drain. 在线 (已 mount) 时 dispatch 事件直接跑, 仍
-  // 写记录占位以防 listener 没成功跑 (例如 useChatAI 此刻还在 mount 中事件错过).
-  //
-  // Key: `pending_emotion_eval:${charId}` in STORE_KV. 一个 charId 一条记录: 多条 push 累积
-  // 时最新 push 覆盖, drain 时一次性 eval (eval 看最新 messages, 不需要 N 次).
-  // 用 KV 不开新 store: 单 charId 单记录 + 不需要复杂查询, KV 完全够用.
-
-  async setPendingEmotionEval(charId: string, lastPushMsgId: string): Promise<void> {
-    if (!charId) return;
-    await setKv(`pending_emotion_eval:${charId}`, {
-      charId,
-      lastPushMsgId,
-      addedAt: Date.now(),
-    });
-  },
-
-  async getPendingEmotionEval(charId: string): Promise<{ charId: string; lastPushMsgId: string; addedAt: number } | null> {
-    if (!charId) return null;
-    return getKv<{ charId: string; lastPushMsgId: string; addedAt: number }>(`pending_emotion_eval:${charId}`);
-  },
-
-  async clearPendingEmotionEval(charId: string): Promise<void> {
-    if (!charId) return;
-    const db = await openDB();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_KV, 'readwrite');
-      tx.objectStore(STORE_KV).delete(`pending_emotion_eval:${charId}`);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
   },
 
   // ─── 防穿帮闸·作废回执台账 ───
@@ -531,17 +416,46 @@ export const ActiveMsgStore = {
 };
 
 /**
- * 备份用：把主动消息 2.0 的全局配置整份取出来（Worker 地址、密钥、即时对话开关等）。
+ * 后端连接那几样：连上用户自己那台 Worker 需要的全部东西。
+ *
+ * 它们合起来就是那台 Worker 的钥匙——地址加主密钥能解开 D1 里所有密文，用户 id 决定
+ * 读得到哪一份数据（数据按它分区），共享密钥是端点的门禁。少一样都连不成，所以要摘
+ * 就得一起摘。
+ */
+const BACKEND_CONNECTION_KEYS = ['workerUrl', 'serverToken', 'masterKey', 'userId'] as const;
+
+/** 这份备份里带着后端连接吗（带了的话，谁拿到这个文件谁就能连上那台 Worker）。 */
+export const backupHasBackendConnection = (
+  config: ActiveMsg2GlobalConfig | null | undefined,
+): boolean => !!config?.workerUrl?.trim();
+
+/**
+ * 备份用：把主动消息 2.0 的全局配置取出来（即时对话开关等）。
  *
  * 这份配置存在自己的 `ActiveMsg` 库里，不在主库那份 store 清单内，所以必须单独取一次
- * 挂进备份包。没配过 Worker 就返回 undefined，让备份里干脆不出现这个键。
+ * 挂进备份包。
  *
- * 整份带走而不是挑字段：这里将来加了新配置，备份会自动跟上，不用再想起来同步一次。
+ * **后端连接默认不带走。** 备份文件是会被分享出去的——发一份角色合集给朋友，就等于把
+ * 自己那台 Worker 的钥匙一起发了：对方的 App 会静默连上去，把 ta 的 API 凭据和聊天上
+ * 下文写进你的 D1，而 ta 手里的主密钥能解开你那台机器上的所有密文。换设备恢复自己的
+ * 备份才需要这几样，那是用户明确知道的场景，让 ta 自己勾。
+ *
+ * 程序分不清「自己的备份」和「别人的备份」：文件里没有可信的身份标记，换新设备时用户
+ * id 本来就跟备份里的对不上——而那恰恰是最正当的自己人。能判断的只有拿着文件的人，
+ * 所以这里的选择权交给导出的那一下，而不是留给导入时去猜。
  */
-export async function exportAmsg2GlobalConfig(): Promise<ActiveMsg2GlobalConfig | undefined> {
+export async function exportAmsg2GlobalConfig(
+  options: { includeBackendConnection?: boolean } = {},
+): Promise<ActiveMsg2GlobalConfig | undefined> {
   try {
     const config = await ActiveMsgStore.getGlobalConfig();
-    return config.workerUrl?.trim() ? config : undefined;
+    if (!config.workerUrl?.trim()) return undefined;
+    if (options.includeBackendConnection) return config;
+    const stripped = { ...config };
+    for (const key of BACKEND_CONNECTION_KEYS) delete stripped[key];
+    // 摘完只剩几个开关。全是默认值的话备份里干脆别出现这个键，免得导入侧为一份空配置
+    // 白跑一段、还在日志里留一条「主动消息配置」的假账。
+    return Object.keys(stripped).length > 0 ? stripped : undefined;
   } catch (e) {
     console.warn('[amsg2] 读取全局配置失败，备份将不含这一项', e);
     return undefined;
@@ -551,17 +465,26 @@ export async function exportAmsg2GlobalConfig(): Promise<ActiveMsg2GlobalConfig 
 /**
  * 备份用：把上面那份配置写回去。
  *
- * `instantChatSupported` 不还原——它记的是「上次探到那台 Worker 跑不跑得动即时对话」，
- * 是一次探测的结果而不是用户的选择。备份里那个值可能已经过时（Worker 后来更新过 / 退回过），
- * 照抄回来要么白挡一次、要么在跑不动的 Worker 上放行。留空表示「还没探过」，
+ * `instantChatSupported` / `workerBundleVersion` 不还原——它们记的是「上次探到那台 Worker
+ * 跑不跑得动即时对话、贴的是哪一版」，是探测的结果而不是用户的选择。备份里那个值可能
+ * 已经过时（Worker 后来更新过 / 退回过），照抄回来要么白挡一次、要么在跑不动的 Worker 上放行。留空表示「还没探过」，
  * 握手时会补探一次，之后就有准数了。
+ *
+ * **后端连接要调用方点头才还原**（`allowBackendConnection`）。老备份里带着这几样，而
+ * 导入者未必知道这份文件是谁的：默认连上去的话，ta 的 API 凭据和聊天上下文会写进别人
+ * 那台 D1，自己却毫不知情。不点头就只还原那几个开关，本地其它数据照常导入。
  */
 export async function importAmsg2GlobalConfig(
   config: ActiveMsg2GlobalConfig | null | undefined,
+  options: { allowBackendConnection?: boolean } = {},
 ): Promise<void> {
   if (!config || typeof config !== 'object') return;
-  const { instantChatSupported: _dropped, ...restorable } = config;
-  await ActiveMsgStore.saveGlobalConfig({ ...restorable, instantChatSupported: undefined });
+  const { instantChatSupported: _dropped, workerBundleVersion: _droppedVersion, ...restorable } = config;
+  if (!options.allowBackendConnection) {
+    for (const key of BACKEND_CONNECTION_KEYS) delete restorable[key];
+  }
+  if (Object.keys(restorable).length === 0) return;
+  await ActiveMsgStore.saveGlobalConfig({ ...restorable, instantChatSupported: undefined, workerBundleVersion: undefined });
 }
 
 export const maskActiveMsgUserId = (userId: string) => {

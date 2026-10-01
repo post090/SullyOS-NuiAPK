@@ -10,6 +10,8 @@
 
 ## 数据模型（`types.ts`）
 
+通讯录、完整聊天原文和话题盒都存在角色的 `phoneState` 中，随完整备份 / 文字备份的 `characters` 分片一起导出与恢复，与 `sendToChat` 开关无关。仅媒体备份不包含聊天文字。真实对话异步完成时，`applyRealConversationToPhoneState` 必须在 `updateCharacter` 的函数式回调里基于最新状态合并，避免覆盖生成期间新增的其他联系人和记录。回归见 `utils/phoneConversationBackup.test.ts`。
+
 - `PhoneContact`：联系人。`kind: 'real' | 'npc'`；`linkedCharId`（real 时绑定真实角色）；`affinity`（机主对 TA 的好感，**-100..100**，负=反感）；`status: 'friend'|'pending'|'blocked'|'deleted'`。
   - `note`：**机主/用户手写的备注**——当「已确立的事实」用，prompt 里要求严格遵守，**不被自动生成覆盖**（见下）。
   - `learned`：**机主相处中「逐渐了解到」的认识**——由对话里 `[[了解:…]]` 累积而来。**和 note 分开**：这是「印象/判断」，来源是对方在聊天里自己说的，**未必属实**（对方可能在编）。
@@ -26,7 +28,7 @@
 
 1. `ContextBuilder.buildCoreContext(char, user, true)`
 2. 记忆宫殿（若 `memoryPalaceEnabled`）：`injectMemoryPalace(char, recent, /*queryHint*/ X.name, user.name)` —— **query 用对方的人名**。
-3. 最近上下文：`char.contextLimit || 500`（即 chatapp 设置面板里的「上下文条数」），不再写死 50。
+3. 最近上下文：`loadCharacterContextMessages(char)`，与聊天共用「自适应 / 手动」和用户起点。自适应读取水位线后原文；手动可读取已归档的最近 N 条。
 
 ## 能力
 
@@ -37,7 +39,7 @@
 | **真角色双向对话** | **双 LLM**：A 用 A 的 context 发、B 用 **B 自己的 context + 记忆宫殿(query=A 名) + B 的 contextLimit** 回。默认 **1 个往返 = A 发 1 次 + B 回 1 次 = 正好 2 次 LLM 调用**（`rounds` 可调）。好感变化折进各自回复末尾的 `[[Δ:+N]]`，解析后剥掉，**不再额外调用**。镜像进 B 的 `records`；**B 私聊仅当 B 自己 `sendToChat !== false`** 才写。好感 -100..100，跌破 -60 角色自动删友、升过 +60 自动加回，变动播报进机主私聊 | `utils/relationshipChat.ts:runRealConversation`、`CheckPhone.handleRealConversation` / `commitConversationSide` |
 | **虚构 NPC 对话** | 机主按人设脑补出不存在的人，单 LLM 分饰两角生成聊天脚本（不镜像、不涉及真实角色） | `utils/relationshipChat.ts:runNpcConversation`、`CheckPhone.handleNpcConversation` |
 | **用户删好友 → char 知情** | 用户在查手机里手动删好友/拉黑时，往机主私聊落一张 **`phone_card` 关系变动卡片**（`kind:'relationship'`，💔/🚫）：聊天里渲染成卡片、`content` 又带进角色上下文，让角色察觉「是用户干的」。角色自身的好感驱动增删则照常自发发生 | `CheckPhone.handleSetContactStatus`、`MessageItem.tsx` phone_card `relationship` 分支 |
-| **真实时间感知** | 当前真实日期/星期/时段/时间统一在 `ContextBuilder.buildCoreContext` 注入，受 `char.timeAwarenessEnabled` 控制（**默认开**）。所有走 buildCoreContext 的路径（私聊/查手机/人际关系/通话/约会…）都有时间观念；关掉则全部不注入 | `utils/context.ts` buildCoreContext「当前时间」块 |
+| **真实时间感知** | 当前真实日期/星期/时段/时间统一在 `ContextBuilder.buildCoreContext` 注入，受 `char.timeAwarenessEnabled` 控制（**默认开**）。所有走 buildCoreContext 的路径（私聊/查手机/人际关系/通话/约会…）都有时间观念；关掉则全部不注入。同一段里还跟着一句分寸框定：时间是背景，话题聊到哪儿由对话本身决定（这句话在 `utils/timeFramingNote.ts`，即时对话在云端补时间时引的是同一份）。跟着一起收的还有另外两块会报钟点的注入：天气块的 `includeTime`、日程块的 `includeClock`，免得关掉之后钟从旁边漏出去。主动消息的排程清单不收——那是角色自己排的待办，看不见就会重复排同一件事 | `utils/context.ts` buildCoreContext「当前时间」块 |
 
 ## 备注 vs 了解（两份不同性质的「认识」）
 
@@ -95,6 +97,7 @@ A 发起 / NPC 推进的 prompt 里给了一份**具体动机清单**（好奇�
 
 - 脚本统一是「我:/对方:」逐行格式。一条消息可能跨多行（模型连发几条），**存库时每一行都补回说话人前缀**（`runRealConversation` 的 `lineify` / `runNpcConversation` 走 `serializeTurns(parseTranscript())`）。
 - 解析一律走 `parseTranscript()`：无前缀的续行**继承上一条说话人**，不会被误判给对方（修复「A 发的消息 UI 分给 B」）。渲染（`renderChatDetail`/`renderContactDetail`）、翻转（`flipTranscript`）、续写回解析都用它，保证无损。
+- 模型或旧备份的脚本可能是数组/对象，不能直接 `.split()`。`phoneTranscriptToText` 保留字符串、兼容逐行数组和带 `role/content`、`speaker/text`、`isMe/text` 的消息；未知对象保留可读字段。智能体（含深度对话）的生成落库、历史会话读取和编辑回写统一经过 `normalizePhoneAiSession`，`parseTranscript` 也有兜底，避免一条异常记录拖垮列表；不要求用户删除原记录。
 - `upsertContact` 合并时**只覆盖有值的字段**，且不动已有非空 `note`——扫描通讯录/对话回填不会把用户手填的备注抹掉（修复「角色不看备注」）。备注在 prompt 里以「必须遵守的已确立事实」注入。
 
 ## 注意

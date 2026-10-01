@@ -8,9 +8,12 @@
 //      这四种都是「界面上一切正常、就是一条都不发」，必须各自单独报出来。
 //   4. 连不上 / 回执形状不对时，其余各项一律 unknown，不许假装绿——那比不体检更糟，
 //      用户会照着绿灯去别处瞎找。
+//   5. 「定时任务」那一行按实际情况说话：在失败重试、被掐掉、用户自己暂停了、每分钟
+//      那一跳在报错，各有各的说法，报错原文要能看到。
 import { describe, it, expect } from 'vitest';
 import {
   AmsgDebugReport,
+  AmsgDiagnosticsInput,
   buildAmsgDiagnosticRows,
   describeAmsgFetchFailure,
   INSTANT_CHAT_BLOCKER_HINTS,
@@ -21,6 +24,7 @@ import {
   resolveInstantChatBlocker,
   summarizeAmsgDiagnostics,
 } from './amsgDiagnostics';
+import { AmsgTickReport, AmsgTickReportTask, parseAmsgTickReport } from './amsgTickReport';
 
 const WORKER_URL = 'https://amsg.example.workers.dev';
 
@@ -179,6 +183,13 @@ describe('parseAmsgDebugReport — 只认形状对得上的回执', () => {
   it('tick 是没见过的值时退回 unknown，不原样透出去', () => {
     const parsed = parseAmsgDebugReport({ success: true, data: healthyReport({ tick: 'wat' as any }) });
     expect(parsed?.tick).toBe('unknown');
+  });
+
+  // 回归守卫：failing（在失败重试，但没卡住）是后加的一档。认不出来就被压成 unknown，
+  // 那一行会变成「暂时看不出定时器在不在跑」，正在重试的任务就这么从体检里消失了。
+  it('认得 failing 这一档，不压成 unknown', () => {
+    const parsed = parseAmsgDebugReport({ success: true, data: healthyReport({ tick: 'failing' }) });
+    expect(parsed?.tick).toBe('failing');
   });
 });
 
@@ -559,7 +570,8 @@ describe('buildAmsgDiagnosticRows — 红绿判定', () => {
     expect(device.detail).not.toContain('410');
   });
 
-  it('定时任务停摆时说出积压条数和该去哪儿看日志', () => {
+  // 没有细账（没拉 / 老面板）时只剩 /debug 的两个数，只能给笼统的那句。
+  it('定时任务停摆、手上没有细账时说出积压条数和该去哪儿看日志', () => {
     const rows = buildAmsgDiagnosticRows({
       probe: {
         reachable: true,
@@ -581,6 +593,7 @@ describe('buildAmsgDiagnosticRows — 红绿判定', () => {
     expect(tick.detail).toContain('3');
     expect(tick.detail).toContain('42');
     expect(tick.detail).toContain('Observability');
+    expect(tick.items).toBeUndefined();
   });
 
   it('手上没有待发任务时定时器一栏是 unknown，不冒充健康', () => {
@@ -600,25 +613,381 @@ describe('buildAmsgDiagnosticRows — 红绿判定', () => {
   });
 });
 
+// ─── 「定时任务」那一行：逐条细账 ───
+//
+// 光有 /debug 的两个数时，这一行只能笼统地说「定时触发器可能没在跑……去看日志」。
+// 真实情况里最常见的是任务在失败重试（原因明明白白记在任务上），其次是用户自己暂停了
+// 后台任务——照那句话去 Cloudflare 翻触发器，什么都翻不出来。
+describe('buildAmsgDiagnosticRows — 定时任务的逐条细账', () => {
+  const NOW = Date.parse('2026-09-18T06:00:00.000Z');
+  const at = (minutesAgo: number) => new Date(NOW - minutesAgo * 60_000).toISOString();
+  /** 只留时分，断言里好认。 */
+  const hhmm = (atMs: number) => new Date(atMs).toISOString().slice(11, 16);
+  const TRIGGER_BROKEN_TEXT = '定时触发器可能没在跑';
+
+  const LLM_REASON = 'AI API error: 404 Not Found. Request URL: https://api.example.com/v1/chat/completions\n'
+    + '  — The model `gpt-4o-typo` does not exist. (provider code: model_not_found)';
+
+  const reportTask = (patch: Partial<AmsgTickReportTask> = {}): AmsgTickReportTask => ({
+    uuid: 'task-1',
+    charId: 'char-1',
+    contactName: '小明',
+    kind: null,
+    messageType: 'auto',
+    nextSendAt: at(42),
+    state: 'ready',
+    stuck: false,
+    retryCount: 0,
+    retryAfter: null,
+    lastStartedAt: null,
+    unfinishedAttempt: false,
+    lateStart: false,
+    queuedBehind: false,
+    lastError: null,
+    ...patch,
+  });
+
+  const tickReport = (patch: Partial<AmsgTickReport> = {}): AmsgTickReport => ({
+    now: new Date(NOW).toISOString(),
+    tasks: [],
+    recentFailures: [],
+    tickFailure: null,
+    truncated: false,
+    ...patch,
+  });
+
+  const tickRow = (
+    tick: AmsgDebugReport['tick'],
+    extra: Partial<AmsgDiagnosticsInput> = {},
+    storagePatch: Partial<AmsgDebugReport['storage']> = {},
+  ) => rowOf(buildAmsgDiagnosticRows({
+    probe: {
+      reachable: true,
+      report: healthyReport({
+        tick,
+        storage: { ...healthyReport().storage, pendingTasks: 1, overdueTasks: 1, oldestOverdueMinutes: 42, ...storagePatch },
+      }),
+    },
+    localPushSubscribed: true,
+    formatTime: hhmm,
+    nowMs: NOW,
+    ...extra,
+  }), 'tick');
+
+  it('在失败重试的任务 → warn，逐条说清失败几次、几点再试、为什么，原文整段可看', () => {
+    const task = reportTask({
+      state: 'retry-wait',
+      retryCount: 2,
+      retryAfter: new Date(NOW + 5 * 60_000).toISOString(),
+      lastError: { at: at(3), occurrence: at(42), reason: LLM_REASON, errorCode: 'LLM_CALL_FAILED', pushStatus: null },
+    });
+    const row = tickRow('failing', { tickReport: { ok: true, report: tickReport({ tasks: [task] }) } });
+
+    expect(row.level).toBe('warn');
+    // 在重试的任务既不能报绿，也不能说成触发器坏了。
+    expect(row.detail).not.toContain(TRIGGER_BROKEN_TEXT);
+    expect(row.detail).toContain('失败重试');
+    expect(row.items?.[0].text).toContain('小明');
+    expect(row.items?.[0].text).toContain('晚了 42 分钟');
+    expect(row.items?.[0].text).toContain('已经失败 2 次');
+    expect(row.items?.[0].text).toContain('06:05 再试');
+    expect(row.items?.[0].text).toContain('模型接口拒了这次请求');
+    expect(row.items?.[0].text).toContain('gpt-4o-typo');
+    expect(row.items?.some((item) => item.text.includes(TRIGGER_BROKEN_TEXT))).toBe(false);
+    // 原文一个字都不截：状态码和 Request URL 那半句只有在这儿才看得到。
+    expect(row.items?.[0].raw).toBe(LLM_REASON);
+  });
+
+  it('后台任务被用户暂停着 → warn 并说暂停中，不说触发器坏了', () => {
+    const row = tickRow('stalled', {
+      cronPaused: true,
+      tickReport: { ok: true, report: tickReport({ tasks: [reportTask({ stuck: true })] }) },
+    }, { overdueTasks: 3, pendingTasks: 3 });
+
+    expect(row.level).toBe('warn');
+    expect(row.detail).toContain('暂停');
+    expect(row.detail).not.toContain(TRIGGER_BROKEN_TEXT);
+    expect(row.items?.[0].text).toContain('暂停');
+    expect(row.items?.[0].text).not.toContain('Trigger events');
+  });
+
+  it('暂停着、也没拿到细账时同样不说触发器坏了', () => {
+    const row = tickRow('stalled', { cronPaused: true }, { overdueTasks: 3, pendingTasks: 3 });
+    expect(row.level).toBe('warn');
+    expect(row.detail).toContain('暂停');
+    expect(row.detail).toContain('3');
+    expect(row.detail).not.toContain(TRIGGER_BROKEN_TEXT);
+  });
+
+  it('每分钟那一跳正在报错 → 报红，原文带上报错名和原话；缺列的话指去「重新连接并验证」', () => {
+    const row = tickRow('healthy', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tickFailure: {
+            stage: 'tick',
+            name: 'D1_ERROR',
+            message: 'no such column: lease_until: SQLITE_ERROR',
+            code: null,
+            firstAt: at(30),
+            lastAt: at(1),
+            count: 30,
+            ongoing: true,
+          },
+        }),
+      },
+    });
+
+    expect(row.level).toBe('bad');
+    expect(row.detail).toContain('每分钟那一跳在报错');
+    const item = row.items?.find((entry) => entry.text.includes('每分钟那一跳'));
+    expect(item?.text).toContain('连着 30 次');
+    expect(item?.text).toContain('整轮处理任务那一步');
+    expect(item?.text).toContain('重新连接并验证');
+    expect(item?.raw).toContain('no such column: lease_until');
+    expect(item?.raw).toContain('D1_ERROR');
+  });
+
+  it('整轮报错认得出来的另外两种各给一句该怎么办；阶段代号翻成中文', () => {
+    const failureRow = (patch: Record<string, unknown>) => tickRow('healthy', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tickFailure: {
+            stage: 'config', name: 'Error', message: 'boom', code: null,
+            firstAt: at(2), lastAt: at(1), count: 2, ongoing: true, ...patch,
+          },
+        }),
+      },
+    });
+
+    const vapid = failureRow({ name: 'VapidNotConfigured', message: 'VAPID keys missing' }).items?.[0];
+    expect(vapid?.text).toContain('VAPID');
+    expect(vapid?.text).toContain('读配置那一步');
+
+    const timeout = failureRow({ stage: 'claim_failed', message: 'D1 query timed out', code: 'D1_TIMEOUT' }).items?.[0];
+    expect(timeout?.text).toContain('没响应');
+    expect(timeout?.text).toContain('给任务占位写库那一步');
+    expect(timeout?.raw).toBe('Error: D1 query timed out (D1_TIMEOUT)');
+
+    const cleanup = failureRow({ stage: 'post_send_cleanup_failed_advance' }).items?.[0];
+    expect(cleanup?.text).toContain('发完之后写库那一步');
+  });
+
+  it('整轮报错已经停了：一小时内报 warn，更早的不提级', () => {
+    const stopped = (lastMinutesAgo: number) => tickRow('healthy', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tickFailure: {
+            stage: 'tick', name: 'Error', message: 'boom', code: null,
+            firstAt: at(lastMinutesAgo + 10), lastAt: at(lastMinutesAgo), count: 10, ongoing: false,
+          },
+        }),
+      },
+    });
+
+    expect(stopped(20).level).toBe('warn');
+    expect(stopped(20).items?.[0].text).toContain('之前报错');
+    expect(stopped(180).level).toBe('ok');
+  });
+
+  it('开跑过、没发完、也没留下原因 → 说多半是被 Cloudflare 掐掉了', () => {
+    const row = tickRow('stalled', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tasks: [reportTask({ stuck: true, unfinishedAttempt: true, lastStartedAt: at(30) })],
+        }),
+      },
+    });
+
+    expect(row.level).toBe('bad');
+    expect(row.items?.[0].text).toContain('掐掉');
+    expect(row.items?.[0].text).toContain('05:30 开始发过');
+    expect(row.items?.[0].text).toContain('Observability');
+    expect(row.items?.[0].raw).toBeUndefined();
+  });
+
+  it('一直没人来领、Worker 也没留下报错 → 指去看 Trigger events；有整轮报错时改指那条', () => {
+    const stuck = reportTask({ stuck: true });
+    const noFailure = tickRow('stalled', { tickReport: { ok: true, report: tickReport({ tasks: [stuck] }) } });
+    expect(noFailure.level).toBe('bad');
+    expect(noFailure.detail).toContain('有 1 条任务到点还没发出去');
+    expect(noFailure.items?.[0].text).toContain('一直没开始发');
+    expect(noFailure.items?.[0].text).toContain('Trigger events');
+
+    const withFailure = tickRow('stalled', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tasks: [stuck],
+          tickFailure: {
+            stage: 'tick', name: 'Error', message: 'boom', code: null,
+            firstAt: at(40), lastAt: at(1), count: 40, ongoing: true,
+          },
+        }),
+      },
+    });
+    expect(withFailure.items?.[0].text).toContain('原因见下面');
+    expect(withFailure.items?.[0].text).not.toContain('Trigger events');
+    // 任务在前，整轮报错跟在后面——「见下面」才对得上。
+    expect(withFailure.items?.[1].text).toContain('每分钟那一跳');
+  });
+
+  it('排队、正在发、开跑晚了，各说各的', () => {
+    const report = tickReport({
+      tasks: [
+        reportTask({ uuid: 'a', state: 'sending', lastStartedAt: at(2) }),
+        reportTask({ uuid: 'b', queuedBehind: true }),
+        reportTask({ uuid: 'c', state: 'sending', lateStart: true, lastStartedAt: at(10), nextSendAt: at(42) }),
+      ],
+    });
+    const row = tickRow('failing', { tickReport: { ok: true, report } });
+
+    expect(row.items?.[0].text).toContain('正在发（2 分钟前开始的）');
+    expect(row.items?.[1].text).toContain('排队');
+    expect(row.items?.[2].text).toContain('到点 32 分钟后才开始的');
+    expect(row.detail).toContain('开始发得比平时晚');
+  });
+
+  it('称呼：后台任务、即时回复、拿不到名字的各有说法', () => {
+    const report = tickReport({
+      tasks: [
+        reportTask({ uuid: 'a', kind: 'doorplate' }),
+        reportTask({ uuid: 'b', messageType: 'instant' }),
+        reportTask({ uuid: 'c', contactName: null }),
+      ],
+    });
+    const texts = tickRow('failing', { tickReport: { ok: true, report } }).items?.map((item) => item.text) ?? [];
+    expect(texts[0].startsWith('小明的后台任务：')).toBe(true);
+    expect(texts[1].startsWith('小明的即时回复：')).toBe(true);
+    expect(texts[2].startsWith('某个角色：')).toBe(true);
+  });
+
+  it('最近一小时彻底没发出去的 → warn 并逐条列出；过期跳过的不给原文', () => {
+    const row = tickRow('healthy', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          recentFailures: [
+            {
+              uuid: 'f1', charId: 'char-1', contactName: '小明', kind: null, messageType: 'auto', outcome: 'failed',
+              error: { at: at(10), occurrence: at(12), reason: 'CREDENTIAL_MISSING: 凭据 cred-1 不存在', errorCode: 'CREDENTIAL_MISSING', pushStatus: null },
+            },
+            {
+              uuid: 'f2', charId: 'char-1', contactName: '小明', kind: null, messageType: 'auto', outcome: 'skipped',
+              error: { at: at(20), occurrence: at(50), reason: 'stale', errorCode: null, pushStatus: null },
+            },
+          ],
+        }),
+      },
+    });
+
+    expect(row.level).toBe('warn');
+    expect(row.detail).toContain('最近一小时有 2 次');
+    expect(row.items?.[0].text).toContain('05:48 那次没发出去，不会再补发了');
+    expect(row.items?.[0].text).toContain('API 凭据');
+    expect(row.items?.[0].raw).toBe('CREDENTIAL_MISSING: 凭据 cred-1 不存在');
+    expect(row.items?.[1].text).toContain('这次跳过了，下次到点照常');
+    expect(row.items?.[1].text).toContain('过期太久');
+    expect(row.items?.[1].raw).toBeUndefined();
+  });
+
+  it('一小时以前的失败不提级；这一行本来就不正常时才陪着列出来', () => {
+    const oldFailure = {
+      uuid: 'f1', charId: 'char-1', contactName: '小明', kind: null, messageType: 'auto', outcome: 'failed' as const,
+      error: { at: at(180), occurrence: at(181), reason: 'boom', errorCode: null, pushStatus: null },
+    };
+    const quiet = tickRow('healthy', { tickReport: { ok: true, report: tickReport({ recentFailures: [oldFailure] }) } });
+    expect(quiet.level).toBe('ok');
+    expect(quiet.items).toBeUndefined();
+
+    const busy = tickRow('stalled', {
+      tickReport: { ok: true, report: tickReport({ tasks: [reportTask({ stuck: true })], recentFailures: [oldFailure] }) },
+    });
+    expect(busy.items?.map((item) => item.raw)).toContain('boom');
+
+    // 一天以前的一律不提。
+    const ancient = tickRow('stalled', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tasks: [reportTask({ stuck: true })],
+          recentFailures: [{ ...oldFailure, error: { ...oldFailure.error, at: at(60 * 30), occurrence: at(60 * 30) } }],
+        }),
+      },
+    });
+    expect(ancient.items?.map((item) => item.raw)).not.toContain('boom');
+  });
+
+  it('细账没拉到 → 照旧给笼统的那句（带积压条数和 Observability），原因挂在下面', () => {
+    const reason = '没拿到每条任务的细账（Worker 上的代码可能还不是最新，点上面的「更新 Worker」）。';
+    const row = tickRow('stalled', { tickReport: { ok: false, reason } }, { overdueTasks: 3, pendingTasks: 3 });
+
+    expect(row.level).toBe('bad');
+    expect(row.detail).toContain('3');
+    expect(row.detail).toContain('42');
+    expect(row.detail).toContain('Observability');
+    expect(row.detail).toContain(TRIGGER_BROKEN_TEXT);
+    expect(row.items).toEqual([{ text: reason }]);
+  });
+
+  it('一切正常时细账拉没拉到都不多说话', () => {
+    const row = tickRow('healthy', { tickReport: { ok: false, reason: '连不上' } }, { overdueTasks: 0, oldestOverdueMinutes: null });
+    expect(row.level).toBe('ok');
+    expect(row.items).toBeUndefined();
+  });
+});
+
+describe('parseAmsgTickReport — 认定时任务细账', () => {
+  it('单条任务形状不对就跳过那一条，整轮报错照样认下来', () => {
+    const parsed = parseAmsgTickReport({
+      success: true,
+      data: {
+        now: '2026-09-18T06:00:00.000Z',
+        tasks: [
+          { uuid: 'ok', nextSendAt: '2026-09-18T05:00:00.000Z', state: 'ready', retryCount: 1 },
+          { uuid: 'bad-state', nextSendAt: '2026-09-18T05:00:00.000Z', state: 'wat' },
+          null,
+        ],
+        recentFailures: [],
+        tickFailure: {
+          stage: 'tick', name: 'D1_ERROR', message: 'no such column: lease_until',
+          firstAt: '2026-09-18T05:00:00.000Z', lastAt: '2026-09-18T05:59:00.000Z', count: 60, ongoing: true,
+        },
+        truncated: false,
+      },
+    });
+
+    expect(parsed?.tasks.map((task) => task.uuid)).toEqual(['ok']);
+    expect(parsed?.tickFailure?.message).toBe('no such column: lease_until');
+    expect(parsed?.tickFailure?.ongoing).toBe(true);
+  });
+
+  it('没有这个端点的 Worker 回什么都不采信', () => {
+    expect(parseAmsgTickReport({ success: false, error: { code: 'NOT_FOUND' } })).toBeNull();
+    expect(parseAmsgTickReport('<!doctype html>')).toBeNull();
+  });
+});
+
 describe('resolveInstantChatBlocker — 即时对话卡在哪一道', () => {
   const ALL_PASS: InstantChatGateInput = {
     connected: true,
     pushSubscribed: true,
     workerSupportsInstantChat: true,
-    instantPushOn: false,
   };
 
-  it('四道全过才返回 null', () => {
+  it('三道全过才返回 null', () => {
     expect(resolveInstantChatBlocker(ALL_PASS)).toBeNull();
   });
 
   it('按「先补哪个」的顺序只报第一道：没连上盖过后面所有', () => {
-    // 什么都没配的人会同时踩中四道。一次把四条都说给他，等于让他自己排先后。
+    // 什么都没配的人会同时踩中三道。一次把三条都说给他，等于让他自己排先后。
     expect(resolveInstantChatBlocker({
       connected: false,
       pushSubscribed: false,
       workerSupportsInstantChat: false,
-      instantPushOn: true,
     })).toBe('没连上Worker');
   });
 
@@ -627,19 +996,13 @@ describe('resolveInstantChatBlocker — 即时对话卡在哪一道', () => {
       .toBe('没开推送');
   });
 
-  it('Worker 认不认 /instant-chat 排在 Instant Push 冲突之前', () => {
-    // 端点根本不存在的话，关掉 Instant Push 也还是开不了——先说该去重新部署。
-    expect(resolveInstantChatBlocker({ ...ALL_PASS, workerSupportsInstantChat: false, instantPushOn: true }))
-      .toBe('Worker太旧');
-  });
-
-  it('只剩两条发送路同开这一项时才报冲突', () => {
-    expect(resolveInstantChatBlocker({ ...ALL_PASS, instantPushOn: true })).toBe('与InstantPush冲突');
+  it('连上了、推送也开了，只差 Worker 不认 /instant-chat → Worker太旧', () => {
+    expect(resolveInstantChatBlocker({ ...ALL_PASS, workerSupportsInstantChat: false })).toBe('Worker太旧');
   });
 
   it('每个代号都配着一句话——设置页的黄字和使用统计的属性共用这份判定', () => {
     // 少一条的话界面上会出现空白提示：开关灰着、下面什么都不说。
-    const codes: InstantChatBlocker[] = ['没连上Worker', '没开推送', 'Worker太旧', '与InstantPush冲突'];
+    const codes: InstantChatBlocker[] = ['没连上Worker', '没开推送', 'Worker太旧'];
     for (const code of codes) {
       expect(INSTANT_CHAT_BLOCKER_HINTS[code], `${code} 没有对应文案`).toBeTruthy();
     }

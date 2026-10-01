@@ -9,13 +9,13 @@
 
 ## 用户视角
 
-设置 → 「MCP 工具服务器」板块（标「高级玩法」，独立于实时感知）→「配置」弹窗：
+设置 →「MCP」→「管理」：
 
-1. 「+ 添加」→ 填名称和服务器 URL（如 `https://mcp.example.com/mcp`）
+1. 「添加服务器」→ 填名称和服务器 URL（如 `https://mcp.example.com/mcp`）
 2. 服务器要鉴权就填 Bearer Token，或按服务商说明添加自定义请求头（如 `XBY-APIKEY`）
 3. 点「测试连接」→ 客户端走 MCP 握手 + `tools/list`，工具清单持久化到本机
 4. 打开开关 → 私聊或群聊里就能调这些工具
-5. 「可用聊天」默认通用（所有私聊和群聊）；可把服务器绑定给指定角色或群聊
+5. 「适用聊天」默认通用（所有私聊和群聊）；可把服务器绑定给指定角色或群聊
    （典型场景：游戏 MCP 只交给主持群，其他聊天看不到这批工具）
 
 「聊天模型支持工具调用」默认开启。若你明确知道当前模型或中转不支持 OpenAI
@@ -42,7 +42,8 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 |------|------|
 | 协议客户端（握手/session/tools·list/call）+ 配置存储 | `utils/mcpClient.ts` |
 | OpenAI 工具格式转换、跨服务器重名、系统提示块 | `utils/mcpToolBridge.ts` |
-| 设置板块（section + 配置/帮助弹窗） | `apps/Settings.tsx` 的 `McpServersCard`、`MCP_USER_GUIDE_URL` |
+| 设置板块入口与帮助弹窗 | `apps/Settings.tsx` 的 `MCP_USER_GUIDE_URL` |
+| MCP 管理面板 | `components/settings/McpConnectionConsole.tsx` |
 | systemPrompt 注入（9d 段）+ `mcpChatActive` flag + 尾部 reminder | `utils/chatRequestPayload.ts` |
 | tools 注入 + 客户端工具循环（与瑞幸共用骨架） | `hooks/useChatAI.ts` |
 | 群聊 tools 注入 + 客户端工具循环 | `utils/groupChat/mcp.ts`、`apps/GroupChat.tsx` |
@@ -69,15 +70,25 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 - **暴露名 ≠ 真实工具名**。OpenAI 工具名只许 `[A-Za-z0-9_-]{1,64}`，MCP 工具
   名可能带点号；跨服务器还会重名。`buildMcpOpenAITools()` 返回
   `resolve: Map<暴露名, {server, toolName}>`，执行时必须经它换回真实名。
-- **MCP 模式强制本地 fetch**（跳过 Instant Push）且**本轮禁 thinking**
+- **本地聊天路径的 MCP 模式本轮禁 thinking**
   （`toolModeActive`，Gemini 系 "thinking + tools" 同发会 400）——与
   瑞幸/麦当劳既有约束一致，设置卡片里已向用户说明。
-- **即时对话路径下 MCP 由 amsg worker 云端执行**：主动消息 2.0 的即时对话（与上面的
-  Instant Push 是两条互斥的云端路，见 `plans/amsg2-instant-chat-contract.md`）刻意不把
-  MCP 排除在外——worker fire 时自己解析 `tool_config`、直连用户配置的 MCP 服务器，
+- **即时对话路径下 MCP 由 amsg worker 云端执行**：主动消息 2.0 的即时对话（见
+  `plans/amsg2-instant-chat-contract.md`）刻意不把 MCP 排除在外——worker fire 时自己解析 `tool_config`、直连用户配置的 MCP 服务器，
   工具说明块与凭据都由 worker 侧统一供给（客户端这次 POST 顺手把 `tool_config` 传上去）。
 - **session 失效自动重连一次**：`tools/call` 遇 HTTP 400/404 会重握手重试
   （服务器重启后 `Mcp-Session-Id` 作废是常态）。
+- **原生平台（APK）自动改走 CapacitorHttp**：Android/iOS WebView 里浏览器 fetch
+  会被 CORS 挡死，`mcpClient.targetFor` 在原生平台注入 `nativeMcpFetch` 传输
+  （系统 HTTP 栈直发、能读到 `Mcp-Session-Id`），协议逻辑仍全部复用 mcpFireCore——
+  core 是环境无关叶子不能 import Capacitor，所以传输由浏览器侧递进去。代价：
+  CapacitorHttp 不支持流式，SSE 长连接挂着不关流的服务器会等到超时。
+  回归测试：`mcpClient.test.ts` 的「原生平台 CapacitorHttp 传输」组。
+- **协议版本必须真实协商**：initialize 以 `2025-11-25` 发起，接受服务端回落到
+  `2025-06-18` / `2025-03-26`；协商结果写进会话，之后通知、`tools/list`、
+  `tools/call` 全部携带 `MCP-Protocol-Version`。`2024-11-05` 是旧 HTTP+SSE
+  双端点，不能再用单端点客户端冒充支持；`2026-07-28` 是新的无握手生命周期，
+  也不能只换版本号冒充支持。
 - **配置改动要 `resetMcpSession`**：URL/token/代理任一变了旧 session 就不能用，
   设置卡片的 `update()` 已处理。
 - **聊天绑定在 `getEnabledMcpServers(charId)` 一处收口**。历史字段名仍叫 `charIds`，
@@ -99,6 +110,9 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
   传输，也不支持本地 stdio 服务器（那种请套 mcp-proxy 或自行起 HTTP 端）。
 - 只用了 MCP 的 tools 能力；resources / prompts / OAuth 授权流未实现
   （静态 Bearer Token 与自定义 Header 均支持；OAuth 登录流仍未实现）。
+- 当前完整支持的是 MCP handshake era 的 Streamable HTTP（2025-03-26 至
+  2025-11-25）。2026-07-28 modern era 的 `server/discover` / 每请求 `_meta`
+  尚未实现，遇到 modern-only 服务器会给出明确版本错误，不会静默错连。
 - 工具结果回填上限 20000 字符（`formatMcpToolResult`，正常使用等于不截断，
   只防病态超长结果炸上下文；被截断时会标注全文长度）。瑞幸自己的工具仍是 1500。
 
@@ -110,6 +124,7 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
   地址的服务器（含 token/customHeaders，剥代理字段）与「聊天模型支持工具调用」
   开关一起，作为 `tool_config.mcpServers` / `mcpUseNativeTools` 随 client_state
   加密通道上云（`activeMsgClient.buildToolConfigEntry` 是三条上传路径的唯一咽喉）。
+  被服务端标成 destructive 的工具会从后台清单剔除，因为无人值守环境不能弹确认窗。
 - **提示词与 tools**：worker 在 onBeforeFire 用 `mcpFireCore.buildMcpFireBlock` /
   `buildMcpFireTools` 从 tool_config 现场生成——与凭据同源，不经过 fire_pack，
   没有陈旧窗口。amsg-server 带 `agentic-fire-tools` feature 的版本起，fire 循环

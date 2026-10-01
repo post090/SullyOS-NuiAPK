@@ -1,6 +1,7 @@
 // 上岸计划「笔记本」导出：单篇 txt / 全部打包 zip。
 // APK(native) 走 Capacitor Filesystem 写文件 + Share 弹系统分享面板（方便在别的设备看）；
-// 纯 Web 兜底走 Blob + a[download]。刻意把这层单独抽出来，UI 只管调 export* 函数。
+// 纯 Web 走统一分享出口 shareOrDownloadBlob（Web Share / 自动下载兜底）。
+// 刻意把这层单独抽出来，UI 只管调 export* 函数。
 
 import { Capacitor } from '@capacitor/core';
 import type { JobNote, JobNoteKind } from '../types';
@@ -88,17 +89,17 @@ const shareOrDownload = async (opts: {
         }
         return 'shared';
     }
-    // Web：Blob + a[download]
+    // Web：统一分享出口（shareOrDownloadBlob 内部做 Web Share / 自动下载兜底），
+    // 业务文件不再手搓 a[download]；preferDownloadOnWeb 保持「网页端就是下载」的原语义。
     const outBlob = blob || new Blob([text || ''], { type: mime });
-    const url = URL.createObjectURL(outBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => { try { URL.revokeObjectURL(url); } catch { /* noop */ } }, 4000);
-    return 'downloaded';
+    const { shareOrDownloadBlob } = await import('./shareExport');
+    const result = await shareOrDownloadBlob({
+        blob: outBlob,
+        fileName,
+        shareTitle: shareTitle || fileName,
+        preferDownloadOnWeb: true,
+    });
+    return result === 'shared' ? 'shared' : 'downloaded';
 };
 
 /** 导出单篇笔记为 txt。 */

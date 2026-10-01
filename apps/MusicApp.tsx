@@ -22,6 +22,7 @@ import SongActionsSheet from './music/SongActionsSheet';
 import {
   MINIPLAYER_ENABLED_KEY, MINIPLAYER_CMD_EVENT, MiniPlayerCmd,
 } from '../components/os/GlobalMiniPlayer';
+import { shareOrDownloadBlob } from '../utils/shareExport';
 
 // ------------------------- 工具 -------------------------
 const fmtTime = (s: number) => {
@@ -73,12 +74,9 @@ const MusicApp: React.FC = () => {
       const mime = current.localMimeType || (entry && !(entry instanceof Blob) ? entry.mimeType : '') || blob.type || 'audio/mpeg';
       const ext = /wav/i.test(mime) ? 'wav' : /ogg/i.test(mime) ? 'ogg' : /flac/i.test(mime) ? 'flac' : /m4a|aac|mp4/i.test(mime) ? 'm4a' : 'mp3';
       const safe = (current.name || 'song').replace(/[\\/:*?"<>|]+/g, '_').slice(0, 80);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url; a.download = `${safe}.${ext}`;
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-      addToast('已下载', 'success');
+      const result = await shareOrDownloadBlob({ blob, fileName: `${safe}.${ext}`, shareTitle: current.name || '生成的歌曲' });
+      if (result === 'cancelled') return;
+      addToast(result === 'shared' ? '已打开系统保存/分享' : '已开始下载', 'success');
       trackEvent('下载生成的歌到本地文件');
     } catch {
       addToast('下载失败', 'error');

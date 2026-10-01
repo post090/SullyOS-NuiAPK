@@ -5,6 +5,7 @@ import {
     LifeRecordSettings, MedPlan, Message,
 } from '../types';
 import { addLocalDays, getLocalDateKey } from './localDate';
+import { formatMoney, sumMoney } from './format';
 
 /**
  * 生活记录（档案 App：生理期 / 药盒 / 记账 / 锻炼）
@@ -13,7 +14,7 @@ import { addLocalDays, getLocalDateKey } from './localDate';
  *  1. 注入（读路径）：buildLifeRecordInjection —— 按角色开关把今日摘要 + 潜意识约束 +
  *     [[LIFE:...]] 指令说明 + 否决反馈拼成 system prompt section（chatPrompts 调用）。
  *  2. 代记（写路径）：executeLifeDirectives —— 解析角色输出里的 [[LIFE:...]] 指令，
- *     去重后落库并插入可交互的 life_card 消息（chatParser 调用，本地 / instant push 共用）。
+ *     去重后落库并插入可交互的 life_card 消息（chatParser 调用，本地 / 云端回复共用）。
  *  3. 裁决：resolveLifeRecordCard —— 用户点卡片「确认 / 否决」，否决时回滚（含银行流水）
  *     并给代记角色挂一条一次性反馈（Chat.tsx 调用）。
  *
@@ -176,7 +177,7 @@ export const summarizeLifeRecord = (module: LifeRecordModule, kind: string, payl
     switch (module) {
         case 'period': return kind === 'start' ? '生理期开始' : '生理期结束';
         case 'med': return `吃药 · ${payload.name || '药'}`;
-        case 'expense': return `支出 ${payload.amount}${payload.note ? `（${payload.note}）` : ''}`;
+        case 'expense': return `支出 ${formatMoney(payload.amount)}${payload.note ? `（${payload.note}）` : ''}`;
         case 'exercise': return `锻炼 · ${payload.activity || '运动'}${payload.duration ? ` ${payload.duration}` : ''}`;
     }
 };
@@ -287,8 +288,8 @@ const buildExpenseSummary = (txs: BankTransaction[], today: string, absolute = f
         const recent = groupRecentByDate(txs, t => t.dateStr, today, 3);
         if (recent.length === 0) return '- 记账：近期暂无支出记录。';
         const parts = recent.map(({ date, items }) => {
-            const total = items.reduce((s, t) => s + t.amount, 0);
-            const detail = items.slice(0, 5).map(t => `${t.note || '未备注'} ${t.amount}`).join('、');
+            const total = formatMoney(sumMoney(items.map(t => t.amount)));
+            const detail = items.slice(0, 5).map(t => `${t.note || '未备注'} ${formatMoney(t.amount)}`).join('、');
             const more = items.length > 5 ? ` 等 ${items.length} 笔` : '';
             return `${fmtCN(date)} 共 ${items.length} 笔、合计 ${total}（${detail}${more}）`;
         });
@@ -296,8 +297,8 @@ const buildExpenseSummary = (txs: BankTransaction[], today: string, absolute = f
     }
     const todayTx = txs.filter(t => t.dateStr === today);
     if (todayTx.length === 0) return '- 记账：今日暂无支出记录。';
-    const total = todayTx.reduce((s, t) => s + t.amount, 0);
-    const items = todayTx.slice(0, 8).map(t => `${t.note || '未备注'} ${t.amount}`).join('、');
+    const total = formatMoney(sumMoney(todayTx.map(t => t.amount)));
+    const items = todayTx.slice(0, 8).map(t => `${t.note || '未备注'} ${formatMoney(t.amount)}`).join('、');
     const more = todayTx.length > 8 ? ` 等 ${todayTx.length} 笔` : '';
     return `- 今日支出：共 ${todayTx.length} 笔、合计 ${total}（${items}${more}）。`;
 };

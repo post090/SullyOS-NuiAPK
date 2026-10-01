@@ -138,13 +138,22 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
   const handleCatchUp = async () => {
     setCatchingUp(true);
     try {
-      const { written, scanned } = await catchUpMissedPushesManually();
+      const { written, scanned, stale } = await catchUpMissedPushesManually();
       if (written > 0) {
-        addToast(`补回 ${written} 条消息，去聊天里看看。`, 'success');
+        // 补回来了，但同一趟里还有超窗的——两件事都得说，不然用户以为全找回来了。
+        addToast(
+          stale > 0
+            ? `补回 ${written} 条消息，去聊天里看看。另有 ${stale} 条超过两天，拿不回来了。`
+            : `补回 ${written} 条消息，去聊天里看看。`,
+          'success',
+        );
+      } else if (stale > 0) {
+        // 有本该收到的消息、但全都过了两天：说清楚是「丢了」不是「没有」——这是用户
+        // 唯一一次知道这件事的机会，含糊过去他会以为链路是好的。
+        addToast(`有 ${stale} 条消息超过两天没能收到，已经拿不回来了。`, 'error');
       } else if (scanned > 0) {
-        // 账本上有行、但一条都没上屏：全都超出了一天的补收窗口（更老的推送推送服务
-        // 早就不投了，补回来只会让人莫名其妙），或者本来就不是聊天内容。
-        addToast('账本上剩下的都太旧了（只补最近一天的），没有可补的消息。', 'info');
+        // 账本上有行，但没一条是该上屏的聊天内容（思维链、工具请求这些不进聊天流）。
+        addToast('账本上剩下的都不是聊天内容，没有可补的消息。', 'info');
       } else {
         addToast('账本上没有漏收的消息——这条链路是通的。', 'info');
       }
@@ -252,10 +261,10 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
                 <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
                   <p className="font-semibold mb-1">上次建订阅失败{elapsed && `（${elapsed}）`}</p>
                   <p>{failure.text}。</p>
-                  {failure.kind === 'channel-unreachable' && (
+                  {(failure.kind === 'channel-unreachable' || failure.kind === 'no-subscription') && (
                     <p className="mt-1.5 pt-1.5 border-t border-rose-200">
                       这一类<b>重试多少次都是一样的结果</b>，问题不在这个站点、也不在权限，
-                      换一个浏览器或换台设备才有用。
+                      换个浏览器、换个网络或换台设备才有用。
                     </p>
                   )}
                 </div>

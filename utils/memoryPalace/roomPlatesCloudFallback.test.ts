@@ -103,6 +103,23 @@ describe('交云端整理之后往哪走', () => {
     expect(result.cloudPending, '一块门牌没动 + 不说在路上 = 日志报「整理未跑成」').toBe(true);
   });
 
+  // 回归守卫：**没更新 Worker 的用户**走的就是这条。老 bundle 的 /config-check 里没有
+  // backgroundJobs 这个字段，探测得到「不支持」→ 这一轮压根不碰云端，原地在本地把整理
+  // 跑完，跟上云之前一模一样。这条断了的话，那批用户的门牌会彻底停止更新，而界面上
+  // 一片正常——最难发现的那种坏法。副 API 没配、没填 Worker 地址、没开主动消息 2.0
+  // 也都落在这个出口。
+  it('这台 Worker 不认识后台任务（老 bundle）→ 本地照常跑完，不建云端任务', async () => {
+    plateCloudGate.mockResolvedValue('local');
+
+    const result = await run();
+
+    expect(submitPlateConsolidation, '老 worker 会把它当聊天任务跑然后终态失败').not.toHaveBeenCalled();
+    expect(safeFetchJson, '不在本地跑的话，这批用户的门牌就永远不更新了').toHaveBeenCalled();
+    expect(result.cloudPending, '云端根本没接手，别让日志说结果在路上').toBeFalsy();
+    // 本地这条路的老规矩照旧：LLM 没给出有效条目时，本轮候选机械兜底并入，不许蒸发。
+    expect(result.updated).toContain('user_room');
+  });
+
   it('服务端答复了「不行」→ 退回本地跑，已经保底并入的房间照样报出来', async () => {
     submitPlateConsolidation.mockRejectedValueOnce(new Error('worker 说不行'));
 

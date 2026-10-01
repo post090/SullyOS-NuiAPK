@@ -8,7 +8,7 @@ export enum AppID {
   Gallery = 'gallery',
   Music = 'music',
   Browser = 'browser',
-  ThemeMaker = 'thememaker',
+  ThemeMaker = 'thememaker', // Legacy shortcut ID; opens the embedded bubble maker, not an installed App.
   Appearance = 'appearance',
   Date = 'date',
   User = 'user',
@@ -93,6 +93,20 @@ export interface ScheduleCardAppearance {
   customCss?: string;
 }
 
+export type JournalAppearancePresetId =
+  | 'original'
+  | 'letterpress'
+  | 'sakura'
+  | 'forest'
+  | 'midnight';
+
+/** 交换日记 App 的全局皮肤。预设负责开箱即用，自定义 CSS 最后注入并可覆盖预设。 */
+export interface JournalAppearance {
+  preset?: JournalAppearancePresetId;
+  /** 仅允许 .sully-journal-* 作用域，避免样式影响其它 App。 */
+  customCss?: string;
+}
+
 export interface OSTheme {
   hue: number;
   saturation: number;
@@ -104,9 +118,11 @@ export interface OSTheme {
   contentColor?: string;
   /** 冷启动时是否播放整机开机过场。默认开启（undefined 视为 true）。 */
   bootAnimationEnabled?: boolean;
+  /** 整机开场风格；未设置时使用水母。关闭动画时仍保留选择。 */
+  bootAnimationStyle?: 'classic' | 'jellyfish';
   /** 进入聊天或切换角色时是否播放角色登场过场。默认开启。 */
   chatCharacterSwitchAnimationEnabled?: boolean;
-  /** App 代码块加载较慢时是否显示加载柔光动画。默认开启；卡死恢复页不受影响。 */
+  /** App 代码块加载较慢时是否显示加载柔光动画。默认开启；超时恢复页不受影响。 */
   appLoadingAnimationEnabled?: boolean;
   /** 桌面整体皮肤。'animalcrossing' = 动森风格（NookPhone 彩色圆角图标 + 暖色界面）；
    *  'mobilegame' = 二次元手游首页风格（角色卡 + 等级经验条 + 货币栏 + 网格卡 + 罗盘 dock）；
@@ -114,6 +130,7 @@ export interface OSTheme {
   skin?: 'default' | 'animalcrossing' | 'mobilegame' | 'tamagotchi' | 'companion';
   /** 默认桌面的视觉版本：纸感是现行默认，nostalgia 是用户主动选择的最初粉绿白玻璃界面。 */
   desktopVariant?: 'paper' | 'nostalgia';
+  desktopClockStyle?: 'serif' | 'bold' | 'system';
   /** 动森皮肤下，聊天 App 是否也跟随换成动森界面。默认 true（undefined 视为 true）。关掉则聊天保持原样式。 */
   acnhChatSync?: boolean;
   launcherWidgetImage?: string; // DEPRECATED: always stripped on load — never renders.
@@ -122,12 +139,17 @@ export interface OSTheme {
   launcherAppOrder?: string[];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 默认桌面组件可见性；旧存档未设置时保持显示。随主题备份。 */
+  launcherMusicVisible?: boolean;
+  launcherImageVisible?: boolean;
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
   nowPlayingWidgetLight?: boolean;
   /** 日程卡片统一皮肤：桌面、全屏、房间与聊天内同步。 */
   scheduleCardAppearance?: ScheduleCardAppearance;
+  /** 交换日记 App 全局皮肤与自定义 CSS。 */
+  journalAppearance?: JournalAppearance;
   desktopDecorations?: DesktopDecoration[];
   customFont?: string;
   /** 顶部时间栏布局：安全显示（安全区下方）/ 紧凑显示（嵌入安全区）/ 完全隐藏。 */
@@ -168,16 +190,18 @@ export interface OSTheme {
   chatHeaderStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel';
   chatInputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
   chatChromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
+  chatDefaultBubbleStyle?: string;
+  chatBackground?: string;
   chatBackgroundStyle?: 'plain' | 'grid' | 'paper' | 'mesh';
   chatHeaderAlign?: 'left' | 'center';
   chatHeaderDensity?: 'compact' | 'default' | 'airy';
   chatStatusStyle?: 'subtle' | 'pill' | 'dot';
   chatSendButtonStyle?: 'circle' | 'pill' | 'minimal';
-  /** Instant Push 用户气泡左侧的"准备中"圆点动画。默认开启。 */
-  chatPendingIndicator?: boolean;
   /** 聊天「白框」自定义 CSS：作用于 .sully-chat-root 下的顶栏、输入栏与消息布局钩子。
    *  可换色 / 贴图 / 改外形 / 挪位；稳定选择器清单见 ChromeCssEditor。 */
   chatChromeCustomCss?: string;
+  /** 心象外观的全局默认值；不包含显示开关或生成提示词。 */
+  chatPsyche?: import('./utils/psycheAppearance').PsycheAppearance;
   /** 全局默认「白框提示音」：某角色未单独设提示音时回落到这里。src 同角色版（内置 key / 音频直链 / data:audio）。 */
   chatSound?: { src: string; volume?: number };
   /** 隐藏顶栏的情绪 buff 栏。 */
@@ -295,15 +319,19 @@ export interface APIConfig {
   // 鱼声默认模型（s2.1-pro / s2-pro / s1）。缺省 → 's2.1-pro'。
   // 角色 voiceProfile.fishModel 优先于这个全局默认。
   fishAudioModel?: string;
-  // ElevenLabs API Key（https://elevenlabs.io/）。仅 ttsProvider === 'elevenlabs' 时使用。
+  // ElevenLabs BYOK 配置。Voice ID 存在角色 voiceProfile.elevenLabsVoiceId，避免角色串音色。
   elevenLabsApiKey?: string;
-  // ElevenLabs 默认模型 ID（eleven_v3 / eleven_multilingual_v2 / eleven_turbo_v2_5 / eleven_flash_v2_5）。
-  // 缺省 → 'eleven_v3'（v3 支持方括号音频标签 [laugh]/[sigh]/[whisper] 等）。
-  // 角色 voiceProfile.elevenModel 优先于这个全局默认。
+  // 缺省使用低延迟 eleven_flash_v2_5；也支持 eleven_v3 / eleven_multilingual_v2。
+  // 角色 voiceProfile.elevenModel（fork 扩展）优先于这个全局默认。
   elevenLabsModel?: string;
+  // ElevenLabs Voice Settings（请求级覆盖，不修改 ElevenLabs 控制台里的音色默认值）。
+  elevenLabsStability?: number;
+  elevenLabsSimilarityBoost?: number;
+  elevenLabsStyle?: number;
+  elevenLabsUseSpeakerBoost?: boolean;
   // 用户自定义「语音表演指南」——注入到角色 system prompt、教模型怎么写出有情绪的语音台词。
-  // minimax / fishaudio / elevenlabs：聊天 + 电话共用，按 TTS 服务商分别存（标记体系不同，不能共用一份）；
-  //   留空 → 用内置默认（minimaxTts.VOICE_ACTING_GUIDE / fishAudioTts.FISH_VOICE_ACTING_GUIDE / elevenLabsTts.ELEVEN_VOICE_ACTING_GUIDE）。
+  // minimax / fishaudio / elevenlabs：聊天 + 电话共用，按 TTS 服务商分别存；
+  //   留空 → 用内置默认（minimaxTts.VOICE_ACTING_GUIDE / fishAudioTts.FISH_VOICE_ACTING_GUIDE）。
   // dateVoice：见面（DateApp）专用的 [v:xxx] 语音情绪规则，与服务商无关、单独一份；
   //   留空 → 用内置默认（datePrompts.DATE_VOICE_GUIDE）。
   // 在「设置 → 其他 API → 语音提示词」里二次编辑，存 localStorage（随 apiConfig）。
@@ -331,27 +359,6 @@ export interface APIConfig {
   // Per-API temperature for chat / 约会 main calls. Missing → 0.85.
   temperature?: number;
 }
-
-export interface InstantPushConfig {
-  enabled: boolean;
-  workerUrl: string;        // https://your-instant.workers.dev
-  // VAPID 公私钥已迁移到 utils/pushVapid.ts (push_vapid_v1)，与 Proactive Push
-  // 共享同一份，避免两边互相 unsubscribe 抢同一个 pushManager 订阅。
-  clientToken?: string;     // 对应 Worker 的 AMSG_CLIENT_TOKEN
-  // 发送文本后是否自动触发 AI 回复 (worker 端跑 + push 回写). 仅控制"自动触发"这件事,
-  // 不改变 instant push 本身的开关含义. 关闭时 instant 模式也保留手动 ⚡, 跟本地模式一致.
-  // 缺省 (undefined) 视为关闭 — 避免"启用 instant = 自动回复"的反直觉强绑定.
-  autoTriggerOnSend?: boolean;
-  // 大 payload 的传输方式默认走 multipart。只有连接测试确认 Worker 绑定了可用 D1 后,
-  // 前台才允许用户打开 D1 envelope。
-  useD1BlobStore?: boolean;
-  d1Available?: boolean;
-  d1CheckedAt?: number;
-  d1CheckedWorkerUrl?: string;
-  updatedAt?: number;
-}
-
-export type InstantOversizeTransport = 'multipart' | 'd1';
 
 export type ActiveMsg2Mode = 'fixed' | 'auto' | 'prompted';
 export type ActiveMsg2Recurrence = 'none' | 'daily' | 'weekly';
@@ -399,6 +406,17 @@ export interface ActiveMsg2GlobalConfig {
    */
   instantChatSupported?: boolean;
   /**
+   * 上一次探到的「那台 Worker 贴的是哪一版 bundle」（GET /config-check 的 workerVersion，
+   * 由 ActiveMsgClient.probeInstantChatSupportDetailed / probeWorkerVersion 顺手记下）。
+   *
+   * 和 AMSG_BUNDLE_VERSION 相等 = 那台 Worker 跑的就是本 App 认的这份代码。即时对话里
+   * 需要新协议的回合（SAR 模块生效期的信封回复）靠它判断能不能上云。
+   *
+   * null = 问到了，但老 bundle 不报这个字段（确实旧）；undefined = 还没探过，按放行处理。
+   * 和 instantChatSupported 一样只记探测结果，备份还原时不抄回来。
+   */
+  workerBundleVersion?: string | null;
+  /**
    * 上一次探到的「这台 Worker 能不能把 LLM 凭据存成表里的一行」
    * （GET /capabilities 的 features 含 'llm-credentials'，见 ActiveMsgClient.probeLlmCredentialsSupport）。
    *
@@ -409,6 +427,19 @@ export interface ActiveMsg2GlobalConfig {
    * 一份凭据，也不要拿新写法去撞一台还不认识它的 Worker。握手时会探一次。
    */
   llmCredentialsSupported?: boolean;
+  /**
+   * 上一次探到的「这台 Worker 认不认 PUT /client-state 里 value: null 的删行语义」
+   * （GET /capabilities 的 features 含 'client-state-delete'，见 ActiveMsgClient.probeWorkerFeatures）。
+   *
+   * 达标时取回旁路存的大内容后把那一行真的删掉；不达标照旧写空串、留一个空壳。
+   * undefined / false 都按「不达标」处理：老 Worker 收到 null 会逐条拒掉。握手时会探一次。
+   */
+  clientStateDeleteSupported?: boolean;
+  /**
+   * 旁路存储的存量空壳已经扫过一遍的角色 id（见 activeMsgClient 的存量空壳清理）。
+   * 每个角色只扫一次：扫完记进来，之后的同步不再为它多读一次云端。
+   */
+  sidechannelShellsSweptCharIds?: string[];
   updatedAt?: number;
 }
 
@@ -436,8 +467,6 @@ export interface ActiveMsg2TaskRecord {
   promptHint?: string;
   /** 防穿帮策略；fixed 任务恒为 'force'（见 amsg2Tasks.resolveExpirePolicy）。 */
   expirePolicy: ActiveMsg2ExpirePolicy;
-  /** 排程时最后一条真实用户消息的时间戳（作废判定锚点；当时无消息为 0）。 */
-  anchorLastUserMsgAt?: number;
   source: ActiveMsg2TaskSource;
   status: ActiveMsg2TaskStatus;
   createdAt: number;
@@ -458,10 +487,25 @@ export interface ActiveMsg2CharacterConfig {
   maxTokens?: number;
   /**
    * 「我没回的时候，TA 最多连续主动发几条」。0 = 不限；没设 = 默认值
-   * （amsgFirePack.DEFAULT_MAX_UNANSWERED_SENDS）。管的是角色自己排的后续
+   * （amsgLimits.DEFAULT_MAX_UNANSWERED_SENDS）。管的是角色自己排的后续
    * （含 fire 里的自排链），用户在面板里亲手排的任务不受它管；用户一回复就重新计数。
    */
   maxUnansweredSends?: number;
+  /**
+   * ↓「频率与额度」的其余几项（面板「主动频率」那一页），没设 = 用 utils/amsgLimits 里的默认值。
+   * 两条主动消息之间至少隔几分钟（只管角色自己排的）。0 = 不额外限制。
+   */
+  minSendGapMinutes?: number;
+  /** 每天最多主动发几次（用户手动排的也算，即时对话的回复不算）。0 / 没设 = 不限。 */
+  dailySendCap?: number;
+  /** 每天/每周重复的消息，用户连续几次没回就先停（回话后恢复）。0 = 不停。 */
+  recurringStopAfter?: number;
+  /** 同时最多排着几条（用户和角色共用）。 */
+  maxActiveTasks?: number;
+  /** 角色能不能自己排每天/每周重复的消息。没设 = 不能。 */
+  allowSelfRecurring?: boolean;
+  /** 角色能不能自己排「到点必发」（用户正在聊天也照发）的消息。没设 = 不能。 */
+  allowSelfForce?: boolean;
   useSecondaryApi?: boolean;
   secondaryApi?: ActiveMsg2ApiConfig;
   lastSyncedAt?: number;
@@ -520,60 +564,6 @@ export interface ActiveMsg2InboxMessage {
   processAttempts?: number;
 }
 
-// Phase 2 Round 1 — Instant Push agentic loop session state, written client-side
-// before /instant and consumed by /continue. See plans/instant-push-agentic-loop-phase2.md
-export interface InstantPushOutboundSession {
-  sessionId: string;
-  charId: string;
-  /** Conversation messages snapshot at /instant call time — fed to /continue as agentic-loop history. */
-  messages: any[];
-  /** API credentials needed to resume via /continue when worker calls back. */
-  apiCredentials: { baseUrl: string; apiKey: string; model: string };
-  createdAt: number;
-}
-
-// Phase 2 Round 2 — SW will populate these stores; Round 1 just defines schema (empty).
-export interface InstantPushPendingToolCall {
-  sessionId: string;
-  charId: string;
-  /** OpenAI-shape tool_calls from worker LLM emit, ready to dispatch via agenticTools. */
-  toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>;
-  /** Pre-tool-call LLM text output, used to prefix assistant-side content if needed. */
-  llmOutputText: string;
-  /**
-   * Agentic-loop iteration that produced this tool_request (0-indexed at worker side, see
-   * amsg-instant SessionContext.iteration). Client POST /continue must use iteration + 1,
-   * worker rejects non-incrementing values with HTTP 400. Default 0 for safety when the
-   * push didn't carry metadata.iteration (e.g. legacy worker).
-   */
-  iteration: number;
-  createdAt: number;
-}
-
-/**
- * SW writes reasoning_buffer when amsg-instant emits ReasoningPush.
- * 0.8.0-next.2 起, ReasoningPush 自带 (messageIndex, totalMessages, chunkIndex,
- * totalChunks) 四个字段 — long reasoning_content 会被 amsg-instant 按 UTF-8
- * 字节自动切多 push (默认 reasoningChunkBytes=2000), 多 push 通过 chunks[]
- * 累积, claimReasoning 按 (messageIndex, chunkIndex) 排序后拼接成完整 reasoning.
- *
- * `reasoningContent` 字段是 claimReasoning 输出 (向后兼容老 Round 1 buffer 形态).
- * `chunks` 字段是 SW 累积形态 (新 push 进来 read-modify-write 追加一条).
- */
-export interface InstantPushReasoningBufferEntry {
-  sessionId: string;
-  charId: string;
-  /** 拼接后的完整 reasoning. claimReasoning 输出时填这个字段; SW 写入时可省略. */
-  reasoningContent?: string;
-  /** SW 累积式 buffer — 每条 ReasoningPush 进来追加一条. */
-  chunks?: Array<{
-    messageIndex: number;
-    chunkIndex: number;
-    reasoningContent: string;
-  }>;
-  receivedAt: number;
-}
-
 export interface ApiPreset {
   id: string;
   name: string;
@@ -627,6 +617,7 @@ export interface CharacterMemo {
 
 // 实时上下文配置 - 让AI角色感知真实世界
 export interface RealtimeConfig {
+    userHolidays?: import('./utils/userHolidays').UserHolidayConfig;
   // 天气配置
   weatherEnabled: boolean;
   weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
@@ -687,6 +678,7 @@ export interface HotNewsSnapshot {
 }
 
 export interface MemoryPalaceBackupConfig {
+  relativeTimeAnnotations?: boolean;
   embedding: {
     baseUrl: string;
     apiKey: string;
@@ -705,6 +697,30 @@ export interface MemoryPalaceBackupConfig {
     model: string;
     topN: number;
   };
+  /**
+   * 实验管线总开关。旧备份没有这一块时按全部关闭处理，确保升级后行为不突变。
+   */
+  featureFlags?: MemoryPalaceFeatureFlags;
+}
+
+export interface MemoryPalaceFeatureFlags {
+  recallRouter: boolean;
+  interactionAdaptation: boolean;
+  deepEngagement: boolean;
+  /** 预留的薄事实约束层，不属于 M3 Deep Engagement。 */
+  epistemicState: boolean;
+}
+
+/**
+ * 角色在 ChatApp 里愿意向用户当前交流步伐靠近多少。每维 0..1；这是角色属性，
+ * 不是用户状态。缺省时使用保守默认值，且不会从角色实际回复中自动学习。
+ */
+export interface CharacterAccommodationPolicy {
+  length?: number;
+  rhythm?: number;
+  energy?: number;
+  punctuation?: number;
+  emoji?: number;
 }
 
 export interface MemoryFragment {
@@ -712,6 +728,8 @@ export interface MemoryFragment {
   date: string;
   summary: string;
   mood?: string;
+  /** Only new automatic archives carry a palace link; summary remains an offline/legacy fallback. */
+  palaceMemoryId?: string;
 }
 
 export interface SpriteConfig {
@@ -1263,13 +1281,16 @@ export interface NovelBook {
 // =====================================================================
 
 /** 虚拟世界里的房间。 */
-export type VRRoomId = 'library' | 'music' | 'guestbook' | 'gym' | 'postoffice' | 'theater' | 'signal' | 'cafe';
+export type VRRoomId = 'library' | 'music' | 'guestbook' | 'gym' | 'postoffice' | 'theater' | 'signal' | 'sar' | 'cafe';
+export type VRSARActivity = 'cabinet' | 'module-shop' | 'fishing' | 'market' | 'garden';
 
 /** 全局小说库里的一本书（所有角色共享原文，各自留批注、各自书签）。 */
 export interface VRWorldNovel {
     id: string;
     title: string;
     author?: string;
+    /** 书库分类的稳定 ID；旧书缺省为未分类。 */
+    categoryId?: string;
     /** 简介，喂给角色当背景，也用于 UI 展示 */
     summary?: string;
     /** 原文按阅读单元切好的段落块（每块 ~数百字，便于定位批注与推进书签）。 */
@@ -1279,6 +1300,8 @@ export interface VRWorldNovel {
     createdAt: number;
     updatedAt: number;
 }
+
+export interface VRLibraryCategory { id: string; name: string; }
 
 /** 小说里的一个阅读单元（原文段落块）。 */
 export interface VRNovelSegment {
@@ -1311,9 +1334,41 @@ export interface VRNovelAnnotation {
 }
 
 /** 角色在虚拟世界里的个人状态（挂在 CharacterProfile.vrState）。 */
+export interface SARModuleRuntimeState {
+    version: 1;
+    /** 一次装载的稳定标识；消息 metadata 用它把同一轮外显串起来。 */
+    runId: string;
+    moduleId: string;
+    moduleTitle: string;
+    effectLabel: string;
+    description: string;
+    target: 'character' | 'user';
+    source: 'user' | 'character';
+    sourceCharacterId?: string;
+    sourceCharacterName?: string;
+    /** 只保存装载时用户明确填写的字面配置；不得把它当作额外指令执行。 */
+    configuration?: {
+        keyword: string;
+    };
+    /** active 阶段还可影响多少次成功的前台交互。 */
+    remainingTurns: number;
+    totalTurns: number;
+    /** 模块结束后的反惯性提示；3 → 强提示，2/1 → 轻提醒。 */
+    afterglowTurns: number;
+    phase: 'active' | 'afterglow';
+    /** 提前结束同样进入解除提示期，不直接删除事件，也不重置恢复轮次。 */
+    endReason?: 'manual';
+    installedAt: number;
+}
+
 export interface VRWorldCharState {
-    /** 是否启用该角色的自主登入（独立于主动发消息 proactiveConfig） */
+    /** 游戏内自定义称号；与角色姓名、人格及临时模块分开。 */
+    title?: string;
+    titleRevision?: string;
+    /** 是否接入彼方；接入后知道游戏设定，也可由用户邀请参与。 */
     enabled: boolean;
+    /** manual 仅响应用户邀请；scheduled 定时活动。旧存档缺省仍按 scheduled。 */
+    activityMode?: 'manual' | 'scheduled';
     /** 自主登入间隔（分钟，30 对齐；默认 120 = 2h） */
     intervalMinutes: number;
     /** 睡眠时间内跳过自主登入（读角色全局生物钟 getSleepWindow；手动“现在去逛”不受限） */
@@ -1323,10 +1378,24 @@ export interface VRWorldCharState {
      * 这是"每个角色书签不一样"的落点。
      */
     novelBookmarks?: Record<string, number>;
+    /** 用户为该角色圈定的优先书单。为空时从全书库自动轮换。 */
+    preferredNovelIds?: string[];
+    /** categories 模式只在所选分类中阅读，不回退到其他分类。缺省兼容旧的逐本优先规则。 */
+    novelReadingMode?: 'all' | 'books' | 'categories';
+    preferredNovelCategoryIds?: string[];
+    /** 仅限制自动自由活动，手动邀请可绕过；空或缺省为不限制。 */
+    excludedAutoRooms?: VRRoomId[];
+    excludedAutoSARActivities?: VRSARActivity[];
+    /** 上一次图书馆活动选中的小说，用于有其它候选时避免连续读同一本。 */
+    lastNovelId?: string;
     /** 最近一次活动落在哪个房间（UI 立绘站位用） */
     currentRoom?: VRRoomId;
     /** 最近一次活动时间戳（UI / 调度展示用） */
     lastActiveAt?: number;
+    /** SAR 临时模块。真实人格不改，只改变前台对话的外显层。 */
+    sarModule?: SARModuleRuntimeState;
+    /** 最近一次 SAR 自由活动，供活动室和模块触发判断展示。 */
+    sarActivity?: VRSARActivity;
     /** 该角色专属 API 覆盖（用户可单独为「彼方」活动配 api）；不设则回落全局 apiConfig。 */
     api?: { baseUrl: string; apiKey: string; model: string };
     /**
@@ -1348,7 +1417,28 @@ export interface VRWorldCharState {
 }
 
 /** 注入聊天的 vr_card 消息的 metadata 结构。 */
+export interface SARCharacterCabinetNoteMeta {
+    id: string;
+    actorId: string;
+    actorName: string;
+    targetId: string;
+    targetName: string;
+    targetKind: 'user' | 'character' | 'wanderer';
+    variantId: string;
+    variantTitle: string;
+    storyId: string;
+    storyTitle: string;
+    title: string;
+    story: string;
+    notes: string;
+    highlight: string;
+    createdAt: number;
+}
+
 export interface VRCardMeta {
+  marketActivity?: boolean;
+  marketEventId?: string;
+  privateWords?: string;
     vrCard: true;
     room: VRRoomId;
     /** 活动概述（steam 提示式，UI 标题） */
@@ -1397,6 +1487,28 @@ export interface VRCardMeta {
     bookletTitle?: string;
     /** 用户参与时留给角色的耳语（不进诗，只随卡片进聊天/记忆） */
     signalWhisper?: string;
+    // --- SAR 活动空间：角色自主扭蛋随笔 ---
+    /** 角色自己抽取两枚芯片、给另一位玩家使用后留下的完整柜中随笔。 */
+    sarCabinetNote?: SARCharacterCabinetNoteMeta;
+    /** 角色自主逛模块商店时购买/装载的记录。 */
+    sarModuleShop?: {
+        moduleId: string;
+        moduleTitle: string;
+        usedOnUser: boolean;
+    };
+    /** 角色在彼方水域的真实程序判定结果；模型只负责反应与去向选择。 */
+    fishing?: {
+        catchId: string;
+        speciesId: string;
+        speciesName: string;
+        sizeCm: number;
+        quality: 1 | 2 | 3;
+        weatherLabel: string;
+        weatherSource: 'real' | 'simulated';
+        decision: 'keep' | 'guestbook' | 'dm' | 'market' | 'release' | 'sell';
+        sale?: { amount: number; at: number; replyIndex: number; reply: string; expression: string; sellerWords?: string };
+        exactWords?: string;
+    };
 }
 
 // ============================================================
@@ -1676,6 +1788,10 @@ export interface WorldCharBeat {
 
 /** 一轮演绎（"观测"或离线 tick 触发，推进半天剧情时间；IndexedDB world_episodes 表）。 */
 export interface WorldEpisode {
+    /** Read-time observation ordinal; does not replace round used by historical message references. */
+    observationNumber?: number;
+    /** 本轮关系变化之前的快照，供重演恢复数值和标签。 */
+    relationshipsBefore?: WorldRelationship[];
     id: string;
     worldId: string;
     /** 第几轮（= 演绎完成后的 storyClock） */
@@ -1800,6 +1916,7 @@ export interface VRMusicQueueItem {
 
 /** 留言簿（共享版聊墙）的一条留言。 */
 export interface VRGuestbookMessage {
+    kind?: 'collection-unlock';
     id: string;
     /** 'user' = 用户本人，其余为 charId */
     authorId: string;
@@ -2240,6 +2357,8 @@ export interface StoryTheaterEntry {
     presetOverride?: StoryTheaterPresetDocument;
     /** 仅供拒绝 assistant prefill、要求最后一条消息必须为 user 的接口使用；默认关闭以保留原生预设效果。 */
     forceUserLastMessage?: boolean;
+    /** 兼容不接受酒馆高级采样参数的接口；默认关闭，完整发送预设中的 top_p 与两项 penalty。 */
+    omitSamplingParams?: boolean;
     createdAt: number;
     updatedAt: number;
 }
@@ -2250,6 +2369,8 @@ export interface StoryTheaterPresetPrompt {
     enabled: boolean;
     role: 'system' | 'user' | 'assistant';
     content: string;
+    /** 自定义大区边界，仅用于编辑器组织，不发送给模型。 */
+    section?: { id: string; name: string; edge: 'start' | 'end' };
     /** marker 由发送器替换为角色/世界书/用户/场景/历史，不把占位条目当普通正文。 */
     marker?: 'characters' | 'world_before' | 'user' | 'world_after' | 'scenario' | 'examples' | 'history';
 }
@@ -2285,7 +2406,7 @@ export interface StoryTheaterPreset {
 
 export interface SpecialMomentRecord {
     content: string;
-    image?: string; // base64 PNG (stored separately so export tools can handle it)
+    image?: string; // 活动留存的大图，存 blobref 令牌（二进制在 blob_assets）
     timestamp: number;
     source?: 'generated' | 'migrated';
     /** Free-form per-event extra data (e.g. like520 captureface state, anchors, etc.) */
@@ -2897,6 +3018,27 @@ export interface CompanionStartupSettings {
   updatedAt?: number;
 }
 
+export interface CompanionStartupPreset {
+  id: string;
+  name: string;
+  startup: CompanionStartupSettings;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CompanionTouchPreset {
+  id: string;
+  name: string;
+  enabledZones: CompanionTouchZone[];
+  reactions: Partial<Record<CompanionTouchZone, CompanionTouchReaction[]>>;
+  voiceLanguage?: string;
+  voiceEnabled?: boolean;
+  voiceGeneratedCount?: number;
+  generatedAt?: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface CompanionTouchSettings {
   enabledZones: CompanionTouchZone[];
   reactions: Partial<Record<CompanionTouchZone, CompanionTouchReaction[]>>;
@@ -2907,6 +3049,12 @@ export interface CompanionTouchSettings {
   voiceEnabled?: boolean;
   voiceGeneratedCount?: number;
   generatedAt?: number;
+  /** 多套开机演出独立保存；startup 仍是当前实际启用的兼容字段。 */
+  startupPresets?: CompanionStartupPreset[];
+  activeStartupPresetId?: string;
+  /** 多套触摸反馈独立保存；顶层 reactions 等字段仍是当前实际启用包。 */
+  touchPresets?: CompanionTouchPreset[];
+  activeTouchPresetId?: string;
 }
 
 export type MemoryPalaceWaterlinePreset = 'online' | 'balanced' | 'offline' | 'custom';
@@ -3052,14 +3200,14 @@ export interface CharacterProfile {
   companionAvatar?: CompanionAvatarConfig;
   /**
    * 视频通话舞台的自定义背景：`blobref:<id>` 令牌（本地图片，存 IndexedDB
-   * blob_assets，备份导出时由 resolveBlobRefsDeep 自动还原）或 http(s) 图床直链。
+   * blob_assets，备份令牌原样进包、二进制走 blobs/* 旁路）或 http(s) 图床直链。
    * 空 = 默认氛围渐变。
    */
   videoCallBackground?: string;
   /**
    * 触感陪伴桌面（companion 皮肤）的背景：`preset:<id>`（内置华丽渐变场景）、
-   * `blobref:<id>` 令牌（本地图片，备份由 resolveBlobRefsDeep 还原）或 http(s)
-   * 图床直链。空 = 默认时段天光。
+   * `blobref:<id>` 令牌（本地图片，备份令牌原样进包、二进制走 blobs/* 旁路）
+   * 或 http(s) 图床直链。空 = 默认时段天光。
    */
   companionBackground?: string;
   /**
@@ -3081,6 +3229,8 @@ export interface CharacterProfile {
   videoCallPerformancePersona?: string;
   videoCallPerformancePersonaGeneratedAt?: number;
   description: string;
+  /** Only the chat title uses the remark; the canonical name stays unchanged. */
+  chatShowRemark?: boolean;
   systemPrompt: string;
   worldview?: string;
   /** 角色分组：指向 CharacterGroup.id；空或指向已删分组 = 未分组。仅本地组织用，不随角色卡导出 */
@@ -3102,6 +3252,9 @@ export interface CharacterProfile {
    *  enabled 为 false/undefined 或整个字段缺省 = 完全跟随全局（现状零变化）。
    *  属美化类本地偏好：随完整备份走，但角色卡分享时剥离（见 utils/characterCard.ts）。 */
   chatFineTune?: ChatFineTuneOverride;
+  /** ChatApp visual fields only; filtered through the decoration allowlist. */
+  chatAppearance?: Partial<OSTheme>;
+  chatDecorationCssIsolated?: boolean;
   chatBackground?: string;
   contextLimit?: number;
   /**
@@ -3131,6 +3284,7 @@ export interface CharacterProfile {
   spriteConfig?: SpriteConfig;
   customDateSprites?: string[]; // User-added custom emotion names for date mode (per-character)
   dateLightReading?: boolean;   // Light reading mode for novel/text view in date
+  dateReadingShowAvatars?: boolean; // Show both participants' avatars beside messages in date reading mode
   dateSkinSets?: SkinSet[];     // Multiple skin sets for portrait mode
   activeSkinSetId?: string;     // Currently active skin set ID
   dateStyleConfig?: DateStyleConfig; // 见面模式文风（写作风格 / 叙事人称 / 自定义补充）
@@ -3190,15 +3344,18 @@ export interface CharacterProfile {
   voiceProfile?: {
       provider?: 'minimax' | 'custom';
       voiceId?: string;
+      // MiniMax 合成参数版本。缺省/legacy 保持历史效果；natural-v2 需由用户主动开启。
+      minimaxParamVersion?: 'legacy' | 'natural-v2';
       // 鱼声 Fish Audio 音色：从 fish.audio 语音库复制的 reference_id。
       // 与 MiniMax 的 voiceId 不通用，单独保存，切换 provider 时各取各的。
       fishReferenceId?: string;
       // 该角色单独指定的鱼声模型（覆盖全局 fishAudioModel）。
       fishModel?: string;
-      // ElevenLabs 音色：从 ElevenLabs 网站 / Voice Lab 复制的 voice_id。
-      // 与上面两个不通用，单独保存，切换 provider 时各取各的。
+      // ElevenLabs 角色音色 ID。与 MiniMax voiceId / Fish reference_id 各存各的。
+      elevenLabsVoiceId?: string;
+      // fork 旧字段（升级前存的 ElevenLabs 音色 ID）：读取时兜底迁移到 elevenLabsVoiceId。
       elevenVoiceId?: string;
-      // 该角色单独指定的 ElevenLabs 模型（覆盖全局 elevenLabsModel）。
+      // 该角色单独指定的 ElevenLabs 模型（覆盖全局 elevenLabsModel；fork 扩展）。
       elevenModel?: string;
       voiceName?: string;
       source?: 'system' | 'voice_cloning' | 'voice_generation' | 'custom';
@@ -3397,6 +3554,8 @@ export interface CharacterProfile {
   };
   personalityStyle?: 'emotional' | 'narrative' | 'imagery' | 'analytical';
   ruminationTendency?: number;  // 反刍倾向 0-1，默认 0.3
+  /** ChatApp 专属的语言趋同强度；不影响其他 App 的写作人格。 */
+  interactionAccommodation?: CharacterAccommodationPolicy;
   memoryPalaceInjection?: string;  // 记忆宫殿检索结果，注入到 System Prompt（运行时填充，不持久化）
   roomPlatesInjection?: string;    // 房间门牌（常驻语义层），注入到 System Prompt（运行时填充，来源 room_plates 表）
   /** 记忆宫殿召回条目摘要（运行时填充，不持久化）。供 API 调用详情面板展示"召回了哪些条目"，不进 prompt。 */
@@ -3446,6 +3605,8 @@ export interface CharacterProfile {
    */
   htmlModeEnabled?: boolean;
   htmlModeCustomPrompt?: string;
+  /** 可选：在日常 ChatApp 注入任务优先的协同工作规则。提示词较长，默认关闭。 */
+  chatCollaborationEnabled?: boolean;
   /** 该角色专属的聊天「白框」自定义 CSS（叠加在全局 osTheme.chatChromeCustomCss 之上）。 */
   chromeCustomCss?: string;
   /** 白框「提示音」：仅当 ta 新发的消息成为会话最后一条时播放一次。src 可为内置音效 key / 音频直链 / 上传后内联的 data:audio。
@@ -3602,6 +3763,8 @@ export interface UserProfile {
 }
 
 export interface UserVRState {
+    title?: string;
+    titleRevision?: string;
     /** 是否接入彼方（登出后不再向角色注入"用户在彼方"提示） */
     enabled: boolean;
     /** 用户此刻把自己挂在哪个房间 */
@@ -3610,6 +3773,10 @@ export interface UserVRState {
     activity?: string;
     /** 最近一次更新时间 */
     updatedAt?: number;
+    /** 默认关闭；开启后，在 SAR 中的角色才可以反向给用户装载模块。 */
+    allowCharacterModules?: boolean;
+    /** 角色装在用户身上的临时模块（5 次成功交互 + 3 次退场稳定）。 */
+    sarModule?: SARModuleRuntimeState;
     /** 用户在彼方里的 chibi 形象（同角色 chibi 结构，来自 mode="user" 的捏人器） */
     chibi?: {
         img: string;
@@ -3640,6 +3807,8 @@ export interface GalleryImage {
     charId: string;
     url: string;
     timestamp: number;
+    /** 原图来自聊天时指向消息主键；相册与收藏只关联，不再复制第三份图片。 */
+    sourceMessageId?: number;
     review?: string;
     reviewTimestamp?: number;
     savedDate?: string; // YYYY-MM-DD format
@@ -4249,7 +4418,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
 
 export interface Message {
     id: number;
@@ -4285,7 +4454,8 @@ export interface FullBackupData {
     version: number;
     theme?: OSTheme;
     apiConfig?: APIConfig;
-    instantPushConfig?: InstantPushConfig;
+    /** 查手机 App 独立 API；null/缺省时跟随聊天默认。 */
+    checkPhoneApi?: APIConfig | null;
     pushVapid?: { vapidPublicKey: string; vapidPrivateKey: string; vapidEmail?: string; updatedAt?: number; };
     /**
      * 主动消息 2.0 的全局配置：Worker 地址、共享密钥、一键部署生成的 AMSG_MASTER_KEY、
@@ -4340,10 +4510,24 @@ export interface FullBackupData {
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
+    /** SAR 公告/卡池/推演/模块商店记录。旧备份没有该字段；导入旧主历史时应清掉当前设备上的 SAR 进度，避免串档。 */
+    sarLocalState?: {
+        version: 1;
+        club?: unknown;
+        gacha?: unknown;
+        simulations?: unknown;
+        moduleShop?: unknown;
+        fishingMarket?: unknown;
+        fishingMarketRaw?: string;
+        preferences?: Record<string, string>;
+    };
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
     luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
     mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）
     mcpLocal?: Record<string, string>;         // 通用 MCP：用户自配的服务器列表（存 localStorage）
+    chatInputPreferences?: import('./utils/chatInputPreferences').ChatInputPreferences;
+    beautyPreferences?: import('./utils/beautyPreferencesBackup').BeautyPreferencesBackup;
+    beautyAuthorLocal?: import('./utils/beautyAuthorBackup').BeautyAuthorBackup; // 仅个人完整备份，公开美化包不携带
     desktopSkinLocal?: Record<string, string>; // 桌面皮肤偏好：电子宠物/手游风的界面配色 + 看板 banner（存 localStorage；看板图令牌导出时解析为 data URL）
     songs?: SongSheet[]; // Songwriting app data
     
@@ -4373,8 +4557,10 @@ export interface FullBackupData {
     
     mediaAssets?: {
         charId: string;
+        decoration?: import('./utils/decorationMediaBackup').DecorationMediaBackup;
         avatar?: string;
         companionAvatar?: CompanionAvatarConfig;
+        companionTouchSettings?: CompanionTouchSettings;
         sprites?: Record<string, string>;
         dateSkinSets?: SkinSet[];
         activeSkinSetId?: string;
@@ -4452,6 +4638,7 @@ export interface FullBackupData {
     chatTranslateSourceLangByChar?: Record<string, string>;
     chatTranslateTargetLangByChar?: Record<string, string>;
     chatTranslateEnabledByChar?: Record<string, boolean>;
+    chatTranslateExpandedByChar?: Record<string, boolean>;
     chatArchivePrompts?: any;
     chatActiveArchivePromptId?: string;
     characterRefinePrompts?: any;
@@ -4470,6 +4657,21 @@ export interface FullBackupData {
     hotNewsSnapshots?: HotNewsSnapshot[];
     dreamCollection?: Record<string, { firstAt: number; count: number }>;  // 梦境盲盒收藏册（os_dream_collection，账号级 localStorage）
     gotchiAccentHue?: string;  // 桌面电子宠物主题主色调偏好（tama_accent_hue，账号级 localStorage）
+
+    // 独立协同工作数据库。二进制文件放在 ZIP 的 collaboration/assets/，JSON 只存索引。
+    collaborationBackupVersion?: 1;
+    collaborationBackupMode?: 'text_only' | 'media_only' | 'full';
+    collaborationSessions?: any[];
+    collaborationMessages?: any[];
+    collaborationCategories?: any[];
+    collaborationSettings?: any;
+    collaborationAssetIndex?: {
+        id: string;
+        path: string;
+        mimeType: string;
+        size: number;
+        createdAt: number;
+    }[];
 }
 
 // --- CLOUD BACKUP TYPES ---
@@ -4506,8 +4708,13 @@ export interface CloudBackupConfig {
 export interface CloudBackupFile {
     name: string;
     size: number;
-    lastModified: string;       // ISO date string
+    lastModified: string | number; // ISO date string or epoch timestamp
     href: string;               // WebDAV: remote path. GitHub: 'releaseId:assetId'
+    /** GitHub can expose an interrupted draft/release without a restorable asset set. */
+    status?: 'ready' | 'incomplete';
+    statusMessage?: string;
+    /** Expected GitHub asset sizes, in the same order as the ids encoded in href. */
+    partSizes?: number[];
 }
 
 // --- GUIDEBOOK (攻略本) APP TYPES ---

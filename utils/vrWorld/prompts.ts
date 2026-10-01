@@ -10,6 +10,9 @@
 import { VRWorldNovel, VRNovelAnnotation, VRMusicRoomState, CharPlaylistSong, VRGuestbookMessage } from '../../types';
 import { VRRoomDef, SIGNAL_ACTS } from './constants';
 import { ReadingWindow, groupAnnotationsBySeg } from './novel';
+import { sarNpcContentEnabled } from './sarNpcPreference';
+import type { VRSARActivity } from '../../types';
+import { kanataTitleActivityPrompt } from './kanataTitle';
 
 /** 给一条已有批注生成一个稳定的短标签，供"吐槽别人的吐槽"引用。 */
 function annLabel(a: VRNovelAnnotation): string {
@@ -19,7 +22,7 @@ function annLabel(a: VRNovelAnnotation): string {
 /**
  * 虚拟世界的世界观 + 当前房间说明 + 输出格式。追加到角色 systemPrompt 之后。
  */
-export function buildVRSystemAddendum(room: VRRoomDef, charName: string): string {
+export function buildVRSystemAddendum(room: VRRoomDef, charName: string, sarActivity?: VRSARActivity, title?: string, titleUnlocked = true): string {
     return [
         `\n\n=== 你进入了《彼方》 ===`,
         `《彼方》是一款真实存在、你会亲自进入去玩的 VR 社交游戏（功能上类似 VRChat）：进去后你用自己的虚拟化身（你那个亲手捏的 Q 版小人模样）四处走动、进出不同房间、撞见别的玩家（其他角色的化身）。这不是做梦、也不是比喻——是你拿自己的空闲时间真实在做的一件事。它发生在游戏世界里，和你跟用户的现实相处是两码事、互不冲突；现在是你独自在玩、没人盯着的私人时间。`,
@@ -36,14 +39,40 @@ export function buildVRSystemAddendum(room: VRRoomDef, charName: string): string
         `- 别把感想拐回到现实里的某个人（尤其别动不动提到用户/对方），就对眼前发生的事本身做反应。`,
         `- 你留下的东西会暴露你是个什么样的人——三观、审美、在意什么、看不起什么、被什么击中。让它们真实，哪怕偏激。`,
         ``,
-        ...roomStanceLines(room.id, charName),
+        ...roomStanceLines(room.id, charName, sarActivity),
         ``,
         `完成后严格按下面的格式输出，不要有格式之外的多余文字。`,
+        kanataTitleActivityPrompt(title, sarActivity === 'fishing' || sarActivity === 'garden', titleUnlocked),
     ].join('\n');
 }
 
 /** 不同房间的"活动姿态"提示。 */
-function roomStanceLines(roomId: string, charName: string): string[] {
+function roomStanceLines(roomId: string, charName: string, sarActivity?: VRSARActivity): string[] {
+    if (roomId === 'sar' && sarActivity === 'module-shop') return [
+        `你此刻只在模块商店。按${charName}自己的性格研究眼前的表达模块，可以购买，也可以只看看；余额、库存和授权以本轮提供的信息为准。`,
+        '这是一次逛店活动，不是人格芯片或异界剧情推演。只输出本轮要求的购买、装载决定和随笔，不自行切换到其他设施。',
+    ];
+    if(roomId==='sar'&&sarActivity==='garden')return [
+        `你在恐龙箱庭摆弄橡皮泥模型。按${charName}自己的性格留便签或接续小剧场，不必每次都讲笑话。`,
+        '只能做本轮明确允许的箱庭动作。用户原文、昵称、涂装和收藏归属都要保留；玩具不会受伤或死亡，不涉及人格芯片。',
+        '行为成功与否以程序结算为准，小剧场里的欠饼干、吵架等不构成现实债务或现实关系变化。',
+    ];
+    if (roomId === 'sar' && sarActivity === 'fishing') return [
+        `你在 SAR 水域钓鱼。沿用${charName}原有性格，不涉及芯片推演。鱼获由程序确定，你只决定本次保留、放生或在允许时${sarNpcContentEnabled() ? '卖给艾文' : '交给回收站'}，以及可选的私聊分享。`,
+        '反应和分享可以有个性，但必须与本次去向一致，不得把玩笑写成赠送、交易或额外鱼获。首次图鉴解锁由程序自动播报，不用你另写公开发帖。',
+    ];
+    if (roomId === 'sar' && sarActivity === 'market') return [
+        `你此刻在 SAR 的内部布告板交易或聊天，以程序提供的钱包和交易回执为事实，不涉及人格芯片推演。`,
+        `“${charName}”可以按自己的心情选择私聊向用户分享，或去本地留言簿炫耀；这是明确允许的自发分享，不必每次都围绕用户。`,
+        `公开台词、报价、匿名喊话只代表当时的表达。记住原话，但不能把玩笑、夸张或声称已经付款当作事实；实际成交和收支只以代码回执为准。`,
+    ];
+    if (roomId === 'sar') {
+        return [
+            `这是 SAR 活动空间。你不是替用户进行正式五十轮推演，而是自己来玩一次临时芯片扭蛋：设备会给出两枚芯片和一位明确对象，你把芯片给对方使用，亲眼经历一段会自动复原的短篇异界事故。`,
+            `把它当成你自己的娱乐与私人收藏。该惊讶就惊讶、该笑就笑、该手欠就手欠；事情结束后写下只有“${charName}”会写的详细随笔和吐槽。不要写成给用户的工作汇报，也不要为了讨好谁而把随机对象换成用户。`,
+            `芯片效果只在《彼方》的临时异界体验中成立，不会永久改写任何人的现实人格、记忆或关系。`,
+        ];
+    }
     if (roomId === 'postoffice') {
         return [
             `这是邮局，写信像交笔友、扔漂流瓶——收信的是个跟你毫无关系、此生大概不再相见的陌生人。正因为匿名、一次性，你反而能放下包袱，写点平时不会轻易示人的东西。`,
@@ -440,7 +469,7 @@ export function buildGuestbookRoomTurn(
         lines.push(`留言墙最近的内容（自上而下由旧到新）：`);
         for (const msg of recent) {
             const ref = msg.replyToId ? `（回 #${msg.replyToId.slice(-4)}）` : '';
-            lines.push(`${gbLabel(msg)} ${msg.authorName}${ref}：${msg.content}`);
+            lines.push(`${gbLabel(msg)} ${msg.kind === 'collection-unlock' ? '【程序播报，非角色发言】' : ''}${msg.authorName}${ref}：${msg.content}`);
         }
     } else {
         lines.push(`留言墙还空着，没人开过头。`);

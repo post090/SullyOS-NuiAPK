@@ -11,7 +11,7 @@ const ERROR_PROMPT_LABEL = '\u8bf7\u624b\u52a8\u590d\u5236\u62a5\u9519\u4fe1\u60
 const ERROR_TITLE = '\u5e94\u7528\u8fd0\u884c\u9519\u8bef';
 const ERROR_RETURN_LABEL = '\u8fd4\u56de\u684c\u9762';
 const CHUNK_ERROR_TITLE = '\u8d44\u6e90\u52a0\u8f7d\u5931\u8d25';
-const CHUNK_ERROR_HINT = '\u5e94\u7528\u7ec4\u4ef6\u6ca1\u6709\u52a0\u8f7d\u6210\u529f\uff0c\u901a\u5e38\u662f\u7248\u672c\u521a\u66f4\u65b0\u6216\u7f51\u7edc\u77ac\u65ad\u5bfc\u81f4\u7684\uff0c\u5237\u65b0\u4e00\u6b21\u5373\u53ef\u6062\u590d\u3002';
+const CHUNK_ERROR_HINT = '页面组件未能加载或解析，可能与网络中断或版本更新有关。可以刷新重试；如果仍然报错，请复制报错信息反馈。';
 const CHUNK_ERROR_RELOADING = '\u6b63\u5728\u81ea\u52a8\u5237\u65b0\u6062\u590d\u2026';
 const CHUNK_ERROR_RELOAD_LABEL = '\u5237\u65b0\u91cd\u8bd5';
 
@@ -186,6 +186,9 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
                     <p className="text-xs text-slate-300 max-w-xs leading-relaxed">
                         {CHUNK_ERROR_HINT}
                     </p>
+                    <p className="text-xs text-slate-300 font-mono bg-black/30 p-3 rounded-2xl max-w-full overflow-auto max-h-40 select-text break-all whitespace-pre-wrap">
+                        {this.state.error?.message || 'Unknown Error'}
+                    </p>
                     {this.state.autoReloading ? (
                         <p className="text-sm font-bold text-slate-200">{CHUNK_ERROR_RELOADING}</p>
                     ) : (
@@ -196,6 +199,13 @@ class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundary
                                 className="w-full px-6 py-3 bg-red-600 rounded-full font-bold text-sm shadow-lg active:scale-95 transition-transform"
                             >
                                 {CHUNK_ERROR_RELOAD_LABEL}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={this.handleCopy}
+                                className="w-full px-4 py-2 bg-slate-700 rounded-full text-xs font-bold active:scale-95 transition-transform"
+                            >
+                                {this.state.copyLabel}
                             </button>
                             <button
                                 type="button"

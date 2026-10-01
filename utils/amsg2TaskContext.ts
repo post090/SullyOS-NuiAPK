@@ -17,7 +17,7 @@ import { DB } from './db';
 import { resolveCharTimeZone } from './timezone';
 import { detectExpiredOccurrences, hasDeliveredProactiveNear } from './amsg2ExpireGuard';
 import {
-  AMSG2_SCHEDULE_SECRECY_NOTE, canExpire, currentOccurrenceMs, describeExpirePolicy,
+  AMSG2_SCHEDULE_NOT_YET_NOTE, AMSG2_SCHEDULE_SECRECY_NOTE, canExpire, currentOccurrenceMs, describeExpirePolicy,
   describeRecurrence, describeTaskMode, formatTaskTime, getPendingTasks, isPendingTask,
   shortTaskId,
 } from './amsg2Tasks';
@@ -104,7 +104,7 @@ const buildAmsg2ChatScheduleBrief = (targetName?: string): string => {
     `- ${target}接下来顾不上手机时——睡觉、上课、上班、打游戏、洗澡、出门，或任何你了解的原因——你可以在途中想到ta，也可以估着ta回来时再联系。`,
     `- 内容不必总围着${target}转。结合刚才的聊天氛围、你自己的日程和正在经历的事、刚看到的细节和突然冒出的后续念头；分享自己的生活，往往比机械问候更像你。`,
     '- 「到点叫你」「等你忙完跟你说」「回头告诉你结果」这类话一说出口，就当场排成真任务，不要只在正文里答应；没排成，就别把承诺说死。',
-    `- 只问自己：那个时刻的你会自然想联系${target}吗？只要答案偏向会，就优先排下来；只有明确不会才算了。别把犹豫默认成不排，也别为了显得贴心硬排。`,
+    `- 只问自己：那个时刻的你会真的想联系${target}吗？会就排；只是随口一想、到时候未必真有话说的，就算了。也别为了显得贴心硬排。`,
     `- 时间贴着${target}的生活估；一局游戏和睡到天亮不是一个时长，有时差就按ta那边的钟算。`,
     `- ${target}明确说别打扰时就安静等；已经排着相近的一条，也别重复排。`,
   ].join('\n');
@@ -195,11 +195,14 @@ export function buildAmsg2TaskContextText(
   createdThisTurn?: ReadonlySet<string>,
   /** ChatApp 当前用户名；空值回退为「对方」。 */
   targetName?: string,
+  /** 「用户给你定的规矩」（amsgLimits.buildLimitsBrief），紧跟常驻简介。 */
+  limitsBrief?: string,
 ): string {
   const target = targetName?.trim() || '对方';
   const isNewThisTurn = (taskUuid: string) => !!createdThisTurn?.has(taskUuid);
   const hasNewThisTurn = pending.some((t) => isNewThisTurn(t.taskUuid));
   const parts: string[] = ['【你的主动消息排程·仅你可见】', buildAmsg2ChatScheduleBrief(target)];
+  if (limitsBrief) parts.push(limitsBrief);
 
   if (pending.length) {
     parts.push('进行中：');
@@ -214,6 +217,8 @@ export function buildAmsg2TaskContextText(
     parts.push('（想调整就用 schedule/cancel/renew 工具；内容方向变了用 cancel + schedule 重建。'
       + (hasNewThisTurn ? '标着「本轮刚排的」是你这次回复里已经排好的，别再排一条一样的。' : '')
       + '）');
+    // 只在有任务时说：一条都没排的时候没有可催的事，白占一行还提醒模型「催」这件事存在。
+    parts.push(AMSG2_SCHEDULE_NOT_YET_NOTE);
   }
 
   parts.push(...buildNoticeSections(expired, charTz));
@@ -223,6 +228,27 @@ export function buildAmsg2TaskContextText(
   parts.push(AMSG2_SCHEDULE_SECRECY_NOTE.replace('用户', target));
 
   return parts.join('\n');
+}
+
+/**
+ * 把排程块插进本轮要发的消息数组：紧挨易变尾段**之前**，而不是贴数组尾巴。
+ *
+ * 「回到你自己」钢印焊在 volatileTail 末尾，靠 recency 抢模型开口前的最后一眼
+ * （chatRequestPayload 的 volatileTailIndex 就是给这种块定位用的）。这一块贴在它后面
+ * 的那阵子，模型最后读到的是一份带 promptHint 原文的待办清单，于是把排在今晚的任务
+ * 当成本轮就该办的事——用户侧的表现是「说了今天要看书，之后每轮结尾都问看到哪了」。
+ *
+ * 插入点落在本轮用户消息之后，而前缀缓存的断点比它更靠前，所以命中率一个 token 都不动。
+ * volatileTailIndex 为 -1（prompt build 跳过 / dev 的 system 合并开关）时退回贴尾：
+ * 位置不理想，但块本身不能丢——角色得知道自己名下有哪些任务，否则会重复排。
+ */
+export function insertAmsg2TaskContextBlock<T>(
+  messages: T[],
+  block: T,
+  volatileTailIndex: number,
+): T[] {
+  if (volatileTailIndex < 0 || volatileTailIndex > messages.length) return [...messages, block];
+  return [...messages.slice(0, volatileTailIndex), block, ...messages.slice(volatileTailIndex)];
 }
 
 export interface Amsg2TaskContextResult {
@@ -259,7 +285,6 @@ export async function collectAmsg2TaskContext(
         policy: t.expirePolicy,
         recurrenceType: t.recurrenceType,
         firstSendTime: t.firstSendTime,
-        anchorMs: t.anchorLastUserMsgAt ?? null,
         messages,
         nowMs: now,
         lookbackMs: AMSG2_TASK_LOOKBACK_MS,

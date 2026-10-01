@@ -3,6 +3,10 @@ import { ArrowDown, ArrowLeft, ArrowUp, Copy, DownloadSimple, FloppyDisk, LockSi
 import type { StoryTheaterPreset, StoryTheaterPresetDocument, StoryTheaterPresetPrompt } from '../../../types';
 import {
     applyStoryPresetChoice,
+    addStoryPresetGroup,
+    renameStoryPresetGroup,
+    ungroupStoryPresetGroup,
+    moveStoryPresetPromptToGroup,
     downloadStoryPreset,
     duplicateStoryPreset,
     getStoryPresetPromptGroups,
@@ -92,6 +96,7 @@ const StoryPresetMaker: React.FC<Props> = ({ preset, onBack, onSave, onOpenCopy,
     const [activeGroupKey, setActiveGroupKey] = useState<string | null>(null);
     const [selectedId, setSelectedId] = useState('');
     const [saving, setSaving] = useState(false);
+    const [newGroupName, setNewGroupName] = useState('');
     const readOnly = preset.builtIn === true;
     const groups = useMemo(() => getStoryPresetPromptGroups(draft.document), [draft.document]);
     const activeGroup = groups.find(group => group.key === activeGroupKey) || null;
@@ -141,6 +146,15 @@ const StoryPresetMaker: React.FC<Props> = ({ preset, onBack, onSave, onOpenCopy,
         patchDocument({ prompts });
         setSelectedId(next.id);
     };
+    const addGroup = () => {
+        if (readOnly || !newGroupName.trim()) return;
+        const document = addStoryPresetGroup(draft.document, newGroupName);
+        replaceDocument(document);
+        const added = getStoryPresetPromptGroups(document).at(-1);
+        setActiveGroupKey(added?.key || null);
+        setSelectedId('');
+        setNewGroupName('');
+    };
     const removePrompt = (id: string) => {
         const prompt = draft.document.prompts.find(item => item.id === id);
         if (!prompt || readOnly || isProtectedStoryPrompt(prompt)) return;
@@ -178,6 +192,10 @@ const StoryPresetMaker: React.FC<Props> = ({ preset, onBack, onSave, onOpenCopy,
             <button onClick={() => { setActiveGroupKey(null); setSelectedId(''); }} className='mb-5 text-[10px] font-bold text-violet-600'>← 返回大分类</button>
             <div className='flex items-start justify-between gap-4'><div><div className='text-[9px] uppercase tracking-[.22em] font-bold text-violet-500'>Professional</div><h2 className='mt-1 text-2xl font-serif font-semibold'>{activeGroup.label}</h2><p className='mt-2 text-[10px] leading-5 text-slate-500'>{activeGroup.description}</p></div>{activeGroup.protected && <span className='shrink-0 inline-flex items-center gap-1 px-2 py-1 rounded-full bg-amber-100 text-[9px] font-bold text-amber-700'><LockSimple size={12} />受保护</span>}</div>
             {activeGroup.protected && <div className='mt-5 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-[11px] leading-6 text-amber-800'>这里是糯米机连接角色、你的身份、世界书与历史的骨架。可以上下调整发送顺序，但不能修改内容、开关、消息位置或类型，也不能删除。</div>}
+            {activeGroup.customSectionId && !readOnly && <div className='mt-5 space-y-3'>
+                <label className='block text-xs text-slate-500'>分组名称<input aria-label='分组名称' value={activeGroup.label} onChange={event => replaceDocument(renameStoryPresetGroup(draft.document, activeGroup.customSectionId!, event.target.value))} onBlur={event => replaceDocument(renameStoryPresetGroup(draft.document, activeGroup.customSectionId!, event.target.value.trim() || '自定义分组'))} className='mt-2 w-full p-3 rounded-xl bg-white border border-slate-200 text-slate-800' /></label>
+                <button onClick={() => { replaceDocument(ungroupStoryPresetGroup(draft.document, activeGroup.customSectionId!)); setActiveGroupKey(null); setSelectedId(''); }} className='text-xs text-slate-500 underline'>取消分组，保留所有条目</button>
+            </div>}
             <div className='mt-5 border-y border-slate-200 divide-y divide-slate-200'>
                 {activePrompts.map((prompt, index) => { const locked = activeGroup.protected || isProtectedStoryPrompt(prompt); return <div key={prompt.id} className={`flex items-center gap-2 py-3 ${selectedId === prompt.id ? 'text-violet-700' : ''}`}>
                     <button disabled={readOnly || locked} onClick={() => patchPrompt(prompt.id, { enabled: !prompt.enabled })} className={`w-9 shrink-0 text-[9px] font-bold disabled:opacity-50 ${prompt.enabled ? 'text-emerald-600' : 'text-slate-300'}`}>{prompt.enabled ? 'ON' : 'OFF'}</button>
@@ -190,6 +208,7 @@ const StoryPresetMaker: React.FC<Props> = ({ preset, onBack, onSave, onOpenCopy,
                 {activeGroup.protected || isProtectedStoryPrompt(selected) ? <div className='py-8 text-center'><LockSimple size={28} className='mx-auto text-amber-400' /><div className='mt-2 text-xs font-bold'>系统连接内容已锁定</div><p className='mt-1 text-[10px] text-slate-400'>你仍可以在上方调整它与其他连接位的顺序。</p></div> : <>
                     <div className='grid grid-cols-2 gap-3'><label><span className='text-[10px] text-slate-500'>名称</span><input disabled={readOnly} value={selected.name} onChange={event => patchPrompt(selected.id, { name: event.target.value })} className='mt-1 w-full px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-xs' /></label><label><span className='text-[10px] text-slate-500'>消息位置</span><select disabled={readOnly} value={selected.role} onChange={event => patchPrompt(selected.id, { role: event.target.value as StoryTheaterPresetPrompt['role'] })} className='mt-1 w-full px-3 py-2.5 rounded-xl bg-white border border-slate-200 text-xs'><option value='system'>规则</option><option value='user'>你</option><option value='assistant'>正文</option></select></label></div>
                     <textarea disabled={readOnly} value={selected.content} onChange={event => patchPrompt(selected.id, { content: event.target.value })} className='mt-3 w-full min-h-64 p-4 rounded-2xl bg-white border border-slate-200 font-mono text-[11px] leading-6 resize-y' placeholder='支持 {{user}} / {{char}} / {{group}}' />
+                    {!readOnly && <label className='mt-3 block text-xs text-slate-500'>移动到分组<select aria-label='移动到分组' value='' onChange={event => { const target = event.target.value; if (!target) return; replaceDocument(moveStoryPresetPromptToGroup(draft.document, selected.id, target)); setActiveGroupKey(target); }} className='mt-2 w-full p-3 rounded-xl bg-white border border-slate-200'><option value=''>选择目标分组</option>{groups.filter(group => !group.protected && group.key !== activeGroup.key).map(group => <option key={group.key} value={group.key}>{group.label}</option>)}</select></label>}
                 </>}
             </div>}
         </section>;
@@ -201,7 +220,7 @@ const StoryPresetMaker: React.FC<Props> = ({ preset, onBack, onSave, onOpenCopy,
                 <button onClick={onBack} className='w-9 h-9 rounded-full grid place-items-center'><ArrowLeft size={20} /></button>
                 <div className='min-w-0 flex-1'><div className='text-[9px] uppercase tracking-[.24em] font-bold text-violet-500'>Preset maker</div><div className='font-semibold truncate'>预设制作器</div></div>
                 {readOnly && <span className='hidden sm:inline-flex text-[9px] px-2 py-1 rounded-full bg-amber-100 text-amber-700 font-bold'>内置只读</span>}
-                <button onClick={() => downloadStoryPreset(draft)} className='w-9 h-9 shrink-0 rounded-full bg-white border border-slate-200 grid place-items-center' title='导出糯米机原生预设'><DownloadSimple size={16} /></button>
+                <button onClick={() => { void downloadStoryPreset(draft); }} className='w-9 h-9 shrink-0 rounded-full bg-white border border-slate-200 grid place-items-center' title='导出糯米机原生预设'><DownloadSimple size={16} /></button>
                 <button onClick={save} className='h-9 px-3 rounded-full bg-slate-900 text-white text-xs font-bold flex items-center gap-1.5'>{readOnly ? <Copy size={14} /> : <FloppyDisk size={14} />}{readOnly ? '复制调整' : saving ? '保存中' : '保存'}</button>
             </div>
             <div className='mx-5 mb-4 grid grid-cols-2 p-1 rounded-xl bg-slate-200'>
@@ -222,6 +241,7 @@ const StoryPresetMaker: React.FC<Props> = ({ preset, onBack, onSave, onOpenCopy,
                     {!readOnly && <section className='pt-5 border-t border-slate-200'><label><span className='text-[10px] font-bold text-slate-500'>预设名称</span><input value={draft.document.name} onChange={event => patchDocument({ name: event.target.value })} className='mt-2 w-full px-3 py-3 rounded-xl bg-white border border-slate-200 text-sm' /></label></section>}
                 </> : activeGroupKey === '__generation__' ? renderGeneration() : activeGroup ? renderGroupDetails() : <>
                     <section className='pb-5 border-b border-slate-200'><div className='text-[9px] uppercase tracking-[.22em] font-bold text-violet-500'>Professional</div><h1 className='mt-1 text-3xl font-serif font-semibold'>先选大区，再看细节</h1><p className='mt-3 text-[11px] leading-6 text-slate-500'>手机上一次只展开一个区。上下箭头移动整区；进入大区后才会显示内部条目。</p></section>
+                    {!readOnly && <div className='flex gap-2 py-4'><input aria-label='新分组名称' value={newGroupName} onChange={event => setNewGroupName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') addGroup(); }} placeholder='新分组名称' className='min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs' /><button disabled={!newGroupName.trim()} onClick={addGroup} className='shrink-0 flex items-center gap-1 rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-white disabled:opacity-40'><Plus size={14} />新增分组</button></div>}
                     <div className='divide-y divide-slate-200'>{groups.map((group, index) => {
                         const groupPrompts = draft.document.prompts.filter(prompt => group.promptIds.includes(prompt.id) && !isStoryPresetSectionMarker(prompt));
                         const enabled = groupPrompts.filter(prompt => prompt.enabled).length;

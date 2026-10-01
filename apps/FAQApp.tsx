@@ -1,3 +1,4 @@
+import { SAR_CHANGELOG } from '../utils/sarUpdate';
 
 import React, { useEffect, useState } from 'react';
 import { useOS } from '../context/OSContext';
@@ -17,6 +18,7 @@ import {
     CHANGELOG_2026_07_10,
     CHANGELOG_2026_08_03,
     CHANGELOG_2026_08_10,
+    CHANGELOG_2026_08_30,
 } from '../components/UpdateNotificationEvent';
 import { trackEvent } from '../utils/analytics';
 
@@ -31,7 +33,7 @@ const FAQ_DATA = [
     {
         q: "2. 发了消息，角色不回我？",
         reason: "为了帮大家省额度，角色不会自动秒回，他在等你戳他。",
-        solution: "发完消息后，请注意观察顶部标题栏右边的 **闪电按钮**。\n点一下它，戳戳他，他就会思考并回复啦！",
+        solution: "发完消息后，请注意观察顶部标题栏右边的 **闪电按钮**。\n点一下它，戳戳他，他就会思考并回复啦！\n也可以在聊天设置里开启“发送按钮代替生成按钮”或“自动回复”，所有私聊统一生效。",
         icon: "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4a4.png",
         color: "bg-yellow-50 text-yellow-700"
     },
@@ -52,7 +54,7 @@ const FAQ_DATA = [
     {
         q: "5. 气泡主题 / 导入角色",
         reason: "想要个性化？想换角色？",
-        solution: "**换气泡**：\n点顶部的名字 → 下滑找“气泡样式”。\n\n**导角色**：\n只支持导入本模拟器导出的 .json 文件（专属护照），不兼容酒馆图片卡和其他小手机角色卡。",
+        solution: "**换气泡**：\n点顶部的名字 → 下滑找“气泡样式”。\n\n**导角色**：\n支持本模拟器导出的原格式文件与 PNG 分享卡原图。PNG 请传原文件，截图或压缩图不能恢复其中的数据；不兼容其他小手机角色卡。",
         icon: "https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f3a8.png",
         color: "bg-purple-50 text-purple-700"
     },
@@ -110,6 +112,22 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        id: SAR_CHANGELOG,
+        title: '2026 年 9 月 11 日 · 彼方来信 · SAR',
+        subtitle: 'SAR 活动室与星级故事 · 钓鱼和恐龙花园 · 芯片、推演与模块 · 私聊发送习惯 · PNG 图片分享',
+        date: '2026-09-11',
+        src: 'changelogs/2026-9-11.html',
+        accent: 'from-emerald-50 to-amber-50 border-emerald-200',
+    },
+    {
+        id: CHANGELOG_2026_08_30,
+        title: '2026 年 8 月 30 日 · 协同工作台',
+        subtitle: '角色协同工作双模式 · Word / PDF 与文件交付 · 可安装美化、角色卡和世界书 · 独立文件库与归档记忆 · 协同数据随系统备份导入导出',
+        date: '2026-08-30',
+        src: 'changelogs/2026-8-30.html',
+        accent: 'from-indigo-100 to-stone-100 border-indigo-200',
+    },
     {
         id: CHANGELOG_2026_08_10,
         title: '2026 年 8 月 10 日 · Live2D 陪伴升级',
@@ -340,7 +358,7 @@ const FAQApp: React.FC = () => {
                     </div>
 
                     <div className="mt-8 text-center text-[10px] text-slate-400">
-                        SullyOS Help Center • v1.1
+                        SullyOS·糯米机 Help Center • v1.1
                     </div>
                 </div>
             ) : (
@@ -382,7 +400,7 @@ const FAQApp: React.FC = () => {
                     </div>
 
                     <div className="mt-8 text-center text-[10px] text-slate-400">
-                        SullyOS Changelog • 更多版本将在这里陆续归档
+                        SullyOS·糯米机 Changelog • 更多版本将在这里陆续归档
                     </div>
                 </div>
             )}

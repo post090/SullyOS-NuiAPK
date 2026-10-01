@@ -182,10 +182,11 @@ export async function generateSlotTheater(
         return schedule;
     }
 
-    const baseContext = ContextBuilder.buildCoreContext(char, userProfile, true);
+    const characterContextInput = { char, user: userProfile, includeDetailedMemories: true };
+
     const backdrop = pickNarrativeBackdrop(schedule, slot);
     const styleHint = pickStyleHint(char);
-    const prompt = buildTheaterPrompt(baseContext, char, userProfile, slot, backdrop, styleHint);
+    const prompt = buildTheaterPrompt('', char, userProfile, slot, backdrop, styleHint);
 
     try {
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -193,7 +194,7 @@ export async function generateSlotTheater(
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: [{ role: 'user', content: prompt }],
+                messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
                 temperature: 0.9,
                 // 12–18 行、每行可写得有质感，2600 容易把最后一拍截断；放宽到 4600 留足尾巴。
                 max_tokens: 4600,

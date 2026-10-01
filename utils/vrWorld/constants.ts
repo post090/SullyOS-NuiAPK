@@ -90,6 +90,15 @@ export const VR_ROOMS: VRRoomDef[] = [
         hiddenFromGrid: true, // 走顶部「特殊活动」banner 入口，不作普通房间卡；也不进自主活动随机池
     },
     {
+        id: 'sar',
+        name: 'SAR 活动室',
+        blurb: '一间被两位异世界访客重新布置过的活动室，摆着人格推演机、模块柜台，以及通往水域的门。',
+        affordance: '你可以自己转一次扭蛋，拿两枚临时芯片给另一位玩家装上，看完整场异界事故，再把随笔与吐槽收进自己的柜子。',
+        emoji: '',
+        implemented: true,
+        accent: 'indigo',
+    },
+    {
         id: 'cafe',
         name: '糯米鸡研发中心',
         blurb: '蒸笼热气腾腾，据说很快就会端出点什么。',
@@ -182,8 +191,9 @@ export const SIGNAL_EPIGRAPH = '如果我们不得不离去';
 /**
  * 活动是否已落幕（前端总闸）。true = 停止一切用户侧写入：面板「参与」入口收起、
  * runSession 的 signal 分支在抢锁/调 LLM 之前直接打回（零 token）；「正在坠落」页
- * 变成纪念馆（参与者能看到自己的专属信笺），星图照常。后端 /poem/* 一行不动——
- * 诗集永远可读、admin 工具照用。若将来办第二期，把它翻回 false 即可整套复活。
+ * 变成纪念馆（参与者能看到自己的专属信笺），星图照常。后端公开写路由也会返回
+ * 410，且 /poem/current 只查询、不再自动新建册子；诗集永远可读，admin 工具照用。
+ * 若将来办第二期，需要同时恢复前端总闸和 Worker 写路由，避免误开半套活动。
  */
 export const SIGNAL_EVENT_ENDED: boolean = true;
 

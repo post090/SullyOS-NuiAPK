@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
@@ -11,6 +12,7 @@ import { incrementDigestRound, runCognitiveDigestion } from '../utils/memoryPala
 import { getRoomLabel } from '../utils/memoryPalace/types';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import Modal from '../components/os/Modal';
+import TokenImg from '../components/os/TokenImg';
 import DateSession from '../components/date/DateSession';
 import DateSettings from '../components/date/DateSettings';
 import { armDateResumeAttempt, clearDateResumeAttempt, takeCrashedDateResume } from '../utils/dateSessionRecovery';
@@ -23,6 +25,14 @@ import StoryTheater from '../components/date/story/StoryTheater';
 import { dateLaunch } from '../utils/dateLaunch';
 import { materializeVisionDescriptions } from '../utils/visionApi';
 import { shareOrDownloadFile } from '../utils/shareExport';
+import { buildInPersonContinueInstruction } from '../utils/meetingContinue';
+import {
+    advanceSARModuleAfterReply,
+    createSARModuleEventMeta,
+    createSARModuleSurfaceMeta,
+    getSARModuleRuntimePlan,
+    parseSARModuleReply,
+} from '../utils/vrWorld/sarModuleRuntime';
 import {
     buildDateHistoryGroups,
     formatDateHistoryDate,
@@ -35,7 +45,7 @@ import {
 } from '../utils/dateHistory';
 
 const DateApp: React.FC = () => {
-    const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, apiConfig, addToast, updateCharacter, virtualTime, userProfile, memoryPalaceConfig, dateAutoStartCharId, consumeDateAutoStart, characterGroups, groups, realtimeConfig } = useOS();
+    const { closeApp, openApp, characters, activeCharacterId, setActiveCharacterId, apiConfig, addToast, updateCharacter, updateUserProfile, virtualTime, userProfile, memoryPalaceConfig, dateAutoStartCharId, consumeDateAutoStart, characterGroups, groups, realtimeConfig } = useOS();
 
     // 是否由聊天「见面」按钮进入：为真时，退出见面流程回到聊天而非见面选择页/桌面。
     // 用本地 state（而非 context）承载：DateApp 切走即卸载，标记随之消失，不会泄漏到
@@ -141,7 +151,6 @@ const DateApp: React.FC = () => {
         markAmsgStateDirty({ char: target, userProfile, groups, realtimeConfig });
     };
 
-    const getDateContextFetchLimit = (c: CharacterProfile) => Math.max(c.contextLimit || 500, DATE_SESSION_MESSAGE_LIMIT) + 32;
     const loadRecentDateMessages = async (charId: string, limit = DATE_SESSION_MESSAGE_LIMIT) => {
         return (await DB.getRecentMessagesByCharIdAndSource(charId, 'date', limit))
             .sort((a, b) => a.timestamp - b.timestamp);
@@ -334,7 +343,7 @@ const DateApp: React.FC = () => {
         trackEvent('进入见面感知页');
 
         try {
-            const msgs = await DB.getRecentMessagesByCharId(c.id, getDateContextFetchLimit(c), true);
+            const msgs = await loadCharacterContextMessages(c);
             const preparedMsgs = await materializeVisionDescriptions(msgs, apiConfig.visionApi);
             const emojis = await DB.getEmojis();
             const { messages } = DatePrompts.buildPeekPayload({
@@ -409,8 +418,9 @@ const DateApp: React.FC = () => {
     }, [memoryPalaceConfig, apiConfig, userProfile?.name, updateCharacter, addToast]);
 
     // --- Session API Logic ---
-    const handleSendMessage = async (text: string): Promise<string> => {
+    const handleSendMessage = async (text: string, kind?: 'continue'): Promise<string> => {
         if (!char) throw new Error("No char");
+        const sarModulePlan = getSARModuleRuntimePlan(char, userProfile);
 
         // 重发场景：如果 DB 里最后一条已经是这条 user 消息（上一轮发送后 API 失败 / 网络抖动等），
         // 就跳过重复落库，直接走 API。与 chat app 行为对齐，让用户按发送键即可重新触发 LLM。
@@ -419,36 +429,74 @@ const DateApp: React.FC = () => {
             && recentCheck[0].role === 'user'
             && recentCheck[0].content === text
             && recentCheck[0].metadata?.source === 'date';
+        // API 中断后的重试只会带回显示文本；从已落库标记恢复“继续”的完整语义。
+        const isContinueTurn = kind === 'continue'
+            || (isRetry && recentCheck[0].metadata?.meetingContinue === true);
 
+        let userMessageId = isRetry ? recentCheck[0]?.id : undefined;
         if (!isRetry) {
             // 1. Save User Msg
-            await DB.saveMessage({ charId: char.id, role: 'user', type: 'text', content: text, metadata: { source: 'date' } });
+            userMessageId = await DB.saveMessage({
+                charId: char.id,
+                role: 'user',
+                type: 'text',
+                content: text,
+                metadata: { source: 'date', ...(isContinueTurn ? { meetingContinue: true } : {}) },
+            });
             markDateTurnDirty(char);
         }
 
         // 2. Prepare Context
         // Re-fetch messages. Since we saved the opening in handleEnterSession,
         // 'allMsgs' will now correctly contain: [History..., Opening, UserMsg]
-        const allMsgs = await DB.getRecentMessagesByCharId(char.id, getDateContextFetchLimit(char), true);
+        const allMsgs = await loadCharacterContextMessages(char);
         const preparedAllMsgs = await materializeVisionDescriptions(allMsgs, apiConfig.visionApi);
 
         // Update local state for display
         setDateMessages(await loadRecentDateMessages(char.id));
 
         const emojis = await DB.getEmojis();
+        const modelText = isContinueTurn
+            ? buildInPersonContinueInstruction(userProfile?.name, char.name)
+            : text;
         const { messages } = await DatePrompts.buildSessionPayload({
             char,
             userProfile,
             allMsgs: preparedAllMsgs,
             emojis,
-            userText: text,
+            userText: modelText,
             variant: 'send',
             useVisionDescriptions: apiConfig.visionApi?.enabled === true,
         });
-        const content = await callLLM(messages, apiConfig.temperature ?? 0.85);
+        const rawContent = await callLLM(messages, apiConfig.temperature ?? 0.85);
+        const parsed = parseSARModuleReply(rawContent, sarModulePlan);
+        const sarModuleEvents = createSARModuleEventMeta(sarModulePlan);
+        const userSurface = sarModulePlan.user?.phase === 'active' && parsed.userSurface
+            ? createSARModuleSurfaceMeta(sarModulePlan.user, parsed.userSurface)
+            : undefined;
+        if (userMessageId && (sarModuleEvents.length > 0 || userSurface)) {
+            await DB.updateMessageMetadata(userMessageId, previous => ({
+                ...(previous || {}),
+                ...(userSurface ? { sarModuleSurface: userSurface } : {}),
+                ...(sarModuleEvents.length > 0 ? { sarModuleEvents } : {}),
+            }));
+        }
+        const assistantSurface = sarModulePlan.character?.phase === 'active' && parsed.assistantSurface
+            ? createSARModuleSurfaceMeta(sarModulePlan.character, parsed.assistantSurface)
+            : undefined;
 
         // 3. Save AI Response
-        await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: content, metadata: { source: 'date' } });
+        await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: parsed.canonical, metadata: { source: 'date', ...(assistantSurface ? { sarModuleSurface: assistantSurface } : {}) } });
+        if (sarModulePlan.character) {
+            updateCharacter(char.id, previous => ({
+                vrState: { ...(previous.vrState || { enabled: false, intervalMinutes: 120 }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.character) },
+            }));
+        }
+        if (sarModulePlan.user) {
+            updateUserProfile(previous => ({
+                vrState: { ...(previous.vrState || { enabled: false }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.user) },
+            }));
+        }
         markDateTurnDirty(char);
 
         // Refresh local state
@@ -457,7 +505,7 @@ const DateApp: React.FC = () => {
         // Memory Palace 后台流程（不阻塞返回，与聊天侧一致）
         runMemoryPalacePostHook(char);
 
-        return content;
+        return parsed.assistantSurface || parsed.canonical;
     };
 
     const handleReroll = async (): Promise<string> => {
@@ -467,7 +515,7 @@ const DateApp: React.FC = () => {
         if (lastMsg.role !== 'assistant') throw new Error("Cannot reroll user message");
 
         // Keep the old reply until the replacement request succeeds.
-        const allMsgs = await DB.getRecentMessagesByCharId(char.id, getDateContextFetchLimit(char), true);
+        const allMsgs = await loadCharacterContextMessages(char);
         const validMsgs = allMsgs.filter(m => m.id !== lastMsg.id);
         const preparedValidMsgs = await materializeVisionDescriptions(validMsgs, apiConfig.visionApi);
         const emojis = await DB.getEmojis();
@@ -517,11 +565,27 @@ const DateApp: React.FC = () => {
             useVisionDescriptions: apiConfig.visionApi?.enabled === true,
         });
         // Reroll 略调高温度求多样性，但绝不低于用户配置的基线。
-        const content = await callLLM(messages, Math.max(apiConfig.temperature ?? 0.85, 0.9));
+        const rawContent = await callLLM(messages, Math.max(apiConfig.temperature ?? 0.85, 0.9));
+        const sarPlan = getSARModuleRuntimePlan(char, userProfile);
+        const parsed = parseSARModuleReply(rawContent, sarPlan);
+        const sarModuleEvents = createSARModuleEventMeta(sarPlan);
+        const userSurface = sarPlan.user?.phase === 'active' && parsed.userSurface
+            ? createSARModuleSurfaceMeta(sarPlan.user, parsed.userSurface)
+            : undefined;
+        if (sarModuleEvents.length > 0 || userSurface) {
+            await DB.updateMessageMetadata(lastUserMsg.id, previous => ({
+                ...(previous || {}),
+                ...(userSurface ? { sarModuleSurface: userSurface } : {}),
+                ...(sarModuleEvents.length > 0 ? { sarModuleEvents } : {}),
+            }));
+        }
+        const assistantSurface = sarPlan.character?.phase === 'active' && parsed.assistantSurface
+            ? createSARModuleSurfaceMeta(sarPlan.character, parsed.assistantSurface)
+            : undefined;
 
         // 生成成功后才删旧回复：以前先删后调 API，请求一失败上一条剧情就永久消失
         await DB.deleteMessage(lastMsg.id);
-        await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: content, metadata: { source: 'date' } });
+        await DB.saveMessage({ charId: char.id, role: 'assistant', type: 'text', content: parsed.canonical, metadata: { source: 'date', ...(assistantSurface ? { sarModuleSurface: assistantSurface } : {}) } });
         markDateTurnDirty(char);
         trackEvent('重掷见面回复', { 目标: '回复' });
 
@@ -531,7 +595,7 @@ const DateApp: React.FC = () => {
         // Memory Palace 后台流程（Reroll 也算一轮新输出）
         runMemoryPalacePostHook(char);
 
-        return content;
+        return parsed.assistantSurface || parsed.canonical;
     };
 
     // --- Editing & Deletion ---
@@ -834,7 +898,7 @@ const DateApp: React.FC = () => {
                                                 <div className="absolute inset-[8px] rounded-full" style={{ border: `1px solid ${th.ring1}` }} />
                                                 <div className="absolute inset-[12px] rounded-full" style={{ border: `1px solid ${th.ring2}` }} />
                                                 <div className="w-[70px] h-[70px] rounded-full overflow-hidden" style={{ boxShadow: `0 0 18px ${th.avGlow}` }}>
-                                                    <img src={c.avatar} className="w-full h-full object-cover" alt={c.name} />
+                                                    <TokenImg value={c.avatar} className="w-full h-full object-cover" alt={c.name} />
                                                 </div>
                                                 {c.savedDateState && (
                                                     <div title="有存档" className="absolute bottom-0 right-1.5 w-[22px] h-[22px] rounded-full flex items-center justify-center" style={{ background: '#fbbf24', boxShadow: '0 1px 5px rgba(180,120,20,0.4)' }}>

@@ -16,11 +16,15 @@
 //
 // 详见 docs/superpowers/specs/2026-08-09-pwa-custom-icon-design.md
 
-import { isStandaloneDisplayMode } from './iosStandalone';
+import appMetadata from '../metadata.json';
 import { getBlobForRef, isBlobRef, blobToDataUrl } from './blobRef';
 import { toSquarePngDataUrl } from './iconRaster';
 
 export const PWA_ICON_APP_ID = '_pwa_';
+export const PWA_CLASSIC_ICON_VALUE = 'builtin:classic';
+export const PWA_DEFAULT_ICON_URL = import.meta.env.BASE_URL + 'icons/jellyfish-512.png?v=38b1adde1d';
+export const PWA_CLASSIC_ICON_URL = import.meta.env.BASE_URL + 'icons/icon-512.png';
+let iconRevision = 0;
 
 /** apple-touch-icon 的标准边长。 */
 const TOUCH_ICON_SIZE = 180;
@@ -39,25 +43,36 @@ let dynamicManifestUrl: string | null = null;
 /**
  * 把图标值（blobRef 令牌 / data: URI / http(s) URL）接到页面上。
  * - 总是更新 apple-touch-icon + favicon（浏览器标签页当场就变）
- * - standalone 下额外替换 manifest（影响 Android/Chrome 主屏图标）
+ * - 同时更新 manifest，浏览器安装前选择的图标也能生效
  */
 export async function injectPwaIcon(value: string): Promise<void> {
+  const revision = ++iconRevision;
+  if (value === PWA_CLASSIC_ICON_VALUE) {
+    applyHref(APPLE_ICON_SELECTOR, import.meta.env.BASE_URL + 'icons/apple-touch-icon.png', () => createAppleTouchIcon());
+    applyHref(FAVICON_SELECTOR, import.meta.env.BASE_URL + 'icons/icon-192.png');
+    const manifestLink = document.querySelector(MANIFEST_SELECTOR) as HTMLLinkElement | null;
+    if (manifestLink) {
+      if (!originalManifestHref) originalManifestHref = manifestLink.href;
+      manifestLink.href = new URL(import.meta.env.BASE_URL + 'manifest-classic.webmanifest', document.baseURI).href;
+    }
+    if (dynamicManifestUrl) { URL.revokeObjectURL(dynamicManifestUrl); dynamicManifestUrl = null; }
+    return;
+  }
   const source = await resolveIconSource(value);
-  if (!source) return;
+  if (!source || revision !== iconRevision) return;
 
   const pngDataUrl = await rasterize(source, TOUCH_ICON_SIZE);
-  if (!pngDataUrl) return;
+  if (!pngDataUrl || revision !== iconRevision) return;
 
   applyHref(APPLE_ICON_SELECTOR, pngDataUrl, () => createAppleTouchIcon());
   applyHref(FAVICON_SELECTOR, pngDataUrl);
 
-  if (isStandaloneDisplayMode()) {
-    await replaceManifest(pngDataUrl);
-  }
+  await replaceManifest(pngDataUrl, revision);
 }
 
 /** 恢复默认图标：所有被改过的 href 还原。 */
 export function clearPwaIcon(): void {
+  iconRevision++;
   restoreHrefs(APPLE_ICON_SELECTOR);
   restoreHrefs(FAVICON_SELECTOR);
 
@@ -161,7 +176,7 @@ function createAppleTouchIcon(): HTMLLinkElement {
 
 // ── manifest ──────────────────────────────────────────────────────
 
-async function replaceManifest(iconDataUrl: string): Promise<void> {
+async function replaceManifest(iconDataUrl: string, revision: number): Promise<void> {
   const link = document.querySelector(MANIFEST_SELECTOR) as HTMLLinkElement | null;
   if (!link) return;
 
@@ -172,6 +187,8 @@ async function replaceManifest(iconDataUrl: string): Promise<void> {
     if (!resp.ok) throw new Error(`Fetch manifest failed: ${resp.status}`);
     const manifest = await resp.json();
 
+    manifest.name = appMetadata.name;
+    manifest.short_name = appMetadata.name;
     manifest.icons = [
       { src: iconDataUrl, sizes: '192x192', type: 'image/png' },
       { src: iconDataUrl, sizes: '512x512', type: 'image/png' },
@@ -187,6 +204,7 @@ async function replaceManifest(iconDataUrl: string): Promise<void> {
     if (manifest.start_url) manifest.start_url = toAbs(manifest.start_url);
     if (manifest.scope) manifest.scope = toAbs(manifest.scope);
 
+    if (revision !== iconRevision) return;
     const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
     if (dynamicManifestUrl) URL.revokeObjectURL(dynamicManifestUrl);
     dynamicManifestUrl = URL.createObjectURL(blob);

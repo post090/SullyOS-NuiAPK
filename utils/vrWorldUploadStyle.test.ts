@@ -18,7 +18,7 @@ describe('彼方书库上传编辑框样式', () => {
         expect(uploadModal).toContain('bg-white');
         expect(uploadModal).toContain('text-slate-800');
         expect(uploadModal).toContain('caret-indigo-500');
-        expect(uploadModal.match(/\$\{uploadFieldClass\}/g)).toHaveLength(4);
+        expect(uploadModal.match(/\$\{uploadFieldClass\}/g)).toHaveLength(5);
         expect(uploadModal).not.toContain('bg-white/8');
         expect(uploadModal).not.toMatch(/<input[^>]+text-white/);
         expect(uploadModal).not.toMatch(/<textarea[^>]+text-white/);

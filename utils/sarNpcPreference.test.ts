@@ -1,0 +1,72 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { sarNpcContentEnabled } from './vrWorld/sarNpcPreference';
+import { kanataTitleActivityPrompt, kanataTitleContext, applyKanataTitle } from './vrWorld/kanataTitle';
+import { sarPublicContext } from './vrWorld/kanataPublicContext';
+import { sarCollectionEntries } from './vrWorld/sarCollection';
+import { createFishingMarketState, ensureActorAccounts, ensureMarketDay, rollFishingCatch, addCatchToState, sellFishToAiven } from './vrWorld/fishingMarket';
+import { freshFamiliarity } from './vrWorld/sarFamiliarity/storageTypes';
+import { visitFamiliarity, startFamiliarity, advanceFamiliarity } from './vrWorld/sarFamiliarity/state';
+import { readFishingMarketState, FISHING_MARKET_STORAGE_KEY } from './vrWorld/fishingMarket';
+import { buildFishingTurn } from './vrWorld/fishingCharacter';
+import { ChatPrompts } from './chatPrompts';
+import type { CharacterProfile } from '../types';
+
+afterEach(()=>vi.unstubAllGlobals());
+const preference = (value:'show'|'hide') => vi.stubGlobal('localStorage', {getItem:(key:string)=>key==='vr_sar_club_state_v1'?JSON.stringify({npcPreference:value}):null});
+const char = {id:'test-char',name:'测试角色',vrState:{enabled:true,title:'湖畔旅人',titleRevision:'1'}} as CharacterProfile;
+describe('SAR NPC opt-out',()=>{
+    it('pauses an already running personal line without changing its progress',async()=>{
+        const data=new Map<string,string>();const storage={getItem:(k:string)=>data.get(k)??null,setItem:(k:string,v:string)=>{data.set(k,v);}};
+        const options={storage,userName:'测试用户',random:()=>0};
+        await visitFamiliarity('caian',options);
+        const scene=readFishingMarketState(storage).sarFamiliarity!.npcs.caian.offerId!;
+        await startFamiliarity('caian',scene,options);
+        const cursor=readFishingMarketState(storage).sarFamiliarity!.npcs.caian.pending!;
+        storage.setItem('vr_sar_club_state_v1',JSON.stringify({npcPreference:'hide'}));
+        const before=storage.getItem(FISHING_MARKET_STORAGE_KEY);
+        await advanceFamiliarity('caian',cursor,{storage});await visitFamiliarity('caian',options);
+        expect(storage.getItem(FISHING_MARKET_STORAGE_KEY)).toBe(before);
+        storage.setItem('vr_sar_club_state_v1',JSON.stringify({npcPreference:'show'}));
+        await advanceFamiliarity('caian',cursor,{storage,choice:0});
+        expect(readFishingMarketState(storage).sarFamiliarity!.npcs.caian.pending!.revision).toBe(cursor.revision+1);
+    });
+    it('omits titles and NPC background from normal chat and restores them when enabled',async()=>{
+        preference('hide');
+        expect(sarNpcContentEnabled()).toBe(false);
+        expect(kanataTitleContext(char.vrState?.title)).toBe('');
+        expect(kanataTitleActivityPrompt(char.vrState?.title,true,false)).toBe('');
+        expect(sarPublicContext()).not.toMatch(/凯恩|艾文/);
+        expect(sarPublicContext()).toContain('芯片扭蛋');
+        const parts=await ChatPrompts.buildSystemPromptParts(char,{name:'测试用户'} as any,[],[],[],[]);
+        expect(parts.stable+parts.volatileState).not.toMatch(/凯恩|艾文|彼方称号|湖畔旅人/);
+        expect(applyKanataTitle(char,char.vrState,'新称号')).toEqual({});
+        expect(char.vrState?.title).toBe('湖畔旅人');
+        preference('show');
+        expect(sarPublicContext()).toContain('凯恩');
+        expect(kanataTitleContext(char.vrState?.title)).toContain('湖畔旅人');
+        expect(applyKanataTitle(char,char.vrState,'新称号').vrState?.title).toBe('新称号');
+    });
+    it('hides NPC-exclusive collection entries without changing earned progress',()=>{
+        const state=createFishingMarketState(42);state.sarFamiliarity=freshFamiliarity();state.sarFamiliarity.unlocks=['eggs','titles'];
+        const before=JSON.stringify(state);
+        const hidden=sarCollectionEntries(state,'user',false);
+        expect(hidden.some(e=>e.id==='aiven-chimera'||e.id==='dinosaur-egg')).toBe(false);
+        expect(JSON.stringify(hidden)).not.toMatch(/艾文|凯恩/);
+        expect(hidden.some(e=>e.category==='chip')).toBe(true);
+        expect(hidden.some(e=>e.category==='fish')).toBe(true);
+        expect(sarCollectionEntries(state,'user',true).some(e=>e.id==='dinosaur-egg')).toBe(true);
+        expect(JSON.stringify(state)).toBe(before);
+    });
+    it('keeps fish recovery available with neutral prompts and no NPC dialogue receipts',()=>{
+        preference('hide');
+        const actor={id:'user',name:'测试用户',kind:'user' as const};
+        const fish=rollFishingCatch(actor,{kind:'clear',label:'晴',detail:'',source:'simulated'},()=>0);
+        const state=addCatchToState(ensureMarketDay(ensureActorAccounts(createFishingMarketState(42),[actor])),fish);
+        const prompt=buildFishingTurn(actor,fish,state,'测试用户');
+        expect(prompt).not.toMatch(/艾文|凯恩/);expect(prompt).toContain('回收站');
+        const sold=sellFishToAiven(state,actor,fish.id);
+        const receipt=sold.state.ledger.at(-1)!;
+        expect(receipt.text).toContain('回收站');expect(receipt.quotes).toEqual([]);
+        expect(sold.state.accounts.user).toBe(120+sold.sale.amount);
+    });
+});

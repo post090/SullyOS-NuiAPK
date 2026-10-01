@@ -1,17 +1,21 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
+import { canAnalyzeVoiceSource, isVoiceAudioPriming, primeVoiceAudio, voicePlaybackErrorMessage } from '../utils/voicePlayback';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check } from '@phosphor-icons/react';
+import { Microphone, SpeakerHigh, SpeakerSlash, PhoneDisconnect, Translate, Gear, Clock, CaretLeft, CaretRight, Phone, VideoCamera, VideoCameraSlash, Cube, FolderOpen, FileZip, Moon, Sun, Check, ArrowsClockwise } from '@phosphor-icons/react';
 import { useOS } from '../context/OSContext';
 import { extractContent, safeFetchJson } from '../utils/safeApi';
 import { minimaxFetch } from '../utils/minimaxEndpoint';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
-import { hashTtsParams, getCachedTts, saveCachedTts } from '../utils/ttsCache';
-import { cleanTextForTts, insertSpeechBreaks, convertHexAudioToBlob, fetchRemoteAudioBlob, VALID_EMOTIONS, stripEmotionTags, VOICE_ACTING_GUIDE, cleanVoiceMarkupForDisplay } from '../utils/minimaxTts';
+import { getCachedTts, saveCachedTts } from '../utils/ttsCache';
+import { buildMiniMaxTtsCacheKey, buildMiniMaxTtsPayload, cleanTextForTts, convertHexAudioToBlob, fetchRemoteAudioBlob, getMiniMaxParamVersion, prepareMiniMaxSpeechText, VALID_EMOTIONS, stripEmotionTags, VOICE_ACTING_GUIDE } from '../utils/minimaxTts';
 import { normalizeVoiceTags } from '../utils/sanitize';
-import { FISH_VOICE_ACTING_GUIDE, synthesizeSpeechFishDetailed, resolveFishAudioApiKey, cleanTextForTtsFish, stripFishMarkupForDisplay } from '../utils/fishAudioTts';
-import { ELEVEN_VOICE_ACTING_GUIDE, synthesizeSpeechElevenDetailed, resolveElevenLabsApiKey, cleanTextForTtsEleven, stripElevenMarkupForDisplay } from '../utils/elevenLabsTts';
-import { resolveTtsProvider, getTtsProvider, getVoicePromptOverride } from '../utils/ttsProvider';
-import { VOICE_LANGUAGE_OPTIONS } from '../utils/voiceLanguage';
+import { FISH_VOICE_ACTING_GUIDE, resolveFishAudioApiKey, stripFishMarkupForDisplay } from '../utils/fishAudioTts';
+import { resolveElevenLabsApiKey, getElevenLabsVoiceActingGuide, stripElevenLabsMarkupForDisplay } from '../utils/elevenLabsTts';
+import { resolveTtsProvider, getElevenLabsModel, getTtsProvider, getVoicePromptOverride } from '../utils/ttsProvider';
+import { canSynthesizeSpeech, stripTtsMarkupForDisplay, synthesizeSpeechDetailed as synthesizeSpeechRoutedDetailed } from '../utils/ttsRouter';
+import { CANTONESE_VOICE_SUPPORT_NOTE, VOICE_LANGUAGE_OPTIONS, voiceLanguageAnalyticsValue, voiceLanguagePromptLabel } from '../utils/voiceLanguage';
 import { startStt, isSttSupported, type SttSession, type SttProviderConfig } from '../utils/speechToText';
+// 原生通话通知（APK）：通话开始/挂断时同步 Android 前台服务状态，fork 通话自启链路依赖。
 import { startNativeCallNotification, updateNativeCallNotification, stopNativeCallNotification, getNativeCallState } from '../utils/runtime/nativeRuntime';
 import { ContextBuilder } from '../utils/context';
 import { resolveCharTimeZone } from '../utils/timezone';
@@ -89,6 +93,7 @@ import {
   type AvatarTouchRecord,
 } from '../utils/avatarTouch';
 import { dataUrlToBlob, deleteBlobRef, isBlobRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
+import TokenImg from '../components/os/TokenImg';
 import { CALL_LIGHT_THEME_CSS } from '../components/call/callLightTheme';
 import AvatarTouchFeedback, { type AvatarTouchEffect } from '../components/call/AvatarTouchFeedback';
 import { isBuiltinSullyLive2D, setBuiltinSullyLive2DQuality, type BuiltinSullyLive2DQuality } from '../utils/builtinSullyLive2D';
@@ -100,7 +105,7 @@ import {
   type UserCameraEmotionResult,
 } from '../utils/userCameraEmotion';
 import {
-  attachSnapshotToLatestUserMessage,
+  prepareUserCameraSnapshot,
   captureUserCameraSnapshot,
   isVisionInputUnsupportedError,
   USER_CAMERA_SNAPSHOT_SYSTEM_NOTE,
@@ -120,6 +125,8 @@ import {
   type CompanionAvatarSource,
 } from '../utils/companionAvatar';
 import { addCompanionModelOutfit, addUploadedCompanionOutfit } from '../utils/companionWardrobe';
+import VoiceFavoriteActionSheet from '../components/voice/VoiceFavoriteActionSheet';
+import { getVoiceFavorite, removeVoiceFavorite, saveVoiceFavorite } from '../utils/voiceFavorites';
 type CallState = 'idle' | 'connecting' | 'listening' | 'thinking' | 'speaking' | 'ended' | 'error';
 type CallMode = 'voice' | 'video';
 type VideoCallLayout = 'stage' | 'story' | 'mini';
@@ -309,19 +316,6 @@ const extractVoiceTag = (text: string): { display: string; speech: string; voice
   const display = text.replace(/<[语語]音[^>]*>[\s\S]*?<\/\s*[语語]音\s*>/g, '').trim();
   return { display, speech: voiceText, voiceText, emotion };
 };
-// Derive the shared TTS cache key from the MiniMax payload. Must match the
-// key used by `synthesizeSpeechDetailed` so chat/date/call can reuse each
-// other's cached audio when the effective request matches.
-const ttsCacheKeyFromPayload = (payload: any): string => hashTtsParams({
-  kind: 'minimax-t2a',
-  text: payload.text,
-  model: payload.model,
-  voice_setting: payload.voice_setting,
-  timber_weights: payload.timber_weights,
-  voice_modify: payload.voice_modify,
-  language_boost: payload.language_boost,
-  audio_setting: payload.audio_setting,
-});
 const splitTextForTts = (rawText: string, maxChunkLen = 120): string[] => {
   const normalized = rawText.replace(/\s+/g, ' ').trim();
   if (!normalized) return [];
@@ -369,13 +363,29 @@ const SoundWaveGlyph = () => (
     ))}
   </span>
 );
+const currentVoiceActingGuide = (): string => {
+  const provider = getTtsProvider();
+  const custom = getVoicePromptOverride(provider);
+  if (custom) return custom;
+  if (provider === 'fishaudio') return FISH_VOICE_ACTING_GUIDE;
+  if (provider === 'elevenlabs') return getElevenLabsVoiceActingGuide(getElevenLabsModel());
+  return VOICE_ACTING_GUIDE;
+};
+
+const cleanCurrentVoiceMarkupForDisplay = (text?: string | null): string => {
+  if (!text) return '';
+  const provider = getTtsProvider();
+  if (provider === 'fishaudio') return stripFishMarkupForDisplay(text);
+  if (provider === 'elevenlabs') return stripElevenLabsMarkupForDisplay(text);
+  // MiniMax 的 (sighs)/(chuckle) 会在 renderAssistantLine 里渲染成声音动作图标，不能提前剥掉。
+  return text;
+};
+
 const renderAssistantLine = (text: string, accent = '#8b5cf6') => {
   // 朗读用的停顿标记 <#0.4#> 不显示出来
   let trimmed = text.replace(/<#[\d.]+#>/g, '').trim();
-  // 鱼声 / ElevenLabs 的 inline cue（[whispering]/[laugh] 等）是演出指令，不该显示给用户。
-  const provider = getTtsProvider();
-  if (provider === 'fishaudio') trimmed = stripFishMarkupForDisplay(trimmed);
-  else if (provider === 'elevenlabs') trimmed = stripElevenMarkupForDisplay(trimmed);
+  // 鱼声的 inline cue（[whispering]/[break] 等）是演出指令，不该显示给用户。
+  trimmed = cleanCurrentVoiceMarkupForDisplay(trimmed);
   // 按 中文舞台指示（…）、英文语气词标签 (sighs)、换行 切分，前两者作为特殊元素渲染
   const parts = trimmed.split(SOUND_TAG_SPLIT_RE).filter(Boolean);
   return parts.map((part, idx) => {
@@ -450,7 +460,7 @@ const buildCallPrompt = (
 ✅ 要这样——有自己的节奏，像真人一样不完美：
 “嘶……你刚说的那个，等一下。”
 “……好吧确实挺离谱的。”
-“(chuckle) 我刚差点把咖啡洒了，你别逗我。”
+"……我刚差点把咖啡洒了，你别逗我。"
 “说真的，今天有件事我还挺想跟你说的——但你先说完你那个。”
 
 ### 你能感受到对方
@@ -472,21 +482,9 @@ const buildCallPrompt = (
 
 ### 让声音有情绪（重要——直接写进文本，不要靠旁白）
 
-你的话会被转成真实语音，所以**情绪和语气要由你自己标出来**，不要写中文舞台指示（系统不会朗读它们，只会被删掉）。两种工具：
+你的话会被转成真实语音。不同引擎识别的演出标记不同，严格遵守下面这份**当前引擎规则**；不要混用别家的标签，也不要写会被念出来的小说旁白。
 
-1) **整段情绪**（可选，最多一个）：如果这通回复整体有明显情绪，**只在整段回复的最最开头**放一个标签，从这些里选一个：
-\`[happy] [sad] [angry] [fearful] [disgusted] [surprised] [calm] [fluent]\`
-   例：\`[angry] 你昨晚十二点半还喝咖啡？不要命了是吧。\`
-   **铁律**：整段回复最多一个，且必须在最开头。**绝对不要每段都标、不要标在句子中间、不要标在第二段以后**——放错位置只会被删掉、还会让声音忽高忽低。情绪不强就别标。
-
-2) **句中语气声**（要克制）：偶尔想要笑、叹气这种真实反应，直接写官方英文标签（**别写中文的（轻笑）（叹气）**）：
-\`(chuckle) (laughs) (sighs) (coughs) (groans) (breath) (pant) (gasps) (sniffs) (snorts) (hissing) (emm)\`
-   例：\`(sighs) 算了，听你的。\`
-   **整段回复里这种标签最多一两个**，多了声音会飘、很假。
-
-注意：不要写小说式中文旁白，如”（我靠在椅背上，目光看向远方）”——会被直接删掉，等于白写。
-
-${getVoicePromptOverride(getTtsProvider()) ?? (getTtsProvider() === 'fishaudio' ? FISH_VOICE_ACTING_GUIDE : getTtsProvider() === 'elevenlabs' ? ELEVEN_VOICE_ACTING_GUIDE : VOICE_ACTING_GUIDE)}
+${currentVoiceActingGuide()}
 
 ### 历史消息的来源标记（重要）
 
@@ -496,7 +494,7 @@ ${getVoicePromptOverride(getTtsProvider()) ?? (getTtsProvider() === 'fishaudio' 
 ### 底线
 
 只输出你在电话里会**说出口**的话。不要输出 [通话]、[聊天]、[约会] 这类系统标记，不要输出时间戳。`;
-  const langLabel = voiceLang ? VOICE_LANGUAGE_OPTIONS.find(o => o.value === voiceLang)?.label || voiceLang : '';
+  const langLabel = voiceLang ? voiceLanguagePromptLabel(voiceLang) : '';
   const voiceLangPrompt = voiceLang ? `### 语音语种翻译
 
 用户开启了语音语种功能，选择的语种是：${langLabel}（${voiceLang}）。
@@ -507,14 +505,14 @@ ${getVoicePromptOverride(getTtsProvider()) ?? (getTtsProvider() === 'fishaudio' 
 
 示例：
 啊，我知道了
-<语音 emotion="happy">Ok, I get it (chuckle)</语音>
+<语音 emotion="happy">Okay, I get it now!</语音>
 
 你说真的？那也太离谱了吧。
 <语音 emotion="surprised">Wait... are you serious? That's insane.</语音>
 
 要求：
 - <语音> 里的翻译要自然口语化，不要机翻味，要符合你的角色性格
-- <语音> 里只写会被朗读的文字；想要笑/叹气等真实语气，用官方英文标签 (laughs)/(sighs)/(chuckle) 等，**不要写中文（轻笑）**，也不要写中文舞台旁白
+- <语音> 里只写会被朗读的文字；演出标记继续遵守上方「当前引擎规则」，不要混用其它引擎语法，也不要写中文舞台旁白
 - 每条消息只有一个 <语音> 标签，emotion 属性可选；情绪不强就别加
 - 中文部分和 <语音> 部分表达的意思要一致` : '';
   return [coreContext, timeContext, callPrompt, voiceLangPrompt].filter(Boolean).join('\n\n');
@@ -619,6 +617,9 @@ const CallApp: React.FC = () => {
   const [editingText, setEditingText] = useState('');
   const [rerollingBubbleId, setRerollingBubbleId] = useState<string | null>(null);
   const [generatingAudioBubbleId, setGeneratingAudioBubbleId] = useState<string | null>(null);
+  const [voiceFavoriteTarget, setVoiceFavoriteTarget] = useState<{ bubble: CallBubble; charId: string; charName: string } | null>(null);
+  const [voiceFavoriteSaved, setVoiceFavoriteSaved] = useState(false);
+  const [voiceFavoriteBusy, setVoiceFavoriteBusy] = useState(false);
   const [showHangupConfirm, setShowHangupConfirm] = useState(false);
   const [deleteConfirmRecord, setDeleteConfirmRecord] = useState<CallRecord | null>(null);
   const [voiceLang, setVoiceLang] = useState('');
@@ -657,11 +658,16 @@ const CallApp: React.FC = () => {
     audioRef.current = new Audio();
     audioRef.current.preload = 'auto';
   }
-  const audioPrimingRef = useRef(false);
+  // Keep a separate native element for CORS-blocked remote fallbacks. Once a media
+  // element has entered WebAudio it cannot be detached to restore native output.
+  const localCallAudioRef = useRef(audioRef.current);
+  const remoteCallAudioRef = useRef<HTMLAudioElement | null>(null);
+  if (!remoteCallAudioRef.current && typeof Audio !== 'undefined') remoteCallAudioRef.current = new Audio();
   const nativeCallAudioOnly = useMemo(() => shouldKeepNativeCallAudio(), []);
   const userCameraVideoRef = useRef<HTMLVideoElement | null>(null);
   const userCameraStreamRef = useRef<MediaStream | null>(null);
   const userCameraRequestRef = useRef(0);
+  const [userCameraFacing, setUserCameraFacing] = useState<'user' | 'environment'>('user');
   const detectedUserEmotionTimerRef = useRef<number | null>(null);
   const callSetupGuideOpenRef = useRef(false);
   useEffect(() => {
@@ -697,7 +703,7 @@ const CallApp: React.FC = () => {
     clearDetectedUserEmotion();
     releaseUserCameraEmotionDetector();
   };
-  const startUserCamera = async (nextMode: Extract<UserCameraMode, 'emotion' | 'snapshot'>) => {
+  const startUserCamera = async (nextMode: Extract<UserCameraMode, 'emotion' | 'snapshot'>, facing = userCameraFacing) => {
     if (userCameraLoading) return;
     if (!navigator.mediaDevices?.getUserMedia) {
       addToast('当前浏览器不支持摄像头，或页面不是安全连接', 'error');
@@ -705,9 +711,15 @@ const CallApp: React.FC = () => {
     }
     const requestId = ++userCameraRequestRef.current;
     setUserCameraLoading(true);
+    // Mobile devices often cannot open the opposite camera until the old one is released.
+    const previousStream = userCameraStreamRef.current;
+    userCameraStreamRef.current = null;
+    previousStream?.getTracks().forEach(track => track.stop());
+    if (userCameraVideoRef.current) userCameraVideoRef.current.srcObject = null;
+    clearDetectedUserEmotion();
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 640 }, frameRate: { ideal: 15, max: 24 } },
+        video: { facingMode: { ideal: facing }, width: { ideal: 480 }, height: { ideal: 640 }, frameRate: { ideal: 15, max: 24 } },
         audio: false,
       });
       if (requestId !== userCameraRequestRef.current) {
@@ -720,6 +732,8 @@ const CallApp: React.FC = () => {
         if (userCameraStreamRef.current === stream) stopUserCamera();
       }, { once: true });
       userCameraStreamRef.current = stream;
+      const actualFacing = track.getSettings().facingMode;
+      setUserCameraFacing(actualFacing === 'user' || actualFacing === 'environment' ? actualFacing : facing);
       setUserCameraMode(nextMode);
       setShowUserCameraModePicker(false);
       if (nextMode === 'emotion') {
@@ -733,6 +747,7 @@ const CallApp: React.FC = () => {
         releaseUserCameraEmotionDetector();
       }
     } catch (error: any) {
+      if (requestId !== userCameraRequestRef.current) return;
       const denied = error?.name === 'NotAllowedError' || error?.name === 'PermissionDeniedError';
       addToast(denied ? '没有获得摄像头权限' : (error?.message || '摄像头开启失败'), 'error');
       stopUserCamera();
@@ -825,7 +840,7 @@ const CallApp: React.FC = () => {
     try {
       const result = await detectUserCameraEmotion(video);
       // Camera may have been turned off while the three-frame sample was running.
-      if (!result || !userCameraStreamRef.current?.active || userCameraMode !== 'emotion') return '';
+      if (!result || userCameraStreamRef.current !== stream || !stream.active || userCameraMode !== 'emotion') return '';
       revealDetectedUserEmotion(result);
       return buildUserCameraEmotionPrompt(result);
     } catch (error) {
@@ -850,7 +865,7 @@ const CallApp: React.FC = () => {
     if (!video || !userCameraEnabled || !stream) return;
     video.srcObject = stream;
     void video.play().catch(() => { /* muted inline preview can retry after the next user gesture */ });
-  }, [userCameraEnabled, userCameraMode]);
+  }, [userCameraEnabled, userCameraMode, userCameraLoading]);
   useEffect(() => {
     if (viewMode === 'in-call' && callMode === 'video') return;
     if (userCameraMode !== 'off' || userCameraLoading) stopUserCamera();
@@ -879,6 +894,7 @@ const CallApp: React.FC = () => {
     sessionBlobUrlsRef.current.clear();
   };
   const longPressTimerRef = useRef<number | null>(null);
+  const callLongPressTriggeredRef = useRef(false);
   const callTouchStartPos = useRef({ x: 0, y: 0 });
   const idleNudgeCountRef = useRef(0);
   // VRM 模型的自定义表情名（加载时由画布回传），喂给基础版主模型或高质量导演。
@@ -959,7 +975,7 @@ const CallApp: React.FC = () => {
   useEffect(() => {
     // The analyser is a video-only enhancement. Voice calls stay entirely on the
     // browser's native audio path, and iOS always uses the synthetic lip fallback.
-    audioFeedRef.current?.setActive(callMode === 'video' && isAudioPlaying);
+    audioFeedRef.current?.setActive(callMode === 'video' && isAudioPlaying && audioRef.current === localCallAudioRef.current);
   }, [callMode, isAudioPlaying]);
 
   useEffect(() => () => {
@@ -1265,126 +1281,56 @@ const CallApp: React.FC = () => {
     setVoiceLang(selectedChar?.callVoiceLang || '');
   }, [selectedCharId]);
   const resolveVoiceId = () => selectedChar?.voiceProfile?.voiceId?.trim() || '';
-  const resolveModel = () => selectedChar?.voiceProfile?.model?.trim() || 'speech-2.8-hd';
   const resolveGroupId = () => (apiConfig.minimaxGroupId || '').trim();
-  const buildTtsExtras = () => {
-    const vp = selectedChar?.voiceProfile;
-    if (!vp) return {};
-    const extras: any = {};
-    const tw = vp.timberWeights;
-    if (tw && tw.length > 1) {
-      extras.timber_weights = (() => {
-        const totalWeight = tw.reduce((sum: number, t: any) => sum + (t.weight || 0), 0);
-        if (totalWeight === 0) return tw.map((t: any) => ({ voice_id: t.voice_id, weight: Math.round(100 / tw.length) }));
-        const raw = tw.map((t: any) => ({ voice_id: t.voice_id, weight: Math.round((t.weight / totalWeight) * 100) }));
-        const diff = 100 - raw.reduce((s: number, r: any) => s + r.weight, 0);
-        if (diff !== 0) raw[0].weight += diff;
-        return raw;
-      })();
-    }
-    if (vp.voiceModify) {
-      const vm: any = {};
-      // Soft-clamp voice_modify to prevent extreme spikes during excited speech
-      const sc = (v: number, limit: number) => {
-        if (Math.abs(v) <= limit) return v;
-        const sign = v > 0 ? 1 : -1;
-        return sign * (limit + Math.log1p(Math.abs(v) - limit) * (limit * 0.15));
-      };
-      if (vp.voiceModify.pitch) vm.pitch = Math.round(sc(vp.voiceModify.pitch, 40));
-      if (vp.voiceModify.intensity) vm.intensity = Math.round(sc(vp.voiceModify.intensity, 30));
-      if (vp.voiceModify.timbre) vm.timbre = Math.round(sc(vp.voiceModify.timbre, 40));
-      if (vp.voiceModify.sound_effects) vm.sound_effects = vp.voiceModify.sound_effects;
-      if (Object.keys(vm).length) extras.voice_modify = vm;
-    }
-    return extras;
-  };
-  const resolveVoiceSettingFields = (emotionOverride?: string) => {
-    const vp = selectedChar?.voiceProfile;
-    // Per-utterance emotion from <语音 emotion="…"> wins over the static voiceProfile emotion.
-    const emotion = (emotionOverride && VALID_EMOTIONS.has(emotionOverride)) ? emotionOverride : (vp?.emotion || '');
-    return {
-      // Clamp speed & pitch to safe human-like ranges
-      speed: Math.max(0.75, Math.min(1.4, vp?.speed ?? 1)),
-      vol: Math.max(0.3, Math.min(2, vp?.vol ?? 1)),
-      pitch: Math.max(-8, Math.min(8, vp?.pitch ?? 0)),
-      english_normalization: true,
-      ...(emotion ? { emotion } : {}),
-    };
-  };
-  // ── TTS 服务商分发：电话语音也支持 MiniMax ↔ 鱼声 ↔ ElevenLabs 三选一 ──
-  const ttsProviderNow = activeScene?.ttsProviderOverride || resolveTtsProvider(apiConfig);
-  const isFishTts = ttsProviderNow === 'fishaudio';
-  const isElevenTts = ttsProviderNow === 'elevenlabs';
+  // ── TTS 服务商分发：MiniMax 保留电话专用分段兜底；Fish / ElevenLabs 走共享适配器。 ──
+  // 场景通话（语音面试等）可覆盖 TTS 服务商：activeScene.ttsProviderOverride 优先于全局配置。
+  const activeTtsProvider = activeScene?.ttsProviderOverride || resolveTtsProvider(apiConfig);
   // 当前服务商下，这个角色能否合成语音（决定要不要走 TTS / 给"语音未配置"提示）。
+  // 场景覆盖了服务商时 canSynthesizeSpeech 按全局 provider 判断会失真，按生效 provider 分支。
   const hasConfiguredVoice = (): boolean => {
-    if (isFishTts) {
-      return !!resolveFishAudioApiKey(apiConfig) && !!selectedChar?.voiceProfile?.fishReferenceId;
+    if (!selectedChar) return false;
+    if (activeTtsProvider === 'fishaudio') {
+      return !!resolveFishAudioApiKey(apiConfig) && !!selectedChar.voiceProfile?.fishReferenceId;
     }
-    if (isElevenTts) {
-      return !!resolveElevenLabsApiKey(apiConfig) && !!selectedChar?.voiceProfile?.elevenVoiceId;
+    if (activeTtsProvider === 'elevenlabs') {
+      return !!resolveElevenLabsApiKey(apiConfig) && !!(selectedChar.voiceProfile?.elevenLabsVoiceId || selectedChar.voiceProfile?.elevenVoiceId);
     }
-    const voiceId = resolveVoiceId();
-    const hasTimber = (selectedChar?.voiceProfile?.timberWeights?.length || 0) > 1;
-    return !!resolveMiniMaxApiKey(apiConfig) && (!!voiceId || hasTimber);
+    return canSynthesizeSpeech(selectedChar, apiConfig);
   };
   const canSpeakVoice = (): boolean => isSpeakerOn && hasConfiguredVoice();
-  // 鱼声合成：直接把（带 inline cue 的）文本交给鱼声合成器，由 cleanTextForTtsFish 做
-  // 鱼声专属清洗——保留 [happy]/[whispering]/[break] 等 cue，只清系统标记 / <#秒#> 残留。
-  // 绝不能先走 MiniMax 的 cleanTextForTts，那会把方括号 cue 全剥掉。
-  const synthesizeFishCallUrl = async (rawText: string, emotion?: string): Promise<string> => {
-    if (!selectedChar) throw new Error('未选择角色');
-    if (!cleanTextForTtsFish(rawText).trim()) throw new Error('可朗读文本为空');
-    const { url } = await synthesizeSpeechFishDetailed(rawText, selectedChar, apiConfig, {
-      languageBoost: voiceLang || undefined,
-      emotion,
-    });
-    return url;
-  };
-  // ElevenLabs 合成：与鱼声同思路——保留 inline cue 送 API，由 cleanTextForTtsEleven 做
-  // ElevenLabs v3 专属清洗（归一到 v3 支持的 [laugh]/[sigh]/[whisper] 等标签）。
-  // 同样绝不能先走 MiniMax 的 cleanTextForTts，那会把方括号 cue 全剥掉。
-  const synthesizeElevenCallUrl = async (rawText: string, emotion?: string): Promise<string> => {
-    if (!selectedChar) throw new Error('未选择角色');
-    if (!cleanTextForTtsEleven(rawText).trim()) throw new Error('可朗读文本为空');
-    const { url } = await synthesizeSpeechElevenDetailed(rawText, selectedChar, apiConfig, {
-      languageBoost: voiceLang || undefined,
-      emotion,
-    });
-    return url;
-  };
   // ── 通话语音合成统一入口：开场白 / 正常回合 / 重roll / 主动开口共用 ──
-  // MiniMax：缓存命中 → 单发合成 → 失败再分段兜底；鱼声：直接合成；ElevenLabs：直接合成。
+  // MiniMax：缓存命中 → 单发合成 → 失败再分段兜底；Fish / ElevenLabs：共享 router 直接合成。
   // 抛错或返回空 url 都表示没有可播放音频，由调用方降级为纯文字。
   const synthesizeCallAudioUrl = async (rawText: string, emotion?: string): Promise<{ url: string; traceIds: string[] }> => {
-    if (isFishTts) {
-      const fishUrl = await synthesizeFishCallUrl(rawText, emotion);
-      return { url: fishUrl || '', traceIds: [] };
-    }
-    if (isElevenTts) {
-      const elevenUrl = await synthesizeElevenCallUrl(rawText, emotion);
-      return { url: elevenUrl || '', traceIds: [] };
+    if (activeTtsProvider !== 'minimax') {
+      if (!selectedChar) throw new Error('未选择角色');
+      const { url } = await synthesizeSpeechRoutedDetailed(rawText, selectedChar, apiConfig, {
+        languageBoost: voiceLang || undefined,
+        emotion,
+      });
+      return { url: url || '', traceIds: [] };
     }
     const minimaxApiKey = resolveMiniMaxApiKey(apiConfig);
     const voiceId = resolveVoiceId();
     const groupId = resolveGroupId();
-    const speechText = insertSpeechBreaks(cleanTextForTts(rawText));
-    const model = resolveModel();
+    const voiceProfile = selectedChar?.voiceProfile;
+    const paramVersion = getMiniMaxParamVersion(voiceProfile);
+    const speechText = prepareMiniMaxSpeechText(cleanTextForTts(rawText), voiceProfile);
+    const model = voiceProfile?.model?.trim() || 'speech-2.8-hd';
     if (!speechText.trim()) throw new Error('可朗读文本为空');
 
     const synthesizeChunk = async (chunk: string, idx = 0, total = 1): Promise<{ blob?: Blob; remoteUrl?: string; traceId: string }> => {
-      const ttsPayload: any = {
+      const ttsPayload = buildMiniMaxTtsPayload(chunk, voiceProfile, {
+        voiceId,
         model,
-        text: chunk,
-        stream: false,
-        output_format: 'url',
-        voice_setting: { voice_id: voiceId, ...resolveVoiceSettingFields(emotion) },
-        audio_setting: { format: 'mp3', sample_rate: 32000, bitrate: 128000, channel: 1 },
-        ...(voiceLang ? { language_boost: voiceLang } : {}),
-        ...buildTtsExtras(),
-      };
-      if (groupId) ttsPayload.group_id = groupId;
+        emotion,
+        languageBoost: voiceLang || undefined,
+        groupId: groupId || undefined,
+        legacyTransport: 'call',
+        textAlreadyPrepared: true,
+      });
 
-      const chunkCacheKey = ttsCacheKeyFromPayload(ttsPayload);
+      const chunkCacheKey = buildMiniMaxTtsCacheKey(ttsPayload, paramVersion);
       const cachedChunk = await getCachedTts(chunkCacheKey);
       if (cachedChunk) {
         return { blob: cachedChunk, traceId: 'cache' };
@@ -1445,6 +1391,7 @@ const CallApp: React.FC = () => {
       model,
       voice_id: voiceId,
       group_id: groupId,
+      param_version: paramVersion,
       assistant_text_length: rawText.length,
       speech_text_length: speechText.length,
       speech_text_preview: speechText.slice(0, 120),
@@ -1938,22 +1885,10 @@ const CallApp: React.FC = () => {
     // directly in the click stack; never wait for React onPlay/useEffect.
     if (!nativeCallAudioOnly) void getAudioFeed().unlock();
 
-    audioPrimingRef.current = true;
-    audio.muted = false;
-    audio.src = SILENT_CALL_AUDIO_DATA_URL;
-    audio.currentTime = 0;
-    const finishPrime = () => {
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
-      window.setTimeout(() => { audioPrimingRef.current = false; }, 0);
-    };
-    try {
-      const attempt = audio.play();
-      if (attempt) void attempt.then(finishPrime).catch(() => { audioPrimingRef.current = false; });
-      else finishPrime();
-    } catch {
-      audioPrimingRef.current = false;
+    for (const element of [localCallAudioRef.current, remoteCallAudioRef.current]) {
+      if (!element) continue;
+      element.muted = false;
+      primeVoiceAudio(element, SILENT_CALL_AUDIO_DATA_URL);
     }
   };
   const beginSelectedCall = (cameraMode: UserCameraMode = 'off') => {
@@ -2104,20 +2039,13 @@ const CallApp: React.FC = () => {
     audioBlob?: Blob,
   ): Promise<any[]> => {
     if (!selectedChar?.id) return [{ role: 'user', content: input }];
-    const limit = selectedChar.contextLimit || 500;
     const [allMsgs, emojis] = await Promise.all([
-      DB.getMessagesByCharId(selectedChar.id, true),
+      loadCharacterContextMessages(selectedChar),
       DB.getEmojis().catch(() => []),
     ]);
-    // 记忆宫殿水位过滤与约会侧 buildDateHistory 相同；hideBeforeMessageId
-    // 由 buildMessageHistory 内部处理。
-    const hwm = (() => {
-      try { return parseInt(localStorage.getItem(`mp_lastMsgId_${selectedChar.id}`) || '0', 10) || 0; } catch { return 0; }
-    })();
-    const palaceFiltered = hwm > 0 ? allMsgs.filter(m => m.id > hwm) : allMsgs;
-    const filtered = palaceFiltered.filter(m => !(skipDbId && m.id === skipDbId));
+    const filtered = allMsgs.filter(m => !(skipDbId && m.id === skipDbId));
     const { apiMessages } = ChatPrompts.buildMessageHistory(
-      filtered, limit, selectedChar, userProfile || ({} as any), emojis,
+      filtered, Math.max(1, filtered.length), selectedChar, userProfile || ({} as any), emojis,
     );
     const lastMsg = filtered[filtered.length - 1];
     const timeGapHint = ChatPrompts.getTimeGapHint(lastMsg, Date.now());
@@ -2201,17 +2129,18 @@ const CallApp: React.FC = () => {
         const directorApi = resolvePerformanceDirectorApi(character);
         const baseUrl = directorApi.baseUrl?.replace(/\/+$/, '');
         if (!baseUrl) return null;
-        const coreContext = ContextBuilder.buildCoreContext(character, userProfile, true);
+        const characterContextInput = { char: character, user: userProfile, includeDetailedMemories: true };
+
         const prompt = buildAvatarPerformancePersonaPrompt({
           characterName: character.name,
-          coreContext,
+          coreContext: '',
         });
         const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directorApi.apiKey || 'sk-none'}` },
           body: JSON.stringify({
             model: directorApi.model,
-            messages: [{ role: 'user', content: prompt }],
+            messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
             temperature: 0.25,
             max_tokens: AVATAR_PERFORMANCE_PERSONA_MAX_TOKENS,
             stream: false,
@@ -2326,7 +2255,7 @@ ${sentencePlan}`;
     if (!baseUrl) throw new Error('请先在设置里配置聊天 API URL');
     const userName = userProfile?.name?.trim() || '用户';
     if (selectedChar) {
-      const callMsgs = await DB.getMessagesByCharId(selectedChar.id);
+      const callMsgs = await loadCharacterContextMessages(selectedChar);
       await injectMemoryPalace(selectedChar, callMsgs);
     }
     // 时光契约监督状态（只读）：让角色在通话中感知自己监督的任务进度，
@@ -2335,23 +2264,11 @@ ${sentencePlan}`;
     const taskBlock = selectedChar
       ? await buildTaskSupervisionContext(selectedChar.id, userName, { verbose: false }).catch(() => '')
       : '';
-    const coreContext = selectedChar
-      ? (() => {
-          const raw = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
-          const base = activeScene?.sceneContext ? `${activeScene.sceneContext}\n\n${raw}` : raw;
-          return taskBlock ? `${base}\n${taskBlock}` : base;
-        })()
-      : undefined;
-    const baseCallPrompt = selectedChar
-      ? buildCallPrompt(
-          userName,
-          selectedChar.name,
-          coreContext,
-          voiceLang || undefined,
-          callMode,
-          resolveCharTimeZone(selectedChar),
-        )
-      : buildCallPrompt(userName, undefined, undefined, voiceLang || undefined, callMode);
+    const touchContext = selectedChar
+      ? buildPendingAvatarTouchContext(pendingTouches, selectedChar.name, userName)
+      : '';
+    // fork 语音输入：audioBlob（本轮用户语音）跟随最后一条 user 消息做多模态输入。
+    const messages = await buildHistoryMessages(input, skipDbId, touchContext, audioBlob);
     const thinkingPrompt = selectedChar?.showThinkingChain
       ? [
           buildThinkingChainPrompt(selectedChar.name, userName),
@@ -2378,6 +2295,20 @@ ${sentencePlan}`;
     if (includeUserCameraContext && callMode === 'video' && userCameraMode === 'snapshot' && !userCameraSnapshot && userCameraSnapshotForTurn === undefined) {
       addToast('摄像头画面还没准备好，本轮已只发送文字', 'info');
     }
+    const snapshotHistory = prepareUserCameraSnapshot(messages, userCameraSnapshot);
+    const characterContext = selectedChar ? ContextBuilder.buildCharacterContext({
+      char: selectedChar, user: userProfile, history: snapshotHistory.messages,
+      timeOptions: { conversational: true },
+      // 场景通话的 sceneContext 前置在核心上下文之前；时光契约监督块（taskBlock）
+      // 追加其后——通话里只读感知任务进度，不教 [[TASK_*]] 命令。
+      instructions: core => {
+        const base = activeScene?.sceneContext ? `${activeScene.sceneContext}\n\n${core}` : core;
+        const withTask = taskBlock ? `${base}\n${taskBlock}` : base;
+        return buildCallPrompt(userName, selectedChar.name, withTask, voiceLang || undefined, callMode, resolveCharTimeZone(selectedChar));
+      },
+    }) : null;
+    const baseCallPrompt = characterContext?.coreContext
+      ?? buildCallPrompt(userName, undefined, undefined, voiceLang || undefined, callMode);
     const baseSystemPrompt = [
       baseCallPrompt,
       callMode === 'video' && !highQualityPerformance ? buildAvatarPerformancePrompt(allowedModelActions) : '',
@@ -2387,17 +2318,8 @@ ${sentencePlan}`;
     const systemPrompt = [baseSystemPrompt, userCameraSnapshot ? USER_CAMERA_SNAPSHOT_SYSTEM_NOTE : '']
       .filter(Boolean)
       .join('\n\n');
-    const touchContext = selectedChar
-      ? buildPendingAvatarTouchContext(
-          pendingTouches,
-          selectedChar.name,
-          userName,
-        )
-      : '';
-    const messages = await buildHistoryMessages(input, skipDbId, touchContext, audioBlob);
-    const requestMessages = userCameraSnapshot
-      ? attachSnapshotToLatestUserMessage(messages, userCameraSnapshot)
-      : messages;
+    const requestMessages = characterContext?.history ?? snapshotHistory.messages;
+    const textOnlyMessages = snapshotHistory.restoreTextMessages(requestMessages);
     // 通话场景重试 toast：同一通通话只提示一次，避免刷屏
     let retryToastShown = false;
     const callStreamHooks = {
@@ -2445,7 +2367,7 @@ ${sentencePlan}`;
       if (!userCameraSnapshot || !isVisionInputUnsupportedError(error)) throw error;
       console.warn('[camera-snapshot] provider rejected vision input; retrying text-only:', error);
       addToast('当前模型不支持图片；本轮已自动改为只发文字', 'info');
-      chatData = await sendChatRequest(messages, baseSystemPrompt, 2, '视频通话·快照降级为文字');
+      chatData = await sendChatRequest(textOnlyMessages, baseSystemPrompt, 2, '视频通话·快照降级为文字');
     }
     const parsed = parseCallAssistantMessage(
       chatData?.choices?.[0]?.message,
@@ -2518,10 +2440,10 @@ ${sentencePlan}`;
   }, []);
 
   useEffect(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    const handlePlay = () => {
-      if (audioPrimingRef.current) return;
+    const elements = [localCallAudioRef.current, remoteCallAudioRef.current].filter((audio): audio is HTMLAudioElement => !!audio);
+    const handlePlay = (event: Event) => {
+      const audio = event.currentTarget as HTMLAudioElement;
+      if (audio !== audioRef.current || isVoiceAudioPriming(audio)) return;
       clearSilentSpeechTimer();
       setIsAudioPlaying(true);
       setCallState('speaking');
@@ -2534,22 +2456,29 @@ ${sentencePlan}`;
         : pending.fallbackMs;
       schedulePerformanceCues(pending.cues, durationMs);
     };
-    const handleStop = () => {
-      if (audioPrimingRef.current) return;
+    const handleStop = (event: Event) => {
+      const audio = event.currentTarget as HTMLAudioElement;
+      if (audio !== audioRef.current || isVoiceAudioPriming(audio)) return;
       setIsAudioPlaying(false);
       clearPerformanceCueTimers();
       setCallState(previous => (previous === 'speaking' ? 'listening' : previous));
     };
-    audio.addEventListener('play', handlePlay);
-    audio.addEventListener('pause', handleStop);
-    audio.addEventListener('ended', handleStop);
+    for (const audio of elements) {
+      audio.addEventListener('play', handlePlay);
+      audio.addEventListener('pause', handleStop);
+      audio.addEventListener('ended', handleStop);
+      audio.addEventListener('error', handleStop);
+    }
     return () => {
-      audio.removeEventListener('play', handlePlay);
-      audio.removeEventListener('pause', handleStop);
-      audio.removeEventListener('ended', handleStop);
-      audio.pause();
-      audio.removeAttribute('src');
-      audio.load();
+      for (const audio of elements) {
+        audio.removeEventListener('play', handlePlay);
+        audio.removeEventListener('pause', handleStop);
+        audio.removeEventListener('ended', handleStop);
+        audio.removeEventListener('error', handleStop);
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
     };
   }, []);
 
@@ -2559,12 +2488,14 @@ ${sentencePlan}`;
 
   const startCallAudioElement = (audio: HTMLAudioElement, forceAudible = false): Promise<void> => {
     audio.muted = forceAudible ? false : !isSpeakerOn;
-    const feed = callMode === 'video' && !nativeCallAudioOnly ? getAudioFeed() : null;
+    const feed = callMode === 'video' && !nativeCallAudioOnly && audio === localCallAudioRef.current ? getAudioFeed() : null;
     // Both calls are made immediately in the originating click stack. The graph
     // is attached only after both succeeded, so a suspended context can never
     // steal otherwise-audible native media output.
     const unlockAttempt = feed?.unlock();
-    const playbackAttempt = audio.play();
+    let playbackAttempt: Promise<void>;
+    try { playbackAttempt = Promise.resolve(audio.play()); }
+    catch (error) { return Promise.reject(error); }
     if (feed && unlockAttempt) {
       void Promise.allSettled([unlockAttempt, playbackAttempt]).then(([unlockResult, playbackResult]) => {
         if (unlockResult.status === 'fulfilled' && unlockResult.value && playbackResult.status === 'fulfilled') {
@@ -2586,34 +2517,31 @@ ${sentencePlan}`;
     if (audioUrl !== targetUrl) setAudioUrl(targetUrl);
     // 时间轴在 onPlay 时用真实音频时长调度；拿不到时长再用估计值。
     pendingCueScheduleRef.current = cues?.length ? { cues, fallbackMs: estimatedDurationMs } : null;
-    const audio = audioRef.current;
+    const audio = canAnalyzeVoiceSource(targetUrl) ? localCallAudioRef.current! : remoteCallAudioRef.current!;
+    if (audioRef.current !== audio) {
+      const previousAudio = audioRef.current;
+      audioRef.current = audio;
+      previousAudio.pause();
+    }
+    audioFeedRef.current?.setActive(callMode === 'video' && audio === localCallAudioRef.current);
     audio.src = targetUrl;
     audio.currentTime = 0;
-    startCallAudioElement(audio, forceAudible).catch(() => {
+    startCallAudioElement(audio, forceAudible).catch(error => {
+      if (audioRef.current !== audio || audio.src !== targetUrl) return;
       pendingCueScheduleRef.current = null;
       if (callMode === 'video') playSilentAvatarSpeech('', cues, estimatedDurationMs);
       else setCallState('listening');
-      addToast(forceAudible ? '播放失败，请再点一次“重播语音”' : '浏览器拦截了本次自动播放；点“重播语音”即可恢复', 'info');
+      addToast(voicePlaybackErrorMessage(error, '重播语音'), 'info');
     });
     setCallState('speaking');
   };
-  const handlePlayBubbleAudio = async (bubble: CallBubble) => {
-    if (bubble.role !== 'assistant' || generatingAudioBubbleId) return;
-    if (bubble.audioUrl) {
-      if (!isSpeakerOn) setIsSpeakerOn(true);
-      playAudio(bubble.audioUrl, bubble.performanceTimeline, estimateSpeechMs(bubble.text), true);
-      trackEvent('重播一条通话语音');
-      return;
-    }
+  const ensureCallBubbleAudio = async (bubble: CallBubble, forceRegenerate = false): Promise<string | null> => {
+    if (bubble.role !== 'assistant' || generatingAudioBubbleId) return null;
+    if (bubble.audioUrl && !forceRegenerate) return bubble.audioUrl;
     if (!hasConfiguredVoice()) {
       addToast('还没有配置这个角色的语音', 'info');
-      return;
+      return null;
     }
-
-    // The click itself unlocks the persistent media element. TTS happens only
-    // after this point when automatic voice is disabled.
-    if (isAudioPlaying) pauseAudio();
-    primeCallAudioFromGesture(true);
     setGeneratingAudioBubbleId(bubble.id);
     setErrorMessage('');
     try {
@@ -2631,14 +2559,90 @@ ${sentencePlan}`;
         ...record,
         transcript: record.transcript.map(item => item.id === bubble.id ? { ...item, audioUrl: url } : item),
       })));
-      playAudio(url, bubble.performanceTimeline, estimateSpeechMs(bubble.text), true);
-      trackEvent('按需生成并播放通话语音');
+      return url;
     } catch (error: any) {
       setCallState('listening');
       setErrorMessage(error?.message || '语音生成失败');
       addToast(`语音生成失败：${error?.message || '未知错误'}`, 'error');
+      return null;
     } finally {
       setGeneratingAudioBubbleId(null);
+    }
+  };
+  const handlePlayBubbleAudio = async (bubble: CallBubble) => {
+    if (bubble.role !== 'assistant' || generatingAudioBubbleId) return;
+    if (bubble.audioUrl) {
+      if (!isSpeakerOn) setIsSpeakerOn(true);
+      playAudio(bubble.audioUrl, bubble.performanceTimeline, estimateSpeechMs(bubble.text), true);
+      trackEvent('重播一条通话语音');
+      return;
+    }
+    // The click itself unlocks the persistent media element. TTS happens only
+    // after this point when automatic voice is disabled.
+    if (isAudioPlaying) pauseAudio();
+    primeCallAudioFromGesture(true);
+    const url = await ensureCallBubbleAudio(bubble);
+    if (!url) return;
+    if (!isSpeakerOn) setIsSpeakerOn(true);
+    playAudio(url, bubble.performanceTimeline, estimateSpeechMs(bubble.text), true);
+    trackEvent('按需生成并播放通话语音');
+  };
+  const callFavoriteSourceKey = (charId: string, bubble: CallBubble) => `${charId}:${bubble.dbId || bubble.id}`;
+  const openCallVoiceFavorite = async (bubble: CallBubble, charId = selectedChar?.id || '', charName = selectedChar?.name || '未知角色') => {
+    if (bubble.role !== 'assistant' || !charId) return;
+    setVoiceFavoriteTarget({ bubble, charId, charName });
+    setVoiceFavoriteBusy(false);
+    setVoiceFavoriteSaved(!!await getVoiceFavorite('call', callFavoriteSourceKey(charId, bubble)).catch(() => null));
+  };
+  const toggleCallVoiceFavorite = async () => {
+    const target = voiceFavoriteTarget;
+    if (!target || voiceFavoriteBusy) return;
+    const sourceKey = callFavoriteSourceKey(target.charId, target.bubble);
+    setVoiceFavoriteBusy(true);
+    try {
+      if (voiceFavoriteSaved) {
+        await removeVoiceFavorite('call', sourceKey);
+        setVoiceFavoriteSaved(false);
+        addToast('已取消收藏语音', 'info');
+        return;
+      }
+
+      let url = target.bubble.audioUrl || await ensureCallBubbleAudio(target.bubble);
+      let blob: Blob | null = null;
+      if (url) {
+        try { blob = await fetchBlobForShare(url, 'audio/mpeg'); } catch { /* stale session URL: regenerate below */ }
+      }
+      if (!blob) {
+        url = await ensureCallBubbleAudio(target.bubble, true);
+        if (url) {
+          try { blob = await fetchBlobForShare(url, 'audio/mpeg'); } catch { /* handled below */ }
+        }
+      }
+      if (!blob) throw new Error('暂时拿不到这条语音的音频文件');
+
+      const parsed = extractVoiceTag(target.bubble.text);
+      const originalText = stripCallTextFormatting(parsed.display).trim()
+        || stripTtsMarkupForDisplay(parsed.voiceText, apiConfig)
+        || stripCallTextFormatting(target.bubble.text).trim();
+      const spokenText = stripTtsMarkupForDisplay(parsed.voiceText, apiConfig) || originalText;
+      await saveVoiceFavorite({
+        source: 'call',
+        sourceKey,
+        charId: target.charId,
+        charName: target.charName,
+        sourceTimestamp: target.bubble.timestamp,
+        originalText,
+        spokenText: spokenText !== originalText ? spokenText : undefined,
+        language: voiceLang || undefined,
+        blob,
+      });
+      setVoiceFavoriteSaved(true);
+      addToast('已收藏通话语音', 'success');
+      trackEvent('收藏通话语音');
+    } catch (error: any) {
+      addToast(error?.message || '收藏失败，请检查浏览器存储空间', 'error');
+    } finally {
+      setVoiceFavoriteBusy(false);
     }
   };
   const resumeAudio = () => {
@@ -3281,6 +3285,8 @@ ${sentencePlan}`;
   };
   // ── 视频舞台自定义背景：blobref 令牌（本地图片）或 http(s) 图床直链 ──
   const stageBackgroundUrl = useBlobRefUrl(selectedChar?.videoCallBackground);
+  // 通话页那层模糊头像画在 CSS background-image 上，吃不到 TokenImg 的解析，这里自己解析一次。
+  const blurredAvatarUrl = useBlobRefUrl(selectedChar?.avatar);
   const applyStageBackground = async (value?: string) => {
     if (!selectedChar) return;
     const previous = selectedChar.videoCallBackground;
@@ -3427,7 +3433,7 @@ ${sentencePlan}`;
         {selectedChar?.avatar && (
           <div className="absolute top-0 right-0 w-48 h-60 pointer-events-none"
             style={{ WebkitMaskImage: 'radial-gradient(135% 105% at 100% 0%, #000 32%, transparent 72%)', maskImage: 'radial-gradient(135% 105% at 100% 0%, #000 32%, transparent 72%)' }}>
-            <img src={selectedChar.avatar} alt="" className="w-full h-full object-cover object-top opacity-60" />
+            <TokenImg value={selectedChar.avatar} alt="" className="w-full h-full object-cover object-top opacity-60" />
           </div>
         )}
 
@@ -3465,7 +3471,7 @@ ${sentencePlan}`;
                   <div className="flex items-center gap-3.5">
                     <div className="w-12 h-12 rounded-full overflow-hidden border flex items-center justify-center font-semibold shrink-0"
                       style={{ borderColor: selected ? accentColor : 'rgba(255,255,255,0.25)', backgroundColor: `${accentColor}40` }}>
-                      {char.avatar ? <img src={char.avatar} alt={char.name} className="w-full h-full object-cover" /> : (char.name?.[0] || '角')}
+                      {char.avatar ? <TokenImg value={char.avatar} alt={char.name} className="w-full h-full object-cover" /> : (char.name?.[0] || '角')}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="font-semibold text-[15px] truncate" style={selected ? { color: accentColor } : undefined}>{char.name}</div>
@@ -3810,18 +3816,52 @@ ${sentencePlan}`;
         </div>
         <div className="mt-4 flex-1 overflow-y-auto space-y-2.5">
           {recordDetail.transcript.map(item => (
-            <div key={item.id} className={`rounded-2xl px-3.5 py-2.5 border border-white/10 backdrop-blur-md ${item.role === 'user' ? 'bg-white/[0.07] ml-6' : 'bg-white/[0.03] mr-6'}`}>
+            <div
+              key={item.id}
+              onContextMenu={(event) => {
+                if (item.role !== 'assistant') return;
+                event.preventDefault();
+                void openCallVoiceFavorite(item, recordDetail.characterId, recordDetail.characterName);
+              }}
+              onTouchStart={(event) => {
+                if (item.role !== 'assistant') return;
+                callLongPressTriggeredRef.current = false;
+                callTouchStartPos.current = { x: event.touches[0].clientX, y: event.touches[0].clientY };
+                longPressTimerRef.current = window.setTimeout(() => {
+                  callLongPressTriggeredRef.current = true;
+                  void openCallVoiceFavorite(item, recordDetail.characterId, recordDetail.characterName);
+                }, 450);
+              }}
+              onTouchMove={(event) => {
+                if (!longPressTimerRef.current) return;
+                const dx = Math.abs(event.touches[0].clientX - callTouchStartPos.current.x);
+                const dy = Math.abs(event.touches[0].clientY - callTouchStartPos.current.y);
+                if (dx > 10 || dy > 10) {
+                  window.clearTimeout(longPressTimerRef.current);
+                  longPressTimerRef.current = null;
+                }
+              }}
+              onTouchEnd={() => {
+                if (longPressTimerRef.current) window.clearTimeout(longPressTimerRef.current);
+                longPressTimerRef.current = null;
+              }}
+              className={`rounded-2xl px-3.5 py-2.5 border border-white/10 backdrop-blur-md ${item.role === 'user' ? 'bg-white/[0.07] ml-6' : 'bg-white/[0.03] mr-6'}`}
+            >
               <div className="text-[10px] text-white/45">{item.role === 'user' ? '你' : recordDetail.characterName} · {item.time}</div>
               {item.role === 'user' && <CallSnapshotImage imageRef={item.cameraSnapshotRef} expired={item.cameraSnapshotExpired} />}
               <div className="text-sm mt-1 leading-relaxed">{(() => {
                 if (item.role !== 'assistant') return item.text;
                 const { display, voiceText } = extractVoiceTag(item.text);
-                const cleanVoice = cleanVoiceMarkupForDisplay(voiceText);
+                const cleanVoice = stripTtsMarkupForDisplay(voiceText, apiConfig);
                 return <>{renderAssistantLine(display, accentColor)}{cleanVoice && <div className="mt-1 text-[10px] text-white/40 italic">{cleanVoice}</div>}</>;
               })()}</div>
               {item.role === 'assistant' && (
                 <button
-                  onClick={() => { void handlePlayBubbleAudio(item); trackEvent('播放通话记录里的语音'); }}
+                  onClick={() => {
+                    if (callLongPressTriggeredRef.current) { callLongPressTriggeredRef.current = false; return; }
+                    void handlePlayBubbleAudio(item);
+                    trackEvent('播放通话记录里的语音');
+                  }}
                   disabled={!!generatingAudioBubbleId}
                   className="mt-2 text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/60 transition hover:bg-white/15 disabled:opacity-40"
                 >
@@ -3844,6 +3884,15 @@ ${sentencePlan}`;
           className="keep-white w-full py-3 rounded-2xl mt-4 font-medium text-white transition active:scale-[0.98]"
           style={{ backgroundColor: accentColor }}
         >再打一通</button>
+        <VoiceFavoriteActionSheet
+          open={!!voiceFavoriteTarget}
+          favorited={voiceFavoriteSaved}
+          busy={voiceFavoriteBusy}
+          title="通话语音"
+          preview={voiceFavoriteTarget ? (stripCallTextFormatting(extractVoiceTag(voiceFavoriteTarget.bubble.text).display) || stripTtsMarkupForDisplay(extractVoiceTag(voiceFavoriteTarget.bubble.text).voiceText, apiConfig)) : ''}
+          onToggle={() => void toggleCallVoiceFavorite()}
+          onClose={() => { if (!voiceFavoriteBusy) setVoiceFavoriteTarget(null); }}
+        />
       </div>
     );
   }
@@ -3903,7 +3952,7 @@ ${sentencePlan}`;
       {/* blurred character art */}
       <div
         className={`absolute inset-0 bg-cover bg-center scale-125 blur-3xl ${isProLight || lightTheme ? 'opacity-10' : 'opacity-30'}`}
-        style={{ backgroundImage: selectedChar?.avatar ? `url(${selectedChar.avatar})` : undefined }}
+        style={{ backgroundImage: blurredAvatarUrl ? `url(${blurredAvatarUrl})` : undefined }}
       />
       {/* accent aura glows */}
       <div className="absolute -top-28 left-1/2 -translate-x-1/2 w-[130%] h-72 rounded-full blur-3xl opacity-40 pointer-events-none"
@@ -3925,7 +3974,7 @@ ${sentencePlan}`;
       {/* top channel bar */}
       <div className="relative shrink-0 px-5" style={{ paddingTop: 'max(2.25rem, var(--safe-top))' }}>
         <div className="absolute left-5 leading-tight" style={{ top: 'max(2.25rem, var(--safe-top))' }}>
-          <div className="text-[9px] tracking-[0.28em] text-white/45 font-semibold">{callMode === 'video' ? 'SULLYOS · VIDEO DATE' : 'PRIVATE CHANNEL'}</div>
+          <div className="text-[9px] tracking-[0.28em] text-white/45 font-semibold">{callMode === 'video' ? 'SullyOS·糯米机 · VIDEO DATE' : 'PRIVATE CHANNEL'}</div>
           <div className="mt-1.5 flex items-center gap-1.5 text-[8px] tracking-[0.22em] text-white/35">
             {callMode === 'video' ? 'CHARACTER LINK' : 'VOICE SYNC'}
             <span className="flex items-center gap-[2px] h-2">
@@ -4039,7 +4088,13 @@ ${sentencePlan}`;
                   ? fakeUserCameraUrl
                     ? <img src={fakeUserCameraUrl} alt="用户静态画面" className="h-full w-full object-cover" />
                     : <div className="flex h-full w-full items-center justify-center text-[8px] text-white/35">NO IMAGE</div>
-                  : <video ref={userCameraVideoRef} muted playsInline autoPlay className="h-full w-full scale-x-[-1] object-cover" />}
+                  : <video ref={userCameraVideoRef} muted playsInline autoPlay className="h-full w-full object-cover" style={{ transform: userCameraFacing === 'user' ? 'scaleX(-1)' : undefined }} />}
+                {(userCameraMode === 'emotion' || userCameraMode === 'snapshot') && <button
+                  type="button" aria-label="切换前后摄像头" title="切换前后摄像头"
+                  disabled={userCameraLoading}
+                  onClick={() => void startUserCamera(userCameraMode, userCameraFacing === 'user' ? 'environment' : 'user')}
+                  className="absolute right-1 top-1 z-20 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white disabled:opacity-40"
+                ><ArrowsClockwise size={19} /></button>}
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/70 to-transparent" aria-hidden />
                 <span
                   className={`absolute left-2 top-2 rounded-full border border-white/15 bg-black/50 px-1.5 py-0.5 text-[6px] font-semibold tracking-[0.14em] backdrop-blur-md ${userCameraMode === 'emotion' ? 'text-emerald-200' : userCameraMode === 'snapshot' ? 'text-violet-200' : 'text-white/70'}`}
@@ -4105,7 +4160,7 @@ ${sentencePlan}`;
               <div className={`absolute inset-0 rounded-full border ${displayCallState === 'speaking' ? 'animate-ping' : 'opacity-40'}`} style={{ borderColor: `${accentColor}66` }} />
             </>}
             {selectedChar?.avatar
-              ? <img src={selectedChar.avatar} alt={selectedChar.name} draggable={false} className="relative z-10 h-full w-full rounded-full object-cover" style={{ boxShadow: isProLight ? '0 4px 14px rgba(15,23,42,.18)' : `0 0 30px ${accentColor}55` }} />
+              ? <TokenImg value={selectedChar.avatar} alt={selectedChar.name} draggable={false} className="relative z-10 h-full w-full rounded-full object-cover" style={{ boxShadow: isProLight ? '0 4px 14px rgba(15,23,42,.18)' : `0 0 30px ${accentColor}55` }} />
               : <div className="relative z-10 flex h-full w-full items-center justify-center rounded-full text-4xl font-serif" style={{ backgroundColor: `${accentColor}55` }}>{selectedChar?.name?.[0] || '角'}</div>}
             <AvatarTouchFeedback
               characterName={selectedChar?.name || '对方'}
@@ -4192,12 +4247,17 @@ ${sentencePlan}`;
             key={bubble.id}
             onContextMenu={(e) => {
               e.preventDefault();
-              startEditBubble(bubble);
+              if (bubble.role === 'assistant') void openCallVoiceFavorite(bubble);
+              else startEditBubble(bubble);
             }}
             onTouchStart={(e) => {
-              if (bubble.role !== 'user') return;
+              callLongPressTriggeredRef.current = false;
               callTouchStartPos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-              longPressTimerRef.current = window.setTimeout(() => startEditBubble(bubble), 450);
+              longPressTimerRef.current = window.setTimeout(() => {
+                callLongPressTriggeredRef.current = true;
+                if (bubble.role === 'assistant') void openCallVoiceFavorite(bubble);
+                else startEditBubble(bubble);
+              }, 450);
             }}
             onTouchMove={(e) => {
               if (!longPressTimerRef.current) return;
@@ -4223,7 +4283,7 @@ ${sentencePlan}`;
             <div className={`${sizeClass} whitespace-pre-wrap leading-relaxed ${bubble.role === 'user' ? 'inline-block text-left text-white/90 bg-white/[0.06] border border-white/10 rounded-2xl rounded-tr-sm px-3 py-1.5' : 'text-white/95'}`}>
               {bubble.role === 'assistant' ? (() => {
                 const { display, voiceText } = extractVoiceTag(line || bubble.text);
-                const cleanVoice = cleanVoiceMarkupForDisplay(voiceText);
+                const cleanVoice = stripTtsMarkupForDisplay(voiceText, apiConfig);
                 return <>
                   {bubble.thinkingChain && (
                     <details className="group mb-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-2 text-[11px] text-white/55">
@@ -4239,7 +4299,10 @@ ${sentencePlan}`;
             {bubble.role === 'assistant' && (
               <div className="mt-2 flex gap-2 flex-wrap">
                 <button
-                  onClick={() => { void handlePlayBubbleAudio(bubble); }}
+                  onClick={() => {
+                    if (callLongPressTriggeredRef.current) { callLongPressTriggeredRef.current = false; return; }
+                    void handlePlayBubbleAudio(bubble);
+                  }}
                   disabled={!!generatingAudioBubbleId}
                   className="text-xs px-2.5 py-1 rounded-full bg-white/8 border border-white/15 text-white/70 transition hover:bg-white/15 disabled:opacity-40"
                 >
@@ -4417,13 +4480,14 @@ ${sentencePlan}`;
             <p className="text-xs text-white/40">选择后，角色会用中文回复，语音则用对应语种朗读</p>
             <div className="flex flex-wrap gap-2 pt-1">
               {VOICE_LANGUAGE_OPTIONS.map(opt => (
-                <button key={opt.value} onClick={() => { setVoiceLang(opt.value); if (selectedChar) updateCharacter(selectedChar.id, { callVoiceLang: opt.value }); setShowLangPicker(false); trackEvent('设置通话语音语种', { lang: opt.value }); }}
+                <button key={opt.value} onClick={() => { setVoiceLang(opt.value); if (selectedChar) updateCharacter(selectedChar.id, { callVoiceLang: opt.value }); setShowLangPicker(false); trackEvent('设置通话语音语种', { 语种: voiceLanguageAnalyticsValue(opt.value) }); }}
                   className={`text-xs px-3 py-2 rounded-full font-medium transition-colors text-white ${voiceLang === opt.value ? 'keep-white' : ''}`}
                   style={voiceLang === opt.value ? { backgroundColor: accentColor } : lightTheme ? { background: 'rgba(38,34,57,0.08)' } : { background: 'rgba(255,255,255,0.1)' }}>
                   {opt.label}
                 </button>
               ))}
             </div>
+            {voiceLang === 'yue' && <p className="text-[10px] text-amber-300/70">{CANTONESE_VOICE_SUPPORT_NOTE}</p>}
           </div>
         </div>
       )}
@@ -4473,6 +4537,15 @@ ${sentencePlan}`;
           </div>
         </div>
       )}
+      <VoiceFavoriteActionSheet
+        open={!!voiceFavoriteTarget}
+        favorited={voiceFavoriteSaved}
+        busy={voiceFavoriteBusy}
+        title="通话语音"
+        preview={voiceFavoriteTarget ? (stripCallTextFormatting(extractVoiceTag(voiceFavoriteTarget.bubble.text).display) || stripTtsMarkupForDisplay(extractVoiceTag(voiceFavoriteTarget.bubble.text).voiceText, apiConfig)) : ''}
+        onToggle={() => void toggleCallVoiceFavorite()}
+        onClose={() => { if (!voiceFavoriteBusy) setVoiceFavoriteTarget(null); }}
+      />
       {showLive2DSettings && selectedChar?.videoAvatar?.format === 'live2d' && (
         <div className="sully-stage-dark" style={{ display: 'contents' }}>
           <Live2DActionSettings

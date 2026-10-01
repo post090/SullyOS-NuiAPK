@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
@@ -11,6 +12,7 @@ import { trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { Planet, RocketLaunch, Lightning, LockSimple, DiceFive, Toolbox, FloppyDisk, ArrowsClockwise, DoorOpen } from '@phosphor-icons/react';
+import TokenImg from '../components/os/TokenImg';
 
 // --- Themes Configuration (Enhanced) ---
 const GAME_THEMES: Record<GameTheme, { bg: string, text: string, accent: string, font: string, border: string, cardBg: string, gradient: string, optionNormal: string, optionChaotic: string, optionEvil: string }> = {
@@ -299,13 +301,17 @@ const GameApp: React.FC = () => {
     };
 
     // --- Helper: Robust API Call ---
-    const fetchGameAPI = async (prompt: string, maxTokens: number = 8000) => {
+    const fetchGameAPI = async (prompt: string, maxTokens: number = 8000, members: CharacterProfile[] = []) => {
+        const history = [{ role: 'user', content: '请按上述要求继续本轮游戏。' }];
+        const messages = members.length ? ContextBuilder.buildGroupWorldbookRequest({ members, user: userProfile, history, scanMessages: [{ role: 'user', content: prompt }],
+            render: (slots, turns) => [{ role: 'system', content: slots.before + prompt + slots.after }, ...turns],
+        }) : [{ role: 'user', content: prompt }];
         const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: [{ role: "user", content: prompt }],
+                messages,
                 temperature: 0.9, 
                 max_tokens: maxTokens,
                 stream: false
@@ -351,7 +357,7 @@ const GameApp: React.FC = () => {
 
         // [优化] 多人同场时，把"用户档案 / 共有世界观 / 被多名角色挂载的世界书"提取到顶部
         // 只铺一次，避免每个角色块里重复贴同一份世界书（去重，省 token 也防串台）。
-        const sharedScene = ContextBuilder.buildGroupSharedScene(players, userProfile);
+        const sharedScene = ContextBuilder.buildGroupSharedScene(players.map(p => ({ ...p, mountedWorldbooks: [] })), userProfile);
         if (sharedScene.text) {
             fullContext += `${sharedScene.text}\n`;
         }
@@ -363,7 +369,7 @@ const GameApp: React.FC = () => {
             //   + 下方按需注入的记忆宫殿向量召回（只取与当前情境相关的片段）。
             //   同时跳过共享场景里已铺过的用户档案 / 世界书 / 世界观，彻底去重。
             await injectMemoryPalace(p);
-            const core = ContextBuilder.buildCoreContext(p, userProfile, false, undefined, {
+            const core = ContextBuilder.buildCoreContext({ ...p, mountedWorldbooks: [] }, userProfile, false, undefined, {
                 skipUserProfile: true,
                 skipWorldview: sharedScene.worldviewIsShared,
                 skipWorldbookIds: sharedScene.sharedWorldbookIds,
@@ -381,7 +387,7 @@ const GameApp: React.FC = () => {
 
             // 2. Neural Link: Private Chat Sync
             try {
-                const msgs = await DB.getMessagesByCharId(p.id, true);
+                const msgs = await loadCharacterContextMessages(p);
                 const privateMsgs = msgs.filter(m => !m.groupId); // Only private chats (Neural Link needs full history)
                 
                 const lastMsg = privateMsgs[privateMsgs.length - 1];
@@ -524,7 +530,7 @@ ${playerContext}
   ]
 }`;
 
-            const data = await fetchGameAPI(prompt);
+            const data = await fetchGameAPI(prompt, 8000, players);
             const rawContent = extractContent(data);
             if (!rawContent) throw new Error('AI 返回了空响应');
 
@@ -786,7 +792,7 @@ ${rollInstruction}
   ]
 }`;
 
-            const data = await fetchGameAPI(prompt);
+            const data = await fetchGameAPI(prompt, 8000, players);
             const rawContent = extractContent(data);
             if (!rawContent) throw new Error('AI 返回了空响应');
 
@@ -895,7 +901,7 @@ ${logText}
 
 直接输出总结正文：`;
 
-            const data = await fetchGameAPI(prompt, 1500);
+            const data = await fetchGameAPI(prompt, 1500, players);
             let summaryText = (extractContent(data) || '').trim();
             if (!summaryText) summaryText = '（这段冒险继续推进了剧情）';
 
@@ -1054,7 +1060,7 @@ Logs:
 ${logText}
 Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆"). No preamble.`;
 
-            const data = await fetchGameAPI(prompt);
+            const data = await fetchGameAPI(prompt, 8000, players);
             let summary = extractContent(data) || '进行了一场冒险';
             summary = summary.replace(/[。\.]$/, ''); // Remove trailing dot
 
@@ -1261,7 +1267,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                     <div className="flex justify-between items-end mt-2 pt-2 border-t border-white/10">
                                         <div className="flex -space-x-2">
                                             {characters.filter(c => g.playerCharIds.includes(c.id)).map(c => (
-                                                <img key={c.id} src={c.avatar} className="w-8 h-8 rounded-full border-2 border-black/50 object-cover shadow-sm" />
+                                                <TokenImg key={c.id} value={c.avatar} className="w-8 h-8 rounded-full border-2 border-black/50 object-cover shadow-sm" />
                                             ))}
                                         </div>
                                         <div className="text-[10px] text-white/40 font-mono">
@@ -1488,7 +1494,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                     return (
                                         <div key={c.id} onClick={() => { const s = new Set(selectedPlayers); if(s.has(c.id)) s.delete(c.id); else s.add(c.id); setSelectedPlayers(s); }} className={`flex flex-col items-center p-2 rounded-2xl border cursor-pointer transition-all active:scale-95 ${sel ? 'border-purple-400 bg-purple-500/15' : 'border-white/5 hover:bg-white/5'}`}>
                                             <div className="relative">
-                                                <img src={c.avatar} className={`w-12 h-12 rounded-full object-cover transition-all ${sel ? 'ring-2 ring-purple-400 ring-offset-2 ring-offset-[#0a0a0a]' : 'opacity-80'}`} />
+                                                <TokenImg value={c.avatar} className={`w-12 h-12 rounded-full object-cover transition-all ${sel ? 'ring-2 ring-purple-400 ring-offset-2 ring-offset-[#0a0a0a]' : 'opacity-80'}`} />
                                                 {sel && <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-purple-500 rounded-full flex items-center justify-center border-2 border-[#0a0a0a]"><svg viewBox="0 0 20 20" fill="currentColor" className="w-2.5 h-2.5 text-white"><path fillRule="evenodd" d="M16.704 4.153a.75.75 0 0 1 .143 1.052l-8 10.5a.75.75 0 0 1-1.127.075l-4.5-4.5a.75.75 0 0 1 1.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 0 1 1.05-.143Z" clipRule="evenodd" /></svg></div>}
                                             </div>
                                             <span className={`text-[9px] mt-2 truncate w-full text-center font-medium ${sel ? 'text-purple-200' : 'text-white/50'}`}>{c.name}</span>
@@ -1561,13 +1567,13 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                 <div className={`flex gap-4 p-3 overflow-x-auto no-scrollbar border-b ${theme.border} bg-black/20 backdrop-blur-sm z-10 shrink-0 animate-slide-down`}>
                     {/* User Avatar */}
                     <div className="relative group shrink-0">
-                        <img src={userProfile.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm" />
+                        <TokenImg value={userProfile.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm" />
                         <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 bg-black/60 text-white text-[8px] px-1.5 rounded-full backdrop-blur-sm whitespace-nowrap">YOU</div>
                     </div>
                     {/* Teammates */}
                     {activePlayers.map(p => (
                         <div key={p.id} className="relative group shrink-0 cursor-pointer active:scale-95 transition-transform">
-                            <img src={p.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm group-hover:border-white/50 transition-colors" />
+                            <TokenImg value={p.avatar} className="w-10 h-10 rounded-full border-2 border-white/20 object-cover shadow-sm group-hover:border-white/50 transition-colors" />
                             <div className="absolute inset-0 rounded-full ring-2 ring-transparent group-hover:ring-green-400/50 transition-all"></div>
                             {/* Simple Status Indicator (Green Dot) */}
                             <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-black/50 shadow-sm animate-pulse"></div>
@@ -1634,9 +1640,9 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                     const renderLogs = (logs: GameLog[]) => (
                         <div className={`pl-3 border-l-2 ${theme.border} space-y-1.5 mt-2`}>
                             {logs.map((log, li) => (
-                                <div key={log.id || li} className="text-[11px] leading-snug">
+                                <div key={log.id || li} className="text-sm leading-relaxed break-words" data-game-archived-log={log.id}>
                                     <span className="font-bold opacity-70">{log.role === 'gm' ? 'GM' : (log.speakerName || 'System')}: </span>
-                                    <span className="opacity-70">{log.content.replace(/\n+/g, ' ').slice(0, 140)}{log.content.length > 140 ? '…' : ''}</span>
+                                    <GameMarkdown content={log.content} theme={theme} />
                                 </div>
                             ))}
                         </div>
@@ -1662,9 +1668,9 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                                                     className={`w-full text-left text-[10px] font-mono opacity-50 hover:opacity-90 transition-opacity flex items-center gap-1.5`}
                                                 >
                                                     <span>{open ? '▾' : '▸'}</span>
-                                                    <span>第 {g.index + 1} 段 · 原文 {g.logs.length} 条 {open ? '' : '(点击查看)'}</span>
+                                                    <span>第 {g.index + 1} 段 · 完整原文 {g.logs.length} 条 {open ? '' : '(点击展开)'}</span>
                                                 </button>
-                                                {open && <div className="opacity-50">{renderLogs(g.logs)}</div>}
+                                                {open && <div>{renderLogs(g.logs)}</div>}
                                                 {/* 原文下面就是这段的总结 */}
                                                 <div className={`p-4 rounded-lg border ${theme.border} ${theme.cardBg} text-xs italic leading-relaxed opacity-80`}>
                                                     <div className="text-[10px] font-bold uppercase tracking-widest mb-1 not-italic opacity-70">前情提要 · 第 {g.index + 1} 段</div>
@@ -1711,7 +1717,7 @@ Output: A concise summary in Chinese (e.g. "探索了地牢并击败了史莱姆
                     } else if (isCharacter && charInfo) {
                         inner = (
                             <div className="flex gap-3 animate-slide-up group relative">
-                                <img src={charInfo.avatar} className={`w-10 h-10 rounded-full object-cover border ${theme.border} shrink-0 mt-1`} />
+                                <TokenImg value={charInfo.avatar} className={`w-10 h-10 rounded-full object-cover border ${theme.border} shrink-0 mt-1`} />
                                 <div className="flex flex-col max-w-[85%]">
                                     <span className="text-[10px] font-bold opacity-60 mb-1 ml-1">{charInfo.name}</span>
                                     <div className={`px-4 py-2 rounded-2xl rounded-tl-none text-sm ${theme.cardBg} border ${theme.border} shadow-sm relative`}>

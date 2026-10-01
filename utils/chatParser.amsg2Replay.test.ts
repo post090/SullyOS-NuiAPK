@@ -298,7 +298,7 @@ describe('MUSIC_ACTION 用推送里冻结的那首歌重放', () => {
         expect(card.metadata?.song).toMatchObject({ songId: 777, name: '早就被删掉的歌', albumPic: '' });
     });
 
-    it('没传冻结的歌（instant push / 本地聊天）→ 维持老行为，取用户此刻在听的那首', async () => {
+    it('没传冻结的歌（本地聊天）→ 取用户此刻在听的那首', async () => {
         const charId = `c-music-live-${Date.now()}`;
         const addSong = vi.fn().mockResolvedValue({ playlistTitle: '我喜欢的音乐', created: false });
         const userSong = {

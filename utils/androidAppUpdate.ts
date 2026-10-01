@@ -39,6 +39,29 @@ const ApkInstaller = registerPlugin<ApkInstallerPlugin>('ApkInstaller');
 const UPDATE_DIRECTORY = 'updates';
 const UPDATE_PATH = 'updates/SullyOS-update.apk';
 
+const isDirectoryExistsError = (error: unknown): boolean => {
+  const record = error && typeof error === 'object' ? error as Record<string, unknown> : null;
+  const detail = [record?.code, record?.message, error instanceof Error ? error.message : error]
+    .filter(value => typeof value === 'string')
+    .join(' ');
+  return /directory\s*(?:does\s+already\s*)?exists|directoryexists|\beexist\b/i.test(detail);
+};
+
+const ensureUpdateDirectory = async (): Promise<void> => {
+  try {
+    await Filesystem.mkdir({
+      path: UPDATE_DIRECTORY,
+      directory: Directory.Cache,
+      recursive: true,
+    });
+  } catch (error) {
+    // Capacitor Filesystem rejects mkdir even with recursive=true when the
+    // directory already exists. A previous update attempt leaving this cache
+    // directory behind is the normal repeat-download path, not a failure.
+    if (!isDirectoryExistsError(error)) throw error;
+  }
+};
+
 export const getAndroidUpdateManifestUrl = (): string =>
   String(import.meta.env.VITE_APK_UPDATE_MANIFEST_URL || '').trim();
 
@@ -89,15 +112,52 @@ export const fetchAndroidUpdateManifest = async (): Promise<AndroidUpdateManifes
   return parseAndroidUpdateManifest(await response.json());
 };
 
-export const downloadAndVerifyAndroidUpdate = async (
+interface ActiveDownload {
+  key: string;
+  promise: Promise<string>;
+  progress: number;
+  listeners: Set<(fraction: number) => void>;
+}
+
+let activeDownload: ActiveDownload | null = null;
+
+// The native transfer outlives React pages. Acquire this lock synchronously,
+// before mkdir/deleteFile, and hold it through signature/version verification.
+export const downloadAndVerifyAndroidUpdate = (
   manifest: AndroidUpdateManifest,
   onProgress?: (fraction: number) => void,
 ): Promise<string> => {
-  await Filesystem.mkdir({
-    path: UPDATE_DIRECTORY,
-    directory: Directory.Cache,
-    recursive: true,
+  const key = JSON.stringify([manifest.versionCode, manifest.apkUrl, manifest.sha256, manifest.sizeBytes]);
+  if (activeDownload) {
+    if (activeDownload.key !== key) return Promise.reject(new Error('另一个更新正在下载或校验，请等待完成'));
+    if (onProgress) {
+      activeDownload.listeners.add(onProgress);
+      try { onProgress(activeDownload.progress); } catch { /* UI cannot interrupt a transfer. */ }
+    }
+    return activeDownload.promise;
+  }
+  const listeners = new Set<(fraction: number) => void>();
+  if (onProgress) listeners.add(onProgress);
+  const promise = Promise.resolve().then(() => performDownload(manifest, fraction => {
+    if (!Number.isFinite(fraction)) return;
+    task.progress = Math.max(task.progress, Math.min(1, Math.max(0, fraction)));
+    for (const listener of task.listeners) {
+      try { listener(task.progress); } catch { /* Keep other subscribers and verification alive. */ }
+    }
+  })).finally(() => {
+    if (activeDownload === task) activeDownload = null;
+    task.listeners.clear();
   });
+  const task: ActiveDownload = { key, promise, progress: 0, listeners };
+  activeDownload = task;
+  return promise;
+};
+
+const performDownload = async (
+  manifest: AndroidUpdateManifest,
+  onProgress?: (fraction: number) => void,
+): Promise<string> => {
+  await ensureUpdateDirectory();
 
   try {
     await Filesystem.deleteFile({ path: UPDATE_PATH, directory: Directory.Cache });
@@ -117,11 +177,11 @@ export const downloadAndVerifyAndroidUpdate = async (
       url: manifest.apkUrl,
       path: UPDATE_PATH,
       directory: Directory.Cache,
-      recursive: true,
       progress: Boolean(onProgress),
     });
   } finally {
-    await progressHandle?.remove();
+    // A listener cleanup failure must not skip APK verification or strand the lock.
+    await progressHandle?.remove().catch(() => undefined);
   }
 
   const { uri } = await Filesystem.getUri({ path: UPDATE_PATH, directory: Directory.Cache });

@@ -16,6 +16,7 @@ import { neteaseCacheClearAll } from '../utils/neteaseCache';
 import { DB } from '../utils/db';
 import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT } from '../utils/proxyWorker';
 import type { PostProcessMusicHooks } from '../utils/applyAssistantPostProcessing';
+import { resolveRefToDataUrl } from '../utils/blobRef';
 
 /* ───────────── 类型 ───────────── */
 export type MusicQuality = 'standard' | 'higher' | 'exhigh' | 'lossless' | 'hires';
@@ -196,7 +197,7 @@ export const loadMusicPlaybackSnapshot = (): MusicPlaybackSnapshot | null => __m
 /**
  * 模块级 musicHooks 出口 — 给 ChatParser.MUSIC_ACTION 用的三个钩子打包成一个对象, 由
  * MusicProvider mount 后持续写入最新闭包. 让 useChatAI (本地 fetch 路径) 和
- * activeMsgRuntime (instant push 路径) 都从这里取, 避免逻辑双份维护 / push 路径漏注入.
+ * activeMsgRuntime (云端回复的冲刷) 都从这里取, 避免逻辑双份维护 / push 路径漏注入.
  * 行为细节见 chatParser.ts 的 MUSIC_ACTION 分支.
  */
 let __musicHooks: PostProcessMusicHooks | null = null;
@@ -441,6 +442,7 @@ interface MusicContextType {
 }
 
 const MusicContext = createContext<MusicContextType | undefined>(undefined);
+export const MusicPreviewProvider = MusicContext.Provider;
 
 /* ───────────── Provider ───────────── */
 export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -885,13 +887,17 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       // 媒体会话（锁屏 / 通知栏）
       if ('mediaSession' in navigator) {
         try {
+          // 锁屏/通知栏的封面不是 DOM，喂不了 blobref 令牌——那边只认能直接加载的地址。
+          // 用户自己上传的歌曲封面存的就是令牌，不解析的话锁屏上是空白（而且不报错）。
+          // resolveRefToDataUrl 对非令牌原样返回，所以可以无条件走。
+          const artworkSrc = song.albumPic ? await resolveRefToDataUrl(song.albumPic) : '';
           (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
             title: song.name,
             artist: song.artists,
             album: song.album,
-            artwork: song.albumPic ? [
-              { src: song.albumPic, sizes: '300x300', type: 'image/jpeg' },
-              { src: song.albumPic, sizes: '512x512', type: 'image/jpeg' },
+            artwork: artworkSrc ? [
+              { src: artworkSrc, sizes: '300x300', type: 'image/jpeg' },
+              { src: artworkSrc, sizes: '512x512', type: 'image/jpeg' },
             ] : [],
           });
         } catch {}
@@ -1128,7 +1134,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [current, playing, lyric, activeLyricIdx, listeningTogetherWith, cfg, recentTrackChange]);
 
-  // 把整组 musicHooks 写到模块级 slot — useChatAI 和 instant push activeMsgRuntime 都从这里取.
+  // 把整组 musicHooks 写到模块级 slot — useChatAI 和 activeMsgRuntime 都从这里取.
   // current / addListeningPartner 变化时刷新闭包, 保证读到的是最新 React state.
   // addSongToCharPlaylist 直接落 DB, 落完广播 'char-music-profile-updated' 让 OSContext
   // 把新歌单同步回内存里的角色 (顺带刷主动消息 2.0 的云端快照).

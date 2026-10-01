@@ -94,6 +94,18 @@ describe('iOS 全屏 PWA 键盘态', () => {
         vi.restoreAllMocks();
     });
 
+    it('键盘态允许输入框内部滑动与选区，同时继续拦截外层拖动', async () => {
+        await install();
+        const textarea = focusTextarea();
+        emitViewportResize(SCREEN_H - KEYBOARD_H);
+        const inside = new Event('touchmove', { bubbles: true, cancelable: true });
+        textarea.dispatchEvent(inside);
+        expect(inside.defaultPrevented).toBe(false);
+        const outside = new Event('touchmove', { bubbles: true, cancelable: true });
+        document.body.dispatchEvent(outside);
+        expect(outside.defaultPrevented).toBe(true);
+    });
+
     it('无键盘时 app 高度 = 可视高度 + 底部安全区（那段溢出区留给 home 条）', async () => {
         await install();
         expect(appHeight()).toBe(`${SCREEN_H + SAFE_BOTTOM}px`);

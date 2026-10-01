@@ -10,7 +10,13 @@ import {
     type Amsg2DebugTaskView,
     type Amsg2PanelPosition,
 } from '../utils/amsg2DebugView';
-import { readRecentInstantTraces } from '../utils/instantTraceLog';
+import {
+    formatFullTraceLog,
+    readAllInstantTraces,
+    readRecentInstantTraces,
+} from '../utils/instantTraceLog';
+import { shareOrDownloadBlob } from '../utils/shareExport';
+import { summarizeChannelHealth, type SwChannelHealth } from '../utils/swChannelProbe';
 import {
     describeExpirePolicy,
     describeRecurrence,
@@ -54,6 +60,9 @@ type TraceEntry = ReturnType<typeof readRecentInstantTraces>[number];
 
 // 送达相关的事件挑出来上色：作废 / 吞没 / 失败是橙的（消息没发出去），收到是绿的。
 function traceColor(event: string): string {
+    // 防穿帮闸的「放行了」和「没跑」都是正常结局，名字里带 expire 但不该刷成告警色——
+    // 一屏橙色的话，真正要找的那条（吞掉）反而不显眼了。这两条排在下面那行之前。
+    if (/expire-decision-pass|expire-gate-skipped/i.test(event)) return C.dim;
     if (/expire|swallow|fail|error|timeout/i.test(event)) return C.orange;
     if (/receiv|deliver|ok|success/i.test(event)) return C.green;
     return C.dim;
@@ -152,11 +161,17 @@ const Amsg2DebugPanel: React.FC = () => {
     const [enabled, setEnabled] = useState(() => readDevDebugFlags().amsg2Panel);
     const [fullscreen, setFullscreen] = useState(false);
     const [traces, setTraces] = useState<TraceEntry[]>([]);
+    // 缓冲里一共攒了多少条（列表只显示得下最近几条）。导出按钮报的是这个数，
+    // 用户才知道自己交出去的是全部现场、不是屏幕上这几行。
+    const [traceTotal, setTraceTotal] = useState(0);
+    const [traceExport, setTraceExport] = useState<'idle' | 'done' | 'failed'>('idle');
     const [nowMs, setNowMs] = useState(() => Date.now());
     // null = 还没拖过，用默认的右上角；拖过之后记实际坐标。不持久化，关掉重开回默认。
     const [position, setPosition] = useState<Amsg2PanelPosition | null>(null);
     const panelRef = useRef<HTMLDivElement | null>(null);
     const dragRef = useRef<{ pointerId: number; startX: number; startY: number; origin: Amsg2PanelPosition } | null>(null);
+
+    const [health, setHealth] = useState<SwChannelHealth | null>(null);
 
     useEffect(() => subscribeDevDebugAvailability(setAvailable), []);
     useEffect(() => subscribeDevDebugFlags((flags) => setEnabled(flags.amsg2Panel)), []);
@@ -165,7 +180,13 @@ const Amsg2DebugPanel: React.FC = () => {
 
     useEffect(() => {
         if (!active) return;
-        const readTraces = () => setTraces(readRecentInstantTraces(TRACE_SHOWN));
+        const readTraces = () => {
+            setTraces(readRecentInstantTraces(TRACE_SHOWN));
+            const all = readAllInstantTraces();
+            setTraceTotal(all.length);
+            // 用全部两百条算，而不是上面显示的那几条：通道断没断要看一段时间的走势。
+            setHealth(summarizeChannelHealth(all));
+        };
         readTraces();
         const timer = window.setInterval(readTraces, TRACE_RELOAD_MS);
         return () => window.clearInterval(timer);
@@ -211,6 +232,35 @@ const Amsg2DebugPanel: React.FC = () => {
         setFullscreen(false);
         setPosition(null);
         setEnabled(writeDevDebugFlags({ ...readDevDebugFlags(), amsg2Panel: false }).amsg2Panel);
+    };
+
+    /**
+     * 把整个 trace 缓冲导出成一个 json 文件。
+     *
+     * 走 shareOrDownloadBlob（跟导出备份同一条路）而不是自己拼 `<a download>`：这个按钮
+     * 的使用场景就是「用户在手机上，隔着屏幕把现场发过来」，而原生壳 / iOS PWA 里裸的
+     * blob 下载基本是死的——那条路上先试系统分享面板，实在不行才退回浏览器下载。
+     * 失败（分享被拒 / 原生插件挂了）就把按钮改成「导出失败」，别假装成功——
+     * 用户会以为文件已经在手上了。
+     */
+    const exportTraces = async () => {
+        // 页面侧 + SW 侧合在一起导：只有页面那半截的话，「推送到没到、SW 有没有喊到
+        // 页面」全看不见，而这类故障的答案恰恰在那一段。
+        const text = await formatFullTraceLog();
+        if (!text) return;
+        try {
+            const result = await shareOrDownloadBlob({
+                blob: new Blob([text], { type: 'application/json' }),
+                fileName: `sullyos_amsg2_trace_${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+                shareTitle: 'SullyOS·糯米机 amsg2 trace',
+            });
+            // 用户自己在分享面板上点了取消：既不算成功也不是错，按钮回到原样就行。
+            if (result === 'cancelled') return;
+            setTraceExport('done');
+        } catch {
+            setTraceExport('failed');
+        }
+        window.setTimeout(() => setTraceExport('idle'), 1500);
     };
 
     // 全屏时四边都钉死了，没有可拖的余地。
@@ -329,10 +379,63 @@ const Amsg2DebugPanel: React.FC = () => {
                     ))
                 )}
 
-                <div style={{ borderTop: `1px solid ${C.line}`, marginTop: 6, paddingTop: 5, color: C.yellow }}>
-                    <b>trace</b>
-                    <span style={{ color: C.dim, fontSize: 11 }}> 最近 {TRACE_SHOWN} 条 · 无条件记录</span>
+                <div
+                    style={{
+                        borderTop: `1px solid ${C.line}`,
+                        marginTop: 6,
+                        paddingTop: 5,
+                        color: C.yellow,
+                        display: 'flex',
+                        alignItems: 'baseline',
+                        justifyContent: 'space-between',
+                        gap: 8,
+                    }}
+                >
+                    <span>
+                        <b>trace</b>
+                        <span style={{ color: C.dim, fontSize: 11 }}> 最近 {TRACE_SHOWN} 条 · 无条件记录</span>
+                    </span>
+                    {/* 下面列表只显示得下几行，缓冲里其实攒着两百条。远端排障要的是「一小时前
+                        那会儿发生了什么」，全靠这个按钮把它们交出来。 */}
+                    <button
+                        type="button"
+                        onClick={exportTraces}
+                        disabled={traceTotal === 0}
+                        style={{
+                            color: traceExport === 'failed' ? C.red : C.dim,
+                            fontSize: 11,
+                            cursor: traceTotal === 0 ? 'default' : 'pointer',
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
+                        }}
+                    >
+                        {traceExport === 'done' ? '已导出'
+                            : traceExport === 'failed' ? '导出失败'
+                                : traceTotal === 0 ? '暂无' : `导出全部 (${traceTotal})`}
+                    </button>
                 </div>
+                {/* 实时通道的体检结论。放在最显眼处是因为这条腿断了之后功能表面上还是好的——
+                    消息照样到，只是慢那么几秒，用户多半当成「网络卡」而不会来报。
+                    iOS 上这条几乎必然是断的：App 不在最前台时 SW 拿到的页面名单就是空的。 */}
+                {health && health.status !== 'idle' && (
+                    <div
+                        style={{
+                            fontSize: 11,
+                            marginBottom: 3,
+                            color: health.status === 'ok' ? C.dim : C.red,
+                        }}
+                    >
+                        {health.status === 'ok'
+                            ? `实时通道正常 · 上次收到 SW 消息 ${hhmmss(new Date(health.lastSwMessageAt!).getTime())}`
+                            : '⚠ 没收到过 SW 实时通知，消息靠本地巡查自己捞（会慢几秒，不会丢）'}
+                        {health.flushByTrigger.length > 0 && (
+                            <span style={{ color: C.dim }}>
+                                {' · 冲刷来源 '}
+                                {health.flushByTrigger.map((item) => `${item.trigger}×${item.count}`).join(' ')}
+                            </span>
+                        )}
+                    </div>
+                )}
                 {traces.length === 0 ? (
                     <div style={{ color: C.dim, fontSize: 11 }}>（暂无）</div>
                 ) : (

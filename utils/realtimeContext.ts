@@ -19,6 +19,7 @@ import {
     type DiaryPreview,
     type FeishuDiaryPreview,
 } from './realtimeFetchCore';
+import { formatFeishuWriteFailure } from './feishuDiagnostics';
 import {
     generateWeatherAdvice as generateWeatherAdviceCore,
     checkSpecialDates as checkSpecialDatesCore,
@@ -35,6 +36,7 @@ import {
 // ratio 加权抽样、双城市天气模糊感知，buildFullContext 全程走 fork 自己的实现。amsg worker
 // 才直接用 realtimeWorldCore 那份（云端网络稳定，不需要超时包装）。
 import { getLocalDateKey } from './localDate';
+import { browserHolidayCache, deviceTimeZone, getUserHolidayReminder, type UserHolidayConfig } from './userHolidays';
 
 // 两份环境无关叶子，amsg worker 共用同一份，这里的 Manager 方法委托过去；
 // 类型与常量原样 re-export，既有 import 路径不用改：
@@ -65,6 +67,7 @@ export interface CharRegionOverride {
 }
 
 export interface RealtimeConfig {
+    userHolidays?: UserHolidayConfig;
     // 天气配置
     weatherEnabled: boolean;
     weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
@@ -1055,6 +1058,13 @@ export const RealtimeContextManager = {
         return fullContext;
     },
 
+    getUserHoliday: (config: RealtimeConfig, userName?: string): Promise<string> => getUserHolidayReminder(
+        config.userHolidays ? { ...config.userHolidays, timeZone: deviceTimeZone() } : undefined,
+        browserHolidayCache,
+        Date.now(),
+        userName,
+    ),
+
     /**
      * 清除缓存
      */
@@ -1981,7 +1991,7 @@ export const FeishuManager = {
             const tables = data.data?.items || [];
             const targetTable = tables.find((t: any) => t.table_id === tableId);
             if (targetTable) {
-                return { success: true, message: `连接成功! 数据表: ${targetTable.name}` };
+                return { success: true, message: `读取连接成功！数据表: ${targetTable.name}。注意：这里不创建测试记录，新增记录权限会在角色首次写日记时验证。` };
             } else {
                 const tableNames = tables.map((t: any) => `${t.name}(${t.table_id})`).join(', ');
                 return { success: false, message: `多维表格中未找到表 ${tableId}。可用表: ${tableNames || '无'}` };
@@ -2041,9 +2051,9 @@ export const FeishuManager = {
             if (!response.ok) {
                 try {
                     const errJson = JSON.parse(text);
-                    return { success: false, message: `写入失败: ${errJson.msg || errJson.error || response.status}` };
+                    return { success: false, message: formatFeishuWriteFailure(response.status, errJson) };
                 } catch {
-                    return { success: false, message: `写入失败: ${response.status}` };
+                    return { success: false, message: formatFeishuWriteFailure(response.status, { error: text }) };
                 }
             }
 

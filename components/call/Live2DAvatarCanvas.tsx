@@ -5,6 +5,13 @@ import { DEFAULT_AVATAR_PERFORMANCE, type AvatarPerformanceDirection, type Avata
 import type { CallAudioFeed } from '../../utils/callAudioFeed';
 import { isDevDebugAvailable } from '../../utils/devDebug';
 import {
+  combineLive2DMouthForm,
+  DEFAULT_LIVE2D_MOUTH_FORM_PARAMETER,
+  DEFAULT_LIVE2D_MOUTH_OPEN_PARAMETER,
+  resolveLive2DMouthFrame,
+  splitLive2DLipSyncParameters,
+} from '../../utils/live2dLipSync';
+import {
   bridgeCubism6RenderOrders,
   enableCubism5HighPrecisionMasks,
   ensureLive2DCubismCore,
@@ -64,6 +71,8 @@ interface Live2DAvatarCanvasProps {
   onLoadingChange?: (loading: boolean, stage?: string) => void;
   onError?: (message: string) => void;
   onReady?: () => void;
+  /** 提供透明背景的当前姿态快照；卸载时清空，供相机贴纸使用。 */
+  onSnapshotReady?: (capture: (() => HTMLCanvasElement) | null) => void;
   touchRequest?: AvatarTouchRequest | null;
   touchImpulseNonce?: number;
   onAvatarTouch?: (hit: AvatarTouchHit) => void;
@@ -310,6 +319,7 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
   onLoadingChange,
   onError,
   onReady,
+  onSnapshotReady,
   touchRequest,
   touchImpulseNonce,
   onAvatarTouch,
@@ -336,6 +346,7 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
   const onLoadingChangeRef = useRef(onLoadingChange);
   const onErrorRef = useRef(onError);
   const onReadyRef = useRef(onReady);
+  const onSnapshotReadyRef = useRef(onSnapshotReady);
   const onAvatarTouchRef = useRef(onAvatarTouch);
   const touchRegionsRef = useRef<AvatarTouchRegion[]>(touchRegions ?? config.touchRegions ?? []);
   const onTouchRegionsChangeRef = useRef(onTouchRegionsChange);
@@ -412,6 +423,7 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
   useEffect(() => { onLoadingChangeRef.current = onLoadingChange; }, [onLoadingChange]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
   useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+  useEffect(() => { onSnapshotReadyRef.current = onSnapshotReady; }, [onSnapshotReady]);
   useEffect(() => { onAvatarTouchRef.current = onAvatarTouch; }, [onAvatarTouch]);
   useEffect(() => { touchRegionsRef.current = touchRegions ?? config.touchRegions ?? []; }, [touchRegions, config.touchRegions]);
   useEffect(() => { onTouchRegionsChangeRef.current = onTouchRegionsChange; }, [onTouchRegionsChange]);
@@ -684,7 +696,8 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           // pointer controllers while leaving head/body/physics animation intact.
           ignoreParamIds: [...new Set([
             ...configRef.current.lipSyncParameterIds,
-            'ParamMouthOpenY',
+            DEFAULT_LIVE2D_MOUTH_OPEN_PARAMETER,
+            DEFAULT_LIVE2D_MOUTH_FORM_PARAMETER,
             'ParamEyeBallX',
             'ParamEyeBallY',
             ...(headMotionLockedRef.current && !directedHead.enabled ? HEAD_LOCK_PARAMETER_IDS : []),
@@ -995,6 +1008,18 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
             return undefined;
           }
         };
+        const lipSyncParameters = splitLive2DLipSyncParameters(configRef.current.lipSyncParameterIds);
+        const mouthOpenParameterIds = lipSyncParameters.mouthOpen.filter(hasParameter);
+        if (!mouthOpenParameterIds.length && hasParameter(DEFAULT_LIVE2D_MOUTH_OPEN_PARAMETER)) {
+          mouthOpenParameterIds.push(DEFAULT_LIVE2D_MOUTH_OPEN_PARAMETER);
+        }
+        const mouthFormParameterIds = lipSyncParameters.mouthForm.filter(hasParameter);
+        if (
+          hasParameter(DEFAULT_LIVE2D_MOUTH_FORM_PARAMETER)
+          && !mouthFormParameterIds.includes(DEFAULT_LIVE2D_MOUTH_FORM_PARAMETER)
+        ) {
+          mouthFormParameterIds.push(DEFAULT_LIVE2D_MOUTH_FORM_PARAMETER);
+        }
         // VTube exports are not always all-or-nothing. Some nine-axis rigs keep
         // only a subset of xin/yin/zin + xinb/yinb/zinb, so detect each channel
         // independently instead of disabling the entire tracking path when one
@@ -1185,18 +1210,17 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           if (debugFrameDatasets) host.dataset.live2dBlink = frame.blink.toFixed(3);
           // 优先用逐帧音频信号驱动口型；只有拿不到实时信号（未配语音 / CORS
           // 音频接不进 WebAudio）才退回节奏型假口型，绝不在两者之间逐帧横跳。
-          let mouth = 0;
-          if (speaking) {
-            if (lip?.active) {
-              mouth = clamp(lip.level * 1.1, 0, 1);
-            } else {
-              const rhythm = clamp(0.16 + Math.sin(t * 13.1) * 0.35 + Math.sin(t * 21.7 + 0.8) * 0.2, 0, 0.82);
-              const phraseGate = Math.sin(t * 3.15) > -0.72 ? 1 : 0.08;
-              mouth = rhythm * phraseGate;
-            }
-          }
+          // MouthOpenY receives amplitude only; MouthForm receives the independent
+          // round-to-wide vowel axis. Without analyser data, both signals remain
+          // synthetic instead of reducing a capable rig to simple open/close flaps.
+          const mouthFrame = resolveLive2DMouthFrame(speaking, lip, t);
+          const mouth = mouthFrame.open;
           lastMouthLevel = mouth;
-          if (debugFrameDatasets) host.dataset.live2dMouthLevel = mouth.toFixed(3);
+          if (debugFrameDatasets) {
+            host.dataset.live2dMouthLevel = mouth.toFixed(3);
+            host.dataset.live2dMouthForm = mouthFrame.form.toFixed(3);
+            host.dataset.live2dMouthSource = mouthFrame.source;
+          }
 
           const pinsAutonomyPose = Boolean(direction?.precision?.lockAutonomy);
           if (usesVTubeTrackingInputs) {
@@ -1257,7 +1281,14 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           const faceHold = Math.min(1, 0.55 + faceIntensity * 0.45)
             * (speaking ? 1 : Math.exp(-Math.max(0, sinceDirection - 2.8) / 2.6));
           const faceW = (name: string) => (faceSet.has(name as never) ? faceHold : 0);
-          smooth('ParamMouthForm', faceW('grin') - faceW('pout'), 0.22, true);
+          const expressionMouthForm = faceW('grin') - faceW('pout');
+          const combinedMouthForm = combineLive2DMouthForm(mouthFrame.form, expressionMouthForm);
+          const mouthFormSpeed = mouthFrame.source === 'synthetic' ? 0.12 : 0.22;
+          for (const id of mouthFormParameterIds) {
+            // Add to the expression/motion-authored base. Writing an absolute
+            // vowel value here would erase the model's smile or pout.
+            smooth(id, combinedMouthForm, mouthFormSpeed, true);
+          }
           smooth('ParamCheek', faceW('blush'), 0.18, true);
           // 眉眼系：眯眯笑眼走标准笑眼参数；眉毛用高度/形状/角度组合近似
           // 挑眉、八字眉、皱眉（各模型绑法不同，追求"方向对"而非像素级精确）。
@@ -1278,7 +1309,7 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           const eyesClosed = faceW('eyes-closed');
           smooth('ParamEyeLOpen', -clamp(frame.blink + eyesClosed + smileEyes * 0.35, 0, 1), 0.62, true);
           smooth('ParamEyeROpen', -clamp(frame.blink + eyesClosed + smileEyes * 0.35 + faceW('wink'), 0, 1), 0.62, true);
-          for (const id of config.lipSyncParameterIds.length ? config.lipSyncParameterIds : ['ParamMouthOpenY']) {
+          for (const id of mouthOpenParameterIds) {
             smooth(id, mouth, speaking ? 0.42 : 0.25);
           }
 
@@ -1355,10 +1386,11 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           if (hasParameter('ParamEyeBallX')) core.setParameterValueById(resolveId('ParamEyeBallX'), finalEyeX);
           if (hasParameter('ParamEyeBallY')) core.setParameterValueById(resolveId('ParamEyeBallY'), finalEyeY);
           // Motions, focus and physics can all run after afterMotionUpdate and
-          // overwrite the synthetic no-audio mouth. Write the call-owned mouth
-          // at the same final stage as gaze so text-only speech stays visible.
+          // overwrite the synthetic no-audio opening. The final layer therefore
+          // pins opening parameters only. MouthForm must retain the additive
+          // vowel + expression result written above.
           const finalMouth = motionStateRef.current === 'speaking' ? lastMouthLevel : 0;
-          for (const id of config.lipSyncParameterIds.length ? config.lipSyncParameterIds : ['ParamMouthOpenY']) {
+          for (const id of mouthOpenParameterIds) {
             if (hasParameter(id)) core.setParameterValueById(resolveId(id), finalMouth);
           }
           if (debugFrameDatasets) {
@@ -1389,7 +1421,7 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
         };
         internal.on('beforeModelUpdate', applyFinalHeadLock);
 
-        app.ticker.add(() => {
+        const updateStage = (instant = false) => {
           if (!app) return;
           if (ambientAutonomyDisabledRef.current && motionStateRef.current === 'idle') {
             const mainManager = internal?.motionManager;
@@ -1445,16 +1477,19 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           const targetY = cameraY + bobY;
           const currentScale = model.scale.x || targetScale;
           const currentY = model.position.y || targetY;
-          model.scale.set(currentScale + (targetScale - currentScale) * 0.08);
+          const blend = instant ? 1 : 0.08;
+          model.scale.set(currentScale + (targetScale - currentScale) * blend);
           model.position.set(
             cameraX + frame.bodyX * 5,
-            currentY + (targetY - currentY) * 0.08,
+            currentY + (targetY - currentY) * blend,
           );
           // `frame.rotation` is also produced by AvatarAutonomy and rotates the
           // entire Live2D display, which visually turns the head even when all
           // head parameters are zero.
           model.rotation = headMotionLockedRef.current || ambientAutonomyDisabledRef.current ? 0 : frame.rotation;
-        });
+        };
+        app.ticker.add(() => updateStage());
+        if (onSnapshotReadyRef.current) updateStage(true);
 
         const initialPerformance = performanceRef.current;
         if (initialPerformance) {
@@ -1471,6 +1506,22 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
         });
         onLoadingChangeRef.current?.(false, '角色已就绪');
         onReadyRef.current?.();
+        onSnapshotReadyRef.current?.(() => {
+          if (disposed || !app) throw new Error('Live2D 舞台已关闭');
+          updateStage(true);
+          const width = app.screen.width, height = app.screen.height, resolution = app.renderer.resolution;
+          // Only the still capture renders at higher density; the small live preview stays cheap.
+          try {
+            app.renderer.resize(width, height, 1024 / Math.max(1, width, height));
+            app.render();
+            const snapshot = document.createElement('canvas');
+            snapshot.width = app.canvas.width; snapshot.height = app.canvas.height;
+            const context = snapshot.getContext('2d');
+            if (!context) throw new Error('无法生成 Live2D 快照');
+            context.drawImage(app.canvas as HTMLCanvasElement, 0, 0);
+            return snapshot;
+          } finally { app.renderer.resize(width, height, resolution); }
+        });
 
         model.once('destroy', () => {
           host.removeEventListener('pointermove', onPointerMove);
@@ -1501,6 +1552,7 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
     void boot();
     return () => {
       disposed = true;
+      onSnapshotReadyRef.current?.(null);
       resizeObserver?.disconnect();
       intersectionObserver?.disconnect();
       document.removeEventListener('visibilitychange', onDocumentVisibilityChange);

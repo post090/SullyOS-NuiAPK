@@ -3,6 +3,15 @@ import { normName, matchRealChar, clampAffinity, upsertContact, flipTranscript, 
 import type { PhoneContact } from '../types';
 
 describe('relationshipChat · 纯函数', () => {
+    it('parseTranscript tolerates non-string deep-chat transcripts from generated or restored sessions', () => {
+        expect(parseTranscript([{ role: 'user', content: '心事\n续行' }, { role: 'assistant', content: '在听' }])).toEqual([
+            { isMe: true, text: '心事' }, { isMe: true, text: '续行' }, { isMe: false, text: '在听' },
+        ]);
+        expect(parseTranscript({ 我: '你好', 对方: '你好呀' })).toEqual([
+            { isMe: true, text: '你好' }, { isMe: false, text: '你好呀' },
+        ]);
+        expect(parseTranscript(null)).toEqual([]);
+    });
     it('normName 去括号身份/空白/大小写', () => {
         expect(normName('阿哲 (社团学长)')).toBe('阿哲');
         expect(normName('  Alice  ')).toBe('alice');

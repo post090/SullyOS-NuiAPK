@@ -83,7 +83,7 @@ describe('结果分发口排队', () => {
   });
 
   // 回归守卫：队是全局一条、所有 resultKind 共用的，而 handler 干的是 IndexedDB 的活儿。
-  // 连接被别的标签页 block 住（instant push 那次超时的连接风暴就是这么来的），promise
+  // 连接被别的标签页 block 住（IndexedDB 连接风暴时就出过这种事），promise
   // 一辈子不 settle——没有超时的话后面每一条都永远排不上，而且一点动静都没有。
   //
   // 放在最后一条：这一队是模块级的全局状态，卡住那条会一直挂在队尾。

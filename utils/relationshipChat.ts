@@ -1,12 +1,14 @@
+import { loadCharacterContextMessages } from './chatContextRange';
 // 人际关系系统 · 核心引擎
 // 查手机「人际关系」模块的纯逻辑 + LLM 链路：真假甄别、好感、双 LLM 私下对话（A 发 B 回）、AI 玩 AI。
 // UI 层（CheckPhone.tsx）负责把这里的结果落库 / 镜像到对方角色，本文件只产数据，不碰 React。
 
-import { CharacterProfile, PhoneContact, UserProfile, ConvTopic } from '../types';
-import { ContextBuilder } from './context';
+import { CharacterProfile, PhoneContact, UserProfile, ConvTopic, PhoneEvidence } from '../types';
+import { ContextBuilder, type CharacterContextInput, type ContextMessage } from './context';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { DB } from './db';
 import { safeResponseJson } from './safeApi';
+import { phoneTranscriptToText } from './phoneTranscript';
 
 export interface MiniApiConfig {
     baseUrl: string;
@@ -123,6 +125,55 @@ export function upsertContact(
     return next;
 }
 
+/** 把这一段真实对话合入最新手机状态，不能用发请求前的整份通讯录/记录覆盖。 */
+export function applyRealConversationToPhoneState(
+    current: CharacterProfile['phoneState'],
+    result: {
+        partnerName: string; partnerCharId: string; detail: string; delta: number;
+        partnerNote?: string; learnedNew?: string; seedIdentity?: string;
+        timestamp: number; recordId: string; systemMessageId?: number;
+    },
+): { phoneState: NonNullable<CharacterProfile['phoneState']>; broadcast: string } {
+    const matchesPartner = (c: PhoneContact) => c.linkedCharId === result.partnerCharId
+        || normName(c.name) === normName(result.partnerName);
+    const hadContact = current?.contacts?.some(matchesPartner);
+    let contacts = upsertContact(current?.contacts || [], {
+        name: result.partnerName, kind: 'real', linkedCharId: result.partnerCharId,
+        note: result.partnerNote, identity: hadContact ? undefined : result.seedIdentity,
+        lastInteraction: result.timestamp,
+    });
+    const contactId = contacts.find(matchesPartner)!.id;
+    let broadcast = '';
+    contacts = contacts.map(contact => {
+        if (contact.id !== contactId) return contact;
+        const affinity = clampAffinity(contact.affinity + result.delta);
+        let status = contact.status;
+        if (affinity <= -60 && status === 'friend') {
+            status = 'deleted';
+            broadcast = `（我把 ${contact.name} 删了，懒得再联系。）`;
+        } else if (affinity >= 60 && status !== 'friend' && status !== 'blocked') {
+            status = 'friend';
+            broadcast = `（我又把 ${contact.name} 加回来了。）`;
+        }
+        return { ...contact, affinity, status,
+            learned: result.learnedNew ? appendLearned(contact.learned, result.learnedNew) : contact.learned };
+    });
+    const records = current?.records || [];
+    const existing = records.find(record => record.type === 'chat'
+        && (record.contactId === contactId || (!record.contactId && normName(record.title) === normName(result.partnerName))));
+    const record: PhoneEvidence = {
+        ...(existing || { id: result.recordId, type: 'chat', title: result.partnerName }),
+        detail: result.detail, timestamp: result.timestamp, contactId,
+        systemMessageId: result.systemMessageId ?? existing?.systemMessageId,
+    };
+    return {
+        phoneState: { ...current, contacts, records: existing
+            ? records.map(item => item.id === existing.id ? record : item)
+            : [...records, record] },
+        broadcast,
+    };
+}
+
 /**
  * 把「我:/对方:」对话脚本解析成结构化气泡，**带前缀继承**：
  * 一条消息可能跨多行（模型连发几条 / 正文里有换行），后续没有「我:/对方:」前缀的行
@@ -132,10 +183,10 @@ export function upsertContact(
  * - text: 剥掉前缀后的正文
  * 空行被跳过。首行若无前缀，默认归为「对方」。
  */
-export function parseTranscript(detail: string, firstUnprefixedIsMe = false): { isMe: boolean; text: string }[] {
+export function parseTranscript(detail: unknown, firstUnprefixedIsMe = false): { isMe: boolean; text: string }[] {
     const out: { isMe: boolean; text: string }[] = [];
     let lastIsMe = firstUnprefixedIsMe; // 首行无前缀时的兜底归属（续写时可指定「下一个该谁说」）
-    for (const raw of (detail || '').split('\n')) {
+    for (const raw of phoneTranscriptToText(detail).split('\n')) {
         const line = raw.trim();
         if (!line) continue;
         const m = line.match(/^(我|对方|Me|Them)\s*[:：]\s*(.*)$/);
@@ -175,13 +226,18 @@ async function chatCompletion(
     api: MiniApiConfig,
     userContent: string,
     temperature = 0.85,
+    characterContext?: CharacterContextInput,
+    history: ContextMessage[] = [],
 ): Promise<string> {
     const res = await fetch(`${api.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.apiKey}` },
         body: JSON.stringify({
             model: api.model,
-            messages: [{ role: 'user', content: userContent }],
+            messages: characterContext ? ContextBuilder.buildCharacterRequest(characterContext, [
+                { role: 'system', content: userContent }, ...history,
+                { role: 'user', content: '请按上述要求继续。' },
+            ]) : [{ role: 'user', content: userContent }],
             temperature,
         }),
     });
@@ -190,14 +246,13 @@ async function chatCompletion(
     return (data?.choices?.[0]?.message?.content || '').trim();
 }
 
-/** 取某角色最近上下文（按 chatapp 设置的 contextLimit，默认 500），压成纯文本 */
+/** 取某角色的有效原文范围（自适应 / 手动），压成纯文本 */
 async function recentContextText(
     char: CharacterProfile,
     selfLabel: string,
     userName: string,
 ): Promise<string> {
-    const limit = char.contextLimit && char.contextLimit > 0 ? char.contextLimit : 500;
-    const msgs = await DB.getRecentMessagesByCharId(char.id, limit);
+    const msgs = await loadCharacterContextMessages(char);
     if (!msgs.length) return '（暂无最近聊天）';
     return msgs
         .map(m => {
@@ -216,13 +271,10 @@ async function buildSpeakerContext(
     speaker: CharacterProfile,
     user: UserProfile,
     otherName: string,
-): Promise<string> {
+): Promise<CharacterContextInput> {
     try {
         if (speaker.memoryPalaceEnabled) {
-            const recent = await DB.getRecentMessagesByCharId(
-                speaker.id,
-                speaker.contextLimit && speaker.contextLimit > 0 ? speaker.contextLimit : 500,
-            );
+            const recent = await loadCharacterContextMessages(speaker);
             await injectMemoryPalace(speaker, recent, otherName, user.name);
         }
     } catch {
@@ -230,7 +282,7 @@ async function buildSpeakerContext(
     }
     // 让角色在和联系人对话时，也意识到「距离上次和用户联系多久了」（统一走 buildCoreContext）
     const lastInteractionTs = await lastUserInteractionTs(speaker.id);
-    return ContextBuilder.buildCoreContext(speaker, user, true, undefined, undefined, { lastInteractionTs });
+    return { char: speaker, user, timeOptions: { lastInteractionTs } };
 }
 
 /** 取该角色与用户最后一次互动的时间戳（最近一条消息）。失败/无消息返回 undefined。 */
@@ -307,7 +359,7 @@ interface RunRealConversationParams {
 
 /**
  * 双 LLM 私下对话：A 用 A 自己的人设/记忆/上下文发消息，B 用 B 自己的人设/记忆/上下文回。
- * 每一方都按用户指定的输入契约：buildCoreContext(true) + 记忆宫殿(query=对方名) + 最近上下文(contextLimit)。
+ * 每一方都按用户指定的输入契约：buildCoreContext(true) + 记忆宫殿(query=对方名) + 统一有效原文范围。
  */
 export async function runRealConversation(
     p: RunRealConversationParams,
@@ -330,11 +382,6 @@ export async function runRealConversation(
             turns.push({ speaker: seg.isMe ? 'A' : 'B', text: seg.text });
         }
     }
-
-    const labeled = () =>
-        turns.length
-            ? turns.map(t => `${t.speaker === 'A' ? a.name : b.name}: ${t.text}`).join('\n')
-            : '';
 
     // 从一段回复里抽出 [[Δ:+N]] 好感变化 + [[了解:…]] 新认识，剥掉这些标记，再去掉可能的「名字:」前缀
     const extract = (raw: string, selfName: string): { text: string; delta: number; learned: string } => {
@@ -363,7 +410,7 @@ export async function runRealConversation(
 
     for (let i = 0; i < rounds; i++) {
         // ---- A 发 ----
-        const aPrompt = `${ctxA}
+        const aPrompt = `
 
 ### [你和用户「${user.name}」的私聊背景（仅供参考，不是这场对话）]
 ${recentA}
@@ -390,7 +437,7 @@ ${p.aSummary}】` : ''
 
 ${p.aSummary ? '最近的对话' : '已经发生的对话'}（"${a.name}:" 是你，"${b.name}:" 是对方）：
 """
-${labeled() || '（还没开始，由你起头）'}
+${turns.length ? '见独立消息历史。' : '（还没开始，由你起头）'}
 """
 
 要求：
@@ -412,7 +459,7 @@ ${labeled() || '（还没开始，由你起头）'}
 如果这次交流让你对「${b.name}」**有了新的认识**（TA 是谁、什么身份、在意什么、透露了什么关键信息——记住这些只是 TA 自己说的、**未必是真的**，写成你的判断），再另起一行用 [[了解:一句话]] 记下来；没有新认识就别写这一行。`;
         let aRaw = '';
         try {
-            aRaw = await chatCompletion(api, aPrompt);
+            aRaw = await chatCompletion(api, aPrompt, 0.85, ctxA, turns.map(t => ({ role: t.speaker === 'A' ? 'assistant' : 'user', content: t.text })));
         } catch {
             break;
         }
@@ -422,7 +469,7 @@ ${labeled() || '（还没开始，由你起头）'}
         if (aParsed.text) turns.push({ speaker: 'A', text: aParsed.text });
 
         // ---- B 回 ----
-        const bPrompt = `${ctxB}
+        const bPrompt = `
 
 ### [你和用户「${user.name}」的私聊背景（仅供参考，不是这场对话）]
 ${recentB}
@@ -449,7 +496,7 @@ ${p.bSummary}】` : ''
 
 ${p.bSummary ? '最近的对话' : '对话记录'}（"${b.name}:" 是你，"${a.name}:" 是对方）：
 """
-${labeled()}
+见独立消息历史。
 """
 
 要求：
@@ -465,7 +512,7 @@ ${labeled()}
 如果这次交流让你对「${a.name}」**有了新的认识**（TA 是谁、身份、在意什么、透露了什么——记住只是 TA 自己说的、**未必为真**，写成你的判断），再另起一行用 [[了解:一句话]] 记下来；没有就别写。`;
         let bRaw = '';
         try {
-            bRaw = await chatCompletion(api, bPrompt);
+            bRaw = await chatCompletion(api, bPrompt, 0.85, ctxB, turns.map(t => ({ role: t.speaker === 'B' ? 'assistant' : 'user', content: t.text })));
         } catch {
             break;
         }
@@ -522,7 +569,7 @@ export async function runNpcConversation(
 ): Promise<{ detail: string; learnedNew: string }> {
     const rounds = Math.max(1, Math.min(8, p.rounds ?? 4));
     const hostLastTs = await lastUserInteractionTs(p.host.id);
-    const ctxHost = ContextBuilder.buildCoreContext(p.host, p.user, true, undefined, undefined, { lastInteractionTs: hostLastTs });
+    const ctxHost = { char: p.host, user: p.user, timeOptions: { lastInteractionTs: hostLastTs } };
 
     // 续写时算出「下一句该谁说」，并提示模型从对的那一方接（避免一直自说自话繁殖 host 的话）
     const exTurns = parseTranscript(p.existingDetail || '');
@@ -534,7 +581,7 @@ export async function runNpcConversation(
             : `\n上一句是「${p.npcName}」说的，**接下来轮到你（${p.host.name}）**，第一行必须用「我:」开头。`)
         : '';
 
-    const prompt = `${ctxHost}
+    const prompt = `
 
 ### [人际关系 · 与虚构联系人的聊天]
 你是「${p.host.name}」。你正在用手机和「${p.npcName}」私聊。
@@ -559,7 +606,7 @@ ${p.learned}` : ''
 - 依据上方备注/身份设定的关系自然地聊；**不要凭空制造敌意、阴阳怪气或狗血冲突**，除非备注/身份/人设确实如此。
 - 紧扣已有对话往下接，别跳戏、别认错人。
 
-${p.existingDetail ? `已经聊了：\n"""\n${p.existingDetail}\n"""\n请接着往下聊。${turnHint}` : '现在开始这段对话。'}
+${p.existingDetail ? `已经聊了：\n"""\n见独立消息历史。\n"""\n请接着往下聊。${turnHint}` : '现在开始这段对话。'}
 
 任务：生成你（${p.host.name}）和「${p.npcName}」接下来 ${rounds} 个来回的对话，信息量要够。
 格式（**严格遵守**）：
@@ -570,7 +617,7 @@ ${p.existingDetail ? `已经聊了：\n"""\n${p.existingDetail}\n"""\n请接着�
 
     let out = '';
     try {
-        out = await chatCompletion(p.api, prompt, 0.9);
+        out = await chatCompletion(p.api, prompt, 0.9, ctxHost, exTurns.map(t => ({ role: t.isMe ? 'assistant' : 'user', content: t.text })));
     } catch {
         return { detail: p.existingDetail || '', learnedNew: '' };
     }

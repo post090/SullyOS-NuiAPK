@@ -1,0 +1,107 @@
+.srf-dialog{--sar-choice-bg:#f5f1e9;--sar-choice-text:#453d35;--sar-choice-border:#b9b0a2;--sar-choice-focus:#7b6a4d;position:fixed;inset:0;z-index:450;background:#f5f1e9;color:#453d35;display:flex;flex-direction:column;padding-top:var(--chrome-top,28px);padding-bottom:var(--safe-bottom,0px);font-family:inherit;isolation:isolate}
+.srf-meta{position:relative;z-index:20;flex:none;min-height:44px;display:flex;align-items:center;gap:12px;padding:5px 24px 0 32px}.srf-meta-content{flex:1;min-width:0}.srf-speaker{display:flex;align-items:center;gap:10px;min-height:25px}.srf-speaker b{font-size:17px;font-weight:600}.srf-stars{display:flex;gap:3px;color:#b79965;flex:none}.srf-stars-aiven{color:#8495a2}.srf-close{border:0;background:none;width:44px;height:44px;flex:none;display:grid;place-items:center;color:inherit;border-radius:50%;cursor:pointer}.srf-close:hover{background:#dcd3c440}.srf-replay-title{display:flex;gap:8px;align-items:baseline;font-size:11px;line-height:1.5;color:#8d7d68;overflow-wrap:anywhere}.srf-replay-title small{font-size:9px;white-space:nowrap;color:#9d8a72}
+.srf-body{position:relative;min-height:0;flex:1;display:flex;flex-direction:column;align-items:center;overflow:hidden}
+.srf-stage{width:min(100%,900px);min-height:0;flex:1 1 0;position:relative;overflow:hidden}
+.srf-stage .sar-dialogue-cast{height:100%;width:100%;position:relative}.srf-stage:after{content:'';position:absolute;inset:0;pointer-events:none;background:linear-gradient(0deg,#f5f1e9 0,transparent 22%)}
+/* Keep the portrait area independent of the current text and number of choices. */
+.srf-script{background:#f5f1e9;width:min(100%,900px);height:196px;flex:none;position:relative;display:flex;flex-direction:column;border-top:1px solid #dcd3c460}
+.srf-bubble{display:block;width:100%;min-height:0;flex:1;overflow:auto;overscroll-behavior:contain;padding:5px 32px 18px;background:transparent;border:0;text-align:left;color:inherit;cursor:pointer}
+.srf-bubble:disabled{cursor:default;opacity:1}
+.srf-line{display:block;font-size:16px;line-height:1.95;white-space:pre-line;min-height:62px;overflow-wrap:anywhere}.srf-line.is-narration{color:#7d7568;font-style:italic;font-size:14px}
+.srf-next{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:8px;font-size:12px;color:#8b795f;clear:both}.srf-collected{display:block;color:#a19076;margin-top:6px;font-size:11px}
+.srf-error{position:absolute;bottom:0;left:12px;right:12px;padding:8px;background:#fff3ed;z-index:21;font-size:12px;color:#af4b43;margin:0}.srf-error button{margin-left:12px;text-decoration:underline}
+.srf-dialog button:focus-visible{outline:2px solid #7b6a4d;outline-offset:-3px}.srf-dialog .sar-dialogue-choices__list>button:disabled{opacity:.5;cursor:default}
+@media(max-width:420px){.srf-meta{padding:3px 13px 0 21px;gap:6px}.srf-stars{gap:1px}.srf-stars svg{width:12px}.srf-script{height:180px}.srf-bubble{padding:4px 21px 14px}.srf-line{font-size:14px;line-height:1.85}.srf-speaker b{font-size:16px}}
+@media(max-height:500px) and (min-width:600px){.srf-body{flex-direction:row;align-items:stretch}.srf-stage{width:55%}.srf-script{width:45%;height:100%;min-height:0}.srf-meta{padding-left:20px;padding-right:12px}.srf-bubble{padding:4px 20px 14px}.srf-line{font-size:14px}}
+
+/* The cast stays in place. A prop enters the foreground only for its reveal line. */
+.srf-prop{position:absolute;inset:45% 0 0;z-index:5;display:flex;align-items:flex-end;justify-content:center;pointer-events:none;padding:0 12px 18px;box-sizing:border-box}
+.srf-prop-content{pointer-events:auto;width:min(86%,340px);max-height:100%;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#b6a686 transparent;padding:12px;box-sizing:border-box;animation:srf-prop-in .2s ease-out}
+.srf-dialog .srf-prop .srf-fx{animation:none}
+.srf-dialog .srf-prop .sar-artifact-id-stage,.srf-dialog .srf-prop .sar-memory-stage,.srf-dialog .srf-prop .sar-document-stage{padding:3px 0}
+.srf-dialog .srf-prop .srf-fx-artifact-note,.srf-dialog .srf-prop .srf-fx-memory-description,.srf-dialog .srf-prop .sar-memory-stage>h3{display:none}
+.srf-dialog .srf-prop .sar-memory-object{margin-bottom:0}
+.srf-dialog .srf-prop .srf-fx-id-actions{margin-top:14px;flex-wrap:wrap}
+.srf-dialog .srf-prop .srf-fx-id-actions button{min-height:42px}
+.srf-dialog .srf-prop .sar-artifact-identity .sar-id-main{padding:13px 15px;gap:14px}
+.srf-dialog .srf-prop .sar-artifact-identity .sar-id-person>strong{font-size:22px}
+.srf-dialog .srf-prop .sar-artifact-identity .sar-id-signature{padding:5px 15px}
+.srf-dialog .srf-prop .sar-artifact-identity header{padding:12px 15px 9px}
+.srf-dialog .srf-prop .sar-artifact-identity footer{padding:9px 15px}
+.srf-dialog .srf-prop .sar-artifact-document{margin:5px 0;padding:20px 20px 15px}
+.srf-dialog .srf-prop .sar-artifact-document header{padding-bottom:8px}
+.srf-dialog .srf-prop .sar-artifact-document header .sar-artifact-seal{width:33px;height:33px}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-title{margin:15px 0 12px}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-title h3{font-size:18px;margin:5px 0}
+.srf-dialog .srf-prop .sar-artifact-document dt{margin-top:7px}
+.srf-dialog .srf-prop .sar-artifact-document dd{font-size:11px;line-height:1.6;margin-top:3px}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-postscript{padding-top:10px;margin-top:12px}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-postscript p{margin:2px 0;font-size:12px}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-postscript>span{font-size:22px}
+.srf-dialog .srf-prop .sar-artifact-document footer{margin-top:10px;padding-top:8px}
+.srf-prop-photo-studio .srf-prop-content{width:min(100%,420px)}
+.srf-dialog .srf-prop .srf-fx-photo-tools,.srf-dialog .srf-prop .srf-fx-photo-saved{background:#f5f1e9f5;padding:12px;border-radius:3px;margin-top:8px}
+.srf-dialog .srf-prop .srf-fx-photo-saved>p{display:none}
+.srf-dialog .srf-prop .srf-fx-hint{font-size:10px}
+.srf-dialog .srf-prop .srf-fx-notice-panel{padding:24px 18px;background:#f8f4e9;border:1px solid #c9bda2;box-shadow:inset 0 0 0 5px #f8f4e9,inset 0 0 0 6px #d9cfbb}
+.srf-dialog .srf-prop .srf-fx-notice-panel>p{font-size:11px}
+.srf-dialog .srf-prop .srf-fx-loot-wrap{background:#f5f1e9eb;padding:12px;border:1px solid #d9cfbb}
+.srf-dialog .srf-prop .srf-fx-loot-npc{display:none}
+.srf-dialog .srf-prop .srf-fx-loot-scene .srf-fx-loot{width:100%;grid-template-columns:repeat(3,minmax(0,1fr))}
+.srf-dialog .srf-prop .srf-fx-celebration-focus{background:#f5f1e9eb;padding:18px;border-radius:3px}
+.srf-dialog .srf-prop .srf-fx-chimera-wrap{background:#f5f1e9e8;padding:8px;border-radius:3px}
+@keyframes srf-prop-in{from{opacity:0}to{opacity:1}}
+@media(max-height:680px){.srf-prop{padding-bottom:10px}.srf-prop-content{width:min(85%,300px);padding:7px}.srf-prop-photo-studio .srf-prop-content{width:100%}}
+@media(prefers-reduced-motion:reduce){.srf-prop-content{animation:none}}
+
+.srf-dialog .srf-prop .sar-memory-shadow{transform:rotate(-7deg) scale(.78);transform-origin:center bottom;margin:-57px auto 0}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-title{padding:5px 0 10px}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-topic,.srf-dialog .srf-prop .sar-artifact-document .srf-fx-meeting-conclusion{font-size:12px;line-height:1.6}
+.srf-dialog .srf-prop .sar-artifact-document .sar-document-postscript{padding-bottom:15px}
+.srf-dialog .srf-prop .sar-artifact-identity .srf-fx-id-portrait{max-height:90px}
+.srf-dialog .srf-prop .sar-artifact-identity .sar-id-signature .sar-artifact-seal{width:32px;height:32px}
+.srf-dialog .srf-prop .sar-artifact-photo .srf-fx-photo-caption{min-height:34px;padding:6px 0}
+.srf-dialog .srf-prop .sar-artifact-photo .srf-fx-photo-caption span{font-size:14px}
+.srf-dialog .srf-prop .srf-fx-photo-tabs button{min-height:34px}
+.srf-dialog .srf-prop .srf-fx-photo-adjust{margin-top:7px}
+.srf-dialog .srf-prop .srf-fx-photo-saved{padding:7px}
+@media(max-width:360px){.srf-dialog .srf-prop .sar-artifact-identity header{padding:8px 12px}.srf-dialog .srf-prop .sar-artifact-identity .sar-id-main{padding:8px 12px}.srf-dialog .srf-prop .sar-artifact-identity .sar-id-person>strong{font-size:18px}.srf-dialog .srf-prop .sar-artifact-identity .sar-id-number{font-size:10px}.srf-dialog .srf-prop .sar-artifact-identity footer{padding:6px 12px}.srf-dialog .srf-prop .sar-artifact-identity .srf-fx-id-portrait{max-height:70px}.srf-dialog .srf-prop .sar-memory-shadow{transform:rotate(-7deg) scale(.62);margin-top:-99px}}
+
+.srf-prop.is-fitted .srf-prop-content{position:relative;height:100%;overflow:visible;padding:0}
+.srf-prop.is-fitted .srf-prop-art{position:absolute;bottom:0;left:0;right:0;transform-origin:center bottom}
+.srf-dialog .srf-prop .srf-fx-photo-tools{position:sticky;bottom:0;z-index:160;box-shadow:0 -4px 12px #2636340c}
+.srf-dialog .srf-prop .srf-fx-photo-tools .srf-fx-hint{display:none}
+.srf-dialog .srf-prop .srf-fx-photo-actions{margin-top:8px}
+.srf-dialog .srf-prop .srf-fx-photo-actions button{min-height:38px}
+.srf-dialog .srf-prop .srf-fx-id-actions{position:sticky;bottom:0;background:#f5f1e9ef;padding:5px 0}
+
+.srf-dialog .srf-prop .srf-fx-photo-controls>summary{display:block;cursor:pointer;font-size:11px;padding:7px 0;min-height:30px;box-sizing:border-box;color:#6f674f}
+.srf-dialog .srf-prop .srf-fx-photo-controls>summary:after{content:'＋';float:right}
+.srf-dialog .srf-prop .srf-fx-photo-controls[open]>summary:after{content:'−'}
+.srf-dialog .srf-prop.is-interactive .sar-artifact-photo{width:min(100%,220px);margin:auto}
+.srf-dialog .srf-prop .srf-fx-photo-tools{padding:7px 10px}
+.srf-dialog .srf-prop .srf-fx-photo-actions{margin-top:3px}
+@media(max-height:680px){.srf-prop-photo-studio{inset:38% 0 0}.srf-dialog .srf-prop.is-interactive .sar-artifact-photo{width:min(100%,160px)}}
+
+/* Identity text stays on an untransformed layer, including the confirmation controls. */
+.srf-dialog .srf-prop .sar-artifact-identity{transform:none}
+.srf-dialog .srf-prop .sar-artifact-identity .sar-id-person>small,.srf-dialog .srf-prop .sar-artifact-identity .sar-id-person>p{color:#5d6b60;font-size:10px}
+.srf-dialog .srf-prop-membership-card{inset:40% 0 0}
+.srf-dialog .srf-prop-membership-card .srf-prop-content{width:min(100%,340px)}
+.srf-dialog .srf-prop-membership-card .srf-fx-id-actions{position:static;background:#f5f1e9;margin-top:9px;padding:5px 0}
+@media(max-height:680px){.srf-dialog .srf-prop-membership-card .sar-artifact-identity .sar-id-signature{padding:2px 12px}.srf-dialog .srf-prop-membership-card .sar-artifact-identity .sar-id-signature .sar-artifact-seal{width:25px;height:25px}.srf-dialog .srf-prop-membership-card .sar-artifact-identity .sar-id-main{padding:7px 12px}.srf-dialog .srf-prop-membership-card .sar-artifact-identity .sar-id-person>p{font-size:9px;margin-top:4px}.srf-dialog .srf-prop-membership-card .sar-artifact-identity .sar-id-person>strong{margin:5px 0}}
+
+.srf-dialog .srf-prop-membership-card .srf-prop-content{width:min(100%,312px)}
+.srf-dialog .srf-prop-membership-card .sar-artifact-identity .sar-id-main{padding:8px 12px}
+.srf-dialog .srf-prop-membership-card .sar-artifact-identity .srf-fx-id-portrait{max-height:74px}
+.srf-dialog .srf-prop-membership-card .sar-artifact-identity header{padding:8px 12px}
+.srf-dialog .srf-prop-membership-card .sar-artifact-identity footer{padding:6px 12px}
+.srf-dialog .srf-prop .srf-fx button.srf-object-zoom{display:flex;margin:0 auto 6px;min-height:44px;padding:7px 12px;font-size:12px;border:1px solid #c8c9b9;box-shadow:none}
+
+.srf-dialog .srf-prop-membership-card .sar-id-person>strong{margin:4px 0}
+.srf-dialog .srf-prop-membership-card .sar-id-person>p{line-height:1.4;margin:4px 0}
+.srf-dialog .srf-prop-membership-card{inset:37% 0 0}
+
+.srf-dialog .srf-prop-membership-card .srf-fx button.srf-object-zoom{margin-left:0}
+
+.srf-line.srf-endpage{display:flex;align-items:center;justify-content:center;min-height:82px;margin-top:0;font-size:12px;line-height:1.8;text-align:center;color:#8b795f}

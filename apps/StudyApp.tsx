@@ -11,6 +11,7 @@ import { safeResponseJson, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { Notepad, Check, X, CheckCircle, XCircle, Hand } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
+import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 import { extractPdfText, isPdfFile } from '../utils/pdfText';
 
@@ -706,7 +707,8 @@ Explain this chapter's key concepts to the user based strictly on the Source Mat
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: prompt }],
+                    messages: isFallback ? [{ role: "user", content: prompt }]
+                        : ContextBuilder.buildCharacterRequest({ char: selectedChar, user: userProfile }, [{ role: "user", content: prompt }]),
                     temperature: 0.7,
                     max_tokens: 8000, 
                     safetySettings: [
@@ -723,7 +725,7 @@ Explain this chapter's key concepts to the user based strictly on the Source Mat
             // Attempt 1: Full Character Context (The "Soul")
             // [MODIFIED]: Use centralized ContextBuilder with memory enabled
             await injectMemoryPalace(selectedChar, undefined, chapter.title);
-            let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
+            let baseContext = ''; // 角色上下文由 callApi 的统一消息管线装配。
 
             // Append Study Mode specific instructions to the core context
             baseContext += `
@@ -812,14 +814,15 @@ You are now acting as a private tutor for ${userProfile.name}.
 
             // [MODIFIED]: Use Full Context for Q&A
             await injectMemoryPalace(selectedChar, undefined, question);
-            let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
-            baseContext += `
+            const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
+
+            const studyInstructions = `
 ### [System: Study Mode Q&A]
 User is asking a question about the study material.
 - **Maintain Personality**: Answer in character.
 `;
 
-            const prompt = `${baseContext}
+            const prompt = `
 ### Source Material
 ${chunkText.substring(0, 8000)}
 
@@ -834,7 +837,7 @@ Answer the question based on the source material. Be helpful and encouraging (in
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: prompt }],
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'system', content: studyInstructions }, { role: "user", content: prompt }]),
                     temperature: 0.7,
                     max_tokens: 8000
                 })
@@ -1099,9 +1102,10 @@ ${chunkText.substring(0, 10000)}
         }).join('\n\n');
 
         await injectMemoryPalace(selectedChar, undefined, quizSession.chapterTitle);
-        let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
+        const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
 
-        const reviewPrompt = `${baseContext}
+
+        const reviewPrompt = `
 
 ### [System: Quiz Review Mode]
 You just gave ${userProfile.name} a quiz on "${quizSession.chapterTitle}".
@@ -1131,7 +1135,7 @@ ${resultsText}
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: reviewPrompt }],
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: reviewPrompt }]),
                     temperature: 0.8,
                     max_tokens: 8000
                 })
@@ -1211,9 +1215,10 @@ ${resultsText}
         setFollowUpInput('');
 
         await injectMemoryPalace(selectedChar, undefined, userQ);
-        let baseContext = ContextBuilder.buildCoreContext(selectedChar, userProfile, true);
+        const characterContextInput = { char: selectedChar, user: userProfile, includeDetailedMemories: true };
 
-        const prompt = `${baseContext}
+
+        const prompt = `
 
 ### [System: Quiz Follow-up Q&A]
 The user just did a quiz and wants to ask about a specific question they got ${question.isCorrect ? 'right' : 'wrong'}.
@@ -1234,7 +1239,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApi.model,
-                    messages: [{ role: "user", content: prompt }],
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }]),
                     temperature: 0.7,
                     max_tokens: 4000
                 })
@@ -1466,7 +1471,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                     {viewQuiz.aiReview && (
                         <div className="mb-6">
                             <div className="flex items-center gap-2 mb-3">
-                                {selectedChar && <img src={selectedChar.avatar} className="w-8 h-8 rounded-full object-cover border-2 border-emerald-500/30" />}
+                                {selectedChar && <TokenImg value={selectedChar.avatar} className="w-8 h-8 rounded-full object-cover border-2 border-emerald-500/30" />}
                                 <span className="text-emerald-400 text-sm font-bold">{selectedChar?.name || '助教'} 的锐评</span>
                             </div>
                             <div className="bg-white/5 rounded-2xl p-5 border border-white/10">
@@ -1519,8 +1524,8 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         <span className="text-sm text-slate-500 font-bold">{quizLoading}</span>
                         {selectedChar && (
                             <div className="flex items-center gap-2 mt-2">
-                                <img src={selectedChar.avatar} className="w-8 h-8 rounded-full object-cover" />
-                                <span className="text-xs text-slate-400">{selectedChar.name} 正在出题...</span>
+                                <TokenImg value={selectedChar.avatar} className="w-8 h-8 rounded-full object-cover" />
+                                <span className="text-xs text-slate-400">{selectedChar.name} {quizLoading}</span>
                             </div>
                         )}
                     </div>
@@ -1629,7 +1634,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                             {filterCharactersByGroup(characters, characterGroups, tutorGroupId).map(c => (
                                 <div key={c.id} onClick={() => setSelectedChar(c)} className={`flex flex-col items-center gap-2 cursor-pointer transition-opacity ${selectedChar?.id === c.id ? 'opacity-100' : 'opacity-50'}`}>
                                     <div className={`w-14 h-14 rounded-full p-[2px] ${selectedChar?.id === c.id ? 'border-2 border-emerald-500' : 'border border-slate-200'}`}>
-                                        <img src={c.avatar} className="w-full h-full rounded-full object-cover" />
+                                        <TokenImg value={c.avatar} className="w-full h-full rounded-full object-cover" />
                                     </div>
                                     <span className="text-[10px] font-bold text-slate-600">{c.name}</span>
                                 </div>
@@ -1649,7 +1654,8 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                             ) : (
                                 <>
                                     <span className="text-3xl">+</span>
-                                    <span className="text-xs font-bold">导入 PDF</span>
+                                    <span className="text-xs font-bold">导入学习资料</span>
+                                    <span className="px-3 text-center text-[10px] leading-relaxed">支持 PDF，让角色陪你讲解、练习</span>
                                 </>
                             )}
                         </button>
@@ -1843,8 +1849,8 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
             {/* Character Sprite - Toggable */}
             {showAssistant && (
                 <div className="absolute bottom-20 right-[-20px] w-[160px] h-[220px] z-20 pointer-events-none flex items-end justify-center transition-all duration-500 animate-slide-in-right" style={{ transform: isTyping ? 'scale(1.05)' : 'scale(1)', opacity: isTyping || classroomState === 'teaching' ? 1 : 0.8 }}>
-                     <img 
-                        src={currentSprite} 
+                     <TokenImg
+                        value={currentSprite}
                         className="max-h-full max-w-full object-contain drop-shadow-[0_5px_15px_rgba(0,0,0,0.5)]"
                     />
                 </div>

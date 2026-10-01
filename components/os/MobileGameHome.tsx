@@ -3,7 +3,9 @@ import { useOS } from '../../context/OSContext';
 import { Icons, INSTALLED_APPS } from '../../constants';
 import { AppID, CharacterProfile } from '../../types';
 import { DB } from '../../utils/db';
+import { isChatPreviewMessage } from '../../utils/chatMessageVisibility';
 import AppIcon from './AppIcon';
+import TokenImg from './TokenImg';
 import { getMobileGameArt } from './mobilegameArt';
 import { SCHEMES, hsl, schemePreview, type TgStyle } from './gotchiScheme';
 import { getChibi } from '../../utils/vrWorld/chibi';
@@ -129,7 +131,7 @@ const QUICK_ENTRIES: { id: AppID; cn: string }[] = [
 const GRID_CARDS: { id: AppID; cn: string; en: string }[] = [
     { id: AppID.CheckPhone, cn: '查手机', en: 'PHONE' },
     { id: AppID.Date, cn: '见面', en: 'CONTACTS' },
-    { id: AppID.User, cn: '档案', en: 'ARCHIVES' },
+    { id: AppID.VRWorld, cn: '彼方', en: 'KANATA' },
     { id: AppID.Bank, cn: '存钱罐', en: 'PIGGYBANK' },
     { id: AppID.Schedule, cn: '日程', en: 'SCHEDULE' },
     { id: AppID.Settings, cn: '设置', en: 'SETTINGS' },
@@ -229,10 +231,13 @@ const MobileGameHome: React.FC = () => {
         }
         const target = characters.find(c => c.id === activeCharacterId) || characters[0];
         setWidgetChar(target);
+        let cancelled = false;
         DB.getMessagesByCharId(target.id).then(msgs => {
-            const visible = msgs.filter(m => m.role !== 'system');
+            if (cancelled) return;
+            const visible = msgs.filter(isChatPreviewMessage);
             // 真实数值来源：聊天消息数（Lv/EXP/钻石）+ 最早消息时间（认识天数→星星）
-            setStat({ msgCount: visible.length, firstTs: visible[0]?.timestamp || 0 });
+            const interactionMessages = msgs.filter(m => m.role !== 'system');
+            setStat({ msgCount: interactionMessages.length, firstTs: interactionMessages[0]?.timestamp || 0 });
             if (visible.length > 0) {
                 const last = visible[visible.length - 1];
                 const clean = last.content.replace(/\[.*?\]/g, '').trim();
@@ -241,6 +246,7 @@ const MobileGameHome: React.FC = () => {
                 setLastMessage(target.description || '');
             }
         }).catch(() => {});
+        return () => { cancelled = true; };
     }, [activeCharacterId, lastMsgTimestamp, isDataLoaded, characters]);
 
     const totalUnread = useMemo(
@@ -274,7 +280,7 @@ const MobileGameHome: React.FC = () => {
     const monthName = MONTHS[now.getMonth()];
     const dateNum = now.getDate();
 
-    const charName = widgetChar?.name || 'SullyOS';
+    const charName = widgetChar?.name || 'SullyOS·糯米机';
     const tagline = (widgetChar?.description || '不知名种草姬').slice(0, 36);
     const announcement = lastMessage || widgetChar?.description || '一切如常，等待新的故事发生。';
     const expPct = Math.min(100, Math.round((stats.exp / stats.expMax) * 100));
@@ -311,7 +317,7 @@ const MobileGameHome: React.FC = () => {
                 <div className="flex items-center justify-between animate-fade-in">
                     <div className="flex items-center gap-2">
                         <span className="text-[11px]" style={{ color: PAL.pink }}>✦</span>
-                        <span className="text-[11px] font-bold" style={{ color: PAL.grape, letterSpacing: '0.3em' }}>SULLYOS&nbsp;STATION</span>
+                        <span className="text-[11px] font-bold" style={{ color: PAL.grape, letterSpacing: '0.3em' }}>SullyOS·糯米机&nbsp;STATION</span>
                         <span className="text-[9px]" style={{ color: PAL.peri }}>✦</span>
                     </div>
                     <div className="flex items-center gap-3">
@@ -373,7 +379,7 @@ const MobileGameHome: React.FC = () => {
                             style={{ background: `linear-gradient(135deg, ${PAL.pink}, ${PAL.peri}, ${PAL.lilac})`, boxShadow: '0 6px 16px rgba(150,120,200,0.35)' }}>
                             <div className="w-full h-full rounded-full overflow-hidden" style={{ border: '2px solid #fff' }}>
                                 {widgetChar?.avatar
-                                    ? <img src={widgetChar.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
+                                    ? <TokenImg value={widgetChar.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
                                     : <div className="w-full h-full flex items-center justify-center text-2xl" style={{ background: PAL.mist, color: PAL.lilac }}>✦</div>}
                             </div>
                         </div>
@@ -460,10 +466,10 @@ const MobileGameHome: React.FC = () => {
                                 WebkitMaskImage: 'linear-gradient(100deg, transparent 30%, #000 82%)',
                                 maskImage: 'linear-gradient(100deg, transparent 30%, #000 82%)',
                             }}>
-                            <img src={chibi.img} className="w-full h-full object-cover" alt="" loading="lazy" style={{ objectPosition: 'center 22%' }} />
+                            <TokenImg value={chibi.img} className="w-full h-full object-cover" alt="" loading="lazy" style={{ objectPosition: 'center 22%' }} />
                         </div>
                     ) : (
-                        <img src={chibi.img} alt="" loading="lazy"
+                        <TokenImg value={chibi.img} alt="" loading="lazy"
                             className="absolute right-0 bottom-0 object-contain object-bottom pointer-events-none"
                             style={{
                                 height: '64%', // 相对时钟卡高度，避免吃彼方里按 VR 调的绝对 scale 而巨大
@@ -543,7 +549,7 @@ const MobileGameHome: React.FC = () => {
                         </div>
                     </button>
                     <DockItem id={AppID.Social} cn="动态" onClick={() => openApp(AppID.Social)} />
-                    <DockItem id={AppID.ThemeMaker} cn="创作" onClick={() => openApp(AppID.ThemeMaker)} />
+                    <DockItem id={AppID.Appearance} cn="外观" onClick={() => openApp(AppID.Appearance)} />
                 </div>
             </div>
 

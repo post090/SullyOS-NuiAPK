@@ -1,12 +1,11 @@
 /**
  * 云端情绪评估的共用内核：占位符还原 + 副 API 请求 + 失败文案（先打码后截断）。
  *
- * 两个 worker（amsg 的即时对话路径、instant-push 的 Instant 路径）吃的是前端同一个
- * `buildEmotionEvalPrompt(..., includeContext=false, ...)` 模板，还原与请求逻辑必须
- * **逐字同款**——过去是两份手工同步的副本，d92231a 给报错加 apiKey 打码时只落了一份，
- * 另一份就把副 API key 随 push 带出去了。收敛到这一份叶子后，改哪条规则两边一起动。
+ * amsg worker 的即时对话路径吃的是前端 `buildEmotionEvalPrompt(..., includeContext=false, ...)`
+ * 生成的模板，还原与请求逻辑必须跟模板约定**逐字同款**。报错文案里的 apiKey 一定要先打码
+ * 再截断，否则副 API key 会随 push 带出去。
  *
- * 零浏览器 / 零 worker 运行时依赖（两个 worker bundle 都会把这份代码打进去）。
+ * 零浏览器 / 零 worker 运行时依赖（会被打进 amsg worker bundle）。
  */
 
 /** 副 API 凭据（没单独配就是主 API 那一份）。 */

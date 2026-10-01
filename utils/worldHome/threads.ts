@@ -32,8 +32,10 @@ export function ensureThreads(world: WorldProfile): WorldThread[] {
     return world.threads;
 }
 
-function pushMsg(thread: WorldThread, msg: WorldChatMessage) {
-    thread.messages.push(msg);
+function pushMsg(thread: WorldThread, msg: WorldChatMessage, beforeId?: string) {
+    const index = beforeId ? thread.messages.findIndex(m => m.id === beforeId) : -1;
+    if (index >= 0) thread.messages.splice(index, 0, msg);
+    else thread.messages.push(msg);
     if (thread.messages.length > THREAD_CAP) thread.messages = thread.messages.slice(-THREAD_CAP);
 }
 
@@ -66,6 +68,7 @@ export function applyBeatToThreads(
     members: { id: string; name: string }[],
     round: number,
     storyTime: string,
+    insertBefore: ReadonlyMap<string, string> = new Map(),
 ): void {
     const threads = ensureThreads(world);
     // dm 对象可以是成员，也可以是 NPC（角色给镇上的人发私信）
@@ -83,7 +86,7 @@ export function applyBeatToThreads(
         }
         for (const line of dm.lines) {
             if (isDuplicateLine(thread, beat.charId, line)) continue;
-            pushMsg(thread, { id: genId('wm'), fromId: beat.charId, fromName: beat.charName, text: line, round, storyTime, timestamp: now });
+            pushMsg(thread, { id: genId('wm'), fromId: beat.charId, fromName: beat.charName, text: line, round, storyTime, timestamp: now }, insertBefore.get(thread.id));
         }
     }
 
@@ -92,7 +95,7 @@ export function applyBeatToThreads(
         const group = threads.find(t => t.id === GROUP_THREAD_ID)!;
         for (const line of groupLines) {
             if (isDuplicateLine(group, beat.charId, line)) continue;
-            pushMsg(group, { id: genId('wm'), fromId: beat.charId, fromName: beat.charName, text: line, round, storyTime, timestamp: now });
+            pushMsg(group, { id: genId('wm'), fromId: beat.charId, fromName: beat.charName, text: line, round, storyTime, timestamp: now }, insertBefore.get(group.id));
         }
     }
 }

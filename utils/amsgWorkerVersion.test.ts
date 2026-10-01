@@ -77,11 +77,23 @@ describe('compareAmsgServerVersions', () => {
 describe('设置页门槛值', () => {
   const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 
-  it('与 package.json 声明的 amsg-server 版本一致', () => {
-    const floor = /REQUIRED_WORKER_VERSION = '([^']+)'/
-      .exec(read('../components/settings/ActiveMsgGlobalSettingsModal.tsx'))?.[1];
+  it('与 package.json 声明的 amsg-server 版本一致（要落后必须显式声明理由）', () => {
+    const src = read('../components/settings/ActiveMsgGlobalSettingsModal.tsx');
+    const floor = /REQUIRED_WORKER_VERSION = '([^']+)'/.exec(src)?.[1];
+    const lagAck = /WORKER_VERSION_LAG_ACK = '([^']+)'/.exec(src)?.[1];
     const declared = JSON.parse(read('../package.json'))
       .devDependencies['@rei-standard/amsg-server'];
-    expect(floor).toBe(declared);
+
+    // 门槛落后于依赖是允许的（新版只带可选增强时，不必逼所有人重贴部署），但必须把
+    // 当前依赖版本写进 WORKER_VERSION_LAG_ACK 表示「知道，是有意的」。两个都没跟上
+    // 就是升依赖时忘了同步门槛——那正是这条守卫要抓的。
+    expect(
+      floor === declared || lagAck === declared,
+      '升了 amsg-server 却既没抬 REQUIRED_WORKER_VERSION、也没更新 WORKER_VERSION_LAG_ACK',
+    ).toBe(true);
+
+    // 反方向永远不行：门槛高于依赖的话，自己打的 bundle 都过不了自己的门槛，
+    // 用户重贴多少次都亮「重新粘贴部署」。
+    expect(compareAmsgServerVersions(floor ?? '', declared)).not.toBe(1);
   });
 });

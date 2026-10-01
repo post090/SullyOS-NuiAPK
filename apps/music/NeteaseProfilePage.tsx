@@ -12,6 +12,8 @@ import {
 import { MagnifyingGlass, Gear, User as UserIcon } from '@phosphor-icons/react';
 import NeteaseLoginPanel from './NeteaseLoginPanel';
 import { neteaseCacheGet, neteaseCacheSet } from '../../utils/neteaseCache';
+import TokenImg from '../../components/os/TokenImg';
+import { isBlobRef } from '../../utils/blobRef';
 import { trackEvent } from '../../utils/analytics';
 
 export interface Playlist {
@@ -641,7 +643,8 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
               {characters.map(ch => {
                 const initialized = !!ch.musicProfile?.initializedAt;
                 const avatar = ch.avatar || '';
-                const isImage = avatar.startsWith('data:') || avatar.startsWith('http');
+                // 头像可能是 base64 / 图床直链 / blobref 令牌，三种都算图；其余当 emoji 或首字兜底。
+                const isImage = avatar.startsWith('data:') || avatar.startsWith('http') || isBlobRef(avatar);
                 return (
                   <button
                     key={ch.id}
@@ -651,8 +654,8 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                   >
                     <div className="relative w-14 h-14 mx-auto">
                       {isImage ? (
-                        <img
-                          src={avatar}
+                        <TokenImg
+                          value={avatar}
                           alt=""
                           className="w-14 h-14 rounded-full object-cover transition-transform group-active:scale-95"
                           style={{
@@ -816,7 +819,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                 className="w-full flex items-center gap-3 p-2 rounded-2xl text-left transition-all hover:bg-white/30"
               >
                 <div className="text-[10px] w-5 text-center shrink-0" style={{ color: C.faint }}>{i + 1}</div>
-                <img src={r.song.albumPic} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                <TokenImg value={r.song.albumPic} alt="" className="w-10 h-10 rounded-lg object-cover" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate" style={{ color: C.text }}>{r.song.name}</div>
                   <div className="text-[10px] truncate" style={{ color: C.muted }}>{r.song.artists}</div>
@@ -845,7 +848,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                 }}
                 className="w-full flex items-center gap-3 p-2 rounded-2xl text-left transition-all hover:bg-white/30"
               >
-                <img src={s.albumPic || 'https://p1.music.126.net/y19E5SadGUmSR8SZxkrNtw==/109951163965029180.jpg'}
+                <TokenImg value={s.albumPic || 'https://p1.music.126.net/y19E5SadGUmSR8SZxkrNtw==/109951163965029180.jpg'}
                   alt="" className="w-10 h-10 rounded-lg object-cover" />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm truncate" style={{ color: C.text }}>{s.name}</div>

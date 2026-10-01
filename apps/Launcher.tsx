@@ -3,7 +3,10 @@ import { isPaperWallpaper, useOS } from '../context/OSContext';
 import { INSTALLED_APPS, DOCK_APPS } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
 import AppIcon from '../components/os/AppIcon';
+import TokenImg from '../components/os/TokenImg';
+import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
+import { isChatPreviewMessage, chatPreviewText } from '../utils/chatMessageVisibility';
 import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
 import { runDailyCheck } from '../utils/taskSettlement';
 import { runWalletDailySettlement } from '../utils/walletSettlement';
@@ -25,6 +28,8 @@ const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'))
 const DesktopClock = React.memo(() => {
     const { virtualTime, theme } = useOS();
     const contentColor = theme.contentColor || '#ffffff';
+    const clockStyle = theme.desktopClockStyle || (theme.desktopVariant === 'nostalgia' ? 'bold' : 'serif');
+    const serifClock = clockStyle === 'serif';
     const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
 
     const days = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
@@ -128,6 +133,8 @@ const CharacterWidget = React.memo(({
 }) => {
     const { theme } = useOS();
     const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：会"说话"的村民卡
+    // 卡片底的虚化头像画在 CSS background-image 上，吃不到 TokenImg 的解析，这里自己解析一次。
+    const avatarUrl = useBlobRefUrl(char?.avatar);
 
     // 动森：村民头像 + AC 对话气泡（显示最近消息，点开聊天）
     if (acnh) {
@@ -138,7 +145,7 @@ const CharacterWidget = React.memo(({
                     <div className="relative w-[60px] h-[60px] shrink-0 rounded-[26%] overflow-hidden bg-[#e8e2d6]"
                         style={{ border: '3px solid #ffffff', boxShadow: '0 4px 10px -2px rgba(61,52,40,0.28)' }}>
                         {char?.avatar
-                            ? <img src={char.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
+                            ? <TokenImg value={char.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
                             : <div className="w-full h-full flex items-center justify-center text-2xl">🍃</div>}
                         {unreadCount > 0 && (
                             <div className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-[#fc736d] rounded-full flex items-center justify-center text-[10px] font-bold text-white"
@@ -187,10 +194,10 @@ const CharacterWidget = React.memo(({
                 }}
              >
                  {/* 背景虚化角色头像（动森模式下省略，避免糊在奶油底上） */}
-                 {!acnh && !paper && char?.avatar && (
+                 {!acnh && !paper && avatarUrl && (
                      <div className="absolute inset-0 opacity-25 pointer-events-none"
                          style={{
-                             backgroundImage: `url(${char.avatar})`,
+                             backgroundImage: `url(${avatarUrl})`,
                              backgroundSize: 'cover',
                              backgroundPosition: 'center',
                              filter: 'blur(30px) saturate(1.6)',
@@ -206,7 +213,7 @@ const CharacterWidget = React.memo(({
                              boxShadow: paper ? '0 5px 14px rgba(91,72,51,0.13)' : acnh ? '0 4px 12px -4px rgba(61,52,40,0.25)' : '0 4px 14px rgba(0,0,0,0.25)',
                          }}>
                          {char ? (
-                             <img src={char.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
+                             <TokenImg value={char.avatar} className="w-full h-full object-cover" alt="char" loading="lazy" />
                          ) : <div className="w-full h-full bg-white/10 animate-pulse" />}
                          {unreadCount > 0 ? (
                             <div className="absolute bottom-0.5 right-0.5 min-w-[16px] h-[16px] px-1 bg-red-500 rounded-full border border-white/30 shadow-sm flex items-center justify-center text-[9px] font-bold text-white">
@@ -322,7 +329,7 @@ const DesktopSquareImage = React.memo(({ image, contentColor, onClick, acnh = fa
             }}
         >
             {image ? (
-                <img src={image} alt="" className="w-full h-full object-cover" loading="lazy" />
+                <TokenImg value={image} alt="" className="w-full h-full object-cover" loading="lazy" />
             ) : (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 px-3 text-center">
                     <div className="w-9 h-9 rounded-full flex items-center justify-center"
@@ -422,7 +429,7 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
     const pagedEvents = upcomingEvents.slice(eventPage * EVENTS_PER_PAGE, eventPage * EVENTS_PER_PAGE + EVENTS_PER_PAGE);
 
     return (
-        <div className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
+        <div className="launcher-page w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
               <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
                       <h3 className="text-xl font-bold tracking-widest">{monthName} {currentYear}</h3>
@@ -538,13 +545,13 @@ let _lastPageIndex = 0;
 
 // --- Main Launcher ---
 
-const Launcher: React.FC = () => {
+const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false }) => {
   const { openApp, characters, activeCharacterId, setActiveCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages, apiConfig, addToast, userProfile } = useOS();
   const localDateKey = useLocalDateKey();
 
   // Local state for widget data to prevent context trashing
-  const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(null);
-  const [lastMessage, setLastMessage] = useState<string>('');
+  const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(staticPreview ? characters[0] || null : null);
+  const [lastMessage, setLastMessage] = useState<string>(staticPreview ? '今天也有想和你分享的小事。' : '');
   const [anniversaries, setAnniversaries] = useState<Anniversary[]>([]);
   const [scheduleData, setScheduleData] = useState<DailySchedule | null>(null);
   const [scheduleCharId, setScheduleCharId] = useState<string | null>(null);
@@ -574,6 +581,7 @@ const Launcher: React.FC = () => {
 
   const [activePageIndex, setActivePageIndex] = useState(_lastPageIndex);
   const activePageIndexRef = useRef(_lastPageIndex);
+  const pageWidthRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Mouse Drag Logic refs
@@ -590,7 +598,7 @@ const Launcher: React.FC = () => {
   // 跟随 DevDebug 可用性：prod 用户在设置页连点 5 下解锁后，CharCreatorDev 立刻出现；
   // 点「关闭」/ 刷新（prod 自动失效）也立刻消失。useMemo deps 没列 devDebugVisible
   // 会让它锁在 mount 时的初值。
-  const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
+  const [devDebugVisible, setDevDebugVisible] = useState(() => !staticPreview && isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
   const allAppsList = useMemo(() => {
     return INSTALLED_APPS.filter(app =>
@@ -715,6 +723,7 @@ const Launcher: React.FC = () => {
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
 
   useEffect(() => {
+      let cancelled = false;
       const loadData = async () => {
           // SAFEGUARD: If characters array is empty, reset widget char
           if (!characters || characters.length === 0) {
@@ -728,20 +737,14 @@ const Launcher: React.FC = () => {
           setWidgetChar(targetChar);
 
           try {
-              const [msgs, annis] = await Promise.all([
-                  DB.getMessagesByCharId(targetChar.id),
+              const [recent, annis] = await Promise.all([
+                  DB.getRecentMessagesWithCount(targetChar.id, 1, isChatPreviewMessage),
                   DB.getAllAnniversaries()
               ]);
-              
-              if (msgs.length > 0) {
-                  const visibleMsgs = msgs.filter(m => m.role !== 'system');
-                  if (visibleMsgs.length > 0) {
-                      const last = visibleMsgs[visibleMsgs.length - 1];
-                      const cleanContent = last.content.replace(/\[.*?\]/g, '').trim();
-                      setLastMessage(cleanContent || (last.type === 'image' ? '[图片]' : '[消息]'));
-                  } else {
-                      setLastMessage(targetChar.description || "System Ready.");
-                  }
+              if (cancelled) return;
+              const last = recent.messages[0];
+              if (last) {
+                  setLastMessage(chatPreviewText(last));
               } else {
                   setLastMessage(targetChar.description || "System Ready.");
               }
@@ -754,6 +757,7 @@ const Launcher: React.FC = () => {
       if (isDataLoaded) {
           loadData();
       }
+      return () => { cancelled = true; };
   }, [activeCharacterId, lastMsgTimestamp, isDataLoaded, characters]); // Trigger on characters change
 
   // 时光契约跨日结算：数据加载完成后只跑一次（ref 闸门保证不重复）。
@@ -837,16 +841,26 @@ const Launcher: React.FC = () => {
   // Restore scroll position BEFORE paint to avoid visible flash/slide
   useLayoutEffect(() => {
       const el = scrollContainerRef.current;
-      if (el && _lastPageIndex > 0) {
+      if (!el) return;
+      let frame = 0;
+      const alignPage = () => {
+          if (!el.clientWidth || pageWidthRef.current === el.clientWidth) return;
+          pageWidthRef.current = el.clientWidth;
           el.style.scrollBehavior = 'auto';
-          el.scrollLeft = el.clientWidth * _lastPageIndex;
-          requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
-      }
+          el.scrollLeft = el.clientWidth * activePageIndexRef.current;
+          cancelAnimationFrame(frame);
+          frame = requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
+      };
+      alignPage();
+      const observer = new ResizeObserver(alignPage);
+      observer.observe(el);
+      return () => { observer.disconnect(); cancelAnimationFrame(frame); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScroll = () => {
       if (scrollContainerRef.current) {
           const width = scrollContainerRef.current.clientWidth;
+          if (!width || width !== pageWidthRef.current) return;
           const scrollLeft = scrollContainerRef.current.scrollLeft;
           const index = Math.round(scrollLeft / width);
           setActivePageIndex(index);
@@ -1002,6 +1016,7 @@ const Launcher: React.FC = () => {
   }, [clearLayoutPageTurn, clearLayoutPressTimer]);
 
   const handleLayoutPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+      if ((e.target as HTMLElement).closest('[data-launcher-control]')) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
       const launcherRoot = e.currentTarget;
       const item = (e.target as HTMLElement).closest<HTMLElement>('[data-launcher-item]');
@@ -1121,7 +1136,7 @@ const Launcher: React.FC = () => {
 
   return (
     <div
-      className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none"
+      className={`launcher-desktop h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none ${layoutEditing ? 'launcher-editing' : ''}`}
       onPointerDown={handleLayoutPointerDown}
       onPointerMove={handleLayoutPointerMove}
       onPointerUp={finishLayoutPointer}
@@ -1131,6 +1146,31 @@ const Launcher: React.FC = () => {
       }}
     >
       <style>{`
+        .launcher-pages { min-height: 0; }
+        .launcher-page {
+          overflow-y: auto;
+          overscroll-behavior-y: contain;
+          padding-top: max(3rem, calc(var(--chrome-top, 24px) + 12px));
+          padding-left: max(1.5rem, env(safe-area-inset-left));
+          padding-right: max(1.5rem, env(safe-area-inset-right));
+        }
+        .launcher-page > * { flex-shrink: 0; }
+        .launcher-pinwheel-content { flex: 0 0 auto; margin-block: auto; }
+        .launcher-editing .launcher-page { padding-top: max(5rem, calc(var(--safe-top, 0px) + 4rem)); }
+        .launcher-widget-remove {
+          position: absolute; top: 0; right: 0; z-index: 30;
+          min-width: 44px; min-height: 44px; border-radius: 999px;
+          background: #fffdf8; color: #a93232; box-shadow: 0 2px 8px #0003;
+          font-size: 12px; touch-action: manipulation;
+        }
+        @media (orientation: landscape) {
+          .launcher-page > * { width: 100%; max-width: 680px; margin-left: auto; margin-right: auto; }
+          .launcher-page > .launcher-pinwheel-content { max-width: 480px; }
+        }
+        @media (orientation: landscape) and (min-width: 1000px) {
+          .launcher-page > .launcher-pinwheel-content { max-width: 1100px; }
+          .launcher-pinwheel-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        }
         .launcher-edit-item {
           touch-action: none;
           cursor: grab;
@@ -1182,12 +1222,12 @@ const Launcher: React.FC = () => {
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
         onClickCapture={handleClickCapture}
-        className="flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
+        className="launcher-pages flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
         style={{
             scrollBehavior: 'smooth',
             overscrollBehaviorX: 'contain',
             overscrollBehaviorY: 'none',
-            touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
+            touchAction: layoutEditing ? 'pan-y' : 'pan-x pan-y',
             willChange: 'scroll-position',
             contain: 'layout paint',
             transform: 'translateZ(0)',
@@ -1228,7 +1268,7 @@ const Launcher: React.FC = () => {
                       </>
                   ) : page.idx === 1 ? (
                       // Page 2: Schedule 4x2 widget on top + Pinwheel (Music / 2x2 icons / 2x2 icons / Image) below
-                      <div className="flex-1 min-h-0 w-full flex flex-col gap-5 justify-center">
+                      <div className="launcher-pinwheel-content w-full flex flex-col gap-5">
                           {scheduleChar && (
                               <ScheduleHomeWidget
                                   schedule={scheduleData}
@@ -1239,14 +1279,22 @@ const Launcher: React.FC = () => {
                                   paper={paper}
                               />
                           )}
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-5 w-full">
-                              {pinwheelOrder.map(cell => (
+                          <div className="launcher-pinwheel-grid grid grid-cols-2 gap-x-3 gap-y-5 w-full">
+                              {pinwheelOrder.filter(cell => cell === 'music' ? theme.launcherMusicVisible !== false : cell === 'image' ? theme.launcherImageVisible !== false : true).map(cell => (
                                   <div
                                       key={cell}
                                       data-launcher-item={cell}
                                       data-launcher-kind="widget"
-                                      className={`aspect-square min-w-0 ${layoutEditing ? 'launcher-edit-item' : ''}`}
+                                      className={`relative aspect-square min-w-0 ${layoutEditing ? 'launcher-edit-item' : ''}`}
                                   >
+                                      {layoutEditing && (cell === 'music' || cell === 'image') && (
+                                          <button type="button" data-launcher-control className="launcher-widget-remove"
+                                              aria-label={cell === 'music' ? '删除音乐组件' : '删除图片组件'}
+                                              onClick={e => {
+                                                  e.stopPropagation();
+                                                  updateTheme(cell === 'music' ? { launcherMusicVisible: false } : { launcherImageVisible: false });
+                                              }}>删除</button>
+                                      )}
                                       {cell === 'music' ? (
                                           <NowPlayingSquareWidget contentColor={contentColor} />
                                       ) : cell === 'appsA' ? (
@@ -1281,14 +1329,14 @@ const Launcher: React.FC = () => {
                                       <div className="flex gap-2">
                                         {['tl', 'tr'].map(key => w[key] ? (
                                           <div key={key} className="flex-1 aspect-square rounded-2xl overflow-hidden shadow-md border border-white/20">
-                                            <img src={w[key]} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                            <TokenImg value={w[key]} className="w-full h-full object-cover" alt="" loading="lazy" />
                                           </div>
                                         ) : <div key={key} className="flex-1"></div>)}
                                       </div>
                                     )}
                                     {w['wide'] && (
                                       <div className="w-full h-32 rounded-2xl overflow-hidden shadow-md border border-white/20">
-                                        <img src={w['wide']} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                        <TokenImg value={w['wide']} className="w-full h-full object-cover" alt="" loading="lazy" />
                                       </div>
                                     )}
                                   </div>

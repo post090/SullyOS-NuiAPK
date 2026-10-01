@@ -1,3 +1,4 @@
+import { selectCharacterContextMessages } from '../chatContextRange';
 /**
  * 520 特别活动 (2026.5.20) — LLM Prompt & 调用模块
  *
@@ -6,7 +7,7 @@
  *      Call B 在游玩中后台预取（醒来 + 信）。
  */
 
-import { ContextBuilder } from '../context';
+import { ContextBuilder, type CharacterContextInput } from '../context';
 import { extractJson, safeResponseJson } from '../safeApi';
 import { injectMemoryPalace } from '../memoryPalace/pipeline';
 import type { CharacterProfile, UserProfile, Message } from '../../types';
@@ -978,7 +979,7 @@ function validateCallB(parsed: any): parsed is Like520CallBResult {
 interface CallOptions<T> {
     label: string;
     apiConfig: ApiConfig;
-    systemContext: string;
+    characterContext: CharacterContextInput;
     userPrompt: string;
     temperature: number;
     validate: (parsed: any) => parsed is T;
@@ -1007,10 +1008,9 @@ async function callLike520LLM<T>(opts: CallOptions<T>): Promise<T> {
                 },
                 body: JSON.stringify({
                     model: opts.apiConfig.model,
-                    messages: [
-                        { role: 'system', content: opts.systemContext },
+                    messages: ContextBuilder.buildCharacterRequest(opts.characterContext, [
                         { role: 'user', content: userPrompt },
-                    ],
+                    ]),
                     temperature: opts.temperature,
                     // 之前没设 max_tokens —— Claude 类 provider 默认 4096/8192 token，
                     // 信件 900-1300 中文字 + JSON 包装会直接被截断（中文 1 字 ≈ 2-3 token）。
@@ -1080,17 +1080,14 @@ export async function runLike520CallA(
     await injectMemoryPalace(char as any, [], LIKE520_QUERY_HINT);
     console.log('[520][CallA] memory palace injection:\n', (char as any).memoryPalaceInjection || '(none)');
 
-    const baseContext = ContextBuilder.buildCoreContext(char, userProfile, true);
-    const contextLimit = char.contextLimit || 500;
-    const recentMsgs = recentMessages
-        .slice(-contextLimit)
+    const recentMsgs = selectCharacterContextMessages(recentMessages, char)
         .map(m => `${m.role}: ${m.type === 'image' ? '[图片]' : m.content}`)
         .join('\n');
 
     return callLike520LLM<Like520CallAResult>({
         label: 'CallA',
         apiConfig,
-        systemContext: baseContext,
+        characterContext: { char, user: userProfile },
         userPrompt: buildCallAPrompt(userProfile.name || '你', recentMsgs),
         temperature: 0.88,
         validate: validateCallA,
@@ -1107,17 +1104,14 @@ export async function runLike520CallB(
     recentMessages: Message[],
 ): Promise<Like520CallBResult> {
     // Call B 已经在 char 上有 memoryPalaceInjection（Call A 已注入），不再重新召回
-    const baseContext = ContextBuilder.buildCoreContext(char, userProfile, true);
-    const contextLimit = char.contextLimit || 500;
-    const recentMsgs = recentMessages
-        .slice(-contextLimit)
+    const recentMsgs = selectCharacterContextMessages(recentMessages, char)
         .map(m => `${m.role}: ${m.type === 'image' ? '[图片]' : m.content}`)
         .join('\n');
 
     return callLike520LLM<Like520CallBResult>({
         label: 'CallB',
         apiConfig,
-        systemContext: baseContext,
+        characterContext: { char, user: userProfile },
         userPrompt: buildCallBPrompt(userProfile.name || '你', callA, chosenTucao, recentMsgs),
         temperature: 0.9,
         validate: validateCallB,

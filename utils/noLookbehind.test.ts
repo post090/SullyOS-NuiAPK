@@ -18,8 +18,6 @@ const SRC_EXT = new Set(['.ts', '.tsx', '.js', '.mjs']);
 const SKIP_FILE = /(lookbehindFree\.test\.ts|noLookbehind\.test\.ts)$/;
 const SKIP_DIR = /node_modules|\.worktrees|dist/;
 const BUNDLE_FILES = [
-  'public/instant-worker.bundle.js',
-  'worker/instant-push/worker.bundle.js',
   'public/sw-keep-alive.js',
 ];
 const LOOKBEHIND = /\(\?<[=!]/;

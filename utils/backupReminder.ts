@@ -5,7 +5,7 @@
  * 背景：糯米机（SullyOS）是 local-first，全部数据只在用户自己的浏览器 IndexedDB 里，
  * 清缓存 / 换设备 / 崩溃就全没了。所以隔一段时间没导出就温柔提醒一次。
  *
- * 设计：自包含模块（不进 OSContext 那坨大 interface），对齐 WorkerUpdateReminderEvent 的写法。
+ * 设计：自包含模块（不进 OSContext 那坨大 interface）。
  *  - 频率用户可在「设置 → 备份」里改，1~30 天，默认 7 天。
  *  - markBackupDone(): 任何一次成功导出/云备份后调用，推进 lastBackupAt 并清掉提醒态。
  *  - shouldShowBackupReminder(): PhoneShell 用它决定弹不弹。

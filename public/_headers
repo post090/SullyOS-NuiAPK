@@ -1,0 +1,3 @@
+# Cloudflare static assets / Netlify: keep public pages and assets out of search indexes.
+/*
+  X-Robots-Tag: noindex

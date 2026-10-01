@@ -18,6 +18,7 @@
  * 定义只存在于质地的负空间里。prompt 层约束 + mergePlateEntries 兜底过滤。
  */
 
+import { readMaintenanceSettings } from './maintenanceMode';
 import type { MemoryNode, PlateRoom, RoomPlate } from './types';
 import { PLATE_ROOMS, PLATE_TITLES } from './types';
 import { MemoryNodeDB, RoomPlateDB, loadOrCreatePlate, mutatePlate } from './db';
@@ -187,7 +188,7 @@ async function consolidatePlates(
         if (profile && up) identityContext = ContextBuilder.buildCoreContext(profile, up, false);
     } catch { /* 拿不到就裸跑，prompt 里仍有名字与身份确认段 */ }
 
-    if (preferCloud) {
+    if (preferCloud && !readMaintenanceSettings().enabled) {
         const cloud = await tryCloudConsolidation({
             charId, charName, userName, identityContext, plates, materials, llmConfig, prioritySubmissions, snapshotAt,
         });
@@ -202,9 +203,11 @@ async function consolidatePlates(
     try {
         items = await callPlateLLM(charName, userName, plates, materials, llmConfig, identityContext);
     } catch (e: any) {
+        if (llmConfig.deferPlateMaintenance) throw e;
         console.warn(`🚪 [RoomPlate] LLM 整理调用失败: ${e?.message || e}`);
     }
     if (items.length === 0) {
+        if (llmConfig.deferPlateMaintenance) throw new Error('门牌整理没有返回有效内容，请稍后重试');
         console.warn(`🚪 [RoomPlate] LLM 未返回有效条目，门牌保持不动`);
         if (prioritySubmissions) {
             return withRescued(await fallbackMergeSubmissions(plates, prioritySubmissions, Date.now()));

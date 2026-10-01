@@ -39,6 +39,7 @@ import {
   AMSG2_PENDING_TOOL_CONFIG_LS_KEY,
   cancelAllRemoteAmsgTasks,
   wipeAmsgCloudData,
+  wipeAmsgCloudDataForReset,
   flushAmsgState,
   isWorkerUrlCleared,
   markAmsgStateDirty,
@@ -695,6 +696,77 @@ describe('清空云端数据', () => {
     expect(ActiveMsgClient.deleteRemotePushSubscription).toHaveBeenCalledTimes(1);
     expect(ActiveMsgClient.registerPushSubscription).not.toHaveBeenCalled();
     expect(result.push).toBe('deleted');
+  });
+});
+
+describe('重置全部数据的云端收尾', () => {
+  // 这一组守的是「重置之后云端不会继续跑」。删库把 worker 地址一起带走了，本地再没有
+  // 任何东西够得着那台 worker，所以云端这一步必须排在删库之前、而且结果要如实回报。
+  it('没配过 worker 时一个请求都不发', async () => {
+    (ActiveMsgStore.getGlobalConfig as any).mockResolvedValue({ workerUrl: '' });
+
+    const result = await wipeAmsgCloudDataForReset();
+
+    expect(result).toEqual({ status: 'skipped' });
+    expect(ActiveMsgClient.listAllTasks).not.toHaveBeenCalled();
+    expect(ActiveMsgClient.clearClientState).not.toHaveBeenCalled();
+  });
+
+  it('清干净了回 cleared，而且不补传工具凭据、不重新登记推送', async () => {
+    (ActiveMsgClient.listAllTasks as any).mockResolvedValue([{ uuid: 'u-1' }]);
+    (ActiveMsgClient.clearClientState as any).mockResolvedValue({ deleted: 4, toolConfigRestored: false });
+
+    const result = await wipeAmsgCloudDataForReset();
+
+    expect(result).toEqual({ status: 'cleared' });
+    // 本地紧接着就要删库，补上去的凭据谁也不会再读，登记的推送也没人接得住。
+    expect(ActiveMsgClient.clearClientState).toHaveBeenCalledWith(undefined, { restoreToolConfig: false });
+    expect(ActiveMsgClient.registerPushSubscription).not.toHaveBeenCalled();
+    expect(ActiveMsgClient.deleteRemotePushSubscription).toHaveBeenCalledTimes(1);
+  });
+
+  it('任务清单读不出来算没清干净，把 worker 地址带回去给用户', async () => {
+    (ActiveMsgClient.listAllTasks as any).mockRejectedValue(new Error('decryption failed'));
+
+    const result = await wipeAmsgCloudDataForReset();
+
+    expect(result.status).toBe('failed');
+    if (result.status !== 'failed') throw new Error('unreachable');
+    expect(result.workerUrl).toBe('https://amsg.example.dev');
+    expect(result.detail).toContain('任务清单');
+  });
+
+  it('有任务取消失败也算没清干净（它们会继续到点烧 API 额度）', async () => {
+    (ActiveMsgClient.listAllTasks as any).mockResolvedValue([{ uuid: 'u-1' }, { uuid: 'u-2' }]);
+    (ActiveMsgClient.cancelTask as any)
+      .mockResolvedValueOnce({ uuid: 'u-1', alreadyGone: false })
+      .mockRejectedValueOnce(new Error('offline'));
+
+    const result = await wipeAmsgCloudDataForReset();
+
+    expect(result.status).toBe('failed');
+    if (result.status !== 'failed') throw new Error('unreachable');
+    expect(result.detail).toContain('1 个定时任务');
+  });
+
+  it('角色上下文清不掉算没清干净（那是聊天原文）', async () => {
+    (ActiveMsgClient.clearClientState as any).mockRejectedValue(new Error('boom'));
+
+    const result = await wipeAmsgCloudDataForReset();
+
+    expect(result.status).toBe('failed');
+    if (result.status !== 'failed') throw new Error('unreachable');
+    expect(result.detail).toContain('角色上下文');
+  });
+
+  // 老 worker 上压根没有凭据表，这一步注定失败。拿它当判据会把一批根本没东西可清的人
+  // 堵在重置门口，所以它只记一笔、不拦着重置。
+  it('凭据行删不掉不算没清干净', async () => {
+    (ActiveMsgClient.deleteLlmCredentials as any).mockRejectedValue(new Error('NOT_FOUND'));
+
+    const result = await wipeAmsgCloudDataForReset();
+
+    expect(result).toEqual({ status: 'cleared' });
   });
 });
 

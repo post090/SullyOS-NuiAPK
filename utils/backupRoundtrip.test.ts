@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import JSZip from 'jszip';
 import { DB, openDB } from './db';
+import { putImageBlob, dataUrlToBlob, getBlobForRef, deleteBlobRef, restoreBlobRef } from './blobRef';
+import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip, BLOBS_INDEX_FILE } from './backupBlobs';
 import { encodeVectorsForBackup, encodeVectorsForBackupChunked, MemoryVectorDB } from './memoryPalace/db';
 import { writeV2Backup, assembleV2Backup, shardFileName, type ShardLimits } from './backupFormat';
 import { ActiveMsgStore } from './activeMsgStore';
@@ -68,6 +70,34 @@ function vecValues(v: any): number[] {
 }
 
 describe('v2 真实链路：分片 → 组装 → importFullData', () => {
+    it('聊天备注开关与相机成片在清库后完整恢复，不依赖原设备图片', async () => {
+        const photo = new Blob([new Uint8Array([255, 216, 255, 217])], { type: 'image/jpeg' });
+        const token = await putImageBlob(photo);
+        await seedStore('characters', [
+            { id: 'camera-on', name: '实际名称', description: '用户备注', chatShowRemark: true },
+            { id: 'camera-off', name: '关闭备注', chatShowRemark: false },
+        ]);
+        await seedStore('messages', [{ id: 901, charId: 'camera-on', role: 'user', type: 'image', content: token }]);
+        await seedStore('gallery', [{ id: 'camera-photo', url: token }]);
+        const exported = await DB.exportFullData();
+        const zip = new FakeZip(), tokens = new Set<string>();
+        const manifest = await writeV2Backup(zip, exported as any, { onSerialized: s => collectBlobRefs(s, tokens) });
+        expect(tokens.has(token)).toBe(true);
+        expect((await writeBlobsToZip(zip, tokens, getBlobForRef)).missing).toEqual([]);
+        for (const store of ['characters', 'messages', 'gallery']) await seedStore(store, []);
+        await deleteBlobRef(token);
+        expect(await getBlobForRef(token)).toBeNull();
+        await restoreBlobsFromZip(zip, await readBlobsIndex(zip), restoreBlobRef);
+        await DB.importFullData(await assembleV2Backup(zip, manifest) as any);
+        const chars = await DB.getRawStoreData('characters');
+        expect(chars.find((c: any) => c.id === 'camera-on')).toMatchObject({ name: '实际名称', description: '用户备注', chatShowRemark: true });
+        expect(chars.find((c: any) => c.id === 'camera-off').chatShowRemark).toBe(false);
+        expect((await DB.getRawStoreData('messages'))[0].content).toBe(token);
+        expect((await DB.getRawStoreData('gallery'))[0].url).toBe(token);
+        const restored = await getBlobForRef(token);
+        expect(restored?.type).toBe('image/jpeg');
+        expect(new Uint8Array(await restored!.arrayBuffer())).toEqual(new Uint8Array(await photo.arrayBuffer()));
+    });
     it('跨分片 clear-and-add：所有片的数据都落库、不只剩最后一片（Finding 1）', async () => {
         await seedStore('gallery', [{ id: 'old', url: 'old' }]);
         const items = Array.from({ length: 5 }, (_, i) => ({ id: `g${i}`, url: `u${i}` }));
@@ -115,7 +145,8 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
             instantChatEnabled: true,
         });
 
-        const exported = await DB.exportFullData();
+        // 勾了「包含后端连接」才带走（默认不带，见下面那条守卫）
+        const exported = await DB.exportFullData({ includeBackendConnection: true });
         expect(exported.amsg2GlobalConfig?.workerUrl).toBe('https://amsg.example.workers.dev');
 
         const zip = new FakeZip();
@@ -129,7 +160,7 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         });
         expect((await ActiveMsgStore.getGlobalConfig()).workerUrl).toBe('');
 
-        await DB.importFullData(data);
+        await DB.importFullData(data, { allowBackendConnection: true });
 
         const restored = await ActiveMsgStore.getGlobalConfig();
         expect(restored.workerUrl).toBe('https://amsg.example.workers.dev');
@@ -146,14 +177,63 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
             workerUrl: 'https://amsg.example.workers.dev',
             instantChatSupported: false, // 备份那会儿那台 Worker 还是旧版
         });
-        const exported = await DB.exportFullData();
+        const exported = await DB.exportFullData({ includeBackendConnection: true });
 
         // 这台机器上的 Worker 早就更新过了
         await ActiveMsgStore.saveGlobalConfig({ workerUrl: '', instantChatSupported: true });
-        await DB.importFullData({ ...exported } as any);
+        await DB.importFullData({ ...exported } as any, { allowBackendConnection: true });
 
         // 照抄回 false 会把即时对话白挡在门外，直到用户手动去重开开关
         expect((await ActiveMsgStore.getGlobalConfig()).instantChatSupported).toBeUndefined();
+    });
+
+    // 备份是会被分享出去的：带上后端连接就等于把自己那台 Worker 的钥匙一起发了——
+    // 对方的 App 会静默连上来，把 ta 的 API 凭据和聊天上下文写进你的 D1，而 ta 手里的
+    // 主密钥能解开你那台机器上所有的密文。所以默认不带，要带得用户自己勾。
+    it('默认导出不带后端连接：地址 / 密钥 / 用户 id 一样都不在备份里', async () => {
+        await ActiveMsgStore.saveGlobalConfig({
+            userId: 'u-secret',
+            workerUrl: 'https://amsg.example.workers.dev',
+            serverToken: 'token-abc',
+            masterKey: 'master-key-xyz',
+            instantChatEnabled: true,
+        });
+
+        const exported = await DB.exportFullData();
+        const config: any = exported.amsg2GlobalConfig;
+
+        expect(config?.workerUrl).toBeUndefined();
+        expect(config?.serverToken).toBeUndefined();
+        expect(config?.masterKey).toBeUndefined();
+        expect(config?.userId).toBeUndefined();
+        // 开关这类无害的偏好照旧跟着走
+        expect(config?.instantChatEnabled).toBe(true);
+    });
+
+    // 老备份里带着这几样，而导入的人未必知道这份文件是谁的。不点头就只还原开关。
+    it('导入不点头就不连后端：本机原有的连接也不会被顶掉', async () => {
+        await ActiveMsgStore.saveGlobalConfig({
+            userId: 'u-mine',
+            workerUrl: 'https://mine.example.workers.dev',
+            masterKey: 'my-key',
+        });
+
+        await DB.importFullData({
+            amsg2GlobalConfig: {
+                userId: 'u-theirs',
+                workerUrl: 'https://theirs.example.workers.dev',
+                serverToken: 'their-token',
+                masterKey: 'their-key',
+                instantChatEnabled: false,
+            },
+        } as any);
+
+        const after = await ActiveMsgStore.getGlobalConfig();
+        expect(after.workerUrl).toBe('https://mine.example.workers.dev');
+        expect(after.masterKey).toBe('my-key');
+        expect(after.userId).toBe('u-mine');
+        // 非连接类的偏好照常还原
+        expect(after.instantChatEnabled).toBe(false);
     });
 
     it('没配过 Worker 的用户：备份里干脆不出现这一项', async () => {
@@ -172,6 +252,19 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
                 charId: 'c1',
                 avatar: 'new-avatar',
                 companionAvatar: { version: 1, source: 'upload', imageRef: 'blobref:static-companion' },
+                companionTouchSettings: {
+                    enabledZones: ['head'],
+                    reactions: { head: [{ id: 'touch-1', text: '别揉乱啦', performance: { emotion: 'happy', gesture: 'idle' }, voiceAssetId: 'companion-touch-voice:c1:pack:head:0' }] },
+                    touchPresets: [{
+                        id: 'touch-preset-1',
+                        name: '摸头',
+                        enabledZones: ['head'],
+                        reactions: { head: [{ id: 'touch-1', text: '别揉乱啦', performance: { emotion: 'happy', gesture: 'idle' }, voiceAssetId: 'companion-touch-voice:c1:pack:head:0' }] },
+                        createdAt: 1,
+                        updatedAt: 1,
+                    }],
+                    activeTouchPresetId: 'touch-preset-1',
+                },
                 backgrounds: {},
             }],
             messages: [
@@ -198,6 +291,9 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         expect(c1.bio).toBe('text-bio');      // 文字字段存活
         expect(c1.avatar).toBe('new-avatar'); // 媒体被 patch
         expect(c1.companionAvatar).toEqual({ version: 1, source: 'upload', imageRef: 'blobref:static-companion' });
+        expect(c1.companionTouchSettings.activeTouchPresetId).toBe('touch-preset-1');
+        expect(c1.companionTouchSettings.touchPresets[0].reactions.head[0].voiceAssetId)
+            .toBe('companion-touch-voice:c1:pack:head:0');
         // 老文字消息 id1 没被清，新 image id2 加上（patch/merge，不 clear）
         const msgIds = (await DB.getRawStoreData('messages')).map((m: any) => m.id).sort();
         expect(msgIds).toEqual([1, 2, 3]);
@@ -284,12 +380,12 @@ describe('v2 真实链路：分片 → 组装 → importFullData', () => {
         });
     });
 
-    it('formatVersion 3 在组装阶段 abort，DB 未发生任何写（test 12）', async () => {
+    it('不支持的 formatVersion（如未来 v4）在组装阶段 abort，DB 未发生任何写（test 12）', async () => {
         await seedStore('gallery', [{ id: 'keep', url: 'x' }]);
         const zip = new FakeZip();
         const manifest = await writeV2Backup(zip, { galleryImages: [{ id: 'new' }] }, {});
-        const v3 = { ...manifest, formatVersion: 3 };
-        await expect(assembleV2Backup(zip, v3)).rejects.toThrow(/不支持的备份格式版本/);
+        const v4 = { ...manifest, formatVersion: 4 };
+        await expect(assembleV2Backup(zip, v4)).rejects.toThrow(/不支持的备份格式版本/);
         // 从没调用 importFullData → gallery 原样
         expect((await DB.getRawStoreData('gallery')).map((g: any) => g.id)).toEqual(['keep']);
     });
@@ -509,5 +605,77 @@ describe('v2 真实链路：向量二进制旁路', () => {
         expect(vals).toEqual([
             expect.closeTo(0.11, 6), expect.closeTo(0.22, 6), expect.closeTo(0.33, 6), expect.closeTo(0.44, 6),
         ]);
+    });
+});
+
+describe('v3 blob 旁路：令牌原样进包、二进制随包、按原 id 还原', () => {
+    // v2 时代 songs 掉出 resolveBlobRefsDeep 名单会导出死令牌，专门有条源码锚守卫。
+    // v3 的收集不走名单（onSerialized 从落包文本里提令牌），那类「漏名单」缺陷在结构上
+    // 不存在了；这里改钉三件事：令牌保真（旧行为解析成 data: 时这条会红）、字节保真、
+    // 嵌套 JSON 字符串里的令牌照样被收集（免名单的核心承诺）。
+    const TINY_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+    it('songs 封面令牌导出后原样保留，blobs/* 按原 id 还原出同字节同 mime', async () => {
+        const token = await putImageBlob(dataUrlToBlob(TINY_PNG));
+        await seedStore('songs', [{ id: 'song-cover-1', title: '封面测试曲', coverImage: token }]);
+
+        // 导出：与 OSContext 相同的三步 —— onSerialized 收集令牌、写分片、写 blobs 旁路
+        const rawData: any[] = await DB.getRawStoreData('songs');
+        const zip = new FakeZip();
+        const tokens = new Set<string>();
+        const manifest = await writeV2Backup(zip, { songs: rawData } as any, {
+            onSerialized: s => collectBlobRefs(s, tokens),
+        });
+        expect(tokens.has(token)).toBe(true);
+        const { written, missing } = await writeBlobsToZip(zip, tokens, getBlobForRef);
+        expect({ written, missing }).toEqual({ written: 1, missing: [] });
+
+        // 组装：令牌一字不改地回来（v2 旧行为会把它解析成 data:，这条立刻红）
+        const data: any = await assembleV2Backup(zip, manifest);
+        const song = data.songs.find((s: any) => s.id === 'song-cover-1');
+        expect(song.coverImage).toBe(token);
+
+        // 还原：索引校验通过，按原令牌 id 交回 Blob，字节与原图逐一致、mime 保真
+        const entries = await readBlobsIndex(zip);
+        expect(entries).toHaveLength(1);
+        const restored = new Map<string, Blob>();
+        await restoreBlobsFromZip(zip, entries, async (tk, blob) => { restored.set(tk, blob); });
+        const blob = restored.get(token)!;
+        expect(blob.type).toBe('image/png');
+        expect(new Uint8Array(await blob.arrayBuffer()))
+            .toEqual(new Uint8Array(await dataUrlToBlob(TINY_PNG).arrayBuffer()));
+    });
+
+    it('令牌藏在嵌套 JSON 字符串里（assets 表的预设行形态）也会被收集进旁路', async () => {
+        const token = await putImageBlob(dataUrlToBlob(TINY_PNG));
+        // 模拟 assets 表里 appearance_preset_* 行：值是 stringify 过的 JSON，令牌在字符串内部
+        const rows = [{ id: 'appearance_preset_x', data: JSON.stringify({ theme: { wallpaper: token } }) }];
+        const zip = new FakeZip();
+        const tokens = new Set<string>();
+        await writeV2Backup(zip, { assets: rows } as any, { onSerialized: s => collectBlobRefs(s, tokens) });
+        expect(tokens.has(token)).toBe(true);
+    });
+
+    it('令牌对应 Blob 已丢：跳过并计入 missing，不落索引文件（与无 blob 的包同形）', async () => {
+        const zip = new FakeZip();
+        const { written, missing } = await writeBlobsToZip(
+            zip, ['blobref:b_gone_0_aaaaaa'], async () => null);
+        expect({ written, missing }).toEqual({ written: 0, missing: ['blobref:b_gone_0_aaaaaa'] });
+        expect(zip.file(BLOBS_INDEX_FILE)).toBeNull();
+        expect(await readBlobsIndex(zip)).toEqual([]); // 读端把它当 v2 老包，安静走老路
+    });
+
+    it('索引声明的 blob 文件缺失 → 写库前 abort', async () => {
+        const zip = new FakeZip();
+        zip.file(BLOBS_INDEX_FILE, JSON.stringify([{ id: 'b_x_0_aaaaaa', type: 'image/png', size: 3 }]));
+        await expect(readBlobsIndex(zip)).rejects.toThrow(/blobs\/b_x_0_aaaaaa/);
+    });
+
+    it('blob 字节数与索引声明不符（截断包）→ 还原中止', async () => {
+        const zip = new FakeZip();
+        zip.file('blobs/b_y_0_aaaaaa', new Uint8Array([1, 2]));
+        zip.file(BLOBS_INDEX_FILE, JSON.stringify([{ id: 'b_y_0_aaaaaa', type: 'image/png', size: 3 }]));
+        const entries = await readBlobsIndex(zip);
+        await expect(restoreBlobsFromZip(zip, entries, async () => {})).rejects.toThrow(/截断/);
     });
 });

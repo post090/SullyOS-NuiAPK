@@ -11,6 +11,8 @@ import type {
 } from './types';
 import { PixelLayoutDB, PixelAssetDB } from './pixelHomeDb';
 import { confirmExportSafety } from '../../utils/exportGuard';
+import { shareOrDownloadFile } from '../../utils/shareExport';
+import { readShareText } from '../../utils/pngShare';
 
 // ─── 导出 ────────────────────────────────────────────
 
@@ -74,17 +76,17 @@ export async function downloadPreset(
   allAssets: PixelAsset[],
   presetName: string,
   author: string,
-): Promise<void> {
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const json = await exportPreset(homeState, allAssets, presetName, author);
   // 导出前明文密钥体检 + 二次确认（小屋预设正常不含密钥 → 提示「安全，可分享」）。
-  if (!(await confirmExportSafety(JSON.parse(json)))) return;
-  const blob = new Blob([json], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `pixel_home_${presetName.replace(/\s+/g, '_')}_${Date.now()}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  if (!(await confirmExportSafety(JSON.parse(json)))) return 'cancelled';
+  return shareOrDownloadFile({
+    card: { kind: 'pixel-home', title: presetName, author },
+    content: json,
+    fileName: `pixel_home_${presetName.replace(/\s+/g, '_')}_${Date.now()}.json`,
+    mimeType: 'application/json;charset=utf-8',
+    shareTitle: `像素小屋预设：${presetName}`,
+  });
 }
 
 // ─── 导入 ────────────────────────────────────────────
@@ -160,10 +162,5 @@ export async function importPreset(
 
 /** 从文件读取 JSON 字符串 */
 export function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(reader.error);
-    reader.readAsText(file);
-  });
+  return readShareText(file, 'pixel-home');
 }

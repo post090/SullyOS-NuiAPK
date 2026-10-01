@@ -37,7 +37,7 @@ describe('lockfile 本地依赖检查', () => {
     const lockfile = [
       'importers:',
       '',
-      '  worker/instant-push:',
+      '  worker/amsg:',
       '    dependencies:',
       '      some-lib:',
       '        version: link:../../../some-lib',
@@ -47,7 +47,7 @@ describe('lockfile 本地依赖检查', () => {
 
     const violations = findExternalLinks(lockfile);
     expect(violations).toHaveLength(1);
-    expect(violations[0].importer).toBe('worker/instant-push');
+    expect(violations[0].importer).toBe('worker/amsg');
   });
 
   it('仓库内的 workspace 互链放行', () => {
@@ -56,10 +56,10 @@ describe('lockfile 本地依赖检查', () => {
       '',
       '  .:',
       '    dependencies:',
-      '      instant-push:',
-      '        version: link:worker/instant-push',
+      '      amsg:',
+      '        version: link:worker/amsg',
       '',
-      '  worker/instant-push:',
+      '  worker/amsg:',
       '    dependencies:',
       '      sullyos:',
       '        version: link:../..',

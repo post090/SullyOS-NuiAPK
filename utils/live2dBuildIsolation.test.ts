@@ -8,13 +8,23 @@ describe('Live2D production chunk isolation', () => {
 
   it('keeps the Cubism adapter out of the Pixi chunk eagerly used by the desktop theme', () => {
     const engineRule = "if (id.includes('untitled-pixi-live2d-engine'))";
-    const pixiRule = "if (id.includes('@pixi/')";
+    const pixiRule = "if (id.includes('pixi-filters')";
 
     expect(viteConfig).toContain(engineRule);
     expect(viteConfig).toContain("return 'vendor-live2d-engine'");
     expect(viteConfig).toContain(pixiRule);
     expect(viteConfig.indexOf(engineRule)).toBeLessThan(viteConfig.indexOf(pixiRule));
     expect(viteConfig).not.toContain("id.includes('untitled-pixi-live2d-engine') || id.includes('@pixi/')");
+  });
+
+  it('groups Pixi filter subclasses with Pixi rather than common vendor', () => {
+    const body = viteConfig.match(/manualChunks\(id\) \{([\s\S]*?)\n        \}/)?.[1];
+    expect(body).toBeTruthy();
+    const chunk = new Function('id', body!) as (id: string) => string | undefined;
+    for (const file of ['node_modules/pixi-filters/lib/rgb-split/RGBSplitFilter.mjs', 'node_modules/.pnpm/pixi-filters@6.1.5/node_modules/pixi-filters/lib/tilt-shift/TiltShiftFilter.mjs', 'node_modules/pixi.js/lib/index.mjs']) {
+      expect(chunk('/project/' + file)).toBe('vendor-live2d');
+    }
+    expect(chunk('node_modules/untitled-pixi-live2d-engine/lib/index.js')).toBe('vendor-live2d-engine');
   });
 
   it('avoids hidden mobile allocations without lowering the selected atlas resolution', () => {

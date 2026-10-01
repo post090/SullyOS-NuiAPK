@@ -118,7 +118,7 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 
 ---
 
-# SullyOS // 手抓糯米机
+# SullyOS·糯米机
 <div align="center">
 <img width="800" alt="banner" src="https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/sDN.png" />
 </div>
@@ -129,7 +129,7 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 
 ## 这是什么鬼东西？
 
-**SullyOS** 是一个装在你浏览器里的虚拟手机系统。
+**SullyOS·糯米机** 是一个装在你浏览器里的虚拟手机系统。
 
 不是那种普通的聊天机器人——这里面有**桌面**、**APP**、**消息通知**、**相册**、**甚至电话功能**。你可以创造角色，给他们装进去，然后像真用手机一样跟他们互动。
 
@@ -144,7 +144,7 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 | 🧠 **神经链接** | 角色管理中枢：创建 / 导入 / 编辑角色，分组归档，捏人上装 |
 | 🏛️ **记忆宫殿** | 向量化长期记忆 + Russell 情感空间 + 熟悉度加成，角色真·记得住你说过的每件事。一键清空、全自动巩固、独立 API 通道 |
 | 💬 **Message** | 跟角色聊天，支持文字 / 图片 / 表情包 |
-| 📞 **电话** | 语音通话 + TTS（MiniMax / Fish Audio 音色），听得到角色的声音 |
+| 📞 **电话** | 语音通话 + TTS（MiniMax / Fish Audio / ElevenLabs 音色），听得到角色的声音 |
 | 👥 **群聊** | 拉一群角色互相唠嗑，看它们修罗场 |
 | 🏠 **小小窝** | 布置房间放角色进去挂机；内含**像素家园**和**记忆潜行**（3DS 双屏像素 RPG，潜进角色的记忆里逛一圈）|
 | 🔍 **查手机** | 检查角色手机里的秘密，发现它们背着你干什么 |
@@ -157,7 +157,7 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 | 🎮 **TRPG** | 跑团模式，掷骰子冒险 |
 | ✍️ **笔友会** | 写小说 / 找笔友，文艺青年专属 |
 | 🎵 **写歌** | 歌词创作工具，当赛博周杰伦 |
-| 🌌 **彼方** | 虚拟世界，多个房间（图书馆 / 剧院 / 音乐 / 健身房 / 邮局 / 信号坠落处…），含跨用户合写的接龙现代诗 |
+| 🌌 **彼方** | 多房间虚拟世界与独立 SAR 活动室；钓鱼、恐龙箱庭、模块演绎、角色钱包，以及凯恩 / 艾文个人线与收集名册。详见[彼方开发说明](apps/vrWorld/README.md)和[游玩指南](docs/sar-user-guide.md) |
 | 📅 **时光契约** | 定时任务，让角色记住提醒（虽然可能会忘）|
 | 🌍 **世界书** | 挂载设定集，扩展角色知识库 |
 | 🌡️ **热点** | 接入微博 / 知乎 / B站 等真实热榜，角色聊天时能"刷到"当背景认知 |
@@ -190,7 +190,7 @@ npm run dev
 - **Cloudflare Workers** - 联网能力的代理层（搜索 / 云备份 / 点单 MCP 等），单文件 `worker/index.js`，可一键自托管
 - **Capacitor** - 可打包成安卓 App，真·手机模拟器
 - **Phosphor Icons** - 图标库，看起来挺酷的
-- **AMSG（ReiStandard）** - 主动消息 / Instant Push 协议
+- **AMSG（ReiStandard）** - 主动消息协议
 - **Web Push** - 推送通知，叮叮叮
 - **JSZip** - 压缩文件，导出备份包用
 
@@ -216,7 +216,7 @@ npm run dev
 | **API Key** | 你的密钥，别告诉别人 |
 | **Model** | 模型名，如 `gpt-4o-mini`、`claude-3-sonnet`、`deepseek-chat` |
 
-**MiniMax TTS（可选）**：想在「电话」里用语音功能，需要在设置里填 MiniMax 的 API Key 和 Group ID。不然你就只能看文字，听不到我性感的声音。
+**TTS（可选）**：语音支持 MiniMax、Fish Audio、ElevenLabs 三选一。在「设置 → 其他 API」填写所选服务的 Key 和模型，再到角色的语音设置填写对应音色 ID；未配置时仍可正常使用文字聊天。
 
 > 也可以建 `.env.local` 文件预填默认值，但设置里的优先级更高。
 
@@ -276,7 +276,7 @@ A: 就是我也不知道什么意思。系统正在哈我。
 
 ### 记忆系统已经做好了，别重复造轮子
 
-**所有角色的长期信息**（人设、精炼记忆、印象档案、世界观书）都通过 `ContextBuilder.buildCoreContext()` 统一组装。它会在每次 API 请求前自动生成一段完整的角色上下文，包含：
+**所有角色的长期信息**（人设、精炼记忆、印象档案、世界观书）通过 `ContextBuilder.buildCharacterRequest({ char, user }, messages)` 在请求前统一组装，返回完整的消息数组，包含：
 
 - 角色基础设定（systemPrompt + worldview）
 - 用户档案（你的名字、人设、关系标签）
@@ -286,7 +286,7 @@ A: 就是我也不知道什么意思。系统正在哈我。
 
 **短期记忆**（最近聊天记录）直接走正常的 message history，和上面那段长期上下文一起塞进 API 请求。
 
-这意味着：**角色能记起所有事**，不需要你额外写记忆检索逻辑。只要往数据库里存了，ContextBuilder 会自动帮你塞进 Prompt。
+ContextBuilder 读取当前角色档案中的记忆与召回结果；消息范围和记忆宫殿召回仍须遵守 [记忆系统契约](docs/memory-system-overview.md)，不会自动读取全部数据库。挂载世界书的触发、顺序、深度和消息角色由公共管线处理，详见 [世界书管线](docs/worldbook-management.md#全-app-世界书构建管线)。
 
 ### 想加新 App？
 
@@ -294,7 +294,23 @@ A: 就是我也不知道什么意思。系统正在哈我。
 2. 在 `types.ts` 的 `AppID` 枚举里加个 ID
 3. 在 `constants.tsx` 的 `INSTALLED_APPS` 数组里注册（图标、名字、颜色）
 4. 在 `App.tsx` 的 `renderApp()` 里加 case
-5. 完事。UI 风格参考现有的用 Tailwind + glassmorphism。
+5. 涉及角色生成时，使用下面的统一请求入口。不要自行拼世界书，也不要将完整历史压成一段字符串后声称支持消息深度。
+
+```ts
+const messages = ContextBuilder.buildCharacterRequest(
+  { char, user: userProfile },
+  [
+    { role: 'system', content: appInstructions },
+    ...sceneHistory, // 本场景已筛选、已转换好的实际消息
+    { role: 'user', content: userInput },
+  ],
+);
+// 将 messages 直接作为 API 请求的 messages；无需任何世界书专用代码。
+```
+
+单次生成传一条任务消息即可。多人/自定义预设布局见世界书文档；旧 `buildCoreContext` 是文本兼容接口，新 App 不使用它。运行 `pnpm vitest run utils/contextPipeline.test.ts utils/contextWorldbook.test.ts` 检查管线契约。
+
+UI 风格参考现有的 Tailwind + glassmorphism。
 
 ### 数据流
 
@@ -351,7 +367,7 @@ VITE_HIDE_BUILD_BADGE=1 npm run build
 |------|------|--------|
 | **Skip Prompt Build** | 行为 | 跳过 `ContextBuilder` 的整套 prompt 组装，直接把你的裸消息怼给 LLM。用来避免它被人设束缚、不配合你输出你想要的调试内容 |
 | **Skip Emotion Eval** | 行为 | 跳过消息落库后的情绪评估管线（Russell 空间那套）。不需要调试情绪的时候可以打开（不配置日程也行）。 |
-| **记录 LLM 日志** | 捕获 | 勾上就录制所有 LLM 请求/响应（含 Instant Push 通道）。密钥字段自动 `<redacted>` 不用手动打码。以后想抓别的（MCP 调用之类）就再加一个捕获类，互不串桶 |
+| **记录 LLM 日志** | 捕获 | 勾上就录制所有 LLM 请求/响应。密钥字段自动 `<redacted>` 不用手动打码。以后想抓别的（MCP 调用之类）就再加一个捕获类，互不串桶 |
 
 捕获日志同时写 `localStorage` 和内存，各类混存、全局最多保留 100 条 / 1 MB（先到先淘汰）。为了省空间 / 隐私，**长文本默认写入时就折叠成前 10 字 + `...`**（那堆 system prompt 和聊天历史不会塞满 localStorage）；真要看完整请求体，打开「记录完整内容」开关再复现一次。录完可以**一键复制成 JSON** 或**下载成文件**丢给别人 debug，导出会自动带上当前分支和 commit hash，方便定位"到底是哪个版本炸的"。
 
@@ -361,47 +377,13 @@ VITE_HIDE_BUILD_BADGE=1 npm run build
 
 > 叮叮叮！调试面板不会让你的 Bug 自动修好，但至少能让你知道 Bug 在哪。大概。
 
-### Instant Push 走独立 Worker
+### 聊天上云走主动消息 2.0
 
-聊天上云的主力是主动消息 2.0 的即时对话；Instant Push 为独立可选部署（与即时对话在设置页互斥）。
+聊天回复想「发完就能锁屏走人」，走的是主动消息 2.0 的即时对话：每个用户自己部署一个 Cloudflare Worker（`worker/amsg/`），回复在 Worker 上生成，再以 Web Push 送回手机。设计与端点契约见 [`plans/amsg2-instant-chat.md`](./plans/amsg2-instant-chat.md)、[`plans/amsg2-instant-chat-contract.md`](./plans/amsg2-instant-chat-contract.md)。
 
-Instant Push 是基于 `@rei-standard/amsg-instant 0.8` 的 LLM-driven Web Push 通道
-（跟上面 sfworker 里的 push 加速器是两套独立链路）。每个 fork 用户自己部署一个
-Cloudflare Worker，跟仓库作者的 sully-n / 备份 Worker 完全无关。零数据库、零 cron、
-明文协议（HTTPS 已加密传输；攻击者拿到 Worker URL 也榨不出东西）。
-
-部署流程见 `worker/instant-push/README.md`，或打开 SullyOS Settings →
-Instant Push → 配置。
-
-#### Phase 2 Round 2 起：worker 端 agentic loop + reasoning + 副作用 directive
-
-Phase 2 Round 2 起 push 路径跟本地 fetch 路径**功能对齐**，不再降级：
-
-- **Agentic loop**：worker hook 看到 LLM 输出里的数据型标签（`[[RECALL/SEARCH/READ_DIARY/
-  FS_READ_DIARY/READ_NOTE/XHS_SEARCH/BROWSE/MY_PROFILE/DETAIL]]`）就走 `decision: 'tool-request'`，
-  推一条 `messageKind: tool_request` 给客户端。`utils/instantToolRunner.ts` 接到后用
-  `agenticTools.dispatchAgenticTool` 跑本地 MCP/DB/缓存，结果 OpenAI-shape POST 到
-  worker `/continue`，由它继续下一轮 LLM。一次推送最多 10 轮（`maxLoopIterations: 10`）。
-- **Reasoning chain**：worker 端 amsg-instant 0.8 在带 `reasoning_content` 的 LLM 响应上
-  自动 emit 一条独立 `ReasoningPush`。SW (sw-keep-alive 1.5.0+) 写到 `reasoning_buffer`
-  IndexedDB store，客户端处理同 sessionId 的第一条 content 时 atomic-claim，挂到
-  `Message.metadata.thinkingChain`（跟本地 fetch 路径一致的卡片渲染）。
-- **副作用 directive**：worker 端识别 `[[ACTION:POKE/TRANSFER/ADD_EVENT]]`、`[schedule_message...]`、
-  `[[MUSIC_ACTION:...]]`、`[[XHS_LIKE/FAV/COMMENT/REPLY/POST/SHARE:...]]`，**不执行**，把指令塞进
-  `ContentPush.metadata.directives`。客户端 `applyAssistantPostProcessing` 反向重建原 tag 字符串
-  喂给 `chatParser.parseAndExecuteActions` + 内联 XHS handler，**复用本地 fetch 路径的执行代码**
-  （单源真理）。当前 MUSIC_ACTION 在 push 路径仍降级（需要 musicHooks，跨 React 边界），下一版补。
-- **Memory Palace + 情绪评估**：`utils/activeMsgRuntime.ts:runPushTailPipeline` 在 push 路径
-  落库后跑跟 `useChatAI.ts:finally` 一致的尾段（`processNewMessages` + `evaluateEmotionBackground`）。
-  失败 fire-and-forget 不阻塞主链路。
-- **可选 D1 BlobStore**：agentic loop + reasoning 场景下 push payload p99 容易超 2.6 KB 安全线。
-  部署时给 worker 加 `DB` binding 即启用（见 `worker/instant-push/schema.sql` + `wrangler.toml`
-  的 `[[d1_databases]]` 注释块）；不配也能跑，小 payload 链路不受影响。
-- **离线兜底**：SW 收到 tool_request push 但当前 window 不 visible → `showNotification` 等
-  用户点开应用；启动时 `ActiveMsgRuntime.init` 排空 `pending_tool_calls` store 自动续跑
-  （iOS PWA swipe-kill 场景也兜得住）。
-
-详细决策映射 + 验证矩阵看 `~/.claude/plans/instant-push-agentic-loop-phase2.md` §四 / §六。
+- **工具在 Worker 里跑**：回忆、搜索、读日记、小红书这类数据标签由 Worker 就地执行，客户端不在线也能跑完（`worker/amsg/src/agentic.ts` + `classifier.ts`）。
+- **副作用只识别不执行**：戳一戳、转账、日程、音乐、小红书点赞这类标签，Worker 结构化成 directives 挂在最后一条推送上；客户端收到后由 `applyAssistantPostProcessing` 重放，复用本地聊天那套执行代码。
+- **收侧与本地聊天对齐**：推送落库后，`utils/activeMsgRuntime.ts` 的 `runPushTailPipeline` 跑跟本地聊天一致的尾段（记忆宫殿等）。
 
 ### ⚠️ 后端代理：二改请换成你自己的
 
@@ -410,7 +392,7 @@ Phase 2 Round 2 起 push 路径跟本地 fetch 路径**功能对齐**，不再�
 **好消息**：现在**主代理已经统一成一个中心配置**，不用再满仓库改硬编码。
 
 **① 主代理 Worker**（默认作者公共实例 `sullymeow.ccwu.cc`，源码单文件 [`worker/index.js`](./worker/index.js)）
-覆盖：联网搜索 / 热榜（Brave）、WebDAV 云备份、GitHub 云备份、Notion、飞书多维表格、麦当劳 / 瑞幸点单 MCP、网页抓取、Fish Audio TTS、音乐生成、网易云音乐（默认）。
+覆盖：联网搜索 / 热榜（Brave）、WebDAV 云备份、GitHub 云备份、Notion、飞书多维表格、麦当劳 / 瑞幸点单 MCP、网页抓取、Fish Audio / ElevenLabs TTS、音乐生成、网易云音乐（默认）。
 👉 二改只要在 **「设置 → 网络代理 (Worker)」** 填上你自己部署的地址，以上能力**一键全切走，不用改任何代码**。（`wrangler deploy` 把 `worker/index.js` 丢自己 CF 账号，拿到地址填进去即可。）
 **Nui 额外支持**：`VITE_PROXY_WORKER` 环境变量覆盖默认地址，`VITE_PROXY_WORKER=https://your.workers.dev npm run build` 即可固化自己的 Worker，适合自用版本分发。
 
@@ -418,7 +400,7 @@ Phase 2 Round 2 起 push 路径跟本地 fetch 路径**功能对齐**，不再�
 
 | 功能 | 位置 | 说明 |
 |------|------|------|
-| Instant Push（即时推送） | [`worker/instant-push/`](./worker/instant-push/) + 设置里填地址 | 每个 fork 自己部署一个 CF Worker |
+| 主动消息 2.0（含即时对话） | [`worker/amsg/`](./worker/amsg/) + 设置里一键部署或填地址 | 每个用户自己部署一个 CF Worker，教程见 [`docs/amsg2-setup-walkthrough.md`](./docs/amsg2-setup-walkthrough.md) |
 | 主动消息推送 | `worker/proactive-push/` + `utils/proactivePushConfig.ts` | 同上，自己部署 |
 | 小红书 Lite | `worker/xhs-lite/` + 小红书设置里填地址 | 自己部署 |
 | 网易云音乐（可选覆盖） | 播放器设置里可单独填 | 不填就跟随主代理 |
@@ -454,6 +436,14 @@ Instant Push（发完消息就能锁屏走人、角色回复好了自己以推�
 
 **聊天细节微调（外观 · 聊天界面）**
 外观里的「聊天细节微调」可视化设置（隐藏头像、头像对齐微调、消息贴边、气泡缩进、字号行距等）收编自社区作者 **毛豆腐和面机**（DC）流传的「神秘拼好码」白框美化——连选择器都沿用她在真实 DOM 上验证过的形态，等于把她手写的美化代码变成了人人可点的开关。感谢她。
+
+**HTML 卡片源码留存（聊天卡片）**
+
+聊天里生成的 HTML 卡片支持折叠查看并一键复制完整源码。这个功能最初来自社区作者 **芝麻** 的二创脑洞，现已正式收编为内置功能——感谢芝麻先想到让好看的卡片不只停留在聊天里，也能完整带走、长期保存。
+
+**一周年赠礼（头像框与壁纸）**
+
+感谢老玩家 **哈基米欠我钱** 为 SullyOS 一周年提供的头像框和两张壁纸，让大家的小手机也能一起换上周年新装。谢谢你准备的这份礼物，也谢谢一路以来的陪伴。
 
 **动森主题（外观 · 动森风格）**  
 桌面「动森风格」皮肤的视觉语言参考了 [animal-island-ui](https://github.com/guokaigdg/animal-island-ui)（by guokaigdg，MIT License）——一套受《集合啦！动物森友会》启发的 React 组件库。我们沿用了它的设计 token（大地棕文字、薄荷青绿、奶油米白背景）、NookPhone 应用色板、Time 时钟组件配色等，自绘了同风格的图标与界面。仅借鉴设计语言，未使用任天堂的任何商标或角色形象。

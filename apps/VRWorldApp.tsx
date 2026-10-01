@@ -1,17 +1,41 @@
+import { SAR_NPC_PREFERENCE_EVENT } from '../utils/vrWorld/sarNpcPreference';
+import { closeSARFacilityGuide } from '../utils/vrWorld/sarFacilityGuides';
+import { sarLaunch } from '../utils/sarUpdate';
+import { trackSARFeature } from '../utils/sarAnalytics';
+import { SARFamiliarityDialog } from './vrWorld/SARFamiliarityDialog';
+import { flushFishingDeliveries } from '../utils/vrWorld/fishingDelivery';
+import { flushMarketReceipts } from '../utils/vrWorld/fishingCharacter';
+import { loadCharacterContextMessageIds } from '../utils/chatContextRange';
 import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { useOS } from '../context/OSContext';
 import {
     ArrowLeft, Plus, Trash, BookOpen, Planet, Clock, Play, CaretRight, X,
     UploadSimple, PencilSimple, FlipHorizontal, CaretLeft, Sparkle,
-    CircleNotch, TextAa, Palette, Pause, MusicNotes, Queue, Question, Check, Gear,
-    SpeakerHigh, SpeakerSlash,
+    CircleNotch, TextAa, Palette, Pause, MusicNotes, Queue, Question, Check, Gear, Package, Eye, EyeSlash,
+    SpeakerHigh, SpeakerSlash, MagnifyingGlass, ShieldCheck, MagicWand,
 } from '@phosphor-icons/react';
 import TheaterPanel from './theater/TheaterPanel';
+import { SARCaianDialogue, SARClubStage, SARUpdateModal } from './vrWorld/SARClubEvent';
+import { SARGachaOverlay } from './vrWorld/SARGacha';
+import { SARAssemblyCabinetOverlay } from './vrWorld/SARAssemblyCabinet';
+import { SARModuleShopOverlay } from './vrWorld/SARModuleShop';
+import { FishingMarketOverlay } from './vrWorld/FishingMarketOverlay';
+import { SARHubPanels, type SARHubPanel } from './vrWorld/SARHubPanels';
+const DinosaurGarden = React.lazy(() => import('./vrWorld/dinosaur/DinosaurGarden').then(m=>({default:m.DinosaurGarden})));
 import { CreatorIframe, type ChibiResult } from '../components/Like520Event';
 import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
+import { LibraryView, NovelPreferenceModal } from './vrWorld/VRLibrary';
+import { VRActivityPicker, VRActivityRestrictions } from './vrWorld/VRActivityPicker';
+import type { VRSARActivity } from '../types';
+import { gardenResidents } from '../utils/vrWorld/dinosaurGarden';
+import { readFishingMarketState } from '../utils/vrWorld/fishingMarket';
+import { readableNovels, readingPreferenceLabel } from '../utils/vrWorld/library';
+import type { VRLibraryCategory } from '../types';
 import { useResilientAssetUrl, attachAudioMirrorFallback } from '../utils/assetUrl';
-import { VRScheduler } from '../utils/vrWorld/scheduler';
+import { VRScheduler, VR_FAIL_LIMIT } from '../utils/vrWorld/scheduler';
+import { allowsAutomaticVR, joinVRState, isSARActivityOccupant } from '../utils/vrWorld/participation';
+import { collectVRDiagnostics } from '../utils/vrWorld/diagnostics';
 import { VR_ROOMS, getRoom, VR_DEFAULT_INTERVAL_MIN, SIGNAL_EPIGRAPH, signalActFor, signalActRanges, SIGNAL_POEMS_PER_BOOKLET, SIGNAL_EVENT_ENDED, SIGNAL_MEMORIAL_CLOSING } from '../utils/vrWorld/constants';
 import { buildNovelAsync, groupAnnotationsBySeg, getBookmark } from '../utils/vrWorld/novel';
 import { decodeBytes } from '../utils/vrWorld/decodeText';
@@ -23,6 +47,17 @@ import { Signal, getMyAuthorship, setSignalWhisper, hasSignalNoticeAck, ackSigna
 import type { SignalPoem, SignalBooklet } from '../types';
 import { getVRApi, setVRApi, getVRApiLog, clearVRApiLog, type VRApiCall } from '../utils/vrWorld/vrApi';
 import { safeResponseJson } from '../utils/safeApi';
+import {
+    patchSARClubState,
+    readSARClubState,
+    rewindSARIntro,
+    SAR_CLUB_UPDATE_VERSION,
+    sarRoomView, nextSARRoomView, SAR_ROOM_VIEW_ACTIONS,
+    type SARRoomView,
+    type SARClubState,
+    type SARIntroReaction,
+    type SARNpcPreference,
+} from '../utils/vrWorld/sarClub';
 
 const genLocalId = (p: string) => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
@@ -78,8 +113,10 @@ import type { CharacterProfile, UserProfile, VRWorldNovel, VRNovelAnnotation, VR
 import { getChibi } from '../utils/vrWorld/chibi';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import { trackEvent } from '../utils/analytics';
+import { formatHours } from '../utils/format';
+import TokenImg from '../components/os/TokenImg';
 
-type Tab = 'world' | 'library' | 'settings' | 'api';
+type Tab = 'world' | 'sar' | 'library' | 'settings' | 'api';
 
 interface FeedItem {
     msgId: number; charId: string; charName: string; avatar: string;
@@ -96,6 +133,7 @@ const ROOM_SLOTS: Record<VRRoomId, { x: number; y: number }[]> = {
     postoffice:[{ x: 28, y: 76 }, { x: 52, y: 78 }, { x: 72, y: 72 }, { x: 42, y: 68 }],
     theater:   [{ x: 30, y: 80 }, { x: 70, y: 80 }, { x: 50, y: 84 }, { x: 40, y: 72 }, { x: 60, y: 72 }],
     signal:    [{ x: 26, y: 78 }, { x: 52, y: 80 }, { x: 74, y: 76 }, { x: 40, y: 70 }, { x: 62, y: 70 }],
+    sar:       [{ x: 24, y: 76 }, { x: 50, y: 80 }, { x: 74, y: 74 }, { x: 38, y: 68 }, { x: 62, y: 68 }],
     cafe:      [{ x: 30, y: 74 }, { x: 54, y: 78 }, { x: 70, y: 72 }],
 };
 
@@ -107,17 +145,29 @@ const IDLE_QUIPS: Record<VRRoomId, string[]> = {
     postoffice: ['给谁写封信呢', '封口、寄出', '翻翻信格', '写点心里话'],
     theater: ['对台词…', '再走一遍', '背词中', '候场'],
     signal: ['接一句…', '在想下一句', '读墙上的诗', '滋啦——信号'],
+    sar: ['看看推演机', '模块说明书…', '去钓鱼吗', '活动记录中'],
     cafe: ['', '', '', ''],
 };
 
 const VRWorldApp: React.FC = () => {
-    const { closeApp, characters, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig } = useOS();
+    const { closeApp, characters, characterGroups, updateCharacter, addToast, registerBackHandler, userProfile, updateUserProfile, apiPresets, apiConfig, groups, realtimeConfig, memoryPalaceConfig } = useOS();
+    useEffect(() => {
+        const flush = () => { void flushFishingDeliveries(characters).then(() => flushMarketReceipts(characters)).catch(() => {}); };
+        flush();
+        window.addEventListener('vr-fishing-market-updated', flush);
+        return () => window.removeEventListener('vr-fishing-market-updated', flush);
+    }, [characters]);
+
     const userName = userProfile?.name || '我';
-    const [tab, setTab] = useState<Tab>('world');
+    const [tab, setTab] = useState<Tab>(() => sarLaunch.peek() ? 'sar' : 'world');
+    useEffect(() => { sarLaunch.consume(); }, []);
     const [novels, setNovels] = useState<VRWorldNovel[]>([]);
     const [feed, setFeed] = useState<FeedItem[]>([]);
     const [poBadge, setPoBadge] = useState<{ toSend: number; toCollect: number }>({ toSend: 0, toCollect: 0 });
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(false);
+    const feedLoadGeneration = useRef(0);
+    useEffect(() => () => { feedLoadGeneration.current++; }, []);
 
     // 邮局徽标：本地待寄出/待发送 + 后端待收取的回信（best-effort 探测）
     const refreshPoBadge = useCallback(async () => {
@@ -146,24 +196,163 @@ const VRWorldApp: React.FC = () => {
     const [chibiEditChar, setChibiEditChar] = useState<CharacterProfile | null>(null);
     const [chibiEditUser, setChibiEditUser] = useState(false); // 用户本人捏 chibi
     const [showHelp, setShowHelp] = useState(false);
+    const [sarState, setSarState] = useState<SARClubState>(() => readSARClubState());
+    useEffect(() => {
+        const sync = () => { const next = readSARClubState(); setSarState(next); if (next.npcPreference === 'hide') { setFamiliarity(null); setShowSarDialogue(false); setShowSarRewindConfirm(false); } };
+        const storage = (event: StorageEvent) => { if (!event.key || event.key === 'vr_sar_club_state_v1') sync(); };
+        window.addEventListener(SAR_NPC_PREFERENCE_EVENT, sync); window.addEventListener('storage', storage);
+        return () => { window.removeEventListener(SAR_NPC_PREFERENCE_EVENT, sync); window.removeEventListener('storage', storage); };
+    }, []);
+    const [sarPromptStep, setSarPromptStep] = useState<'update' | 'preference' | null>(() =>
+        readSARClubState().npcPreference ? null : 'update');
+    const [worldPage, setWorldPage] = useState<0 | 1>(0);
+    const [showSarDialogue, setShowSarDialogue] = useState(false);
+    const [familiarity, setFamiliarity] = useState<{npc:'caian'|'aiven';sceneId?:string}|null>(null);
+    const [showSarGacha, setShowSarGacha] = useState(false);
+    const [showSarCabinet, setShowSarCabinet] = useState(false);
+    const [showSarModuleShop, setShowSarModuleShop] = useState(false);
+    const [sarHubPanel, setSarHubPanel] = useState<SARHubPanel | null>(null);
+    const sarHubBack = useRef<(() => boolean) | null>(null);
+    const [showFishingMarket, setShowFishingMarket] = useState<'water' | 'board' | 'garden' | 'sell' | null>(null);
+    const [sarModuleTargetCharId, setSarModuleTargetCharId] = useState<string | null>(null);
+    const [showSarRewindConfirm, setShowSarRewindConfirm] = useState(false);
+    const [incomingSarModule, setIncomingSarModule] = useState<{ charId: string; charName: string; moduleTitle: string } | null>(null);
+    const sarHandledThisSession = useRef(false);
+    useEffect(() => { if (tab === 'sar') trackSARFeature('room'); }, [tab]);
+    useEffect(() => { if (showSarDialogue || familiarity) trackSARFeature(familiarity?.sceneId ? 'replay' : 'dialogue'); }, [showSarDialogue, familiarity]);
+    useEffect(() => { if (showSarGacha) trackSARFeature('gacha'); }, [showSarGacha]);
+    useEffect(() => { if (showSarCabinet) trackSARFeature('cabinet'); }, [showSarCabinet]);
+    useEffect(() => { if (showSarModuleShop) trackSARFeature('modules'); }, [showSarModuleShop]);
+    useEffect(() => { if (sarHubPanel) trackSARFeature(sarHubPanel); }, [sarHubPanel]);
+    useEffect(() => { if (showFishingMarket) trackSARFeature(showFishingMarket === 'sell' ? 'water' : showFishingMarket); }, [showFishingMarket]);
     // 启用流程：设定 chibi 后回调启用
     const [pendingEnable, setPendingEnable] = useState<string | null>(null);
+    const [libraryCategories, setLibraryCategories] = useState<VRLibraryCategory[]>([]);
+    const [uploadCategoryId, setUploadCategoryId] = useState<string | undefined>();
+    const [readingPreferenceCharId, setReadingPreferenceCharId] = useState<string | null>(null);
+    const readingPreferenceChar = useMemo(
+        () => characters.find(char => char.id === readingPreferenceCharId) || null,
+        [characters, readingPreferenceCharId],
+    );
+
+    useEffect(() => {
+        const onInstalled = (event: Event) => {
+            const detail = (event as CustomEvent<{ charId?: string; charName?: string; moduleTitle?: string }>).detail;
+            if (!detail?.charId || !detail.charName || !detail.moduleTitle) return;
+            setIncomingSarModule({ charId: detail.charId, charName: detail.charName, moduleTitle: detail.moduleTitle });
+        };
+        window.addEventListener('sar-module-installed-on-user', onInstalled);
+        return () => window.removeEventListener('sar-module-installed-on-user', onInstalled);
+    }, []);
 
     // 初次进入彼方：自动弹出玩法说明（看过一次后不再自动弹）
     useEffect(() => {
+        // 新版 SAR 选择优先展示；本次选完先让用户进入 SAR，通用玩法说明留到下次进入。
+        if (sarPromptStep || sarHandledThisSession.current) return;
         try {
             if (!localStorage.getItem('vr_help_seen')) {
                 setShowHelp(true);
                 localStorage.setItem('vr_help_seen', '1');
             }
         } catch { /* ignore */ }
+    }, [sarPromptStep]);
+
+    const chooseSarNpcPreference = useCallback((preference: SARNpcPreference) => {
+        sarHandledThisSession.current = true;
+        const next = patchSARClubState({
+            npcPreference: preference,
+            updateSeenVersion: SAR_CLUB_UPDATE_VERSION,
+        });
+        setSarState(next);
+        setSarPromptStep(null);
+        trackEvent('选择彼方活动室NPC', { preference });
+        if (preference === 'show') {
+            setTab('sar');
+        }
     }, []);
 
-    const loadNovels = useCallback(async () => setNovels(await DB.getVRNovels()), []);
+    const changeSarNpcPreference = useCallback((preference: SARNpcPreference) => {
+        const next = patchSARClubState({ npcPreference: preference, updateSeenVersion: SAR_CLUB_UPDATE_VERSION });
+        setSarState(next);
+        trackEvent('切换彼方活动室NPC', { preference });
+        if (preference === 'show') {
+            setTab('sar');
+            addToast?.('凯恩与艾文已来到活动室', 'success');
+        } else {
+            setShowSarDialogue(false);
+            addToast?.('NPC 与相关内容已关闭，进度已保留', 'success');
+        }
+    }, [addToast]);
+
+    const completeSarIntro = useCallback((reaction?: SARIntroReaction) => {
+        const next = patchSARClubState({ caianMet: true, introReaction: reaction });
+        setSarState(next);
+        setShowSarDialogue(false);
+        trackEvent('完成凯恩初次见面', { reaction: reaction || 'unknown' });
+    }, []);
+
+    const rewindSarIntro = useCallback(() => {
+        const next = rewindSARIntro();
+        setSarState(next);
+        setShowSarDialogue(false);
+        setShowSarRewindConfirm(false);
+        trackEvent('回档凯恩初次见面');
+        if (next.npcPreference === 'show') {
+            setTab('sar');
+            addToast?.('已回档至与凯恩初次见面前', 'success');
+        } else {
+            addToast?.('剧情已回档；重新显示 NPC 后即可重看', 'success');
+        }
+    }, [addToast]);
+
+    // 网页游戏验证钩子：彼方是 DOM 场景而非 canvas，仍暴露当前可交互状态供自动化读取。
+    useEffect(() => {
+        if (showFishingMarket || sarHubPanel || familiarity) return; // 子水域拥有自己的游戏时钟与验证状态。
+        const target = window as Window & {
+            render_game_to_text?: () => string;
+            advanceTime?: (ms: number) => void;
+        };
+        const renderState = () => JSON.stringify({
+            mode: 'vr-world',
+            coordinateSystem: 'DOM viewport; origin top-left; x right; y down',
+            tab,
+            loading,
+            room: enterRoom,
+            overlays: {
+                sarUpdate: sarPromptStep,
+                caianDialogue: showSarDialogue,
+                sarGacha: showSarGacha,
+                sarCabinet: showSarCabinet,
+                sarModuleShop: showSarModuleShop,
+                fishingMarket: showFishingMarket,
+                help: showHelp,
+            },
+            sar: {
+                npcPreference: sarState.npcPreference,
+                caianMet: sarState.caianMet,
+                labelsHidden: !!sarState.labelsHidden,
+                roomView: sarRoomView(sarState),
+                worldPage,
+            },
+        });
+        const advanceTime = (_ms: number) => { /* DOM 事件没有独立游戏时钟 */ };
+        target.render_game_to_text = renderState;
+        target.advanceTime = advanceTime;
+        return () => {
+            if (target.render_game_to_text === renderState) delete target.render_game_to_text;
+            if (target.advanceTime === advanceTime) delete target.advanceTime;
+        };
+    }, [familiarity, sarHubPanel, tab, loading, enterRoom, sarPromptStep, showSarDialogue, showSarGacha, showSarCabinet, showSarModuleShop, showFishingMarket, showHelp, sarState, worldPage]);
+
+    const loadNovels = useCallback(async () => {
+        const [books, categories] = await Promise.all([DB.getVRNovels(), DB.getVRLibraryCategories()]);
+        setNovels(books); setLibraryCategories(categories);
+    }, []);
     const loadFeed = useCallback(async () => {
+        const generation = ++feedLoadGeneration.current;
         const items: FeedItem[] = [];
         for (const c of characters) {
-            // 彼方动态取数走 getVRCardsByCharId：全量捞该角色的 vr_card，不受"最近 N 条窗口"、
+            // 首页只展示最近 50 条动态，按角色限量读取；不受聊天的"最近 N 条窗口"、
             // 记忆宫殿高水位线（mp_lastMsgId_<charId>）、归档隐藏起点（hideBeforeMessageId）影响。
             // 这些机制只管「LLM 上下文能不能看到」——而彼方动态是用户自己的浏览界面，
             // 只要消息还在 IndexedDB 里就该一直能看到：
@@ -171,19 +360,17 @@ const VRWorldApp: React.FC = () => {
             //   · 角色记忆归档把旧聊天标记为"对 AI 隐藏" → 这些动态依旧存在，用户仍要能回看；
             //   · 聊天攒多了把旧 vr_card 挤出最近窗口 → 不该因此从动态流消失。
             // （清空聊天会真删消息，删掉就没了——那是预期行为，逻辑不变。）
-            const msgs = await DB.getVRCardsByCharId(c.id);
-            // 「对 AI 不可见」判定：归档隐藏起点（hideBeforeMessageId，m.id < 它即隐藏）
-            // 或记忆宫殿高水位（mp_lastMsgId，m.id <= 它即被向量记忆替代）。
-            // 两者都让 LLM 读不到原文——动态本身仍在，只是上下文看不到，UI 里暗显并标「已隐藏」。
-            const hideBefore = (c as any).hideBeforeMessageId || 0;
-            let mpHwm = 0;
-            try { mpHwm = parseInt(localStorage.getItem(`mp_lastMsgId_${c.id}`) || '0', 10) || 0; } catch { /* ignore */ }
-            const hiddenCut = Math.max(hideBefore - 1, mpHwm); // m.id <= hiddenCut ⇒ 对 AI 不可见
+            const msgs = await DB.getVRCardsByCharId(c.id, 50, m => !m.metadata?.userBoardPost);
+            if (generation !== feedLoadGeneration.current) return;
+            if (!msgs.length) continue;
+            // 可见性与实际发送的自适应/手动范围保持一致。
+            const visibleIds = await loadCharacterContextMessageIds(c, msgs);
+            if (generation !== feedLoadGeneration.current) return;
             for (const m of msgs) {
                 // 用户在留言簿的发言会广播进每个角色的 vr_card（供 LLM 上下文用），
                 // 但它不是"角色自己的动态"——不进动态流，也不当作 chibi 气泡。
                 if (!m.metadata?.userBoardPost) {
-                    items.push({ msgId: m.id, charId: c.id, charName: c.name, avatar: c.avatar, timestamp: m.timestamp, meta: m.metadata as VRCardMeta, content: m.content, hidden: m.id <= hiddenCut });
+                    items.push({ msgId: m.id, charId: c.id, charName: c.name, avatar: c.avatar, timestamp: m.timestamp, meta: m.metadata as VRCardMeta, content: m.content, hidden: !visibleIds.has(m.id) });
                 }
             }
         }
@@ -192,8 +379,10 @@ const VRWorldApp: React.FC = () => {
     }, [characters]);
 
     const reloadAll = useCallback(async () => {
-        setLoading(true);
-        await Promise.all([loadNovels(), loadFeed()]);
+        // Background refresh must not unmount the library and reset its filter/selection.
+        // Initial loading is already true until the first load finishes.
+        const results = await Promise.allSettled([loadNovels(), loadFeed()]);
+        setLoadError(results.some(result => result.status === 'rejected'));
         setLoading(false);
     }, [loadNovels, loadFeed]);
 
@@ -218,14 +407,14 @@ const VRWorldApp: React.FC = () => {
         for (const c of characters) {
             if (c.vrState?.enabled) {
                 const room = c.vrState.currentRoom || 'library';
-                (map[room] ||= []).push(c);
+                if(room!=='sar'||isSARActivityOccupant(c))(map[room] ||= []).push(c);
             }
         }
         // 用户本人接入彼方且设了 chibi → 作为伪 occupant 站进自己挂着的房间
         const uv = userProfile?.vrState;
         if (uv?.enabled && uv.chibi?.img) {
             const room = uv.currentRoom || 'guestbook';
-            const pseudo = { id: 'user', name: userName, avatar: userProfile?.avatar || '', vrState: { enabled: true, intervalMinutes: 0, currentRoom: room, chibi: uv.chibi } } as unknown as CharacterProfile;
+            const pseudo = { id: 'user', name: userName, avatar: userProfile?.avatar || '', vrState: { enabled: true, intervalMinutes: 0, currentRoom: room, sarActivity:/钓鱼|垂钓/.test(uv.activity||'')?'fishing':undefined, chibi: uv.chibi, title: uv.title } } as unknown as CharacterProfile;
             (map[room] ||= []).push(pseudo);
         }
         return map;
@@ -235,14 +424,26 @@ const VRWorldApp: React.FC = () => {
 
     // 返回键：有弹层先关弹层（阅读器/房间/上传/捏人），而不是直接退回桌面
     useEffect(() => registerBackHandler(() => {
+        if (closeSARFacilityGuide()) return true;
+        if (showSarRewindConfirm) { setShowSarRewindConfirm(false); return true; }
+        if (familiarity && chibiEditUser) { setChibiEditUser(false); return true; }
+        if (familiarity) { setFamiliarity(null); return true; }
+        if (sarHubPanel) { if (!sarHubBack.current?.()) setSarHubPanel(null); return true; }
+        if (showFishingMarket) { setShowFishingMarket(null); return true; }
+        if (showSarModuleShop) { setShowSarModuleShop(false); setSarModuleTargetCharId(null); return true; }
+        if (showSarCabinet) { setShowSarCabinet(false); return true; }
+        if (showSarGacha) { setShowSarGacha(false); return true; }
+        if (showSarDialogue) { setShowSarDialogue(false); return true; }
+        if (readingPreferenceCharId) { setReadingPreferenceCharId(null); return true; }
         if (chibiEditChar) { setChibiEditChar(null); setPendingEnable(null); return true; }
         if (chibiEditUser) { setChibiEditUser(false); return true; }
         if (showUpload) { setShowUpload(false); return true; }
         if (readerJump) { setReaderJump(null); return true; }
         if (readerNovel) { setReaderNovel(null); return true; }
         if (enterRoom) { setEnterRoom(null); return true; }
+        if (tab === 'sar') { setTab('world'); return true; }
         return false; // 无弹层 → 交回默认（关闭 App）
-    }), [registerBackHandler, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
+    }), [registerBackHandler, tab, familiarity, sarHubPanel, showFishingMarket, showSarModuleShop, showSarCabinet, showSarGacha, showSarRewindConfirm, showSarDialogue, readingPreferenceCharId, chibiEditChar, chibiEditUser, showUpload, readerJump, readerNovel, enterRoom]);
 
     // 从动态/批注点回原文：peek 模式打开阅读器跳到该段，不动用户书签
     const jumpToAnnotation = useCallback((novelId: string | undefined, segIdx: number) => {
@@ -252,23 +453,39 @@ const VRWorldApp: React.FC = () => {
     }, [novels]);
 
     // 用户在留言簿发言：落墙 + 以小卡片广播给所有接入彼方的角色私聊
-    const onUserBoardPost = useCallback(async (content: string) => {
+    const onUserBoardPost = useCallback(async (content: string, replyTo?: VRGuestbookMessage) => {
         const t = content.trim();
         if (!t) return;
-        const board = (await DB.getVRGuestbook()) || { id: 'board', messages: [], updatedAt: Date.now() };
         const id = `gb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
-        board.messages = [...board.messages, { id, authorId: 'user', authorName: userName, content: t, createdAt: Date.now() }];
-        board.updatedAt = Date.now();
-        await DB.saveVRGuestbook(board);
+        await DB.appendVRGuestbookMessages([{
+            id,
+            authorId: 'user',
+            authorName: userName,
+            content: t,
+            replyToId: replyTo?.id,
+            replyToName: replyTo?.authorName,
+            createdAt: Date.now(),
+        }]);
+        const activity = replyTo
+            ? `${userName} 在留言墙上回复 ${replyTo.authorName}：${t}`
+            : `${userName} 在留言墙上发了：${t}`;
         const enabled = characters.filter(c => c.vrState?.enabled);
         for (const c of enabled) {
             await DB.saveMessage({
                 charId: c.id, role: 'user', type: 'vr_card',
-                content: `「彼方 · 留言簿」${userName} 在留言墙上发了：${t}`,
-                metadata: { vrCard: true, room: 'guestbook', userBoardPost: true, activity: `${userName} 在留言墙上发了：${t}`, boardPost: t },
+                content: `「彼方 · 留言簿」${activity}`,
+                metadata: {
+                    vrCard: true,
+                    room: 'guestbook',
+                    userBoardPost: true,
+                    activity,
+                    boardPost: t,
+                    boardReplyToName: replyTo?.authorName,
+                },
             } as any);
         }
-        addToast?.(enabled.length > 0 ? `已留言，并广播给 ${enabled.length} 位接入角色` : '已留言', 'success');
+        const action = replyTo ? `已回复 ${replyTo.authorName}` : '已留言';
+        addToast?.(enabled.length > 0 ? `${action}，并广播给 ${enabled.length} 位接入角色` : action, 'success');
     }, [characters, userName, addToast]);
 
     // 用户更新自己的彼方状态：以行为卡片广播给所有接入彼方的角色（机制同留言簿发言）
@@ -301,9 +518,10 @@ const VRWorldApp: React.FC = () => {
 
     // 启用某角色（带 chibi 设定门槛）
     const enableChar = (char: CharacterProfile) => {
-        const interval = char.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-        updateCharacter(char.id, { vrState: { ...(char.vrState || {}), enabled: true, intervalMinutes: interval } });
-        VRScheduler.start(char.id, interval);
+        const vrState = joinVRState(char.vrState);
+        updateCharacter(char.id, { vrState });
+        if (allowsAutomaticVR(vrState)) VRScheduler.start(char.id, vrState.intervalMinutes);
+        else VRScheduler.stop(char.id);
         trackEvent('开启角色接入彼方', { action: 'enable' });
     };
     const requestEnable = (char: CharacterProfile) => {
@@ -317,31 +535,32 @@ const VRWorldApp: React.FC = () => {
     };
 
     return (
-        <div className="h-full w-full flex flex-col text-white relative overflow-hidden"
+        <div className={`h-full w-full flex flex-col text-white relative overflow-hidden ${tab === 'sar' ? 'vr-sar-light' : ''}`}
             style={{ background: 'radial-gradient(130% 90% at 50% -15%, #20283f 0%, #141a2c 38%, #0a0d18 72%, #05060d 100%)' }}>
             <VRStyleTag />
             {/* 极光辉光 */}
-            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="vr-aurora pointer-events-none absolute inset-0 overflow-hidden">
                 <div className="absolute -top-1/4 -left-1/4 w-[80%] h-[60%] rounded-full"
                     style={{ background: 'radial-gradient(circle, rgba(120,150,230,.20), transparent 70%)', filter: 'blur(44px)', animation: 'vraurora 15s ease-in-out infinite' }} />
                 <div className="absolute top-1/3 -right-1/4 w-[72%] h-[56%] rounded-full"
                     style={{ background: 'radial-gradient(circle, rgba(130,212,200,.15), transparent 70%)', filter: 'blur(50px)', animation: 'vraurora 19s ease-in-out infinite reverse' }} />
             </div>
             {/* 星尘 */}
-            <div className="pointer-events-none absolute inset-0"
+            <div className="vr-stars pointer-events-none absolute inset-0"
                 style={{ backgroundImage: 'radial-gradient(1px 1px at 18% 28%, rgba(255,255,255,.7), transparent), radial-gradient(1px 1px at 68% 18%, rgba(200,215,255,.6), transparent), radial-gradient(1px 1px at 82% 58%, rgba(230,220,255,.5), transparent), radial-gradient(1px 1px at 38% 72%, rgba(210,225,255,.5), transparent), radial-gradient(1.5px 1.5px at 52% 42%, rgba(255,255,255,.55), transparent)', animation: 'vrtwinkle 7s ease-in-out infinite' }} />
 
             {/* 顶栏 —— 外壳不再统一加 safe-area padding，这里用 --chrome-top 让开
                 安全区 + SullyOS 状态栏（时间/电量），退出键落在其下方，不再怼到时钟上面。 */}
-            <div className="relative flex items-center gap-2.5 px-5 pb-2.5 shrink-0 z-10" style={{ paddingTop: VR_TOP }}>
+            {tab !== 'sar' && <>
+            <div className="vr-topbar relative flex items-center gap-2.5 px-5 pb-2.5 shrink-0 z-10" style={{ paddingTop: VR_TOP }}>
                 <button onClick={closeApp} className="p-1.5 -ml-1.5 rounded-full text-white/65 active:bg-white/10"><ArrowLeft size={21} weight="regular" /></button>
                 <div className="flex items-center gap-2">
                     <Planet size={17} weight="light" className="text-indigo-100/90" style={{ filter: 'drop-shadow(0 0 7px rgba(165,185,255,.7))' }} />
-                    <span className="text-[22px] tracking-[0.42em] pl-1"
+                    <span className="vr-brand text-[22px] tracking-[0.42em] pl-1"
                         style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 300, background: 'linear-gradient(100deg,#dcd4ff,#fff,#c2ece6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', filter: 'drop-shadow(0 0 10px rgba(185,185,255,.35))' }}>彼方</span>
                 </div>
                 <span className="ml-auto text-[10.5px] tracking-[0.12em] text-white/45 font-light">
-                    {enabledCount > 0 ? `${enabledCount} 位漫游其中` : '尚无人接入'}
+                    {enabledCount > 0 ? `${enabledCount} 位已接入` : '尚无人接入'}
                 </span>
                 <button onClick={() => setShowHelp(true)} aria-label="玩法说明"
                     className="ml-2.5 h-7 w-7 rounded-full flex items-center justify-center text-white/70 active:bg-white/10 shrink-0"
@@ -351,9 +570,9 @@ const VRWorldApp: React.FC = () => {
             </div>
 
             {/* Tab — 发丝下划线 */}
-            <div className="relative flex px-5 gap-6 shrink-0 z-10 pb-px">
-                {([['world', '世界'], ['library', '书库'], ['settings', '接入'], ['api', 'API']] as [Tab, string][]).map(([t, label]) => (
-                    <button key={t} onClick={() => { setTab(t); trackEvent('切换彼方顶部标签', { tab: t }); }} className="relative pb-2 text-[13.5px] tracking-[0.22em] transition-colors"
+            <div className="vr-tabs relative flex px-4 gap-3 sm:px-5 sm:gap-5 shrink-0 z-10 pb-px">
+                {([['world', '世界'], ['sar', 'SAR'], ['library', '书库'], ['settings', '角色接入'], ['api', 'API']] as [Tab, string][]).map(([t, label]) => (
+                    <button key={t} aria-current={tab === t ? 'page' : undefined} onClick={() => { setTab(t); if (t === 'sar' && userProfile?.vrState?.enabled) updateUserProfile({vrState:{...userProfile.vrState,currentRoom:'sar',activity:userProfile.vrState.activity || '在 SAR 活动室闲逛',updatedAt:Date.now()}}); trackEvent('切换彼方顶部标签', { tab: t }); }} className="relative shrink-0 whitespace-nowrap pb-2 text-[13.5px] tracking-[0.12em] sm:tracking-[0.22em] transition-colors"
                         style={{ fontFamily: `'Noto Serif SC',serif`, color: tab === t ? 'rgba(255,255,255,.95)' : 'rgba(255,255,255,.38)' }}>
                         {label}
                         {tab === t && <span className="absolute -bottom-px left-1/2 -translate-x-1/2 w-5 h-px"
@@ -363,42 +582,136 @@ const VRWorldApp: React.FC = () => {
                 <div className="absolute bottom-0 left-5 right-5 h-px" style={{ background: 'linear-gradient(90deg,transparent,rgba(255,255,255,.09),transparent)' }} />
             </div>
 
+            </>}
+
             {/* 滚动容器不同于浮动 dock：滚到底时最后一条内容贴 viewport bottom = 屏幕底，必须 + safe-bottom 让位 home 条，否则翻页按钮被压（即原 #158 报的问题）。 */}
-            <div className="relative flex-1 overflow-y-auto vr-reader-scroll px-4 z-10" style={{ paddingTop: '1rem', paddingBottom: `calc(1rem + ${VR_SAFE_BOTTOM})` }}>
+            <div className="vr-world-scroll relative flex-1 overflow-y-auto vr-reader-scroll px-4 z-10" style={{ paddingTop: '1rem', paddingBottom: `calc(1rem + ${VR_SAFE_BOTTOM})` }}>
+                {loadError && <div role="alert" className="px-5 py-3 text-center text-xs text-white/70">
+                    部分本地数据读取失败，请重试。已有数据不会被清除。
+                    <button className="ml-3 underline" onClick={() => void reloadAll()}>重新载入</button>
+                </div>}
                 {loading ? (
                     <div className="text-center text-white/40 text-[13px] tracking-[0.2em] py-12" style={{ fontFamily: `'Noto Serif SC',serif` }}>载入彼方…</div>
+                ) : tab === 'sar' ? (
+                    <SARWorldPage occupants={occupantsByRoom.sar || []} npcEnabled={sarState.npcPreference === 'show'} caianMet={sarState.caianMet}
+                        roomView={sarRoomView(sarState)} onToggleLabels={() => {const view=nextSARRoomView(sarRoomView(sarState));setSarState(patchSARClubState({roomView:view,labelsHidden:view==='text-hidden'}));}}
+                        onTalkToCaian={() => sarState.caianMet ? setFamiliarity({npc:'caian'}) : setShowSarDialogue(true)} onTalkToAiven={() => setFamiliarity({npc:'aiven'})}
+                        onSelectCharacter={char => { setSarModuleTargetCharId(char.id); setShowSarModuleShop(true); }}
+                        onOpenGacha={() => setShowSarGacha(true)} onOpenCabinet={() => setShowSarCabinet(true)}
+                        onOpenModuleShop={() => setShowSarModuleShop(true)} onOpenFishingMarket={setShowFishingMarket}
+                        onOpenSarSettings={() => setSarHubPanel('settings')} onOpenSarWarehouse={() => setSarHubPanel('warehouse')}
+                        onBackPage={() => setTab('world')}/>
                 ) : tab === 'world' ? (
                     <WorldView occupantsByRoom={occupantsByRoom} feed={feed} novelCount={novels.length} poBadge={poBadge}
                         onEnterRoom={setEnterRoom} onGoLibrary={() => setTab('library')} onJump={jumpToAnnotation}
-                        onDeleteFeed={onDeleteFeed} onDeleteFeedMany={onDeleteFeedMany} />
+                        onDeleteFeed={onDeleteFeed} onDeleteFeedMany={onDeleteFeedMany}
+                        roomPage={worldPage} onRoomPageChange={setWorldPage}/>
                 ) : tab === 'library' ? (
-                    <LibraryView novels={novels} characters={characters} onOpen={setReaderNovel}
-                        onAdd={() => { setShowUpload(true); trackEvent('打开小说上架弹窗'); }}
+                    <LibraryView novels={novels} categories={libraryCategories} characters={characters} onOpen={setReaderNovel}
+                        onEdit={async edit => { await DB.editVRLibrary(edit); await loadNovels(); }}
+                        onPreference={char => setReadingPreferenceCharId(char.id)}
+                        onAdd={categoryId => { setUploadCategoryId(categoryId); setShowUpload(true); trackEvent('打开小说上架弹窗'); }}
                         onDelete={async (id) => { await DB.deleteVRNovel(id); await loadNovels(); addToast?.('已删除', 'success'); }} />
                 ) : tab === 'settings' ? (
                     <div className="space-y-3">
                         <UserVRPanel userProfile={userProfile} updateUserProfile={updateUserProfile}
                             onEditChibi={() => setChibiEditUser(true)} onBroadcast={onUserVRBroadcast} addToast={addToast} />
                         <SettingsView characters={characters} updateCharacter={updateCharacter} addToast={addToast}
-                            novelCount={novels.length} onReload={reloadAll}
-                            onRequestEnable={requestEnable} onEditChibi={setChibiEditChar} />
+                            novels={novels} onReload={reloadAll}
+                            onRequestEnable={requestEnable} onEditChibi={setChibiEditChar}
+                            onEditReadingPreference={(char) => setReadingPreferenceCharId(char.id)} />
                     </div>
                 ) : (
-                    <VRApiSettings apiPresets={apiPresets} chatApi={apiConfig} addToast={addToast} />
+                    <VRApiSettings apiPresets={apiPresets} chatApi={apiConfig} addToast={addToast} characters={characters} />
                 )}
             </div>
 
+            {sarHubPanel && userProfile && <SARHubPanels backRef={sarHubBack} panel={sarHubPanel} onClose={() => setSarHubPanel(null)} npcEnabled={sarState.npcPreference === 'show'} onChangeNpc={changeSarNpcPreference} caianMet={sarState.caianMet} onRequestRewind={()=>setShowSarRewindConfirm(true)} userProfile={userProfile} characters={characters} onOpenFamiliarity={(npc,sceneId)=>setFamiliarity({npc,sceneId})}/>}
+            {familiarity && sarState.npcPreference === 'show' && <SARFamiliarityDialog key={`${familiarity.npc}:${familiarity.sceneId||'today'}`} {...familiarity} onClose={()=>setFamiliarity(null)} onEditUserChibi={()=>setChibiEditUser(true)} onSellFish={()=>{setFamiliarity(null);setShowFishingMarket('sell');}}/>}
             {/* 进入房间场景 */}
             {enterRoom && (
                 <RoomScene roomId={enterRoom} occupants={occupantsByRoom[enterRoom] || []}
                     latestByChar={latestByChar} onClose={() => setEnterRoom(null)} onJump={jumpToAnnotation}
-                    characters={characters} userName={userName} onUserBoardPost={onUserBoardPost} addToast={addToast} />
+                    characters={characters} userName={userName} onUserBoardPost={onUserBoardPost} addToast={addToast}
+                    onUseModule={(character) => {
+                        setSarModuleTargetCharId(character.id);
+                        setShowSarModuleShop(true);
+                    }} />
             )}
+            {sarPromptStep && (
+                <SARUpdateModal step={sarPromptStep} onContinue={() => setSarPromptStep('preference')} onChoose={chooseSarNpcPreference} />
+            )}
+            {showSarDialogue && sarState.npcPreference === 'show' && (
+                <SARCaianDialogue onClose={() => setShowSarDialogue(false)} onComplete={completeSarIntro} />
+            )}
+            {showSarGacha && <SARGachaOverlay onClose={() => setShowSarGacha(false)} />}
+            {showSarCabinet && userProfile && (
+                <SARAssemblyCabinetOverlay onClose={() => setShowSarCabinet(false)} characters={characters} characterGroups={characterGroups}
+                    apiConfig={apiConfig} userProfile={userProfile} groups={groups} realtimeConfig={realtimeConfig} />
+            )}
+            {showSarModuleShop && (
+                <SARModuleShopOverlay
+                    npcEnabled={sarState.npcPreference === 'show'}
+                    initialTargetCharacterId={sarModuleTargetCharId}
+                    onClose={() => { setShowSarModuleShop(false); setSarModuleTargetCharId(null); }}
+                />
+            )}
+            {showFishingMarket==='garden' && userProfile && <React.Suspense fallback={<div className="fixed inset-0 z-[390] grid place-items-center bg-[#f2eee3] text-[#65785c]">箱庭正在打开…</div>}><DinosaurGarden userProfile={userProfile} characters={characters} onClose={()=>setShowFishingMarket(null)} onCharacterTrip={async char=>{
+                const {runVRSession}=await import('../utils/vrWorld/runSession');return runVRSession({char,characters,userProfile,groups,apiConfig,realtimeConfig,memoryPalaceConfig,updateCharacter,updateUserProfile,forcedRoom:'sar',forcedSARActivity:'garden',manual:true});
+            }}/></React.Suspense>}
+            {showFishingMarket && showFishingMarket!=='garden' && userProfile && (
+                <FishingMarketOverlay apiConfig={apiConfig} key={showFishingMarket} initialEntry={showFishingMarket} characters={characters} userProfile={userProfile} realtimeConfig={realtimeConfig}
+                    addToast={addToast} onClose={() => setShowFishingMarket(null)} onOpenGarden={()=>setShowFishingMarket('garden')}
+                    onCharacterTrip={async (char, mode) => {
+                        const { runVRSession } = await import('../utils/vrWorld/runSession');
+                        return runVRSession({ char, characters, userProfile, groups, apiConfig, realtimeConfig, memoryPalaceConfig,
+                            updateCharacter, updateUserProfile, forcedRoom: 'sar', forcedSARActivity: mode, manual: true });
+                    }} />
+            )}
+            {incomingSarModule && (() => {
+                const source = characters.find(character => character.id === incomingSarModule.charId);
+                return (
+                    <div className="fixed inset-0 z-[620] grid place-items-center bg-[#03070b]/75 px-8 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="角色对你装载了模块">
+                        <style>{`@keyframes sar-user-approach{0%{opacity:0;transform:translateX(-52px) scale(.78)}65%{opacity:1;transform:translateX(0) scale(1.04)}100%{transform:none}}@keyframes sar-user-chip{0%{opacity:0;transform:translate(72px,-45px) rotate(45deg)}55%{opacity:1;transform:translate(28px,-10px) rotate(45deg)}100%{opacity:0;transform:translate(12px,0) rotate(45deg) scale(.3)}}`}</style>
+                        <section className="w-full max-w-[330px] border border-emerald-100/20 bg-[#101b20] px-5 py-6 text-center shadow-[0_22px_80px_rgba(0,0,0,.65)]">
+                            <div className="relative mx-auto grid h-36 w-48 place-items-center">
+                                <div className="h-20 w-20 overflow-hidden rounded-full border border-emerald-100/30 bg-white/10 shadow-[0_0_36px_rgba(120,220,205,.2)]" style={{ animation: 'sar-user-approach .75s cubic-bezier(.2,.8,.2,1) both' }}>
+                                    {source?.avatar ? <TokenImg value={source.avatar} alt={source.name} className="h-full w-full object-cover" /> : <span className="grid h-full place-items-center text-2xl text-white/80">{incomingSarModule.charName[0]}</span>}
+                                </div>
+                                <span className="absolute grid h-8 w-8 place-items-center border border-emerald-100/50 bg-emerald-900/70 text-emerald-100" style={{ animation: 'sar-user-chip .95s cubic-bezier(.2,.8,.2,1) both', transform: 'rotate(45deg)' }}><Sparkle size={14} /></span>
+                            </div>
+                            <div className="text-[8px] tracking-[.28em] text-emerald-100/45">MODULE INSTALLED</div>
+                            <h2 className="mt-2 text-[18px] tracking-[.08em] text-white/90" style={{ fontFamily: `'Noto Serif SC',serif` }}>{incomingSarModule.charName} 对你使用了模块</h2>
+                            <p className="mt-2 text-[11px] leading-relaxed text-white/55">「{incomingSarModule.moduleTitle}」将在接下来 5 次成功互动中改变你的外显表达，真实意图不会被覆盖。</p>
+                            <button type="button" className="mt-5 w-full border border-emerald-100/20 bg-emerald-300/10 py-2.5 text-[11px] text-emerald-50" onClick={() => setIncomingSarModule(null)}>我知道了</button>
+                        </section>
+                    </div>
+                );
+            })()}
+            <ConfirmDialog zIndex={500} open={showSarRewindConfirm} title="回档凯恩初次见面？"
+                message="会清除这段初见剧情的完成记录，让凯恩重新出现感叹号。更新公告和 NPC 显示偏好不会改变。"
+                confirmText="确认回档" onConfirm={rewindSarIntro} onCancel={() => setShowSarRewindConfirm(false)} />
             {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+            {readingPreferenceChar && (
+                <NovelPreferenceModal
+                    key={readingPreferenceChar.id}
+                    char={readingPreferenceChar}
+                    novels={novels}
+                    categories={libraryCategories}
+                    onClose={() => setReadingPreferenceCharId(null)}
+                    onSave={preference => {
+                        updateCharacter(readingPreferenceChar.id, latest => ({
+                            vrState: { ...(latest.vrState || { enabled: false, intervalMinutes: VR_DEFAULT_INTERVAL_MIN }), ...preference },
+                        }));
+                        addToast?.('阅读偏好已保存', 'success');
+                        setReadingPreferenceCharId(null);
+                    }}
+                />
+            )}
             {readerNovel && <ReaderModal novel={readerNovel} characters={characters} onClose={() => setReaderNovel(null)} />}
             {readerJump && <ReaderModal novel={readerJump.novel} characters={characters} initialSeg={readerJump.seg} peek onClose={() => setReaderJump(null)} />}
             {showUpload && (
-                <UploadModal onClose={() => setShowUpload(false)}
+                <UploadModal categories={libraryCategories} initialCategoryId={uploadCategoryId} onClose={() => setShowUpload(false)}
                     onCommit={async (novel) => {
                         await DB.saveVRNovel(novel); await loadNovels(); setShowUpload(false);
                         addToast?.(`《${novel.title}》已上架（${novel.segments.length} 段）`, 'success');
@@ -415,10 +728,10 @@ const VRWorldApp: React.FC = () => {
                         setChibiEditChar(null);
                         if (wasPending) {
                             setPendingEnable(null);
-                            // 用最新 interval 启用
-                            const interval = charSnap.vrState?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
-                            updateCharacter(charSnap.id, { vrState: { ...(charSnap.vrState || {}), chibi, enabled: true, intervalMinutes: interval } });
-                            VRScheduler.start(charSnap.id, interval);
+                            const vrState = { ...joinVRState(charSnap.vrState), chibi };
+                            updateCharacter(charSnap.id, { vrState });
+                            if (allowsAutomaticVR(vrState)) VRScheduler.start(charSnap.id, vrState.intervalMinutes);
+                            else VRScheduler.stop(charSnap.id);
                             addToast?.(`${charSnap.name} 已接入彼方`, 'success');
                             trackEvent('开启角色接入彼方', { action: 'enable' });
                         } else {
@@ -427,14 +740,14 @@ const VRWorldApp: React.FC = () => {
                     }} />
             )}
             {chibiEditUser && (
-                <UserChibiEditor userName={userName} existing={userProfile?.vrState?.chibi}
+                <div className="fixed inset-0 z-[600]"><UserChibiEditor userName={userName} existing={userProfile?.vrState?.chibi}
                     onClose={() => setChibiEditUser(false)}
                     onSave={(chibi) => {
                         const uv = userProfile?.vrState;
                         updateUserProfile({ vrState: { ...(uv || {}), enabled: !!uv?.enabled, chibi, updatedAt: Date.now() } });
                         setChibiEditUser(false);
                         addToast?.('形象已更新', 'success');
-                    }} />
+                    }} /></div>
             )}
         </div>
     );
@@ -553,6 +866,19 @@ const RoomBackground: React.FC<{ roomId: VRRoomId; className?: string }> = ({ ro
             </div>
         );
     }
+    if (roomId === 'sar') {
+        return (
+            <div className={`absolute inset-0 overflow-hidden ${className || ''}`} style={{ background: 'linear-gradient(180deg,#20243a 0%,#151827 58%,#0b0d16 100%)' }}>
+                {/* 美术素材接入前的活动室底稿：墙面、窗光、地板和社团横幅分层保留，之后可直接替换 ROOM_BG。 */}
+                <div className="absolute left-[7%] top-[13%] h-[37%] w-[48%]" style={{ background: 'linear-gradient(150deg,rgba(177,197,232,.17),rgba(85,100,132,.04))', border: '1px solid rgba(210,220,255,.09)', boxShadow: '0 0 45px rgba(126,154,205,.08)' }} />
+                <div className="absolute right-[8%] top-[17%] h-[33%] w-[26%] rounded-sm" style={{ background: 'rgba(7,8,15,.28)', border: '1px solid rgba(255,255,255,.08)' }} />
+                <div className="absolute left-[10%] top-[20%] text-[18px] tracking-[0.28em] text-white/12" style={{ fontFamily: `'Noto Serif SC',serif` }}>SAR</div>
+                <div className="absolute inset-x-0 bottom-0 h-[38%]" style={{ background: 'linear-gradient(180deg,#26263a,#11121c)' }} />
+                <div className="absolute inset-x-0 bottom-[23%] h-px bg-white/[0.07]" />
+                <div className="absolute inset-0" style={{ background: 'radial-gradient(90% 70% at 50% 38%,transparent,rgba(5,6,14,.55))' }} />
+            </div>
+        );
+    }
     if (roomId === 'cafe') {
         return (
             <div className={`absolute inset-0 ${className || ''}`} style={{ background: 'linear-gradient(180deg,#3a2a1e 0%,#271c14 60%,#160f0a 100%)' }}>
@@ -578,7 +904,20 @@ const RoomBackground: React.FC<{ roomId: VRRoomId; className?: string }> = ({ ro
 const Chibi: React.FC<{ char: CharacterProfile; bubble?: string; onTap?: () => void; size?: number; dance?: boolean }> = ({ char, bubble, onTap, size = 96, dance }) => {
     const c = getChibi(char);
     return (
-        <div className="absolute flex flex-col items-center" style={{ transform: 'translate(-50%, -100%)' }} onClick={onTap}>
+        <div
+            className={`absolute flex flex-col items-center ${onTap ? 'cursor-pointer' : ''}`}
+            style={{ transform: 'translate(-50%, -100%)' }}
+            onClick={onTap}
+            role={onTap ? 'button' : undefined}
+            tabIndex={onTap ? 0 : undefined}
+            aria-label={onTap ? `查看 ${char.name}` : undefined}
+            onKeyDown={event => {
+                if (onTap && (event.key === 'Enter' || event.key === ' ')) {
+                    event.preventDefault();
+                    onTap();
+                }
+            }}
+        >
             {bubble && (
                 <div className="relative mb-1 max-w-[120px] px-2 py-1 rounded-xl bg-white/95 text-stone-700 text-[10px] leading-snug font-medium shadow-[0_3px_10px_rgba(0,0,0,.3)] text-center">
                     {bubble.length > 22 ? bubble.slice(0, 22) + '…' : bubble}
@@ -587,7 +926,7 @@ const Chibi: React.FC<{ char: CharacterProfile; bubble?: string; onTap?: () => v
             )}
             <div className="relative" style={{ animation: `${dance ? 'vrdance 0.9s' : 'vrfloat 3.2s'} ease-in-out infinite`, animationDelay: `${(char.id.charCodeAt(0) % 10) * 0.15}s` }}>
                 {c.img ? (
-                    <img src={c.img} alt={char.name}
+                    <TokenImg value={c.img} alt={char.name}
                         style={{ height: size * c.scale, transform: `scaleX(${c.flip ? -1 : 1}) translateY(${c.offsetY}px)`, filter: 'drop-shadow(0 4px 6px rgba(0,0,0,.5))' }}
                         className="object-contain" />
                 ) : (
@@ -615,12 +954,14 @@ const useLongPress = (onLong: () => void, ms = 500) => {
 
 const ConfirmDialog: React.FC<{
     open: boolean; title: string; message?: string;
-    confirmText?: string; cancelText?: string;
+    confirmText?: string; cancelText?: string; zIndex?: number;
     onConfirm: () => void; onCancel: () => void;
-}> = ({ open, title, message, confirmText = '删除', cancelText = '取消', onConfirm, onCancel }) => {
+}> = ({ open, title, message, confirmText = '删除', cancelText = '取消', zIndex = 300, onConfirm, onCancel }) => {
+    const root=useRef<HTMLDivElement>(null);
+    useEffect(()=>{if(!open)return;const prior=document.activeElement as HTMLElement|null;root.current?.focus();return()=>prior?.focus();},[open]);
     if (!open) return null;
     return (
-        <div className="fixed inset-0 z-[300] flex items-center justify-center px-8 bg-black/55 backdrop-blur-sm" onClick={onCancel}>
+        <div ref={root} tabIndex={-1} role="dialog" aria-modal="true" aria-label={title} style={{zIndex}} className="fixed inset-0 flex items-center justify-center px-8 bg-black/55 backdrop-blur-sm" onClick={onCancel} onKeyDown={event=>{if(event.key==='Escape'){event.stopPropagation();onCancel();}}}>
             <div className="w-full max-w-[300px] rounded-2xl p-4 text-center" onClick={e => e.stopPropagation()}
                 style={{ background: 'linear-gradient(180deg,#1b1830 0%,#100d20 100%)', border: '1px solid rgba(255,255,255,.12)', boxShadow: '0 16px 50px rgba(0,0,0,.6)' }}>
                 <div className="text-[14px] font-semibold text-white tracking-wide" style={{ fontFamily: `'Noto Serif SC',serif` }}>{title}</div>
@@ -832,9 +1173,9 @@ const HelpModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                 </Block>
 
                 <Block title="怎么开始" tone="rgba(245,208,138,.95)">
-                    <Step n={1}>去 <b>「接入」</b> 标签：给角色捏个小人形象，打开开关，设个登入间隔。</Step>
-                    <Step n={2}>想用图书馆，先去 <b>「书库」</b> 上传一本小说。</Step>
-                    <Step n={3}>不想等？在「接入」里点 <b>「让 ta 现在去逛一次」</b>，可以<b className="text-amber-200">指定房间或随机</b>，立刻看效果。</Step>
+                    <Step n={1}>去 <b>「角色接入」</b> 标签：给角色捏个小人形象，打开开关。默认<b>仅手动活动</b>；想让 ta 自己逛，再选「自动活动」和间隔。</Step>
+                    <Step n={2}>想用图书馆，先去 <b>「书库」</b> 上传小说。可以按分类整理，并在「谁来读这些书」里让角色按分类轮换。</Step>
+                    <Step n={3}>不想等？在「角色接入」里点 <b>「让 ta 现在去逛一次」</b>，可以<b className="text-amber-200">指定房间或随机</b>，立刻看效果。</Step>
                 </Block>
 
                 <Block title="房间都能干嘛">
@@ -915,9 +1256,8 @@ const ReplyComposeModal: React.FC<{ letter: VRLetter; defaultPen: string; initia
     );
 };
 
-// ============ 信号坠落处 · 顶部特殊活动 banner ============
-// 尽量照搬那张设计图：深空 + 金框四角 + 右侧书影 + 发光衬线标题 + 英文副名 + 副标题；
-// 右下角把「剩余时间倒计时」换成「已完成 x/20 首诗歌」的进度。点整块进入信号坠落处。
+// ============ 信号坠落处 · 往期活动小入口 ============
+// 活动已经封存，只在往期活动页留一张克制的纪念馆入口，不再占用世界首页头图。
 // banner 底图：月（仓库相对路径，经 assetUrl 走多 CDN 镜像兜底，见 utils/assetUrl.ts）
 const SIGNAL_BANNER_MOON = 'img/MOON.png';
 const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
@@ -934,7 +1274,7 @@ const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
     const done = bk?.poemCount ?? 0;
     const total = bk?.poemsTarget ?? 40;
     return (
-        <button onClick={onOpen} className="relative w-full h-[132px] rounded-2xl overflow-hidden text-left active:scale-[0.985] transition-transform"
+        <button onClick={onOpen} className="relative w-full h-[84px] rounded-2xl overflow-hidden text-left active:scale-[0.985] transition-transform"
             style={{ boxShadow: '0 10px 34px rgba(0,0,0,.5)', border: '1px solid rgba(196,164,92,.35)' }}>
             {/* 底图：月 */}
             <div className="absolute inset-0" style={{ backgroundImage: `url(${moonUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
@@ -949,22 +1289,77 @@ const SignalBanner: React.FC<{ onOpen: () => void }> = ({ onOpen }) => {
                 <div key={i} className={`absolute ${pos} w-4 h-4 ${b} pointer-events-none`} style={{ borderColor: 'rgba(212,178,102,.6)' }} />
             ))}
             {/* 文案 */}
-            <div className="absolute inset-0 px-5 flex flex-col justify-center">
-                <div className="text-[9px] tracking-[0.34em] text-amber-200/75 mb-1.5">{SIGNAL_EVENT_ENDED ? '特殊活动 · 已落幕 · 纪念馆' : '特殊活动 · 跨用户共写'}</div>
-                <div className="text-[27px] leading-none font-bold text-white" style={{ fontFamily: `'Noto Serif SC',serif`, textShadow: '0 0 22px rgba(180,160,255,.55), 0 2px 5px rgba(0,0,0,.55)' }}>信号坠落处</div>
-                <div className="text-[11px] italic tracking-[0.24em] text-indigo-200/50 mt-1.5" style={{ fontFamily: `'Noto Serif SC',serif` }}>Signal&nbsp;Fall</div>
-                <div className="text-[10.5px] text-indigo-100/60 mt-1.5">电子生命的低电量合唱</div>
+            <div className="absolute inset-0 px-4 flex flex-col justify-center">
+                <div className="text-[7.5px] tracking-[0.3em] text-amber-200/65 mb-1">已封存 · 纪念馆</div>
+                <div className="text-[16px] leading-none font-semibold text-white" style={{ fontFamily: `'Noto Serif SC',serif`, textShadow: '0 0 18px rgba(180,160,255,.45), 0 2px 5px rgba(0,0,0,.55)' }}>信号坠落处</div>
+                <div className="text-[8.5px] text-indigo-100/50 mt-1.5">电子生命的低电量合唱 · 只读留存</div>
             </div>
             {/* 进度（替代倒计时） */}
             <div className="absolute right-4 bottom-3 text-right">
-                <div className="text-[8.5px] tracking-[0.22em] text-amber-200/65 flex items-center gap-1 justify-end mb-0.5"><BookOpen size={10} weight="fill" /> {SIGNAL_EVENT_ENDED ? '已封卷' : '已完成'}</div>
-                <div className="text-[15px] font-bold text-amber-100 tabular-nums leading-none" style={{ fontFamily: `'Noto Serif SC',serif` }}>{done}<span className="text-[11px] text-amber-200/55"> / {total} 首</span></div>
+                <div className="text-[7.5px] tracking-[0.2em] text-amber-200/60 flex items-center gap-1 justify-end mb-0.5"><BookOpen size={9} weight="fill" /> 已封卷</div>
+                <div className="text-[12px] font-bold text-amber-100/85 tabular-nums leading-none" style={{ fontFamily: `'Noto Serif SC',serif` }}>{done}<span className="text-[9px] text-amber-200/45"> / {total} 首</span></div>
             </div>
         </button>
     );
 };
 
 // ============ 世界视图 ============
+const SARWorldPage: React.FC<{
+    occupants: CharacterProfile[];
+    roomView: SARRoomView;
+    onToggleLabels: () => void;
+    npcEnabled: boolean;
+    caianMet: boolean;
+    onTalkToCaian: () => void;
+    onTalkToAiven: () => void;
+    onSelectCharacter: (char:CharacterProfile) => void;
+    onOpenGacha: () => void;
+    onOpenCabinet: () => void;
+    onOpenModuleShop: () => void;
+    onOpenSarSettings: () => void;
+    onOpenSarWarehouse: () => void;
+    onOpenFishingMarket: (entry: 'water' | 'board' | 'garden') => void;
+    onBackPage: () => void;
+}> = ({ occupants, roomView, onToggleLabels, npcEnabled, caianMet, onTalkToCaian, onTalkToAiven, onSelectCharacter, onOpenGacha, onOpenCabinet, onOpenModuleShop, onOpenSarSettings, onOpenSarWarehouse, onOpenFishingMarket, onBackPage }) => (
+    <section className="sar-world-page relative overflow-hidden" aria-label="SAR 活动空间"
+        style={{ minHeight: 0, height: '100%' }}>
+
+        <div className="sar-world-heading absolute inset-x-5 top-5 z-10 flex items-start justify-between gap-4">
+            <div className="sar-hub-identity">
+                <button type="button" className="sar-hub-exit" onClick={onBackPage} aria-label="返回彼方"><ArrowLeft size={20}/></button>
+                <div><div className="sar-world-eyebrow">ACTIVITY ROOM</div>
+                <h2 style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>SAR 活动室</h2></div>
+            </div>
+            <div className="sar-hub-tools">
+                <button type="button" onClick={onToggleLabels} aria-label={SAR_ROOM_VIEW_ACTIONS[roomView].description} title={SAR_ROOM_VIEW_ACTIONS[roomView].description} data-room-view={roomView}>{roomView==='characters-hidden' ? <Eye size={21}/> : <EyeSlash size={21}/>}<span>{SAR_ROOM_VIEW_ACTIONS[roomView].label}</span></button>
+                <button type="button" onClick={onOpenSarSettings} aria-label="活动室设置"><Gear size={21}/><span>设置</span></button>
+                <button type="button" onClick={onOpenSarWarehouse} aria-label="打开仓库"><Package size={21}/><span>仓库</span></button>
+            </div>
+        </div>
+
+        <SARClubStage roomView={roomView} occupants={occupants} npcEnabled={npcEnabled} caianMet={caianMet} onTalkToCaian={onTalkToCaian} onTalkToAiven={onTalkToAiven} onSelectCharacter={onSelectCharacter} onOpenGacha={onOpenGacha} onOpenCabinet={onOpenCabinet} onOpenModuleShop={onOpenModuleShop} onOpenFishingMarket={onOpenFishingMarket} fullPage />
+
+    </section>
+);
+
+const PastEventsWorldPage: React.FC<{ onOpenSignal: () => void; onBackPage: () => void }> = ({ onOpenSignal, onBackPage }) => (
+    <section className="relative -mx-4 -mt-4 overflow-hidden px-5" aria-label="往期活动"
+        style={{ minHeight: 500, height: 'calc(100dvh - var(--chrome-top) - var(--safe-bottom) - 6.75rem)', paddingTop: '1.45rem' }}>
+        <div className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(70% 45% at 50% 18%,rgba(98,82,160,.16),transparent),linear-gradient(180deg,rgba(8,9,18,.18),rgba(5,6,12,.55))' }} />
+        <div className="relative z-10">
+            <div className="text-[8px] tracking-[0.34em] text-indigo-100/42">PAGE 02 · ARCHIVE</div>
+            <h2 className="mt-1 text-[20px] tracking-[0.16em] text-white/92" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>往期活动</h2>
+            <p className="mt-2 max-w-[280px] text-[10px] leading-5 text-white/38">结束的活动留在这里供回看。它们不会再主动出现，也不会再接收新内容。</p>
+            <div className="mt-6"><SignalBanner onOpen={onOpenSignal} /></div>
+        </div>
+        <div className="absolute inset-x-0 bottom-3 z-20 flex items-center justify-center gap-3">
+            <button type="button" onClick={onBackPage} aria-label="返回世界房间" className="grid h-8 w-8 place-items-center rounded-full text-white/75 backdrop-blur-md active:bg-white/15" style={{ background: 'rgba(7,8,16,.42)', border: '1px solid rgba(255,255,255,.14)' }}><CaretLeft size={14} weight="bold" /></button>
+            <span className="rounded-full px-3 py-1 text-[10px] tracking-[0.15em] text-white/48 backdrop-blur-md" style={{ background: 'rgba(7,8,16,.36)', border: '1px solid rgba(255,255,255,.08)' }}>2 / 2</span>
+            <button type="button" disabled aria-label="已经是最后一页" className="grid h-8 w-8 place-items-center rounded-full text-white/20" style={{ border: '1px solid rgba(255,255,255,.07)' }}><CaretRight size={14} weight="bold" /></button>
+        </div>
+    </section>
+);
+
 const WorldView: React.FC<{
     occupantsByRoom: Record<string, CharacterProfile[]>;
     feed: FeedItem[]; novelCount: number;
@@ -972,7 +1367,8 @@ const WorldView: React.FC<{
     onEnterRoom: (r: VRRoomId) => void; onGoLibrary: () => void;
     onJump: (novelId: string | undefined, segIdx: number) => void;
     onDeleteFeed: (msgId: number) => void; onDeleteFeedMany: (ids: number[]) => void;
-}> = ({ occupantsByRoom, feed, novelCount, poBadge, onEnterRoom, onGoLibrary, onJump, onDeleteFeed, onDeleteFeedMany }) => {
+    roomPage: 0 | 1; onRoomPageChange: (page: 0 | 1) => void;
+}> = ({ occupantsByRoom, feed, novelCount, poBadge, onEnterRoom, onGoLibrary, onJump, onDeleteFeed, onDeleteFeedMany, roomPage, onRoomPageChange }) => {
     const FEED_PER_PAGE = 5;
     const [page, setPage] = useState(0);
     const totalPages = Math.max(1, Math.ceil(feed.length / FEED_PER_PAGE));
@@ -995,23 +1391,21 @@ const WorldView: React.FC<{
         else shownIds.forEach(id => n.add(id));
         return n;
     });
-    // 房间分页：每页 6 间，第 2 页放"开发中"的糯米鸡研发中心等。
-    // 信号坠落处不进网格（hiddenFromGrid）——它走顶部「特殊活动」banner 入口。
-    const GRID_ROOMS = VR_ROOMS.filter(r => !r.hiddenFromGrid);
-    const ROOMS_PER_PAGE = 6;
-    const [roomPage, setRoomPage] = useState(0);
-    const roomTotalPages = Math.max(1, Math.ceil(GRID_ROOMS.length / ROOMS_PER_PAGE));
-    const curRoomPage = Math.min(roomPage, roomTotalPages - 1);
-    const shownRooms = GRID_ROOMS.slice(curRoomPage * ROOMS_PER_PAGE, curRoomPage * ROOMS_PER_PAGE + ROOMS_PER_PAGE);
+    // 世界保留公共房间与往期活动；SAR 通过同级入口打开独立空间。
+    const shownRooms = VR_ROOMS.filter(room => !room.hiddenFromGrid && room.id !== 'sar' && room.id !== 'cafe');
+    const roomTotalPages = 2;
+    const curRoomPage = roomPage;
+
+    if (curRoomPage === 1) {
+        return <PastEventsWorldPage onOpenSignal={() => { onEnterRoom('signal'); trackEvent('进入彼方往期活动', { room: 'signal' }); }} onBackPage={() => onRoomPageChange(0)} />;
+    }
     return (
     <div className="space-y-4">
-        {/* 顶部特殊活动 banner：信号坠落处（跨用户接龙诗） */}
-        <SignalBanner onOpen={() => { onEnterRoom('signal'); trackEvent('进入彼方房间', { room: 'signal' }); }} />
         <div className="grid grid-cols-2 gap-3">
             {shownRooms.map(room => {
                 const occupants = occupantsByRoom[room.id] || [];
                 return (
-                    <button key={room.id} onClick={() => { if (room.implemented) { onEnterRoom(room.id); trackEvent('进入彼方房间', { room: room.id }); } }}
+                    <button key={room.id} aria-label={room.implemented ? `进入 ${room.name}` : `${room.name}开发中`} onClick={() => { if (room.implemented) { onEnterRoom(room.id); trackEvent('进入彼方房间', { room: room.id }); } }}
                         className={`relative rounded-2xl h-36 overflow-hidden text-left active:scale-[0.98] transition-transform ${room.implemented ? '' : 'opacity-65'}`}
                         style={{ boxShadow: '0 8px 28px rgba(0,0,0,.4)', border: room.implemented ? '1px solid rgba(255,255,255,.12)' : '1px solid rgba(255,255,255,.05)' }}>
                         <RoomBackground roomId={room.id} />
@@ -1044,7 +1438,7 @@ const WorldView: React.FC<{
                                 {occupants.slice(0, 4).map(c => {
                                     const ch = getChibi(c);
                                     return ch.img
-                                        ? <img key={c.id} src={ch.img} className="h-9 w-9 object-contain object-bottom drop-shadow" alt="" style={{ transform: `scaleX(${ch.flip ? -1 : 1})` }} />
+                                        ? <TokenImg key={c.id} value={ch.img} className="h-9 w-9 object-contain object-bottom drop-shadow" alt="" style={{ transform: `scaleX(${ch.flip ? -1 : 1})` }} />
                                         : <div key={c.id} className="h-6 w-6 rounded-full bg-indigo-400/70 border border-white/40 flex items-center justify-center text-[9px]">{c.name.slice(0, 1)}</div>;
                                 })}
                             </div>
@@ -1056,10 +1450,12 @@ const WorldView: React.FC<{
         </div>
         {roomTotalPages > 1 && (
             <div className="flex items-center justify-center gap-3 -mt-1">
-                <button onClick={() => setRoomPage(p => Math.max(0, p - 1))} disabled={curRoomPage === 0}
+                <button onClick={() => onRoomPageChange(0)} disabled={curRoomPage === 0}
+                    aria-label="上一页房间"
                     className="h-7 w-7 rounded-full flex items-center justify-center text-white/70 disabled:opacity-25 active:bg-white/10" style={{ border: '1px solid rgba(255,255,255,.14)' }}><CaretLeft size={13} weight="bold" /></button>
                 <span className="text-[10.5px] text-white/45 tracking-wider tabular-nums">{curRoomPage + 1} / {roomTotalPages}</span>
-                <button onClick={() => setRoomPage(p => Math.min(roomTotalPages - 1, p + 1))} disabled={curRoomPage >= roomTotalPages - 1}
+                <button onClick={() => onRoomPageChange(1)} disabled={curRoomPage >= roomTotalPages - 1}
+                    aria-label="下一页房间"
                     className="h-7 w-7 rounded-full flex items-center justify-center text-white/70 disabled:opacity-25 active:bg-white/10" style={{ border: '1px solid rgba(255,255,255,.14)' }}><CaretRight size={13} weight="bold" /></button>
             </div>
         )}
@@ -1088,7 +1484,7 @@ const WorldView: React.FC<{
                 )}
             </div>
             {feed.length === 0 ? (
-                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「接入」里点亮角色，ta 们到点会独自登入这里。</p>
+                <p className="text-[11px] text-white/40 py-5 text-center tracking-wide leading-relaxed">虚空尚无回响。<br />在「角色接入」里点亮角色，邀请 ta 来逛一次，也可以开启自动活动。</p>
             ) : (
                 <>
                     {/* 翻页移到动态上方：底下翻页要滚到最后才够得着，放上方更顺手 */}
@@ -1145,7 +1541,7 @@ const FeedCard: React.FC<{ item: FeedItem; onJump: (novelId: string | undefined,
                     {selected && <Check size={12} weight="bold" className="text-white" />}
                 </div>
             )}
-            {item.avatar ? <img src={item.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0" />}
+            {item.avatar ? <TokenImg value={item.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0" />}
             <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 text-[11px]">
                     <span className="font-bold text-amber-200">{item.charName}</span>
@@ -1605,7 +2001,7 @@ const PostOfficePanel: React.FC<{ addToast?: (m: string, t?: any) => void; chara
             {/* 来信长按菜单：指定角色回 / 亲自回 / 删除 */}
             <ActionSheet open={!!inboxMenu} title={inboxMenu ? `回「${inboxMenu.pen}」的来信` : ''}
                 actions={[
-                    { label: '指定角色去回（用 AI）', onClick: () => { if (enabledChars.length === 0) { addToast?.('先在「接入」里启用角色', 'info'); setInboxMenu(null); return; } setAssignFor(inboxMenu); setInboxMenu(null); } },
+                    { label: '指定角色去回（用 AI）', onClick: () => { if (enabledChars.length === 0) { addToast?.('先在「角色接入」里启用角色', 'info'); setInboxMenu(null); return; } setAssignFor(inboxMenu); setInboxMenu(null); } },
                     { label: '我亲自回（不用 AI）', onClick: () => { setReplyFor(inboxMenu); setInboxMenu(null); } },
                     { label: '删除这封来信', danger: true, onClick: () => { setConfirmDel(inboxMenu); setInboxMenu(null); } },
                 ]} onClose={() => setInboxMenu(null)} />
@@ -1674,7 +2070,6 @@ const PoemLineRow: React.FC<{ l: SignalPoem['lines'][number]; showSeq?: boolean;
 const SignalAdminPanel: React.FC<{ onClose: () => void; addToast?: (m: string, t?: any) => void }> = ({ onClose, addToast }) => {
     const [token, setToken] = useState(getAdminToken());
     const [poems, setPoems] = useState<SignalPoem[]>([]);
-    const [paused, setPaused] = useState(false);
     const [loaded, setLoaded] = useState(false);
     const [busy, setBusy] = useState(false);
     const [confirmPoem, setConfirmPoem] = useState<string | null>(null);
@@ -1685,18 +2080,12 @@ const SignalAdminPanel: React.FC<{ onClose: () => void; addToast?: (m: string, t
         try {
             setAdminToken(tk.trim());
             const r = await Signal.adminList(tk.trim());
-            setPoems(r.poems); setPaused(r.paused); setLoaded(true);
+            setPoems(r.poems); setLoaded(true);
         } catch (e: any) {
             addToast?.(String(e?.message).includes('unauthorized') ? 'ADMIN_TOKEN 不对' : '拉取失败：' + (e?.message || ''), 'error');
         } finally { setBusy(false); }
     }, [addToast]);
 
-    const togglePause = async () => {
-        if (!token.trim()) { addToast?.('先填 ADMIN_TOKEN', 'error'); return; }
-        setBusy(true);
-        try { const p = await Signal.adminPause(token.trim(), !paused); setPaused(p); addToast?.(p ? '已暂停诗歌推入' : '已恢复推入', 'success'); }
-        catch { addToast?.('操作失败', 'error'); } finally { setBusy(false); }
-    };
     const delPoem = async (id: string) => {
         setBusy(true);
         try { await Signal.adminDelete(token.trim(), { poemId: id }); setPoems(ps => ps.filter(p => p.id !== id)); addToast?.('整首已删', 'success'); }
@@ -1718,19 +2107,12 @@ const SignalAdminPanel: React.FC<{ onClose: () => void; addToast?: (m: string, t
                 <button onClick={onClose} className="ml-auto h-7 w-7 rounded-full bg-white/10 active:bg-white/20 flex items-center justify-center"><X size={14} /></button>
             </div>
             <div className="px-3.5 py-2.5 border-b border-white/10 space-y-2">
-                <p className="text-[9.5px] text-white/45 leading-snug">用 worker 的 <b className="text-amber-200/70">ADMIN_TOKEN</b>（和漂流瓶后台同一个）管理跨用户诗集：删整首 / 删单句 / 暂停推入。token 只存本机。</p>
+                <p className="text-[9.5px] text-white/45 leading-snug">活动已永久封存。用 worker 的 <b className="text-amber-200/70">ADMIN_TOKEN</b>（和漂流瓶后台同一个）维护存档：删整首 / 删单句。token 只存本机。</p>
                 <div className="flex gap-1.5">
                     <input value={token} onChange={e => setToken(e.target.value)} type="password" placeholder="ADMIN_TOKEN"
                         className="flex-1 rounded-lg bg-black/25 px-3 py-2 text-[11.5px] text-amber-50 placeholder-white/25 outline-none" style={{ border: '1px solid rgba(220,190,120,.2)' }} />
                     <button onClick={() => load(token)} disabled={busy} className="text-[11px] px-3 rounded-lg bg-amber-400/85 text-black font-semibold disabled:opacity-40">拉取</button>
                 </div>
-                {loaded && (
-                    <button onClick={togglePause} disabled={busy}
-                        className="w-full text-[11.5px] py-2 rounded-lg font-semibold disabled:opacity-40"
-                        style={{ background: paused ? 'rgba(244,63,94,.85)' : 'rgba(255,255,255,.08)', color: paused ? '#fff' : 'rgba(255,255,255,.8)', border: '1px solid rgba(255,255,255,.12)' }}>
-                        {paused ? '● 已暂停诗歌推入（点击恢复）' : '暂停诗歌推入'}
-                    </button>
-                )}
             </div>
             <div className="flex-1 overflow-y-auto vr-reader-scroll px-3 py-3 space-y-2.5">
                 {!loaded ? (
@@ -2305,10 +2687,10 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
                     </div>
                     <div className="flex-1 overflow-y-auto vr-reader-scroll px-3 py-3 space-y-1.5" onClick={e => e.stopPropagation()}>
                         {(() => { const joined = characters.filter(c => c.vrState?.enabled); return joined.length === 0 ? (
-                            <p className="text-[11px] text-white/40 text-center py-8 leading-relaxed">还没有角色接入彼方。<br />先去「接入」页给 ta 开启自主登入。</p>
+                            <p className="text-[11px] text-white/40 text-center py-8 leading-relaxed">选一位角色来彼方逛逛。<br />到「角色接入」开启后，就能手动安排活动；想让 ta 自己逛，再开启自动活动。</p>
                         ) : joined.map(c => (
                             <button key={c.id} onClick={() => participate(c)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl active:bg-white/5" style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.06)' }}>
-                                {c.avatar ? <img src={c.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0 flex items-center justify-center text-[12px] text-white/90">{c.name.slice(0, 1)}</div>}
+                                {c.avatar ? <TokenImg value={c.avatar} className="h-8 w-8 rounded-full object-cover shrink-0" alt="" /> : <div className="h-8 w-8 rounded-full bg-indigo-400/40 shrink-0 flex items-center justify-center text-[12px] text-white/90">{c.name.slice(0, 1)}</div>}
                                 <span className="text-[12.5px] text-white/90 truncate">{c.name}</span>
                                 <span className="ml-auto text-[10px] text-indigo-300/60 shrink-0">去落笔 →</span>
                             </button>
@@ -2330,9 +2712,10 @@ const RoomScene: React.FC<{
     onJump: (novelId: string | undefined, segIdx: number) => void;
     characters: CharacterProfile[];
     userName: string;
-    onUserBoardPost: (content: string) => Promise<void>;
+    onUserBoardPost: (content: string, replyTo?: VRGuestbookMessage) => Promise<void>;
+    onUseModule: (character: CharacterProfile) => void;
     addToast?: (m: string, t?: any) => void;
-}> = ({ roomId, occupants, latestByChar, onClose, onJump, characters, userName, onUserBoardPost, addToast }) => {
+}> = ({ roomId, occupants, latestByChar, onClose, onJump, characters, userName, onUserBoardPost, onUseModule, addToast }) => {
     const room = getRoom(roomId);
     const slots = ROOM_SLOTS[roomId];
     const isMusic = roomId === 'music';
@@ -2344,6 +2727,8 @@ const RoomScene: React.FC<{
     const [musicState, setMusicState] = useState<VRMusicRoomState | null>(null);
     const [board, setBoard] = useState<VRGuestbookState | null>(null);
     const [postText, setPostText] = useState('');
+    const [replyingTo, setReplyingTo] = useState<VRGuestbookMessage | null>(null);
+    const postInputRef = useRef<HTMLInputElement>(null);
     const [posting, setPosting] = useState(false);
     const [gbPage, setGbPage] = useState(0);          // 留言墙翻页：0 = 最新一页
     const [confirmClear, setConfirmClear] = useState(false); // 一键清空二次确认
@@ -2356,15 +2741,28 @@ const RoomScene: React.FC<{
         void load();
         const onDone = () => { void load(); };
         window.addEventListener('vr-session-done', onDone);
-        return () => window.removeEventListener('vr-session-done', onDone);
+        window.addEventListener('vr-guestbook-updated', onDone);
+        return () => { window.removeEventListener('vr-session-done', onDone); window.removeEventListener('vr-guestbook-updated', onDone); };
     }, [isGuestbook]);
 
     const submitPost = async () => {
         const t = postText.trim();
         if (!t || posting) return;
         setPosting(true);
-        try { await onUserBoardPost(t); setPostText(''); setGbPage(0); setBoard(await DB.getVRGuestbook()); }
+        try {
+            await onUserBoardPost(t, replyingTo || undefined);
+            setPostText('');
+            setReplyingTo(null);
+            setGbPage(0);
+            setBoard(await DB.getVRGuestbook());
+        }
         finally { setPosting(false); }
+    };
+
+    const startReply = (message: VRGuestbookMessage) => {
+        if (message.authorId === 'user') return;
+        setReplyingTo(message);
+        requestAnimationFrame(() => postInputRef.current?.focus());
     };
 
     // 一键清空留言墙（只清这面公共墙；已广播进各角色私聊的卡片不动）
@@ -2372,6 +2770,7 @@ const RoomScene: React.FC<{
         await DB.clearVRGuestbook();
         setBoard(await DB.getVRGuestbook());
         setGbPage(0);
+        setReplyingTo(null);
         setConfirmClear(false);
         trackEvent('清空彼方留言墙');
         addToast?.('留言墙已清空', 'success');
@@ -2417,7 +2816,7 @@ const RoomScene: React.FC<{
                 {/* 顶栏 */}
                 <div className="absolute top-0 left-0 right-0 flex items-center gap-2.5 px-4 pb-3 z-[120]"
                     style={{ background: 'linear-gradient(180deg,rgba(5,6,14,.55),transparent)', paddingTop: VR_TOP }}>
-                    <button onClick={onClose} className="h-10 w-10 -ml-2 rounded-full bg-white/10 backdrop-blur-md active:bg-white/20 text-white/90 border border-white/10 flex items-center justify-center"><CaretLeft size={20} weight="regular" /></button>
+                    <button onClick={onClose} aria-label={`离开 ${room.name}`} className="h-10 w-10 -ml-2 rounded-full bg-white/10 backdrop-blur-md active:bg-white/20 text-white/90 border border-white/10 flex items-center justify-center"><CaretLeft size={20} weight="regular" /></button>
                     <span className="text-[16px] text-white drop-shadow flex items-center gap-1.5 tracking-[0.14em]" style={{ fontFamily: `'Noto Serif SC',serif`, fontWeight: 500 }}>{room.name}</span>
                     <div className="ml-auto flex items-center gap-2">
                         {occupants.length > 0 && (
@@ -2437,7 +2836,7 @@ const RoomScene: React.FC<{
                             <div className="rounded-2xl p-2.5 flex items-center gap-3 backdrop-blur-md"
                                 style={{ background: 'rgba(20,8,40,0.6)', border: '1px solid rgba(255,123,213,0.35)', boxShadow: '0 6px 20px rgba(120,40,160,.4)' }}>
                                 {np.song.albumPic
-                                    ? <img src={np.song.albumPic} className={`h-14 w-14 rounded-xl object-cover ${npPlaying ? 'animate-spin-slow' : ''}`} style={npPlaying ? { animation: 'spin 8s linear infinite' } : {}} alt="" />
+                                    ? <TokenImg value={np.song.albumPic} className={`h-14 w-14 rounded-xl object-cover ${npPlaying ? 'animate-spin-slow' : ''}`} style={npPlaying ? { animation: 'spin 8s linear infinite' } : {}} alt="" />
                                     : <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center"><MusicNotes size={22} weight="fill" className="text-white/80" /></div>}
                                 <div className="flex-1 min-w-0">
                                     <div className="text-[9px] text-pink-200/70 tracking-wide flex items-center gap-1"><MusicNotes size={9} weight="fill" /> NOW PLAYING · {np.charName} 点的</div>
@@ -2477,12 +2876,12 @@ const RoomScene: React.FC<{
                     const groups: VRGuestbookMessage[][] = [];
                     for (const m of msgs) {
                         const g = groups[groups.length - 1];
-                        if (g && g[0].authorId === m.authorId && !m.replyToName && (m.createdAt - g[g.length - 1].createdAt) < 5 * 60 * 1000) g.push(m);
+                        if (g && g[0].authorId === m.authorId && !m.kind && !m.replyToName && (m.createdAt - g[g.length - 1].createdAt) < 5 * 60 * 1000) g.push(m);
                         else groups.push([m]);
                     }
                     return (
                         <div className="absolute left-3 right-3 z-20 rounded-2xl overflow-hidden flex flex-col backdrop-blur-md"
-                            style={{ top: VR_ROOM_PANEL_TOP, bottom: vrBottomPad('4rem'), background: 'rgba(10,22,38,0.62)', border: '1px solid rgba(140,200,255,0.22)', boxShadow: '0 8px 26px rgba(0,0,0,.4)' }}>
+                            style={{ top: VR_ROOM_PANEL_TOP, bottom: vrBottomPad(replyingTo ? '5.8rem' : '4rem'), background: 'rgba(10,22,38,0.62)', border: '1px solid rgba(140,200,255,0.22)', boxShadow: '0 8px 26px rgba(0,0,0,.4)' }}>
                             <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
                                 <span className="text-[10px] tracking-[0.25em] text-sky-200/70" style={{ fontFamily: `'Noto Serif SC',serif` }}>留言墙</span>
                                 {all.length > 0 && <span className="text-[9px] text-white/30 tabular-nums">{all.length} 条</span>}
@@ -2501,26 +2900,32 @@ const RoomScene: React.FC<{
                                 ) : groups.map(g => {
                                     const head = g[0];
                                     const isUser = head.authorId === 'user';
+                                    const isAnnouncement = head.kind === 'collection-unlock';
                                     const ch = isUser ? null : characters.find(c => c.id === head.authorId);
                                     const name = isUser ? head.authorName : (ch?.name || head.authorName);
                                     const hue = (() => { let h = 0; for (let i = 0; i < head.authorId.length; i++) h = (h * 31 + head.authorId.charCodeAt(i)) % 360; return h; })();
-                                    const nameColor = isUser ? '#7dd3fc' : `hsl(${hue},72%,74%)`;
+                                    const nameColor = isAnnouncement ? '#e9cf9c' : isUser ? '#7dd3fc' : `hsl(${hue},72%,74%)`;
                                     return (
                                         <div key={head.id} className="flex gap-2.5">
                                             {ch?.avatar
-                                                ? <img src={ch.avatar} className="h-8 w-8 rounded-full object-cover shrink-0 mt-0.5" alt="" />
-                                                : <div className="h-8 w-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-[12px] font-bold text-white/95" style={{ background: isUser ? 'linear-gradient(135deg,#38bdf8,#6366f1)' : `hsl(${hue},45%,42%)` }}>{name.slice(0, 1)}</div>}
+                                                ? <TokenImg value={ch.avatar} className="h-8 w-8 rounded-full object-cover shrink-0 mt-0.5" alt="" />
+                                                : <div className="h-8 w-8 rounded-full shrink-0 mt-0.5 flex items-center justify-center text-[12px] font-bold text-white/95" style={{ background: isUser ? 'linear-gradient(135deg,#38bdf8,#6366f1)' : `hsl(${hue},45%,42%)` }}>{isAnnouncement ? '✧' : name.slice(0, 1)}</div>}
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-baseline gap-1.5">
                                                     <span className="text-[12px] font-bold" style={{ color: nameColor }}>{name}</span>
+                                                    {isAnnouncement && <span className="text-[9px] text-amber-200/70">图鉴解锁</span>}
                                                     <span className="text-[8.5px] text-white/30 tabular-nums">{new Date(head.createdAt).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                                                 </div>
                                                 <div className="mt-1 space-y-1">
                                                     {g.map(m => (
-                                                        <div key={m.id} className="text-[12.5px] leading-relaxed text-white/85 px-2.5 py-1 rounded-lg w-fit max-w-full" style={{ background: 'rgba(255,255,255,0.055)' }}>
+                                                        <button key={m.id} type="button" onClick={() => startReply(m)} disabled={m.authorId === 'user'}
+                                                            aria-label={m.authorId === 'user' ? undefined : `回复 ${m.authorName}：${m.content}`}
+                                                            className="block text-left text-[12.5px] leading-relaxed text-white/85 px-2.5 py-1 rounded-lg w-fit max-w-full disabled:cursor-default active:scale-[0.99]"
+                                                            style={{ background: replyingTo?.id === m.id ? 'rgba(96,165,250,0.18)' : 'rgba(255,255,255,0.055)', border: replyingTo?.id === m.id ? '1px solid rgba(125,211,252,.35)' : '1px solid transparent' }}>
                                                             {m.replyToName && <span className="text-[10px] text-sky-200/45 mr-1">↩{m.replyToName}</span>}
                                                             {m.content}
-                                                        </div>
+                                                            {m.authorId !== 'user' && <span className="ml-2 text-[9px] text-sky-200/35">回复</span>}
+                                                        </button>
                                                     ))}
                                                 </div>
                                             </div>
@@ -2564,24 +2969,33 @@ const RoomScene: React.FC<{
                 })}
                 {occupants.length === 0 && !isMusic && !isGuestbook && !isPostOffice && !isTheater && (
                     <div className="absolute inset-0 flex items-center justify-center">
-                        <p className="text-white/70 text-[12px] bg-black/30 rounded-full px-4 py-2">这个房间还没有人。去「接入」启用角色吧。</p>
+                        <p className="text-white/70 text-[12px] bg-black/30 rounded-full px-4 py-2">这个房间还没有人。去「角色接入」启用角色吧。</p>
                     </div>
                 )}
 
                 {/* 留言簿：用户发言（广播给所有接入角色） */}
                 {isGuestbook && (
-                    <div className="absolute left-0 right-0 z-30 flex items-center gap-2 px-3 py-2.5"
+                    <div className="absolute left-0 right-0 z-30 flex flex-col gap-1.5 px-3 py-2.5"
                         style={{ bottom: vrBottomPad('0px'), background: 'linear-gradient(0deg,rgba(5,12,22,.92),transparent)' }}>
-                        <input value={postText} onChange={e => setPostText(e.target.value)}
-                            onKeyDown={e => { if (e.key === 'Enter') submitPost(); }}
-                            placeholder={`以 ${userName} 的身份留句话…`}
-                            className="flex-1 rounded-full px-4 py-2 text-[12.5px] text-white placeholder-white/35 outline-none backdrop-blur-md"
-                            style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(140,200,255,.25)' }} />
-                        <button onClick={submitPost} disabled={!postText.trim() || posting}
-                            className="h-9 px-4 rounded-full text-[12px] font-semibold text-white disabled:opacity-40 shrink-0"
-                            style={{ background: 'linear-gradient(120deg, rgba(120,180,255,.9), rgba(150,200,235,.85))' }}>
-                            {posting ? '…' : '留言'}
-                        </button>
+                        {replyingTo && (
+                            <div className="flex items-center gap-2 px-3 text-[10px] text-sky-100/70 min-w-0">
+                                <span className="shrink-0">回复 {replyingTo.authorName}</span>
+                                <span className="truncate text-white/35">{replyingTo.content}</span>
+                                <button type="button" onClick={() => setReplyingTo(null)} aria-label="取消回复" className="ml-auto shrink-0 text-white/45 active:text-white"><X size={13} /></button>
+                            </div>
+                        )}
+                        <div className="flex items-center gap-2 w-full">
+                            <input ref={postInputRef} value={postText} onChange={e => setPostText(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') submitPost(); }}
+                                placeholder={replyingTo ? `回复 ${replyingTo.authorName}…` : `以 ${userName} 的身份留句话…`}
+                                className="flex-1 min-w-0 rounded-full px-4 py-2 text-[12.5px] text-white placeholder-white/35 outline-none backdrop-blur-md"
+                                style={{ background: 'rgba(255,255,255,.08)', border: '1px solid rgba(140,200,255,.25)' }} />
+                            <button onClick={submitPost} disabled={!postText.trim() || posting}
+                                className="h-9 px-4 rounded-full text-[12px] font-semibold text-white disabled:opacity-40 shrink-0"
+                                style={{ background: 'linear-gradient(120deg, rgba(120,180,255,.9), rgba(150,200,235,.85))' }}>
+                                {posting ? '…' : replyingTo ? '回复' : '留言'}
+                            </button>
+                        </div>
                     </div>
                 )}
             </div>
@@ -2591,7 +3005,7 @@ const RoomScene: React.FC<{
                 <div className="absolute inset-0 flex items-end bg-black/45" style={{ zIndex: 200 }} onClick={() => setDetail(null)}>
                     <div className="w-full rounded-t-2xl p-4 text-white" style={{ background: 'linear-gradient(180deg,#1a2236 0%,#0d1119 100%)', paddingBottom: vrBottomPad('1rem') }} onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-2 mb-2">
-                            {detail.avatar ? <img src={detail.avatar} className="h-9 w-9 rounded-full object-cover" alt="" /> : <div className="h-9 w-9 rounded-full bg-indigo-400/40" />}
+                            {detail.avatar ? <TokenImg value={detail.avatar} className="h-9 w-9 rounded-full object-cover" alt="" /> : <div className="h-9 w-9 rounded-full bg-indigo-400/40" />}
                             <span className="font-bold">{detail.name}</span>
                             <button onClick={() => setDetail(null)} className="ml-auto p-1 text-white/60"><X size={18} /></button>
                         </div>
@@ -2617,6 +3031,25 @@ const RoomScene: React.FC<{
                         })() : (
                             <p className="text-[12px] text-indigo-300/60">还没有留下动态，等 ta 下一次登入吧。</p>
                         )}
+                        {detail.id !== 'user' && (
+                            <>
+                                {detail.vrState?.sarModule && (
+                                    <p className="mt-3 text-[10px] leading-relaxed text-emerald-100/55">
+                                        当前模块：{detail.vrState.sarModule.moduleTitle} · {detail.vrState.sarModule.phase === 'active'
+                                            ? `剩余 ${detail.vrState.sarModule.remainingTurns} 回合`
+                                            : `稳定期 ${detail.vrState.sarModule.afterglowTurns}/3`}
+                                    </p>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => { onUseModule(detail); setDetail(null); }}
+                                    className="mt-4 flex h-11 w-full items-center justify-center gap-2 border border-emerald-100/20 bg-emerald-300/10 text-[12px] tracking-[.08em] text-emerald-50 active:scale-[.985]"
+                                >
+                                    <MagicWand size={16} weight="fill" />抓住 {detail.name} · 使用模块
+                                </button>
+                                <p className="mt-2 text-center text-[9px] text-white/35">无论 TA 正在哪个区域，都可以从你的模块袋装载</p>
+                            </>
+                        )}
                     </div>
                 </div>
             )}
@@ -2625,46 +3058,6 @@ const RoomScene: React.FC<{
 };
 
 // ============ 书库 ============
-const LibraryView: React.FC<{
-    novels: VRWorldNovel[]; characters: CharacterProfile[];
-    onOpen: (n: VRWorldNovel) => void; onAdd: () => void; onDelete: (id: string) => void;
-}> = ({ novels, characters, onOpen, onAdd, onDelete }) => (
-    <div className="space-y-3">
-        <button onClick={onAdd} className="w-full rounded-xl py-2.5 text-[13px] font-bold flex items-center justify-center gap-1.5 active:scale-[0.98] transition-transform shadow-[0_4px_14px_rgba(120,100,255,0.4)]"
-            style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
-            <Plus size={16} weight="bold" /> 上传小说（支持 .txt）
-        </button>
-        {novels.length === 0 ? (
-            <p className="text-[11px] text-indigo-300/50 py-6 text-center">书库空空如也。上传的小说是所有角色共享的读物，每个角色各自留批注、各自记书签。</p>
-        ) : novels.map(novel => {
-            const readers = characters.filter(c => getBookmark(c.vrState?.novelBookmarks, novel.id) > 0);
-            return (
-                <div key={novel.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                    <div className="flex items-start gap-2">
-                        <BookOpen size={18} weight="fill" className="text-amber-200 mt-0.5 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                            <div className="text-[13px] font-bold truncate">{novel.title}</div>
-                            {novel.author && <div className="text-[10px] text-indigo-300/60">{novel.author}</div>}
-                            <div className="text-[10px] text-indigo-300/50 mt-0.5">{novel.segments.length} 段 · {novel.totalChars.toLocaleString()} 字</div>
-                        </div>
-                        <button onClick={() => onDelete(novel.id)} className="p-1.5 rounded-full active:bg-white/10 text-indigo-300/50"><Trash size={15} /></button>
-                    </div>
-                    {readers.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                            {readers.map(c => {
-                                const bm = getBookmark(c.vrState?.novelBookmarks, novel.id);
-                                const pct = Math.round((bm / Math.max(1, novel.segments.length)) * 100);
-                                return <span key={c.id} className="text-[9.5px] bg-white/10 rounded-full px-2 py-0.5 text-indigo-100/80">{c.name} {pct}%</span>;
-                            })}
-                        </div>
-                    )}
-                    <button onClick={() => onOpen(novel)} className="mt-2 text-[11px] text-indigo-300 font-semibold flex items-center gap-0.5 active:opacity-70">翻开阅读 / 看批注 <CaretRight size={12} weight="bold" /></button>
-                </div>
-            );
-        })}
-    </div>
-);
-
 // ============ 阅读器主题 ============
 interface ReaderTheme { id: string; name: string; bg: string; paper: string; text: string; sub: string; accent: string; annBg: string; }
 const READER_THEMES: ReaderTheme[] = [
@@ -2904,10 +3297,12 @@ type UploadFileInfo = {
 };
 
 const UploadModal: React.FC<{
+    categories: VRLibraryCategory[]; initialCategoryId?: string;
     onClose: () => void;
     onCommit: (novel: VRWorldNovel) => Promise<void> | void;
     onError: (msg: string) => void;
-}> = ({ onClose, onCommit, onError }) => {
+}> = ({ onClose, onCommit, onError, categories, initialCategoryId }) => {
+    const [categoryId, setCategoryId] = useState(initialCategoryId || '');
     const uploadFieldClass = 'w-full rounded-lg border border-indigo-100/70 bg-white px-3 py-2 text-slate-800 caret-indigo-500 placeholder:text-indigo-300 outline-none focus:border-indigo-300';
     const [title, setTitle] = useState('');
     const [author, setAuthor] = useState('');
@@ -3020,7 +3415,7 @@ const UploadModal: React.FC<{
                 onProgress: (r) => setProgress(Math.round(r * 100)),
             });
             if (novel.segments.length === 0) { onError('正文是空的'); setBusy(false); return; }
-            await onCommit(novel);
+            await onCommit({ ...novel, categoryId: categories.some(c => c.id === categoryId) ? categoryId : undefined });
             trackEvent('上架一本小说到书库');
         } catch (e) {
             console.error('[VRWorld] build novel failed', e);
@@ -3079,6 +3474,7 @@ const UploadModal: React.FC<{
                 <div className="space-y-2.5">
                     <input value={title} onChange={e => setTitle(e.target.value)} placeholder="书名（必填）" className={`${uploadFieldClass} text-[13px]`} />
                     <input value={author} onChange={e => setAuthor(e.target.value)} placeholder="作者（选填）" className={`${uploadFieldClass} text-[13px]`} />
+                    <label className="block text-[11px] text-indigo-100">书籍分类<select aria-label="上架书籍分类" value={categoryId} onChange={e => setCategoryId(e.target.value)} disabled={busy} className={`${uploadFieldClass} mt-1 text-[13px]`}><option value="">未分类</option>{categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
                     <input value={summary} onChange={e => setSummary(e.target.value)} placeholder="一句话简介（选填，喂给角色当背景）" className={`${uploadFieldClass} text-[13px]`} />
                     {!fileInfo && (
                         <>
@@ -3164,7 +3560,7 @@ const ChibiEditor: React.FC<{
 
                 <div className="relative rounded-xl h-48 overflow-hidden mb-3 flex items-end justify-center" style={{ background: 'linear-gradient(180deg,#2a2350,#15132b)' }}>
                     <div className="absolute inset-0 opacity-50" style={{ backgroundImage: 'radial-gradient(1.5px 1.5px at 30% 30%, rgba(255,255,255,.5), transparent), radial-gradient(1.5px 1.5px at 70% 50%, rgba(200,220,255,.4), transparent)' }} />
-                    {img && <img src={img} alt="" className="object-contain mb-3" style={{ height: 140 * scale, transform: `scaleX(${flip ? -1 : 1}) translateY(${offsetY}px)`, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.5))', animation: 'vrfloat 3.2s ease-in-out infinite' }} />}
+                    {img && <TokenImg value={img} alt="" className="object-contain mb-3" style={{ height: 140 * scale, transform: `scaleX(${flip ? -1 : 1}) translateY(${offsetY}px)`, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.5))', animation: 'vrfloat 3.2s ease-in-out infinite' }} />}
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-[50%]" style={{ width: 76, height: 17, background: 'radial-gradient(ellipse,rgba(0,0,0,.5),transparent)' }} />
                 </div>
 
@@ -3231,7 +3627,7 @@ const UserChibiEditor: React.FC<{
                 </div>
                 <p className="text-[10.5px] text-indigo-300/60 mb-3">这个 Q 版小人就是「你」在彼方里的化身，会站在你挂着的房间里。</p>
                 <div className="relative rounded-xl h-48 overflow-hidden mb-3 flex items-end justify-center" style={{ background: 'linear-gradient(180deg,#2a2350,#15132b)' }}>
-                    {img && <img src={img} alt="" className="object-contain mb-3" style={{ height: 140 * scale, transform: `scaleX(${flip ? -1 : 1}) translateY(${offsetY}px)`, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.5))', animation: 'vrfloat 3.2s ease-in-out infinite' }} />}
+                    {img && <TokenImg value={img} alt="" className="object-contain mb-3" style={{ height: 140 * scale, transform: `scaleX(${flip ? -1 : 1}) translateY(${offsetY}px)`, filter: 'drop-shadow(0 4px 8px rgba(0,0,0,.5))', animation: 'vrfloat 3.2s ease-in-out infinite' }} />}
                     <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-[50%]" style={{ width: 76, height: 17, background: 'radial-gradient(ellipse,rgba(0,0,0,.5),transparent)' }} />
                 </div>
                 <button onClick={() => setCreating(true)} className="w-full rounded-lg border border-indigo-300/40 py-2 mb-3 text-[12px] text-indigo-100 flex items-center justify-center gap-1.5 active:bg-white/5">
@@ -3273,7 +3669,7 @@ const UserVRPanel: React.FC<{
     // userProfile 外部变化（如刚捏完 chibi）时同步本地草稿
     useEffect(() => { setRoom(uv?.currentRoom || 'guestbook'); setActivity(uv?.activity || ''); }, [uv?.currentRoom, uv?.activity]);
 
-    const ROOMS: [VRRoomId, string][] = [['library', '图书馆'], ['music', '听歌房'], ['guestbook', '留言簿'], ['gym', '娱乐室'], ['postoffice', '邮局']];
+    const ROOMS: [VRRoomId, string][] = [['library', '图书馆'], ['music', '听歌房'], ['guestbook', '留言簿'], ['gym', '娱乐室'], ['postoffice', '邮局'], ['sar', 'SAR 活动空间']];
 
     const join = () => {
         if (!chibi?.img) { onEditChibi(); return; } // 没捏小人 → 先捏，再回来开接入
@@ -3295,7 +3691,7 @@ const UserVRPanel: React.FC<{
         <div className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'linear-gradient(135deg, rgba(120,130,255,0.10), rgba(150,212,204,0.06))', border: '1px solid rgba(150,168,255,0.22)' }}>
             <div className="flex items-center gap-2.5">
                 <button onClick={onEditChibi} className="relative h-12 w-12 rounded-xl overflow-hidden bg-black/20 flex items-end justify-center shrink-0 active:opacity-80">
-                    {chibi?.img ? <img src={chibi.img} className="h-11 object-contain object-bottom" style={{ transform: `scaleX(${chibi.flip ? -1 : 1})` }} alt="" /> : <span className="text-lg text-indigo-300/60 mb-2">＋</span>}
+                    {chibi?.img ? <TokenImg value={chibi.img} className="h-11 object-contain object-bottom" style={{ transform: `scaleX(${chibi.flip ? -1 : 1})` }} alt="" /> : <span className="text-lg text-indigo-300/60 mb-2">＋</span>}
                     <span className="absolute bottom-0 right-0 bg-indigo-500/90 rounded-tl-md p-0.5"><PencilSimple size={9} weight="bold" /></span>
                 </button>
                 <div className="flex-1 min-w-0">
@@ -3331,6 +3727,30 @@ const UserVRPanel: React.FC<{
                         className="mt-3 w-full rounded-xl py-2 text-[12.5px] font-bold text-white" style={{ background: 'linear-gradient(120deg, rgba(150,168,255,.92), rgba(188,168,255,.85) 55%, rgba(150,212,204,.9))' }}>
                         保存并广播给所有角色
                     </button>
+                    <div className="mt-3 flex items-center gap-2.5 rounded-xl border border-white/10 bg-black/10 px-3 py-2.5">
+                        <ShieldCheck size={17} weight={uv?.allowCharacterModules ? 'fill' : 'regular'} className={uv?.allowCharacterModules ? 'text-emerald-200' : 'text-indigo-200/45'} />
+                        <div className="min-w-0 flex-1">
+                            <div className="text-[11px] font-semibold text-white/80">允许角色对我使用模块</div>
+                            <div className="mt-0.5 text-[9px] leading-relaxed text-indigo-200/40">默认关闭；仅在你与角色同时位于 SAR 时可能触发，持续 5 次成功互动。</div>
+                        </div>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={uv?.allowCharacterModules === true}
+                            aria-label="允许角色对我使用模块"
+                            onClick={() => updateUserProfile({ vrState: { ...(uv || {}), allowCharacterModules: uv?.allowCharacterModules !== true } })}
+                            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${uv?.allowCharacterModules ? 'bg-emerald-400/75' : 'bg-white/15'}`}
+                        >
+                            <span className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${uv?.allowCharacterModules ? 'translate-x-5' : ''}`} />
+                        </button>
+                    </div>
+                    {uv?.sarModule && (
+                        <div className="mt-2 rounded-lg border border-emerald-200/15 bg-emerald-300/[0.06] px-3 py-2 text-[9.5px] text-emerald-100/65">
+                            你身上的模块：{uv.sarModule.moduleTitle} · {uv.sarModule.phase === 'active'
+                                ? `剩余 ${uv.sarModule.remainingTurns}/${uv.sarModule.totalTurns} 次`
+                                : `退场稳定 ${uv.sarModule.afterglowTurns}/3`}
+                        </div>
+                    )}
                     <p className="text-[9.5px] text-indigo-300/45 mt-2 leading-relaxed">角色聊天里会知道"你此刻在彼方做什么"，但已明确告知 ta：这只是虚拟空间挂机、你本人不一定在线，一切以聊天记录为准。</p>
                 </>
             )}
@@ -3340,21 +3760,42 @@ const UserVRPanel: React.FC<{
 
 // ============ 接入设置 ============
 const INTERVAL_OPTIONS = [60, 120, 180, 360, 720];
+
 const SettingsView: React.FC<{
     characters: CharacterProfile[];
-    updateCharacter: (id: string, updates: Partial<CharacterProfile>) => void;
+    updateCharacter: ReturnType<typeof useOS>['updateCharacter'];
     addToast?: (msg: string, type?: any) => void;
-    novelCount: number; onReload: () => void;
+    novels: VRWorldNovel[]; onReload: () => void;
     onRequestEnable: (char: CharacterProfile) => void;
     onEditChibi: (char: CharacterProfile) => void;
-}> = ({ characters, updateCharacter, addToast, novelCount, onReload, onRequestEnable, onEditChibi }) => {
+    onEditReadingPreference: (char: CharacterProfile) => void;
+}> = ({ characters, updateCharacter, addToast, novels, onReload, onRequestEnable, onEditChibi, onEditReadingPreference }) => {
     const [pickFor, setPickFor] = useState<CharacterProfile | null>(null);
     // 接入列表的分组筛选（characters 由 props 传入，这里单独取 characterGroups 即可）
     const { characterGroups } = useOS();
     const [settingsGroupId, setSettingsGroupId] = useState<string>(GROUP_FILTER_ALL);
-    const go = (room?: VRRoomId) => {
+    const [settingsPage, setSettingsPage] = useState(0);
+    const groupedCharacters = useMemo(() => filterCharactersByGroup(characters, characterGroups, settingsGroupId), [characters, characterGroups, settingsGroupId]);
+    const pageCount = Math.max(1, Math.ceil(groupedCharacters.length / 5));
+    const currentPage = Math.min(settingsPage, pageCount - 1);
+    const visibleCharacters = groupedCharacters.slice(currentPage * 5, currentPage * 5 + 5);
+    useEffect(() => { setSettingsPage(0); }, [settingsGroupId]);
+    const novelCount = novels.length;
+
+    const go = (room?: VRRoomId, sarActivity?: VRSARActivity) => {
         if (!pickFor) return;
-        VRScheduler.triggerNow(pickFor.id, room);
+        if (room === 'library' && !readableNovels(novels, pickFor).length) {
+            addToast?.('当前阅读范围内还没有书，请先归入书籍或调整阅读偏好。', 'info');
+            return;
+        }
+        if (sarActivity === 'garden') {
+            const market = readFishingMarketState();
+            if (!market.dinosaurGarden?.visitsEnabled || !gardenResidents(market).length) {
+                addToast?.('先在恐龙箱庭开启共同摆弄，并在桌上放一只恐龙。', 'info');
+                return;
+            }
+        }
+        VRScheduler.triggerNow(pickFor.id, room, undefined, sarActivity);
         addToast?.(`${pickFor.name} 正在登入彼方…`, 'info');
         setTimeout(onReload, 4000);
         setPickFor(null);
@@ -3367,54 +3808,85 @@ const SettingsView: React.FC<{
     };
     const setInterval = (char: CharacterProfile, minutes: number) => {
         updateCharacter(char.id, { vrState: { ...(char.vrState || {}), enabled: char.vrState?.enabled ?? true, intervalMinutes: minutes } });
-        if (char.vrState?.enabled) VRScheduler.start(char.id, minutes);
+        if (allowsAutomaticVR(char.vrState)) VRScheduler.start(char.id, minutes);
     };
+    const setActivityMode = (char: CharacterProfile, activityMode: 'manual' | 'scheduled') => {
+        const vrState = { ...joinVRState(char.vrState), activityMode };
+        updateCharacter(char.id, { vrState });
+        if (allowsAutomaticVR(vrState)) VRScheduler.start(char.id, vrState.intervalMinutes);
+        else VRScheduler.stop(char.id);
+    };
+    const pageNavigation = pageCount > 1 && <nav className="flex items-center justify-between gap-2 py-2 text-[11px] text-indigo-200/70" aria-label="角色接入分页">
+        <button type="button" disabled={currentPage === 0} onClick={() => setSettingsPage(currentPage - 1)} className="min-h-10 rounded-xl bg-white/[0.06] px-3 disabled:opacity-25">上一页</button>
+        <span className="tabular-nums">{currentPage + 1} / {pageCount} 页 · 共 {groupedCharacters.length} 位</span>
+        <button type="button" disabled={currentPage >= pageCount - 1} onClick={() => setSettingsPage(currentPage + 1)} className="min-h-10 rounded-xl bg-white/[0.06] px-3 disabled:opacity-25">下一页</button>
+    </nav>;
 
     return (
         <div className="space-y-3">
             <p className="text-[11px] text-indigo-300/60 leading-relaxed">
-                启用后，角色会按设定的间隔自己登入「彼方」，在图书馆读你上传的小说、写批注。每次活动会在 ta 的聊天里留下动态卡片，也会被记忆总结捕捉。
+                接入后，角色会知道「彼方」，小人可以挂在房间里。默认仅手动活动：等你选房间、邀请钓鱼或玩箱庭时才行动，不设置间隔、不自动调用模型。
+                想让 ta 自己逛，再开启自动活动。每次实际活动会留下动态卡片；自动活动连着 {VR_FAIL_LIMIT} 次调不通模型会暂停。
                 {novelCount === 0 && <span className="text-amber-300/80"> 书库还空着，先去「书库」上传一本。</span>}
             </p>
             {characters.length === 0 && <p className="text-[11px] text-indigo-300/50 py-4 text-center">还没有角色。</p>}
             {/* 分组筛选（没建分组时不渲染）：深色底 */}
             <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark
                 value={settingsGroupId} onChange={setSettingsGroupId} />
-            {characters.length > 0 && filterCharactersByGroup(characters, characterGroups, settingsGroupId).length === 0 &&
+            {pageNavigation}
+            {characters.length > 0 && groupedCharacters.length === 0 &&
                 <p className="text-[11px] text-indigo-300/50 py-4 text-center">该分组下没有角色</p>}
-            {filterCharactersByGroup(characters, characterGroups, settingsGroupId).map(char => {
+            {visibleCharacters.map(char => {
                 const st = char.vrState;
                 const enabled = !!st?.enabled;
+                const automatic = allowsAutomaticVR(st);
                 const interval = st?.intervalMinutes || VR_DEFAULT_INTERVAL_MIN;
                 const chibi = getChibi(char);
+                const failStreak = VRScheduler.getFailStreak(char.id);
                 return (
-                    <div key={char.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <div key={char.id} data-vr-character={char.id} className="rounded-2xl p-3.5 backdrop-blur-sm" style={{ background: 'rgba(255,255,255,0.045)', border: '1px solid rgba(255,255,255,0.07)' }}>
                         <div className="flex items-center gap-2.5">
                             {/* chibi 缩略 */}
                             <button onClick={() => onEditChibi(char)} className="relative h-12 w-12 rounded-xl overflow-hidden bg-black/20 flex items-end justify-center shrink-0 active:opacity-80">
-                                {chibi.img ? <img src={chibi.img} className="h-11 object-contain object-bottom" style={{ transform: `scaleX(${chibi.flip ? -1 : 1})` }} alt="" /> : <span className="text-lg text-indigo-300/60 mb-2">？</span>}
+                                {chibi.img ? <TokenImg value={chibi.img} className="h-11 object-contain object-bottom" style={{ transform: `scaleX(${chibi.flip ? -1 : 1})` }} alt="" /> : <span className="text-lg text-indigo-300/60 mb-2">？</span>}
                                 <span className="absolute bottom-0 right-0 bg-indigo-500/90 rounded-tl-md p-0.5"><PencilSimple size={9} weight="bold" /></span>
                             </button>
                             <div className="flex-1 min-w-0">
                                 <div className="text-[13px] font-bold truncate">{char.name}</div>
-                                {enabled ? <div className="text-[10px] text-indigo-300/60">每 {interval >= 60 ? `${interval / 60} 小时` : `${interval} 分`}登入一次</div>
-                                    : <div className="text-[10px] text-indigo-300/40">{chibi.isFallback ? '未设形象 · 未接入' : '未接入'}</div>}
+                                {enabled ? (
+                                    <div className="text-[10px] text-indigo-300/60">
+                                        {automatic ? `每 ${interval >= 60 ? `${formatHours(interval)} 小时` : `${interval} 分`}自动活动一次` : '仅手动活动 · 等你邀请'}
+                                        {st?.sarModule && <span className="text-emerald-200/70"> · {st.sarModule.moduleTitle} {st.sarModule.phase === 'active' ? `${st.sarModule.remainingTurns}/${st.sarModule.totalTurns}` : `稳定 ${st.sarModule.afterglowTurns}/3`}</span>}
+                                        {/* 后台失败本来一点声响都没有，攒到熔断前先让用户看见 */}
+                                        {automatic && failStreak > 0 && <span className="text-amber-300/80"> · 已连续 {failStreak} 次没调通</span>}
+                                    </div>
+                                ) : <div className="text-[10px] text-indigo-300/40">{chibi.isFallback ? '未设形象 · 未接入' : '未接入'}</div>}
                             </div>
-                            <button onClick={() => enabled ? disable(char) : onRequestEnable(char)}
+                            <button type="button" role="switch" aria-checked={enabled} aria-label={`${char.name}的彼方接入`} onClick={() => enabled ? disable(char) : onRequestEnable(char)}
                                 className={`relative w-11 h-6 rounded-full transition-colors ${enabled ? 'bg-indigo-400' : 'bg-white/15'}`}>
                                 <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : ''}`} />
                             </button>
                         </div>
                         {enabled && (
                             <>
-                                <div className="flex flex-wrap gap-1.5 mt-2.5">
+                                <div className="mt-3 grid grid-cols-2 gap-2" role="group" aria-label={`${char.name}的活动方式`}>
+                                    <button type="button" aria-pressed={!automatic} onClick={() => setActivityMode(char, 'manual')}
+                                        className={`rounded-xl px-3 py-2.5 text-left border ${!automatic ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-100' : 'border-white/10 text-indigo-200/60'}`}>
+                                        <b className="block text-[12px]">仅手动活动</b><span className="text-[10px]">你选择时才行动</span>
+                                    </button>
+                                    <button type="button" aria-pressed={automatic} onClick={() => setActivityMode(char, 'scheduled')}
+                                        className={`rounded-xl px-3 py-2.5 text-left border ${automatic ? 'bg-indigo-400/20 border-indigo-300/60 text-indigo-100' : 'border-white/10 text-indigo-200/60'}`}>
+                                        <b className="block text-[12px]">自动活动</b><span className="text-[10px]">按间隔自己去逛</span>
+                                    </button>
+                                </div>
+                                {automatic && <div className="flex flex-wrap gap-1.5 mt-2.5" aria-label="自动活动间隔">
                                     {INTERVAL_OPTIONS.map(opt => (
                                         <button key={opt} onClick={() => setInterval(char, opt)}
                                             className={`text-[10.5px] rounded-full px-2.5 py-1 font-semibold ${interval === opt ? 'bg-indigo-400 text-white' : 'bg-white/10 text-indigo-200/70'}`}>
-                                            {opt >= 60 ? `${opt / 60}h` : `${opt}min`}
+                                            {opt >= 60 ? `${formatHours(opt)}h` : `${opt}min`}
                                         </button>
                                     ))}
-                                </div>
+                                </div>}
                                 {/* 睡眠时间跳过：读角色的全局生物钟（神经链接 → 睡眠时间，含旧字段 fallback），手动"现在去逛"不受限 */}
                                 <div className="flex items-center justify-between gap-2 mt-2.5">
                                     <div className="min-w-0">
@@ -3439,31 +3911,38 @@ const SettingsView: React.FC<{
                                 </button>
                             </>
                         )}
+                        <VRActivityRestrictions char={char} onChange={change => {
+                            updateCharacter(char.id, latest => ({vrState:change(latest.vrState || {enabled:false,intervalMinutes:VR_DEFAULT_INTERVAL_MIN})}));
+                        }}/>
+                        {novelCount > 0 && (
+                            <button onClick={() => onEditReadingPreference(char)}
+                                className="mt-2.5 flex w-full items-center gap-2 border-t border-white/[0.07] pt-2.5 text-left active:opacity-70">
+                                <BookOpen size={13} weight="fill" className="text-indigo-200/70" />
+                                <span className="text-[11px] font-semibold text-indigo-100/75">阅读偏好</span>
+                                <span className="ml-auto text-[10px] text-indigo-300/45">{readingPreferenceLabel(char)}</span>
+                                <CaretRight size={11} weight="bold" className="text-indigo-300/35" />
+                            </button>
+                        )}
                     </div>
                 );
             })}
-            <ActionSheet open={!!pickFor} title={pickFor ? `让 ${pickFor.name} 现在去哪个房间？` : ''}
-                actions={[
-                    { label: '随机一个房间', onClick: () => go() },
-                    ...(novelCount > 0 ? [{ label: '图书馆 · 读书写批注', onClick: () => go('library') }] : []),
-                    { label: '剧院 · 写剧本投稿', onClick: () => go('theater') },
-                    { label: '听歌房 · 点歌锐评', onClick: () => go('music') },
-                    { label: '留言簿 · 发帖版聊', onClick: () => go('guestbook') },
-                    { label: '娱乐室 · 放开玩', onClick: () => go('gym') },
-                    { label: '邮局 · 写漂流信', onClick: () => go('postoffice') },
-                    // 信号坠落处不放这里：参与统一走活动 banner → 面板「✍ 参与」，那条路才有「耳语」
-                ]} onClose={() => setPickFor(null)} />
+            {pageNavigation}
+            {pickFor && <VRActivityPicker char={pickFor} libraryAvailable={readableNovels(novels,pickFor).length > 0}
+                gardenReason={(() => {const market=readFishingMarketState();return !market.dinosaurGarden?.visitsEnabled ? '先在箱庭开启共同摆弄' : !gardenResidents(market).length ? '先在桌上放一只恐龙' : undefined;})()}
+                onGo={go} onClose={() => setPickFor(null)}/>}
         </div>
     );
 };
 
 // ============ 彼方 · API 设置 + 调用记录 ============
-const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; addToast?: (m: string, t?: any) => void }> = ({ apiPresets, chatApi, addToast }) => {
+const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; addToast?: (m: string, t?: any) => void; characters: CharacterProfile[] }> = ({ apiPresets, chatApi, addToast, characters }) => {
     const [vrApi, setVr] = useState<APIConfig | null>(null);
     const [log, setLog] = useState<VRApiCall[]>([]);
     const [testing, setTesting] = useState(false);
     const [testResult, setTestResult] = useState<string | null>(null);
     const [presetsOpen, setPresetsOpen] = useState(false);   // 折叠「保存的预设」长列表
+    const [snapshot, setSnapshot] = useState<string | null>(null);   // 排障快照正文
+    const [collecting, setCollecting] = useState(false);
 
     useEffect(() => {
         void getVRApi().then(setVr);
@@ -3498,7 +3977,29 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
         } catch (e: any) { setTestResult(`连接失败: ${e.message}`); } finally { setTesting(false); }
     };
 
-    const okCount = log.filter(l => l.ok).length;
+    // 手机上没有控制台，「界面全关了记录还在涨」这类问题光靠截图说不清。
+    // 一次把该看的都收齐，复制走即可；收的全是状态，不含名字、聊天和 key。
+    const exportSnapshot = async () => {
+        setCollecting(true);
+        try {
+            const text = await collectVRDiagnostics(characters, chatApi);
+            setSnapshot(text);
+            try {
+                await navigator.clipboard.writeText(text);
+                addToast?.('排障快照已复制，可以直接粘给开发者', 'success');
+            } catch {
+                // 剪贴板被浏览器挡住也不算失败——下面把正文摊开，截图一样能用
+                addToast?.('快照已生成（这台设备不让自动复制，长按下面的文字选中即可）', 'info');
+            }
+        } catch (e: any) {
+            addToast?.(`收集失败: ${e?.message || e}`, 'error');
+        } finally { setCollecting(false); }
+    };
+
+    // 日志里混着两种行：真实的模型调用，和「调度动了但没走到模型」的诊断行。
+    // 对账只该看前者，把诊断行算进分母会让「成功几次」失真。
+    const calls = log.filter(l => !l.kind);
+    const okCount = calls.filter(l => l.ok).length;
 
     return (
         <div className="space-y-3">
@@ -3568,23 +4069,56 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
             <div className="rounded-2xl p-3" style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.07)' }}>
                 <div className="flex items-center gap-1.5 mb-2">
                     <span className="text-[10px] tracking-[0.2em] text-indigo-200/60" style={{ fontFamily: `'Noto Serif SC',serif` }}>调用记录</span>
-                    <span className="text-[9.5px] text-white/40 rounded-full px-1.5 leading-tight" style={{ background: 'rgba(255,255,255,.08)' }}>{log.length}{log.length ? ` · 成功${okCount}` : ''}</span>
+                    <span className="text-[9.5px] text-white/40 rounded-full px-1.5 leading-tight" style={{ background: 'rgba(255,255,255,.08)' }}>{calls.length}{calls.length ? ` · 成功${okCount}` : ''}</span>
                     {log.length > 0 && <button onClick={() => { void clearVRApiLog(); setLog([]); }} className="ml-auto text-[10px] text-white/40 hover:text-rose-300/80">清空</button>}
                 </div>
                 {log.length === 0 ? (
                     <p className="text-[10.5px] text-white/35 py-2 text-center">还没有调用。角色每次登入彼方触发的模型调用都会记在这里，方便你对账。</p>
                 ) : (
                     <div className="space-y-1">
-                        {log.slice(0, 60).map((l, i) => (
-                            <div key={i} className="flex items-center gap-2 text-[10.5px] py-1 border-b border-white/5 last:border-0">
-                                <span className={`shrink-0 ${l.ok ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>{l.ok ? '●' : '○'}</span>
-                                <span className="text-white/75 truncate">{l.charName || '—'}</span>
-                                <span className="text-indigo-300/40 shrink-0">{l.room ? getRoom(l.room as VRRoomId).name : ''}</span>
-                                <span className="ml-auto text-white/30 shrink-0 tabular-nums">{(l.ms / 1000).toFixed(1)}s</span>
-                                <span className="text-white/35 shrink-0 tabular-nums w-[68px] text-right">{new Date(l.ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                        ))}
+                        {log.slice(0, 60).map((l, i) => {
+                            const diag = !!l.kind;   // 诊断行：调度到点了，但这一轮没走到模型
+                            return (
+                                <div key={i} className="flex flex-wrap items-start gap-2 text-[10.5px] py-1 border-b border-white/5 last:border-0">
+                                    <span className={`shrink-0 ${diag ? 'text-amber-400/70' : l.ok ? 'text-emerald-400/80' : 'text-rose-400/80'}`}>{diag ? '◌' : l.ok ? '●' : '○'}</span>
+                                    <span className="text-white/75 truncate shrink-0">{l.charName || l.charId?.slice(-4) || '—'}</span>
+                                    {diag ? (
+                                        <span className="flex-1 min-w-0 text-amber-200/55 leading-snug">{l.note}</span>
+                                    ) : (
+                                        <>
+                                            <span className="text-indigo-300/40 shrink-0">{l.room ? getRoom(l.room as VRRoomId).name : ''}</span>
+                                            {/* 接入明明是关的却还是发了请求 —— 这就是「关不掉」的现场，标出来别让它混在红点里 */}
+                                            {l.charEnabled === false && <span className="text-rose-300/75 shrink-0">未接入却发了</span>}
+                                            <span className="ml-auto text-white/30 shrink-0 tabular-nums">{(l.ms / 1000).toFixed(1)}s</span>
+                                        </>
+                                    )}
+                                    <span className="text-white/35 shrink-0 tabular-nums w-[68px] text-right">{new Date(l.ts).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                                    {l.error && <p className="w-full break-words text-rose-300/90">{l.error}</p>}
+                                </div>
+                            );
+                        })}
                     </div>
+                )}
+            </div>
+
+            {/* 排障快照 */}
+            <div className="rounded-2xl p-3" style={{ background: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <div className="flex items-center gap-1.5 mb-1.5">
+                    <span className="text-[10px] tracking-[0.2em] text-indigo-200/60" style={{ fontFamily: `'Noto Serif SC',serif` }}>排障快照</span>
+                    {snapshot && <button onClick={() => setSnapshot(null)} className="ml-auto text-[10px] text-white/40 hover:text-rose-300/80">收起</button>}
+                </div>
+                <p className="text-[10.5px] text-white/40 leading-relaxed mb-2">
+                    角色明明没接入却还在调用、或者设置改完过一阵又退回去 —— 遇到这类说不清的情况，点一下把当前状态收成一段文字发给开发者。
+                    里面只有开关、时间和用量，<b className="text-indigo-200/70">不含角色名字、聊天记录和 API key</b>。
+                </p>
+                <button onClick={exportSnapshot} disabled={collecting}
+                    className="text-[11px] px-3 py-1.5 rounded-full font-semibold disabled:opacity-50"
+                    style={{ background: 'rgba(120,180,255,.16)', color: '#bcd4ff', border: '1px solid rgba(140,180,255,.3)' }}>
+                    {collecting ? '收集中…' : '生成并复制'}
+                </button>
+                {snapshot && (
+                    <pre className="mt-2.5 max-h-64 overflow-auto text-[9.5px] leading-relaxed text-white/55 whitespace-pre-wrap break-all select-all p-2 rounded-lg"
+                        style={{ background: 'rgba(0,0,0,.3)' }}>{snapshot}</pre>
                 )}
             </div>
         </div>
@@ -3599,6 +4133,7 @@ const VRStyleTag: React.FC = () => (
         @keyframes vrdance { 0%{transform:translateY(0) rotate(-5deg)} 25%{transform:translateY(-9px) rotate(3deg)} 50%{transform:translateY(0) rotate(5deg)} 75%{transform:translateY(-9px) rotate(-3deg)} 100%{transform:translateY(0) rotate(-5deg)} }
         @keyframes vraurora { 0%,100%{transform:translate(0,0) scale(1);opacity:.75} 50%{transform:translate(6%,4%) scale(1.14);opacity:1} }
         @keyframes vrtwinkle { 0%,100%{opacity:.5} 50%{opacity:.85} }
+        @keyframes sarquest { 0%,100%{transform:translate(-50%,0)} 50%{transform:translate(-50%,-6px)} }
         /* 信号坠落处 · 电子卫星轨道（纯 transform/opacity，GPU 合成，手机友好） */
         @keyframes sigorbit { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes sigpulse { 0%,100% { transform: scale(1); opacity: .8; } 50% { transform: scale(1.12); opacity: 1; } }

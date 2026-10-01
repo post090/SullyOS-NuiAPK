@@ -262,6 +262,25 @@ describe('门牌整理 handler', () => {
       .toHaveBeenCalledWith(AMSG_JOB_NAMESPACE, [{ key: plateJobKey(JOB_ID), value: null }]);
   });
 
+  // 模型回了东西却一条都解析不出来时，日志里得看得出它回了个什么（被截断？空的？格式跑偏？）。
+  it('一条都没解析出来 → 记一行跳过诊断，reason 是 plate-empty-generation', async () => {
+    const { ctx: fireCtx, scratch } = makeCtx({
+      jobValue: await packStateValue(JSON.stringify(jobInput())),
+    });
+    await amsgHooks.onBeforeFire(fireCtx);
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { ctx } = makeSessionCtx(scratch, '模型今天不想说话');
+    ctx.llmResponse = { choices: [{ finish_reason: 'length', message: { content: '模型今天不想说话' } }] };
+    await amsgHooks.onLLMOutput(ctx);
+
+    const diag = warn.mock.calls.find(([tag]) => tag === '[amsg:skip-diag]')?.[1];
+    warn.mockRestore();
+    expect(diag, '门牌整理空跑时也该留一行诊断').toMatchObject({
+      reason: 'plate-empty-generation', finishReason: 'length', contentChars: 8,
+    });
+  });
+
   // 回归守卫：kind 是从任务 metadata 上读出来的字符串。handler 表要是普通对象字面量，
   // `constructor` / `toString` 这些原型链上的键会解析成一个真值，绕过「表里没有这个
   // kind」那道判断，最后炸在 `handler.beforeFire is not a function` 上——那句报错跟真正

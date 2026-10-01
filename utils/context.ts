@@ -1,17 +1,26 @@
+import { readableContextMemories } from './contextMemories';
+import { getCachedUserHolidayReminder, type UserHolidayConfig } from './userHolidays';
 
-import { CharacterProfile, UserProfile, DailySchedule } from '../types';
+import { CharacterProfile, UserProfile, DailySchedule, MountedWorldbook } from '../types';
 import { normalizeUserImpression } from './impression';
 import { getFlowNarrativeKey } from './scheduleGenerator';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { buildScheduleInjection as buildScheduleInjectionText } from './scheduleInjection';
+import { TIME_FRAMING_CONVERSATIONAL } from './timeFramingNote';
 import { resolveCharTimeZone, nowInTimeZone, tzAwarenessNote, interactionGapNote, tzLabel } from './timezone';
 import {
+    isWorldbookEntryActive,
+    expandWorldbookMacros,
     formatWorldbookSection,
+    injectWorldbookDepthEntries,
+    type WorldbookSystemSections,
+    type ResolvedWorldbookEntry,
     resolveWorldbookEntries,
     splitWorldbookSections,
     type WorldbookScanMessage,
 } from './worldbook';
 import { renderMemosForPrompt } from './memos';
+import { buildSARModulePrompt } from './vrWorld/sarModuleRuntime';
 
 /**
  * Memory Central
@@ -19,6 +28,28 @@ import { renderMemosForPrompt } from './memos';
  * 包含：身份设定、用户画像、世界观、核心记忆、详细记忆、以及角色内心看法。
  */
 export const ContextBuilder = {
+    /** Read-only eligibility preview: never samples probability or performs recall. */
+    inspectWorldbooks: (char: CharacterProfile, user: UserProfile, history: WorldbookScanMessage[]) =>
+        (char.mountedWorldbooks || []).map(book => {
+            const content = expandWorldbookMacros(book.content || '', char.name, user.name);
+            const n = Number(book.probability);
+            const probability = book.useProbability ? (Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 100) : 100;
+            const matches = isWorldbookEntryActive({ ...book, useProbability: false }, history);
+            const status = book.disable ? 'disabled' : !content.trim() ? 'empty' : probability === 0 ? 'zero'
+                : !matches ? 'waiting' : probability < 100 ? 'probability' : 'readable';
+            return { book, content, probability, status };
+        }).sort((a, b) => (Number.isFinite(a.book.order) ? Number(a.book.order) : 100) - (Number.isFinite(b.book.order) ? Number(b.book.order) : 100)),
+
+
+    /**
+     * SAR 模块的唯一上下文出口。调用方按自身输出格式选择 chat/date，避免把模块规则
+     * 复制进每个 App，也避免误改基础人设、记忆召回或情绪状态本身。
+     */
+    buildSARModuleContext: (
+        char: CharacterProfile,
+        user: UserProfile,
+        surface: 'chat' | 'date',
+    ): string => buildSARModulePrompt(char, user, surface),
 
     /**
      * 构建角色设定+记忆上下文（角色名、核心指令、世界观 + 月度总结 & 当月日度总结）
@@ -105,238 +136,18 @@ export const ContextBuilder = {
      * @param groupOptions 群聊场景下的去重选项：避免和 buildGroupSharedScene 产出的共享块重复
      * @returns 标准化的 Markdown 格式 System Prompt
      */
-    buildCoreContext: (
-        char: CharacterProfile,
-        user: UserProfile,
-        includeDetailedMemories: boolean = true,
-        memoryPalaceContext?: string,
-        groupOptions?: {
-            skipUserProfile?: boolean;
-            skipWorldview?: boolean;
-            skipWorldbookIds?: Set<string>;
-            headerOverride?: string;
-        },
-        timeOptions?: {
-            /** 传入「最后一次和用户互动的时间戳」→ 统一注入「距离上次联系多久」（受 timeAwarenessEnabled 控制）。 */
-            lastInteractionTs?: number;
-            /** 抑制整段时间感知（当前时间/时差/距上次联系）。见面纯架空（dateTimeAwarenessEnabled=false）时用。 */
-            skipTimeAwareness?: boolean;
-            /** 用户自己的 IANA 时区（不传则自动取 user.timezone），时间感知里做双时区换算。 */
-            userTimezone?: string;
-            /** Recent messages used to activate keyword-based worldbook entries. */
-            worldbookMessages?: WorldbookScanMessage[];
-        },
-        layout?: {
-            /**
-             * 把「每轮/每分钟都会变」的三块（当前时间、记忆宫殿召回、情绪 buff）从本函数输出里
-             * 摘出去，由调用方通过 buildVolatileCoreState 拿到后放到消息数组末尾。
-             * 目的：让 system prompt 前缀稳定，吃到中转的 prompt 前缀缓存（TTFT 直降）。
-             * 只有聊天主路径（chatPrompts.buildSystemPromptParts）用；其他 App 不传，行为不变。
-             */
-            deferVolatile?: boolean;
-        },
-    ): string => {
-        const skipBookIds = groupOptions?.skipWorldbookIds;
-        const filteredBooks = (char.mountedWorldbooks || []).filter(wb => !skipBookIds || !skipBookIds.has(wb.id));
-        const worldbookSections = splitWorldbookSections(resolveWorldbookEntries(
-            filteredBooks,
-            timeOptions?.worldbookMessages || [],
-            char.name,
-            user.name,
-        ));
+    buildCoreContext: (...args: CoreContextArgs): string => buildCharacterContext({
+        char: args[0], user: args[1], includeDetailedMemories: args[2],
+        memoryPalaceContext: args[3], groupOptions: args[4], timeOptions: args[5], layout: args[6],
+    }).coreContext,
 
-        let context = formatWorldbookSection(worldbookSections.beforeCharacter, '世界书 · 角色设定前');
-        context += `${groupOptions?.headerOverride ?? '[System: Roleplay Configuration]'}\n\n`;
+    /** 一次完成世界书触发、核心上下文和消息深度摆放；history 不传时完整放入核心文本。 */
+    buildCharacterContext,
+    buildCharacterRequest,
+    buildWorldbookRequest,
+    buildGroupWorldbookRequest,
 
-        // 1. 核心身份 (Identity)
-        context += `### 你的身份 (Character)\n`;
-        context += `- 名字: ${char.name}\n`;
-        // Change: Explicitly label description as User Note to avoid literal interpretation
-        context += `- 用户备注/爱称 (User Note/Nickname): ${char.description || '无'}\n`;
-        context += `  (注意: 这个备注是用户对你的称呼或印象，可能包含比喻。如果备注内容（如“快乐小狗”）与你的核心设定冲突，请以核心设定为准，不要真的扮演成动物，除非核心设定里写了你是动物。)\n`;
-        context += `- 核心性格/指令:\n${char.systemPrompt || '你是一个温柔、拟人化的AI伴侣。'}\n\n`;
 
-        // 1a. 真实时间感知 (Time Awareness) — 跟随 timeAwarenessEnabled 设置，默认开启。
-        // 统一在 buildCoreContext 注入，让所有调用方（私聊/查手机/人际关系/通话/约会…）都知道"现在"。
-        // deferVolatile 时不在这里输出（时间精确到分钟、每轮都变，会打断 prompt 前缀缓存），
-        // 改由调用方经 buildVolatileCoreState 放到消息数组末尾。
-        if (!layout?.deferVolatile) {
-            context += ContextBuilder.buildTimeAwarenessBlock(char, { ...timeOptions, userTimezone: timeOptions?.userTimezone ?? user?.timezone });
-        }
-
-        // 1b. 自我领悟词条 (Self Insights) — 消化过程中反刍产生的常驻自我认知
-        // 像情绪底色一样影响角色的行为和感受，注入在角色设定紧下方
-        if (char.selfInsights && char.selfInsights.length > 0) {
-            context += `### 内在认知 (Self Insights)\n`;
-            context += `以下是你在独处反思中逐渐想明白的事，它们已经成为你的一部分：\n`;
-            char.selfInsights.forEach(insight => {
-                context += `- ${insight}\n`;
-            });
-            context += `\n`;
-        }
-
-        // 2. 世界观 (Worldview) - New Centralized Logic
-        if (char.worldview && char.worldview.trim() && !groupOptions?.skipWorldview) {
-            context += `### 世界观与设定 (World Settings)\n${char.worldview}\n\n`;
-        }
-
-        context += formatWorldbookSection(worldbookSections.afterCharacter, '扩展设定集 (Worldbooks)');
-        context += formatWorldbookSection(worldbookSections.beforeExamples, '世界书 · 示例消息前');
-        context += formatWorldbookSection(worldbookSections.afterExamples, '世界书 · 示例消息后');
-
-        // 3. 用户画像 (User Profile)
-        // 群聊场景下：用户画像已在共享场景块顶部，这里跳过避免重复
-        if (!groupOptions?.skipUserProfile) {
-            context += `### 互动对象 (User)\n`;
-            context += `- 名字: ${user.name}\n`;
-            context += `- 设定/备注: ${user.bio || '无'}\n\n`;
-        }
-
-        // 4. [NEW] 印象档案 (Private Impression)
-        // 这是角色对用户的私密看法，只有角色知道
-        const imp = normalizeUserImpression(char.impression);
-        if (imp) {
-            context += `### [私密档案: 我眼中的${user.name}] (Private Impression)\n`;
-            context += `(注意：以下内容是你内心对TA的真实看法，不要直接告诉用户，但要基于这些看法来决定你的态度。)\n`;
-            context += `- 核心评价: ${imp.personality_core.summary}\n`;
-            context += `- 互动模式: ${imp.personality_core.interaction_style}\n`;
-            context += `- 我观察到的特质: ${imp.personality_core.observed_traits.join(', ')}\n`;
-            context += `- TA的喜好: ${imp.value_map.likes.join(', ')}\n`;
-            if (imp.behavior_profile.emotion_summary) context += `- TA的情绪模式: ${imp.behavior_profile.emotion_summary}\n`;
-            if (imp.emotion_schema.triggers.positive.length) context += `- 正向触发点（什么会让ta开心）: ${imp.emotion_schema.triggers.positive.join(', ')}\n`;
-            context += `- 情绪雷区（负向触发）: ${imp.emotion_schema.triggers.negative.join(', ')}\n`;
-            if (imp.emotion_schema.stress_signals.length) context += `- 压力信号（ta状态不对的征兆）: ${imp.emotion_schema.stress_signals.join(', ')}\n`;
-            context += `- 舒适区: ${imp.emotion_schema.comfort_zone}\n`;
-            context += `- 最近观察到的变化: ${imp.observed_changes ? imp.observed_changes.map(c => typeof c === 'string' ? c : (c as any)?.description ? `[${(c as any).period}] ${(c as any).description}` : JSON.stringify(c)).join('; ') : '无'}\n\n`;
-        }
-
-        // 4b. 底色认知（记忆宫殿门牌）— 常驻语义层
-        // 与召回记忆不同：这是每轮都在的"你早已知道的背景"，不走相似度抽取。
-        // 必须用 memoryPalaceEnabled 把关，理由同下方 5b：注入字段会被 saveCharacter
-        // 持久化，宫殿关闭后 injectMemoryPalace 不再刷新它，不校验就会注入残留。
-        if (char.memoryPalaceEnabled && char.roomPlatesInjection && char.roomPlatesInjection.trim()) {
-            context += `${char.roomPlatesInjection}\n`;
-        }
-
-        // 5. 记忆库 (Memory Bank)
-        // 有实际记忆内容（月度总结 / 当月详细回忆）才注入整节；都没有就整节跳过——
-        // 不再无条件打印「记忆系统」标题 + 「暂无特定记忆」占位，避免给没启用记忆系统的
-        // 角色白塞占位、也省 token（P1）。
-        let memoryContent = "";
-
-        // 5a. 长期核心记忆 (Refined Memories)
-        if (char.refinedMemories && Object.keys(char.refinedMemories).length > 0) {
-            memoryContent += `**长期核心记忆 (Key Memories)**:\n`;
-            Object.entries(char.refinedMemories).sort().forEach(([date, summary]) => { 
-                memoryContent += `- [${date}]: ${summary}\n`; 
-            });
-        }
-
-        // 5b. 激活的详细记忆 (Active Detailed Logs)
-        if (includeDetailedMemories && char.activeMemoryMonths && char.activeMemoryMonths.length > 0 && char.memories) {
-            let details = "";
-            char.activeMemoryMonths.forEach(monthKey => {
-                // monthKey format: YYYY-MM
-                // Robust Date Matching: Normalize memory date separators to '-' and compare prefix
-                // This ensures compatibility with 'YYYY/MM/DD', 'YYYY年MM月DD日', and 'YYYY-MM-DD'
-                const logs = char.memories.filter(m => {
-                    // 1. Replace separators / or 年 or 月 with -
-                    // 2. Remove '日'
-                    // 3. Ensure single digit months/days are padded (e.g. 2024-1-1 -> 2024-01-01) for strict matching, 
-                    //    but simplest is to just check startsWith after rough normalization.
-                    let normDate = m.date.replace(/[\/年月]/g, '-').replace('日', '');
-                    
-                    // Basic fix for "2024-1-1" vs "2024-01" matching issues
-                    const parts = normDate.split('-');
-                    if (parts.length >= 2) {
-                        const y = parts[0];
-                        const mo = parts[1].padStart(2, '0');
-                        normDate = `${y}-${mo}`;
-                    }
-                    
-                    return normDate.startsWith(monthKey);
-                });
-                
-                if (logs.length > 0) {
-                    details += `\n> 详细回忆 [${monthKey}]:\n`;
-                    logs.forEach(m => {
-                        details += `  - ${m.date} (${m.mood || 'rec'}): ${m.summary}\n`;
-                    });
-                }
-            });
-            if (details) {
-                memoryContent += `\n**当前激活的详细回忆 (Active Recall)**:${details}`;
-            }
-        }
-
-        if (memoryContent) {
-            context += `### 记忆系统 (Memory Bank)\n`;
-            context += `${memoryContent}\n\n`;
-        }
-
-        // 5b. 记忆宫殿 (Memory Palace) — 向量检索结果
-        // 仅在 includeDetailedMemories 时注入，与详细日志同级
-        // buildCoreContext(false) 的调用点（情绪评估、轻量上下文等）靠月度总结即可
-        // 必须用 memoryPalaceEnabled 把关：injectMemoryPalace 在关闭时直接 return、
-        // 既不刷新也不清空 char.memoryPalaceInjection，而该字段又会被 saveCharacter
-        // 持久化。若此处不校验总开关，关闭后旧的召回结果仍会被注入进 system prompt，
-        // 表现为"宫殿已关、后台无召回，角色却还在精准复述记忆"。与下方 Buff 注入同理。
-        // deferVolatile：召回结果每轮都变 → 移交 buildVolatileCoreState。
-        if (!layout?.deferVolatile && includeDetailedMemories && char.memoryPalaceEnabled) {
-            const mpContext = char.memoryPalaceInjection || memoryPalaceContext;
-            if (mpContext && mpContext.trim()) {
-                context += `${mpContext}\n\n`;
-            }
-        }
-
-        // 6. 情绪底色 Buff (Emotion Buff Injection)
-        // 放在角色设定之后，使所有调用 ContextBuilder 的 App 都能感知情绪状态
-        // 总开关关闭时完全跳过，防止残留 buff 继续污染 prompt
-        // deferVolatile：buff 每轮情绪评估后都可能变 → 移交 buildVolatileCoreState。
-        if (!layout?.deferVolatile && isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection) {
-            context += `${char.buffInjection}\n\n`;
-            console.log(`🎭 [Context] Buff injected for ${char.name}:\n`, char.buffInjection);
-            console.log(`🎭 [Context] Active buffs:`, JSON.stringify(char.activeBuffs || [], null, 2));
-        }
-
-        context += formatWorldbookSection(worldbookSections.authorsNoteTop, '世界书 · 作者注释顶部');
-        context += formatWorldbookSection(worldbookSections.authorsNoteBottom, '世界书 · 作者注释底部');
-
-        // 7. 表达底线 (Anti-Filler) —— 全 App 通用的精简版防套话提示。
-        // 模型八股（空泛感慨、万能句式）是"没话找话"时的填充物，这里只做正向引导
-        // （去挖具体素材），不列任何禁语——把禁语写进提示词反而会激活它（粉色大象）。
-        // 完整方法版在 datePrompts 的 DIG_DEEPER_BLOCK（见面模式专用，可按角色开关）。
-        // 群聊流（groupOptions）跳过：多成员场景会重复注入 N 份，群聊侧暂不接入。
-        if (!groupOptions) {
-            context += `### 表达底线 (Anti-Filler)\n当你觉得"没什么可说"的时候，不要用空泛的感慨、万能句式或华丽排比去填充——那是没话找话，对方一眼就能看出来。素材永远比你以为的多：对方的用词、ta 怎么说的、ta 没说的部分、此刻的情境、你们的过去、你心里闪过的念头——挑一两条往深处走就够了。宁可一个具体的小细节，不要一句谁都能说的话。\n\n`;
-        }
-
-        // 8. 角色备忘录（只读部分）—— 所有调用 buildCoreContext 的场景都能看到自己的备忘录。
-        // 单聊场景的「标签使用说明」（教 AI 怎么增删改）由 chatPrompts.buildSystemPromptParts
-        // 额外注入，避免主动消息/通话/小小窝场景污染 prompt、也避免 AI 在不能写的场景输出标签。
-        // includeDetailedMemories=false 的轻量调用（情绪评估等）跳过，省 token。
-        // char.memoEnabled=false（默认）：本角色未启用备忘录功能，列表也不注入（功能关即零注入）。
-        if (includeDetailedMemories && char.memoEnabled && char.memos && char.memos.length > 0) {
-            const memoBlock = renderMemosForPrompt(char.memos, 'proactive');
-            if (memoBlock) context += `${memoBlock}\n\n`;
-        }
-
-        // Debug: warn about missing context sections
-        const missing: string[] = [];
-        if (!char.systemPrompt) missing.push('systemPrompt');
-        if (!char.impression) missing.push('impression');
-        if (!char.refinedMemories || Object.keys(char.refinedMemories).length === 0) missing.push('refinedMemories');
-        if (!char.activeMemoryMonths || char.activeMemoryMonths.length === 0) missing.push('activeMemoryMonths');
-        if (!char.mountedWorldbooks || char.mountedWorldbooks.length === 0) missing.push('worldbooks');
-        if (!char.worldview) missing.push('worldview');
-        if (missing.length > 0) {
-            console.log(`⚠️ [Context] Missing/empty fields: ${missing.join(', ')} | context_chars=${context.length}`);
-        } else {
-            console.log(`✅ [Context] All fields present | context_chars=${context.length}`);
-        }
-
-        return context;
-    },
 
     /**
      * 真实时间感知块（原 buildCoreContext 1a 段，逐字一致）。
@@ -345,7 +156,18 @@ export const ContextBuilder = {
      */
     buildTimeAwarenessBlock: (
         char: CharacterProfile,
-        timeOptions?: { lastInteractionTs?: number; skipTimeAwareness?: boolean; userTimezone?: string },
+        timeOptions?: {
+            lastInteractionTs?: number;
+            skipTimeAwareness?: boolean;
+            /** 用户自己的 IANA 时区（不传则自动取 user.timezone），时间感知里做双时区换算。 */
+            userTimezone?: string;
+            /**
+             * 这次注入是不是「正有人在跟角色说话」（私聊、见面这类实时对话）。
+             * 只有这时才补那句语境框定，见下方注释。默认 false：日程 / 歌单 / 攻略 /
+             * 手册 / 小剧场这些生成器同样走 buildCoreContext，但那边并没有人在对话。
+             */
+            conversational?: boolean;
+        },
     ): string => {
         // skipTimeAwareness：见面纯架空时由调用方传入，彻底抑制时间注入（修「线下时间感知」关掉后仍漏时间）。
         if (char.timeAwarenessEnabled === false || timeOptions?.skipTimeAwareness) return '';
@@ -362,6 +184,12 @@ export const ContextBuilder = {
         const timeStr = `${h.toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
         let context = `### 当前时间 (Now)\n`;
         context += `现在是 ${dateStr} ${dayNames[now.getDay()]} ${timeOfDay} ${timeStr}。请据此自然地拥有真实的时间观念（早晚作息、工作日/周末、距离上次互动多久等），不要凭空假设时间。\n`;
+        // 报时后面那句语境框定（这句话本身和「为什么只在对话时给」都在
+        // utils/timeFramingNote.ts）。即时对话走的是云端那条路，时间由 worker 到点补，
+        // 那边引的是同一份常量——同一句话不抄两遍，免得两条路上的角色分寸不一样。
+        if (timeOptions?.conversational) {
+            context += `${TIME_FRAMING_CONVERSATIONAL}\n`;
+        }
         const tzNote = tzAwarenessNote(charTz);
         if (tzNote) context += `${tzNote.trim()}\n`;
         // 用户设了自己的时区且与角色墙上时间不一致 → 同时注入用户那边的时间（双向时差）。
@@ -396,7 +224,7 @@ export const ContextBuilder = {
         options?: {
             includeDetailedMemories?: boolean;
             memoryPalaceContext?: string;
-            timeOptions?: { lastInteractionTs?: number; skipTimeAwareness?: boolean; userTimezone?: string };
+            timeOptions?: { lastInteractionTs?: number; skipTimeAwareness?: boolean; userTimezone?: string; conversational?: boolean };
         },
     ): string => {
         let context = ContextBuilder.buildTimeAwarenessBlock(char, options?.timeOptions);
@@ -451,19 +279,19 @@ export const ContextBuilder = {
             return { text: '', sharedWorldbookIds, worldviewIsShared };
         }
 
-        // 1. 找出共享的世界书（被 2+ 角色挂载，按 id 计）
-        const wbCount = new Map<string, { count: number; entry: { id: string; title: string; content: string; category?: string } }>();
+        // 1. 找出共享的世界书（被 2+ 角色挂载，按 id 计），顺带记下是谁挂的
+        const wbMounts = new Map<string, { memberNames: string[]; entry: MountedWorldbook }>();
         for (const m of members) {
             for (const wb of (m.mountedWorldbooks || [])) {
                 if (!wb.id) continue;
-                const existing = wbCount.get(wb.id);
-                if (existing) existing.count += 1;
-                else wbCount.set(wb.id, { count: 1, entry: wb });
+                const existing = wbMounts.get(wb.id);
+                if (existing) existing.memberNames.push(m.name);
+                else wbMounts.set(wb.id, { memberNames: [m.name], entry: wb });
             }
         }
-        const sharedBooks: { id: string; title: string; content: string; category?: string }[] = [];
-        wbCount.forEach((v, id) => {
-            if (v.count >= 2) {
+        const sharedBooks: MountedWorldbook[] = [];
+        wbMounts.forEach((v, id) => {
+            if (v.memberNames.length >= 2) {
                 sharedWorldbookIds.add(id);
                 sharedBooks.push(v.entry);
             }
@@ -489,7 +317,12 @@ export const ContextBuilder = {
             text += `### 共有世界观 (Shared World Settings)\n${members[0].worldview!.trim()}\n\n`;
         }
 
-        const resolvedSharedBooks = resolveWorldbookEntries(sharedBooks, worldbookMessages, '', user.name);
+        // 共有条目只写一次，{{char}} 换成挂了这条的几位成员（「阿澈、小白」）
+        const resolvedSharedBooks = resolveWorldbookEntries(sharedBooks, worldbookMessages, '', user.name)
+            .map(entry => ({
+                ...entry,
+                content: expandWorldbookMacros(entry.content, wbMounts.get(entry.book.id)?.memberNames.join('、') || '', ''),
+            }));
         text += formatWorldbookSection(resolvedSharedBooks, '共有扩展设定集 (Shared Worldbooks)');
 
         return { text, sharedWorldbookIds, worldviewIsShared };
@@ -678,3 +511,338 @@ ${addUsage}
 `;
     },
 };
+
+const renderCoreContext = (
+        worldbookSections: WorldbookSystemSections,
+        char: CharacterProfile,
+        user: UserProfile,
+        includeDetailedMemories: boolean = true,
+        memoryPalaceContext?: string,
+        groupOptions?: {
+            skipUserProfile?: boolean;
+            skipWorldview?: boolean;
+            skipWorldbookIds?: Set<string>;
+            headerOverride?: string;
+        },
+        timeOptions?: {
+            /** 传入「最后一次和用户互动的时间戳」→ 统一注入「距离上次联系多久」（受 timeAwarenessEnabled 控制）。 */
+            lastInteractionTs?: number;
+            /** 抑制整段时间感知（当前时间/时差/距上次联系）。见面纯架空（dateTimeAwarenessEnabled=false）时用。 */
+            skipTimeAwareness?: boolean;
+            /** 用户自己的 IANA 时区（不传则自动取 user.timezone），时间感知里做双时区换算。 */
+            userTimezone?: string;
+            /** 正有人在跟角色实时对话（私聊 / 见面）。见 buildTimeAwarenessBlock 同名字段。 */
+            conversational?: boolean;
+            /** Cloud requests fill this user's date-dependent line at generation time. */
+            skipUserHoliday?: boolean;
+            userHolidays?: UserHolidayConfig;
+            /** Recent messages used to activate keyword-based worldbook entries. */
+            worldbookMessages?: WorldbookScanMessage[];
+        },
+        layout?: {
+            /**
+             * 把「每轮/每分钟都会变」的三块（当前时间、记忆宫殿召回、情绪 buff）从本函数输出里
+             * 摘出去，由调用方通过 buildVolatileCoreState 拿到后放到消息数组末尾。
+             * 目的：让 system prompt 前缀稳定，吃到中转的 prompt 前缀缓存（TTFT 直降）。
+             * 只有聊天主路径（chatPrompts.buildSystemPromptParts）用；其他 App 不传，行为不变。
+             */
+            deferVolatile?: boolean;
+        },
+    ): string => {
+        let context = formatWorldbookSection(worldbookSections.beforeCharacter, '世界书 · 角色设定前');
+        context += `${groupOptions?.headerOverride ?? '[System: Roleplay Configuration]'}\n\n`;
+
+        // 1. 核心身份 (Identity)
+        context += `### 你的身份 (Character)\n`;
+        context += `- 名字: ${char.name}\n`;
+        // Change: Explicitly label description as User Note to avoid literal interpretation
+        context += `- 用户备注/爱称 (User Note/Nickname): ${char.description || '无'}\n`;
+        context += `  (注意: 这个备注是用户对你的称呼或印象，可能包含比喻。如果备注内容（如“快乐小狗”）与你的核心设定冲突，请以核心设定为准，不要真的扮演成动物，除非核心设定里写了你是动物。)\n`;
+        context += `- 核心性格/指令:\n${char.systemPrompt || '你是一个温柔、拟人化的AI伴侣。'}\n\n`;
+
+        // 1a. 真实时间感知 (Time Awareness) — 跟随 timeAwarenessEnabled 设置，默认开启。
+        // 统一在 buildCoreContext 注入，让所有调用方（私聊/查手机/人际关系/通话/约会…）都知道"现在"。
+        // deferVolatile 时不在这里输出（时间精确到分钟、每轮都变，会打断 prompt 前缀缓存），
+        // 改由调用方经 buildVolatileCoreState 放到消息数组末尾。
+        if (!layout?.deferVolatile) {
+            context += ContextBuilder.buildTimeAwarenessBlock(char, { ...timeOptions, userTimezone: timeOptions?.userTimezone ?? user?.timezone });
+        }
+
+        // 1b. 自我领悟词条 (Self Insights) — 消化过程中反刍产生的常驻自我认知
+        // 像情绪底色一样影响角色的行为和感受，注入在角色设定紧下方
+        if (char.selfInsights && char.selfInsights.length > 0) {
+            context += `### 内在认知 (Self Insights)\n`;
+            context += `以下是你在独处反思中逐渐想明白的事，它们已经成为你的一部分：\n`;
+            char.selfInsights.forEach(insight => {
+                context += `- ${insight}\n`;
+            });
+            context += `\n`;
+        }
+
+        // 2. 世界观 (Worldview) - New Centralized Logic
+        if (char.worldview && char.worldview.trim() && !groupOptions?.skipWorldview) {
+            context += `### 世界观与设定 (World Settings)\n${char.worldview}\n\n`;
+        }
+
+        context += formatWorldbookSection(worldbookSections.afterCharacter, '扩展设定集 (Worldbooks)');
+        context += formatWorldbookSection(worldbookSections.beforeExamples, '世界书 · 示例消息前');
+        context += formatWorldbookSection(worldbookSections.afterExamples, '世界书 · 示例消息后');
+
+        // 3. 用户画像 (User Profile)
+        // 群聊场景下：用户画像已在共享场景块顶部，这里跳过避免重复
+        if (!groupOptions?.skipUserProfile) {
+            context += `### 互动对象 (User)\n`;
+            context += `- 名字: ${user.name}\n`;
+            context += `- 设定/备注: ${user.bio || '无'}\n\n`;
+            if (char.timeAwarenessEnabled !== false && !timeOptions?.skipTimeAwareness && !timeOptions?.skipUserHoliday) {
+                const holiday = getCachedUserHolidayReminder(user.name, timeOptions?.userHolidays);
+                if (holiday) context += `- ${holiday}\n\n`;
+            }
+        }
+
+        // 4. [NEW] 印象档案 (Private Impression)
+        // 这是角色对用户的私密看法，只有角色知道
+        const imp = normalizeUserImpression(char.impression);
+        if (imp) {
+            context += `### [私密档案: 我眼中的${user.name}] (Private Impression)\n`;
+            context += `(注意：以下内容是你内心对TA的真实看法，不要直接告诉用户，但要基于这些看法来决定你的态度。)\n`;
+            context += `- 核心评价: ${imp.personality_core.summary}\n`;
+            context += `- 互动模式: ${imp.personality_core.interaction_style}\n`;
+            context += `- 我观察到的特质: ${imp.personality_core.observed_traits.join(', ')}\n`;
+            context += `- TA的喜好: ${imp.value_map.likes.join(', ')}\n`;
+            if (imp.behavior_profile.emotion_summary) context += `- TA的情绪模式: ${imp.behavior_profile.emotion_summary}\n`;
+            if (imp.emotion_schema.triggers.positive.length) context += `- 正向触发点（什么会让ta开心）: ${imp.emotion_schema.triggers.positive.join(', ')}\n`;
+            context += `- 情绪雷区（负向触发）: ${imp.emotion_schema.triggers.negative.join(', ')}\n`;
+            if (imp.emotion_schema.stress_signals.length) context += `- 压力信号（ta状态不对的征兆）: ${imp.emotion_schema.stress_signals.join(', ')}\n`;
+            context += `- 舒适区: ${imp.emotion_schema.comfort_zone}\n`;
+            context += `- 最近观察到的变化: ${imp.observed_changes ? imp.observed_changes.map(c => typeof c === 'string' ? c : (c as any)?.description ? `[${(c as any).period}] ${(c as any).description}` : JSON.stringify(c)).join('; ') : '无'}\n\n`;
+        }
+
+        // 4b. 底色认知（记忆宫殿门牌）— 常驻语义层
+        // 与召回记忆不同：这是每轮都在的"你早已知道的背景"，不走相似度抽取。
+        // 必须用 memoryPalaceEnabled 把关，理由同下方 5b：注入字段会被 saveCharacter
+        // 持久化，宫殿关闭后 injectMemoryPalace 不再刷新它，不校验就会注入残留。
+        if (char.memoryPalaceEnabled && char.roomPlatesInjection && char.roomPlatesInjection.trim()) {
+            context += `${char.roomPlatesInjection}\n`;
+        }
+
+        // 5. 记忆库 (Memory Bank)
+        // 有实际记忆内容（月度总结 / 当月详细回忆）才注入整节；都没有就整节跳过——
+        // 不再无条件打印「记忆系统」标题 + 「暂无特定记忆」占位，避免给没启用记忆系统的
+        // 角色白塞占位、也省 token（P1）。
+        let memoryContent = "";
+
+        const readableMemories = readableContextMemories(char, includeDetailedMemories);
+        if (readableMemories.monthly.length) {
+            memoryContent += '**长期核心记忆 (Key Memories)**:\n';
+            readableMemories.monthly.forEach(({ date, summary }) => {
+                memoryContent += `- [${date}]: ${summary}\n`;
+            });
+        }
+        let details = '';
+        readableMemories.daily.forEach(({ month, entries }) => {
+            if (entries.length) {
+                details += `\n> 详细回忆 [${month}]:\n`;
+                entries.forEach(m => { details += `  - ${m.date} (${m.mood || 'rec'}): ${m.summary}\n`; });
+            }
+        });
+        if (details) memoryContent += `\n**当前激活的详细回忆 (Active Recall)**:${details}`;
+
+        if (memoryContent) {
+            context += `### 记忆系统 (Memory Bank)\n`;
+            context += `${memoryContent}\n\n`;
+        }
+
+        // 5b. 记忆宫殿 (Memory Palace) — 向量检索结果
+        // 仅在 includeDetailedMemories 时注入，与详细日志同级
+        // buildCoreContext(false) 的调用点（情绪评估、轻量上下文等）靠月度总结即可
+        // 必须用 memoryPalaceEnabled 把关：injectMemoryPalace 在关闭时直接 return、
+        // 既不刷新也不清空 char.memoryPalaceInjection，而该字段又会被 saveCharacter
+        // 持久化。若此处不校验总开关，关闭后旧的召回结果仍会被注入进 system prompt，
+        // 表现为"宫殿已关、后台无召回，角色却还在精准复述记忆"。与下方 Buff 注入同理。
+        // deferVolatile：召回结果每轮都变 → 移交 buildVolatileCoreState。
+        if (!layout?.deferVolatile && includeDetailedMemories && char.memoryPalaceEnabled) {
+            const mpContext = char.memoryPalaceInjection || memoryPalaceContext;
+            if (mpContext && mpContext.trim()) {
+                context += `${mpContext}\n\n`;
+            }
+        }
+
+        // 6. 情绪底色 Buff (Emotion Buff Injection)
+        // 放在角色设定之后，使所有调用 ContextBuilder 的 App 都能感知情绪状态
+        // 总开关关闭时完全跳过，防止残留 buff 继续污染 prompt
+        // deferVolatile：buff 每轮情绪评估后都可能变 → 移交 buildVolatileCoreState。
+        if (!layout?.deferVolatile && isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection) {
+            context += `${char.buffInjection}\n\n`;
+            console.log(`🎭 [Context] Buff injected for ${char.name}:\n`, char.buffInjection);
+            console.log(`🎭 [Context] Active buffs:`, JSON.stringify(char.activeBuffs || [], null, 2));
+        }
+
+        context += formatWorldbookSection(worldbookSections.authorsNoteTop, '世界书 · 作者注释顶部');
+        context += formatWorldbookSection(worldbookSections.authorsNoteBottom, '世界书 · 作者注释底部');
+        context += formatWorldbookSection(worldbookSections.atDepth, '世界书 · 深度条目（上下文模式）');
+
+        // 7. 表达底线 (Anti-Filler) —— 全 App 通用的精简版防套话提示。
+        // 模型八股（空泛感慨、万能句式）是"没话找话"时的填充物，这里只做正向引导
+        // （去挖具体素材），不列任何禁语——把禁语写进提示词反而会激活它（粉色大象）。
+        // 完整方法版在 datePrompts 的 DIG_DEEPER_BLOCK（见面模式专用，可按角色开关）。
+        // 群聊流（groupOptions）跳过：多成员场景会重复注入 N 份，群聊侧暂不接入。
+        if (!groupOptions) {
+            context += `### 表达底线 (Anti-Filler)\n当你觉得"没什么可说"的时候，不要用空泛的感慨、万能句式或华丽排比去填充——那是没话找话，对方一眼就能看出来。素材永远比你以为的多：对方的用词、ta 怎么说的、ta 没说的部分、此刻的情境、你们的过去、你心里闪过的念头——挑一两条往深处走就够了。宁可一个具体的小细节，不要一句谁都能说的话。\n\n`;
+        }
+
+        // 8. 角色备忘录（只读部分）—— 所有调用 buildCoreContext 的场景都能看到自己的备忘录。
+        // 单聊场景的「标签使用说明」（教 AI 怎么增删改）由 chatPrompts.buildSystemPromptParts
+        // 额外注入，避免主动消息/通话/小小窝场景污染 prompt、也避免 AI 在不能写的场景输出标签。
+        // includeDetailedMemories=false 的轻量调用（情绪评估等）跳过，省 token。
+        // char.memoEnabled=false（默认）：本角色未启用备忘录功能，列表也不注入（功能关即零注入）。
+        if (includeDetailedMemories && char.memoEnabled && char.memos && char.memos.length > 0) {
+            const memoBlock = renderMemosForPrompt(char.memos, 'proactive');
+            if (memoBlock) context += `${memoBlock}\n\n`;
+        }
+
+        // Debug: warn about missing context sections
+        const missing: string[] = [];
+        if (!char.systemPrompt) missing.push('systemPrompt');
+        if (!char.impression) missing.push('impression');
+        if (!char.refinedMemories || Object.keys(char.refinedMemories).length === 0) missing.push('refinedMemories');
+        if (!char.activeMemoryMonths || char.activeMemoryMonths.length === 0) missing.push('activeMemoryMonths');
+        if (!char.mountedWorldbooks || char.mountedWorldbooks.length === 0) missing.push('worldbooks');
+        if (!char.worldview) missing.push('worldview');
+        if (missing.length > 0) {
+            console.log(`⚠️ [Context] Missing/empty fields: ${missing.join(', ')} | context_chars=${context.length}`);
+        } else {
+            console.log(`✅ [Context] All fields present | context_chars=${context.length}`);
+        }
+
+        return context;
+    };
+
+type CoreContextArgs = Parameters<typeof renderCoreContext> extends [unknown, ...infer Rest] ? Rest : never;
+export type ContextMessage = WorldbookScanMessage & { role: string; content: any };
+export interface CharacterContextInput {
+    char: CharacterProfile;
+    user: UserProfile;
+    /** 已按场景范围筛选、准备发送的历史；传 [] 也表示消息模式。 */
+    history?: ContextMessage[];
+    /** App 的格式/玩法规则，追加到核心提示词；不参与世界书关键词扫描。 */
+    instructions?: string | ((coreContext: string) => string);
+    includeDetailedMemories?: boolean;
+    memoryPalaceContext?: string;
+    groupOptions?: CoreContextArgs[4];
+    timeOptions?: CoreContextArgs[5];
+    layout?: CoreContextArgs[6];
+}
+
+function resolveCharacterContext(input: CharacterContextInput) {
+    const { char, user, history, groupOptions, timeOptions } = input;
+    const entries = resolveWorldbookEntries(
+        (char.mountedWorldbooks || []).filter(book => !groupOptions?.skipWorldbookIds?.has(book.id)),
+        history ?? timeOptions?.worldbookMessages ?? [], char.name, user.name,
+    );
+    const sections = splitWorldbookSections(entries);
+    const rawCoreContext = renderCoreContext(
+        history === undefined ? sections : { ...sections, atDepth: [] },
+        char, user, input.includeDetailedMemories, input.memoryPalaceContext,
+        groupOptions, timeOptions, input.layout,
+    );
+    const coreContext = typeof input.instructions === 'function'
+        ? input.instructions(rawCoreContext)
+        : [rawCoreContext, input.instructions].filter(Boolean).join('\n\n');
+    return { coreContext, sections };
+}
+
+function buildCharacterContext(input: CharacterContextInput) {
+    const { coreContext, sections } = resolveCharacterContext(input);
+    const preparedHistory = input.history === undefined ? [] : injectWorldbookDepthEntries(input.history, sections.atDepth);
+    return {
+        coreContext,
+        history: preparedHistory,
+        messages: [{ role: 'system', content: coreContext }, ...preparedHistory],
+    };
+}
+
+/** 通用 App 请求入口：角色上下文与挂载世界书自动装配，系统规则不计入对话深度。 */
+function buildCharacterRequest(input: Omit<CharacterContextInput, 'history'>, messages: ContextMessage[]) {
+    const history = messages.filter(message => message.role !== 'system' && message.role !== 'developer');
+    const { coreContext, sections } = resolveCharacterContext({ ...input, history });
+    const prepared = placeWorldbooksInRequest(messages, history, sections.atDepth);
+    return [{ role: 'system', content: coreContext }, ...prepared];
+}
+
+
+/** 自定义多人/预设布局也走同一世界书解析与深度放置，不通过文本重新猜历史边界。 */
+function buildWorldbookRequest<T extends ContextMessage>(input: {
+    books: MountedWorldbook[];
+    charName: string;
+    userName: string;
+    history: T[];
+    render: (slots: { before: string; after: string }, history: T[]) => T[];
+}): Array<T | { role: 'system' | 'user' | 'assistant'; content: string }> {
+    const entries = resolveWorldbookEntries(input.books, input.history, input.charName, input.userName);
+    return renderWorldbookRequest(entries, input.history, input.render);
+}
+
+function renderWorldbookRequest<T extends ContextMessage>(entries: ResolvedWorldbookEntry[], history: T[], render: (slots: { before: string; after: string }, history: T[]) => T[]) {
+    const sections = splitWorldbookSections(entries);
+    const slots = {
+        before: formatWorldbookSection(sections.beforeCharacter, '世界书 · 角色设定前'),
+        after: [
+            formatWorldbookSection(sections.afterCharacter, '扩展设定集 (Worldbooks)'),
+            formatWorldbookSection(sections.beforeExamples, '世界书 · 示例消息前'),
+            formatWorldbookSection(sections.afterExamples, '世界书 · 示例消息后'),
+            formatWorldbookSection(sections.authorsNoteTop, '世界书 · 作者注释顶部'),
+            formatWorldbookSection(sections.authorsNoteBottom, '世界书 · 作者注释底部'),
+        ].join(''),
+    };
+    return placeWorldbooksInRequest(render(slots, history), history, sections.atDepth);
+}
+
+/** 系统规则、预填充不计深度；只认调用方传入的原始消息引用，禁止按正文猜测。 */
+function placeWorldbooksInRequest<T extends ContextMessage>(messages: T[], history: T[], entries: ResolvedWorldbookEntry[]) {
+    const present = new Set(messages);
+    const actualHistory = history.filter(message => present.has(message));
+    const historySet = new Set(actualHistory);
+    const injected = injectWorldbookDepthEntries(actualHistory, entries);
+    const result: Array<T | { role: 'system' | 'user' | 'assistant'; content: string }> = [];
+    let cursor = 0;
+    for (const message of messages) {
+        if (historySet.has(message)) {
+            while (cursor < injected.length && injected[cursor] !== message) result.push(injected[cursor++]);
+            result.push(message);
+            cursor++;
+            if (message === actualHistory[actualHistory.length - 1]) {
+                while (cursor < injected.length) result.push(injected[cursor++]);
+            }
+        } else result.push(message);
+    }
+    // 无对话时，深度归零放在系统配置之后，仍保留独立消息角色。
+    if (!actualHistory.length) result.push(...injected);
+    return result;
+}
+
+
+/** 群成员按 ID 去重世界书，但保留每条设定的角色归属及宏替换。 */
+function buildGroupWorldbookRequest<T extends ContextMessage>(input: {
+    members: CharacterProfile[]; user: UserProfile; history: T[];
+    /** 生成器将场景资料放在 system 时，可显式提供其原始材料用于关键词扫描。 */
+    scanMessages?: WorldbookScanMessage[];
+    render: (slots: { before: string; after: string }, history: T[]) => T[];
+}) {
+    const books = new Map<string, { book: MountedWorldbook; owners: CharacterProfile[] }>();
+    for (const member of input.members) {
+        for (const book of member.mountedWorldbooks || []) {
+            const existing = books.get(book.id);
+            if (existing) {
+                if (!existing.owners.some(owner => owner.id === member.id)) existing.owners.push(member);
+            } else books.set(book.id, { book, owners: [member] });
+        }
+    }
+    const entries = [...books.values()].flatMap(({ book, owners }) => {
+        const names = owners.map(owner => owner.name).join('、');
+        return resolveWorldbookEntries([book], input.scanMessages ?? input.history, names, input.user.name).map(entry => ({
+            ...entry, content: '[世界书归属：' + names + '；仅用于这些角色]\n' + entry.content,
+        }));
+    }).sort((a, b) => a.order - b.order);
+    return renderWorldbookRequest(entries, input.history, input.render);
+}

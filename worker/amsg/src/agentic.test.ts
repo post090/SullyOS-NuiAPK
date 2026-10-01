@@ -2,7 +2,7 @@
  * amsg worker v2 服务端工具循环 — 决策纯逻辑回归测试。
  *
  * 钉住的行为：
- *  1. finish 分段与 instant push / 客户端气泡同一份（sanitizeIntoSegments：按换行切，
+ *  1. finish 分段与客户端气泡同一份（sanitizeIntoSegments：按换行切，
  *     [[...]] / [html] 等标签块保持原子）；push 业务字段形状与 v1 一致，另挂
  *     notification.body = 净化文本给 OS banner；
  *  2. 数据标签 → tool-request，旁白与旁白里的副作用跨轮累积、finish 时一起出；
@@ -15,7 +15,9 @@ import {
   buildXhsSessionPayload,
   classifyNativeToolCalls,
   createFireSessionState,
-  MAX_TOOL_ITERATIONS,
+  DEFAULT_TOOL_ITERATIONS,
+  MCP_MAX_TOOL_ITERATIONS,
+  resolveToolIterationBudget,
   processLLMRound,
   type PushBuildInput,
 } from './agentic';
@@ -200,6 +202,28 @@ describe('processLLMRound — 无正文边界', () => {
     expect(decision.decision).toBe('skip-push');
     if (decision.decision !== 'skip-push') return;
     expect(decision.reason).toBe('side-effects-only');
+  });
+
+  // 日程改动是「没正文就整条丢」这条规矩里的唯一例外：它不是做给用户看的动作，是角色
+  // 在纠正自己的表。一起丢掉的话，下一次 fire 读到的还是那条旧安排，角色会反复想改又
+  // 反复改不掉。所以照旧不发推送，但把改动带出来交给调用方走 emitResult。
+  it('只有日程改动、没有正文：仍然不发推送，但把改动带出来', () => {
+    const decision = processLLMRound(
+      createFireSessionState(),
+      '[[ACTION:CHANGE_SCHEDULE | 22:00 | 陪你聊天]]',
+      build,
+    );
+    expect(decision.decision).toBe('skip-push');
+    if (decision.decision !== 'skip-push') return;
+    expect(decision.reason).toBe('side-effects-only');
+    expect(decision.scheduleChanges).toEqual([{ startTime: '22:00', activity: '陪你聊天' }]);
+  });
+
+  it('没有日程改动时不带这个字段（别让调用方对着空数组白跑一趟）', () => {
+    const decision = processLLMRound(createFireSessionState(), '[[ACTION:POKE]]', build);
+    expect(decision.decision).toBe('skip-push');
+    if (decision.decision !== 'skip-push') return;
+    expect(decision.scheduleChanges).toBeUndefined();
   });
 
   it('既没正文也没副作用：整条不发，记 empty-generation', () => {
@@ -498,7 +522,7 @@ describe('processLLMRound — 最后一轮不再放行工具请求', () => {
     processLLMRound(state, '顺便看看天气。\n[[SEARCH: 明天 天气]]', build, null, null, 1);
 
     const decision = processLLMRound(
-      state, '还得再查一次。\n[[RECALL: 2026-07]]', build, null, null, MAX_TOOL_ITERATIONS - 1);
+      state, '还得再查一次。\n[[RECALL: 2026-07]]', build, null, null, DEFAULT_TOOL_ITERATIONS - 1);
     expect(decision.decision).toBe('finish');
     if (decision.decision !== 'finish') return;
     const text = decision.pushPayloads.map((p) => p.message).join('\n');
@@ -510,13 +534,36 @@ describe('processLLMRound — 最后一轮不再放行工具请求', () => {
 
   it('倒数第二轮照常给工具机会', () => {
     const decision = processLLMRound(
-      createFireSessionState(), '查一下。\n[[SEARCH: 天气]]', build, null, null, MAX_TOOL_ITERATIONS - 2);
+      createFireSessionState(), '查一下。\n[[SEARCH: 天气]]', build, null, null, DEFAULT_TOOL_ITERATIONS - 2);
     expect(decision.decision).toBe('tool-request');
   });
 
   it('不传轮次（拿不到 ctx.iteration 的老部署）行为不变', () => {
     const decision = processLLMRound(createFireSessionState(), '查一下。\n[[SEARCH: 天气]]', build);
     expect(decision.decision).toBe('tool-request');
+  });
+});
+
+describe('工具轮次预算 — 普通任务省成本，MCP 多步任务可继续', () => {
+  it('没有 MCP 保持 5 轮，有 MCP 放宽到 12 轮', () => {
+    expect(resolveToolIterationBudget(false)).toBe(DEFAULT_TOOL_ITERATIONS);
+    expect(resolveToolIterationBudget(true)).toBe(MCP_MAX_TOOL_ITERATIONS);
+    expect(DEFAULT_TOOL_ITERATIONS).toBe(5);
+    expect(MCP_MAX_TOOL_ITERATIONS).toBe(12);
+  });
+
+  it('MCP 的第 5 轮仍可继续，第 12 轮才强制收尾', () => {
+    const fifth = processLLMRound(
+      createFireSessionState(), '继续查。\n[[SEARCH: 天气]]', build, null, null,
+      DEFAULT_TOOL_ITERATIONS - 1, MCP_MAX_TOOL_ITERATIONS,
+    );
+    expect(fifth.decision).toBe('tool-request');
+
+    const last = processLLMRound(
+      createFireSessionState(), '再查。\n[[SEARCH: 天气]]', build, null, null,
+      MCP_MAX_TOOL_ITERATIONS - 1, MCP_MAX_TOOL_ITERATIONS,
+    );
+    expect(last.decision).not.toBe('tool-request');
   });
 });
 

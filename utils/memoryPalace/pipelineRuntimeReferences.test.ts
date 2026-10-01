@@ -17,4 +17,11 @@ describe('memory palace pipeline runtime references', () => {
         expect(typesSource).toContain('export interface MemoryPalaceWaterlineConfig');
         expect(typesSource).toContain('memoryPalaceWaterline?: MemoryPalaceWaterlineConfig;');
     });
+
+    it('does not call the light LLM from the pre-reply injection pipeline', () => {
+        expect(source).not.toContain('runLightRecallRouter(');
+        expect(source).not.toContain('getLightLLMConfig(');
+        expect(source).toContain('analyzeLocalContext(');
+        expect(source).toContain('analyzeDeepEngagement(');
+    });
 });

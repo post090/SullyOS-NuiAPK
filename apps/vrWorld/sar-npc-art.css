@@ -1,0 +1,31 @@
+.sar-npc-chibi{display:block;position:relative;width:100%;overflow:hidden;flex:none}
+.sar-npc-chibi img{position:absolute;height:auto;user-select:none;pointer-events:none}
+.sar-npc-portrait{position:relative;height:100%;width:100%;min-height:0}
+.sar-npc-portrait__image{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 8px 15px #07091155);user-select:none;pointer-events:none}
+.sar-npc-portrait__pending{opacity:0}
+.sar-npc-portrait__placeholder{position:absolute;inset:0;display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;color:#d5cddd;font-size:12px}
+.sar-npc-portrait__placeholder button{min-height:44px;padding:8px 16px;border:1px solid #bcb3c966;border-radius:20px;background:#252031;color:#e5dfed}
+.sar-npc-dialogue:not(.srf-dialog){display:flex;flex-direction:column;justify-content:center;padding:calc(var(--chrome-top) + 44px) 0 calc(var(--safe-bottom) + 24px);background:#08090d;color:#eeebf5}
+.sar-dialogue-portraits:not(.srf-stage){position:relative;container-type:size;flex:0 1 auto;height:min(48dvh,430px);min-height:160px;margin:0 auto;width:min(100%,660px);overflow:hidden;background:#cec2aa url('../../assets/sar-club-room.png') center 47%/cover no-repeat}
+.sar-dialogue-portraits:not(.srf-stage):before{content:'';position:absolute;inset:0;background:#16131b30}
+.sar-dialogue-cast{position:absolute;inset:0;z-index:1}
+.sar-dialogue-cast__actor{position:absolute;height:calc(100% - 24px);width:auto;filter:saturate(.7) brightness(.8);transform-origin:center bottom;transition:filter .2s}
+/* Keep both layouts at 85% of the stage-height scale.
+   Anchor the lower edge to the dialogue so smaller portraits never float above it. */
+.sar-dialogue-cast__actor.cast-caian{left:var(--sar-caian-x,27%);bottom:var(--sar-caian-y,0%);aspect-ratio:2629/2899;transform:translateX(-50%) scale(calc(var(--sar-caian-scale,1.5)/1.5 * .85));z-index:var(--sar-caian-depth,1)}
+.sar-dialogue-cast__actor.cast-aiven{left:var(--sar-aiven-x,75%);bottom:var(--sar-aiven-y,0%);aspect-ratio:1945/2880;transform:translateX(-50%) scale(calc(var(--sar-aiven-scale,1.5)/1.5 * .85));z-index:var(--sar-aiven-depth,1)}
+.sar-dialogue-cast__actor.is-speaking{filter:none}
+.sar-dialogue-cast__actor.cast-caian.is-speaking{z-index:var(--sar-caian-depth,2)}
+.sar-dialogue-cast__actor.cast-aiven.is-speaking{z-index:var(--sar-aiven-depth,2)}
+.sar-dialogue-cast.is-solo .sar-dialogue-cast__actor{left:50%}
+.sar-dialogue-portraits .sar-npc-portrait__image{object-fit:contain;object-position:center bottom}
+.sar-dialogue-panel:not(.srf-script){position:relative;flex:none;width:min(100%,660px);height:164px;min-height:164px;max-height:164px;margin:0 auto;padding-bottom:0;overflow:auto;overscroll-behavior:contain;background:#101117}
+.sar-dialogue-panel:not(.srf-script)>div{min-height:100%;overflow:hidden;border-radius:0;background:#101117;border:0;border-top:1px solid #bfb7ce26;box-shadow:none}
+.sar-dialogue-choices{position:absolute;inset:0;z-index:10;display:grid;place-items:center;padding:24px;background:#08090d35}
+.sar-dialogue-choices__list{width:min(100%,340px);max-height:calc(100% - 80px);overflow:auto;overscroll-behavior:contain;display:flex;flex-direction:column;gap:10px;animation:sar-choice-enter .18s ease-out}
+.sar-dialogue-choices__list>button{display:block;width:100%;min-height:48px;padding:13px 18px;border:1px solid var(--sar-choice-border,#555);border-radius:12px;background:var(--sar-choice-bg,#191919);box-shadow:0 6px 24px #05040828;text-align:center;font-size:13px;line-height:1.6;color:var(--sar-choice-text,#f1f1f1);cursor:pointer}
+.sar-dialogue-choices__list>button:hover,.sar-dialogue-choices__list>button:focus-visible{outline:2px solid var(--sar-choice-focus,#aaa);outline-offset:2px}
+.sar-dialogue-choices__list>button:active{background:var(--sar-choice-bg,#191919)}
+@keyframes sar-choice-enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media(prefers-reduced-motion:reduce){.sar-dialogue-cast__actor{transition:none}.sar-dialogue-choices__list{animation:none}}
+@media(max-height:500px) and (min-width:600px){.sar-npc-dialogue:not(.srf-dialog){flex-direction:row;align-items:flex-end;padding:calc(var(--chrome-top) + 40px) 12px calc(var(--safe-bottom) + 8px)}.sar-dialogue-portraits:not(.srf-stage){height:100%;max-height:none;width:42%;flex:none;min-height:0}.sar-dialogue-panel:not(.srf-script){width:58%;height:100%;min-height:0;max-height:100%;padding-bottom:0}.sar-dialogue-panel:not(.srf-script) p{font-size:13px;line-height:1.7}}

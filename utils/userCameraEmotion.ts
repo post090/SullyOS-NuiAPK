@@ -38,6 +38,13 @@ export const blendshapeCategoriesToMap = (categories: readonly Pick<Category, 'c
   return values;
 };
 
+type EmotionCandidate = {
+  emotion: Exclude<UserCameraEmotion, 'neutral'>;
+  value: number;
+  threshold: number;
+  eligible: boolean;
+};
+
 /**
  * Blendshape coefficients have very different useful ranges. Requiring every
  * expression to cross one shared raw-score threshold made normal webcam
@@ -58,12 +65,7 @@ export const classifyUserCameraBlendshapes = (shapes: ReadonlyMap<string, number
   const jawOpen = score(shapes, 'jawOpen');
   const browInnerUp = score(shapes, 'browInnerUp');
 
-  const candidates: Array<{
-    emotion: Exclude<UserCameraEmotion, 'neutral'>;
-    value: number;
-    threshold: number;
-    eligible: boolean;
-  }> = ([
+  const candidates = ([
     {
       emotion: 'happy',
       value: smile * 0.76 + cheekSquint * 0.24,
@@ -100,7 +102,7 @@ export const classifyUserCameraBlendshapes = (shapes: ReadonlyMap<string, number
       threshold: 0.58,
       eligible: eyeClosed >= 0.58,
     },
-  ] as Array<{ emotion: Exclude<UserCameraEmotion, 'neutral'>; value: number; threshold: number; eligible: boolean }>).map(item => ({ emotion: item.emotion, value: item.eligible ? clamp01(item.value) : 0, threshold: item.threshold, eligible: item.eligible }));
+  ] satisfies EmotionCandidate[]).map(item => ({ ...item, value: item.eligible ? clamp01(item.value) : 0 }));
   candidates.sort((a, b) => (b.value / b.threshold) - (a.value / a.threshold));
   const winner = candidates[0];
   const runnerUp = candidates[1];

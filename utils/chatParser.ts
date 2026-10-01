@@ -15,6 +15,12 @@ import {
 import { syncTaskReminders } from './taskReminderScheduler';
 import { wallClockToTimestamp } from './timezone';
 import { settleTransfer, settleCharExpense } from './walletOps';
+import { CollaborationStore } from '../features/collaboration/store';
+import {
+    collaborationFileMessageMetadata,
+    extractCollaborationFileDirectives,
+    resolveCollaborationFileByTitle,
+} from '../features/collaboration/chatLibrary';
 
 export interface MusicActionSnapshot {
     songId: number;
@@ -94,7 +100,7 @@ export interface TaskProposalMeta {
  * 而 `[[MUSIC_ACTION:add|歌单标题]]` 标签里只有歌单名、没有歌名。重放时若只能取
  * 「用户此刻在听的那首」，用户多半早就没在放歌了 —— 正文聊着这首歌，卡片和加歌单
  * 却整个没发生。worker 到点把那首歌冻进 directive，调用方（applyAssistantPostProcessing）
- * 再显式传进来。本地聊天 / instant push 路径不传，走原来的实时快照。
+ * 再显式传进来。本地聊天路径不传，走实时快照。
  */
 export interface FrozenMusicSong {
     id?: number;
@@ -206,6 +212,40 @@ export const ChatParser = {
             // 卡片自己的字段优先，inheritMeta 只补它没有的键（两边键名本来就不重叠，这里是防御）
             ...(inheritMeta ? { metadata: { ...inheritMeta, ...(msg.metadata || {}) } } : {}),
         });
+
+        // COLLAB_FILE — current-chat collaboration mode can hand the user an
+        // existing file from the sidecar cabinet. The chat message stores only
+        // metadata + assetId; the canonical Blob remains in CollaborationStore.
+        const fileDirectives = extractCollaborationFileDirectives(content);
+        if (fileDirectives.requestedTitles.length > 0) {
+            content = fileDirectives.visibleText;
+            try {
+                const chars = await DB.getAllCharacters();
+                const collaborationEnabled = !!chars.find(char => char.id === charId)?.chatCollaborationEnabled;
+                if (!collaborationEnabled) {
+                    console.warn('[CollaborationFileCabinet] 忽略未开启协同能力时的文件标记:', { charId });
+                } else {
+                    const files = await CollaborationStore.listLibraryFiles(charId);
+                    for (const requestedTitle of fileDirectives.requestedTitles) {
+                        const file = resolveCollaborationFileByTitle(files, requestedTitle);
+                        if (!file) {
+                            addToast(`文件柜里找不到《${requestedTitle}》，已跳过发送`, 'error');
+                            continue;
+                        }
+                        await persist({
+                            charId,
+                            role: 'assistant',
+                            type: 'collaboration_file',
+                            content: `[协同文件：${file.name}]`,
+                            metadata: collaborationFileMessageMetadata(file),
+                        });
+                    }
+                }
+            } catch (error) {
+                console.warn('[CollaborationFileCabinet] 发送文件失败:', error);
+                addToast('协同文件柜暂时读取失败', 'error');
+            }
+        }
 
         // POKE
         if (content.includes('[[ACTION:POKE]]')) {

@@ -11,6 +11,7 @@ import ConfirmDialog from '../components/os/ConfirmDialog';
 import { trackEvent } from '../utils/analytics';
 import { Book, PencilSimple, MagnifyingGlass, DeviceMobileCamera, ChatCircleDots, PushPin, Moon, House } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
+import TokenImg from '../components/os/TokenImg';
 
 const TwemojiImg: React.FC<{ code: string; alt?: string; className?: string }> = ({ code, alt, className = 'w-4 h-4 inline-block' }) => (
   <img src={`https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/${code}.png`} alt={alt || ''} className={className} draggable={false} />
@@ -264,7 +265,7 @@ const XhsFreeRoamApp: React.FC = () => {
                                     ${c.id === selectedCharId ? 'bg-rose-50' : 'active:bg-slate-50'}`}
                             >
                                 {c.avatar ? (
-                                    <img src={c.avatar} className="w-8 h-8 rounded-full object-cover" alt="" />
+                                    <TokenImg value={c.avatar} className="w-8 h-8 rounded-full object-cover" alt="" />
                                 ) : (
                                     <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">{c.name[0]}</div>
                                 )}
@@ -521,7 +522,7 @@ const XhsFreeRoamApp: React.FC = () => {
             {thinking && char && (
                 <div className="bg-violet-50 rounded-2xl p-3 animate-fade-in">
                     <div className="flex items-center gap-1.5 mb-1">
-                        {char.avatar && <img src={char.avatar} className="w-5 h-5 rounded-full object-cover" alt="" />}
+                        {char.avatar && <TokenImg value={char.avatar} className="w-5 h-5 rounded-full object-cover" alt="" />}
                         <span className="text-[10px] font-bold text-violet-400">{char.name}在想...</span>
                     </div>
                     <p className="text-xs text-violet-700 leading-relaxed italic">"{thinking}"</p>
@@ -567,7 +568,7 @@ const XhsFreeRoamApp: React.FC = () => {
                 <section className="px-5 pt-6 pb-5">
                     <div className="flex items-center gap-4">
                         {char?.avatar ? (
-                            <img src={char.avatar} className="w-16 h-16 rounded-full object-cover ring-2 ring-rose-100" alt="" />
+                            <TokenImg value={char.avatar} className="w-16 h-16 rounded-full object-cover ring-2 ring-rose-100" alt="" />
                         ) : (
                             <div className="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center text-xl font-bold text-rose-500 ring-2 ring-rose-100">
                                 {char?.name?.[0] || '?'}
@@ -724,7 +725,7 @@ const XhsFreeRoamApp: React.FC = () => {
                         disabled={isRunning}
                     >
                         {char?.avatar ? (
-                            <img src={char.avatar} className="w-7 h-7 rounded-full object-cover border-2 border-rose-200" alt="" />
+                            <TokenImg value={char.avatar} className="w-7 h-7 rounded-full object-cover border-2 border-rose-200" alt="" />
                         ) : (
                             <div className="w-7 h-7 rounded-full bg-rose-100 flex items-center justify-center text-xs font-bold text-rose-500 border-2 border-rose-200">
                                 {char?.name?.[0] || '?'}

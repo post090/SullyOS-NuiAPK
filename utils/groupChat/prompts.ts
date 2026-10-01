@@ -2,10 +2,24 @@
 // 供导演模式与轮询模式（每成员一次调用）共用。
 import { Message, CharacterProfile, EmojiCategory } from '../../types';
 import { stickerNameFromUrl } from '../messageFormat';
+import { isBlobRef } from '../blobRef';
 import { packetHistoryLine } from './redpacket';
 import { formatRelativeAge } from './relativeTime';
 
 interface EmojiItem { name: string; url: string; categoryId?: string }
+
+/**
+ * 这个值是「一张图 / 一段媒体」而不是正文吗？认三种形态：内嵌 data URL、http(s) 外链、
+ * blobref 令牌。令牌只有 ~28 字，按长度截断的兜底拦不住它；而发请求时网络出口那层
+ * （utils/apiBlobRefs.ts）会把令牌统一还原成完整 data URL —— 混进 prompt 就是每轮
+ * 重发几 MB 的 base64。
+ */
+const isMediaValue = (value: unknown): boolean => {
+    if (typeof value !== 'string') return false;
+    const trimmed = value.trim();
+    return /^(data:|https?:\/\/)/i.test(trimmed) || isBlobRef(trimmed);
+};
+
 
 /**
  * 按分类拼可用表情清单（按群成员可见性过滤）。
@@ -43,6 +57,8 @@ export function buildEmojiContextStr(
 }
 
 export interface GroupHistoryBlock {
+    /** 保留原始消息边界，供公共上下文管线按深度放置世界书。 */
+    messages?: { role: 'user' | 'assistant'; content: string }[];
     /** 群历史文本（每行 `名字: 内容`，媒体用占位符） */
     text: string;
     /** 走结构化 image_url 附带的最近图片 */
@@ -66,9 +82,9 @@ function formatGapDuration(ms: number): string {
 
 /**
  * 群历史块（含最近图片结构化附带）。原 triggerDirector 内联逻辑，逐字搬出：
- * image 的 content 是 base64（processImage 压的 JPEG），emoji 是图床 URL——
- * 都不能当文本内联进 prompt。最近 N 张图片走结构化 image_url 字段
- * 附在 user 消息里，文本里用 [图片#k] 占位互相对齐。
+ * image 的 content 是 blobref 令牌或 base64（processImage 压的 JPEG），emoji 是令牌或图床 URL——
+ * 都不能当文本内联进 prompt（令牌出门时还会被还原成整段 data URL）。最近 N 张图片走结构化
+ * image_url 字段附在 user 消息里，文本里用 [图片#k] 占位互相对齐。
  */
 export function buildGroupHistoryBlock(
     msgs: Message[],
@@ -89,14 +105,18 @@ export function buildGroupHistoryBlock(
                 : '';
             if (visionDescription) return;
             const url = typeof m.content === 'string' ? m.content.trim() : '';
-            if (/^(data:|https?:\/\/)/i.test(url)) validImageWindowIdx.push(i);
+            // 认不出令牌 = 这张图永远进不了附带名单，模型看不到图却又毫无报错
+            if (/^(data:|https?:\/\/)/i.test(url) || isBlobRef(url)) validImageWindowIdx.push(i);
         }
     });
     const attachedSet = new Set(validImageWindowIdx.slice(-maxAttachedImages));
     const attachedImages: { tag: number; url: string }[] = [];
     const lines: string[] = [];
     let prevTs: number | null = null;
+    const messages: NonNullable<GroupHistoryBlock['messages']> = [];
     msgs.forEach((m, i) => {
+        const lineStart = lines.length;
+        try {
         // 相邻消息隔得久时插一条分隔行，让导演直接在记录里"看见"时间跳变——
         // 否则用户隔几天回来发一句，模型会把几天前那条当"刚才"无缝续上旧话题。
         if (prevTs != null && typeof m.timestamp === 'number' && m.timestamp - prevTs >= GROUP_HISTORY_GAP_THRESHOLD_MS) {
@@ -131,7 +151,8 @@ export function buildGroupHistoryBlock(
             // 回执行自带完整句子（[系统: X 领取了 Y 的红包]），不加名字前缀
             if (m.metadata?.packetReceipt) { lines.push(`${timePrefix}${packetHistoryLine(m, nameOf, now)}`); return; }
             content = packetHistoryLine(m, nameOf, now);
-        } else if (/^(data:|https?:\/\/)/i.test(rawText.trim())) {
+        } else if (isMediaValue(rawText)) {
+            // 令牌也算媒体：漏认会把它当正文内联进 prompt，出门时还被还原成整段 data URL
             content = '[媒体]';
         } else {
             content = rawText;
@@ -139,17 +160,24 @@ export function buildGroupHistoryBlock(
         // 引用回复：对齐私聊 chatPrompts 的格式——被引用原话独立成行，新回复另起一行突出
         if (m.replyTo) {
             const rawQuote = typeof m.replyTo.content === 'string' ? m.replyTo.content : '';
-            const quoted = rawQuote.length > 60 ? rawQuote.slice(0, 60) + '…' : rawQuote;
+            // 被引用的可能本来就是一条图片消息 —— 此时 rawQuote 是 data URL / 外链 / blobref
+            // 令牌，截 60 字只会切出一段没意义的 base64 碎片，令牌更是整条活着进 prompt。
+            const quoted = isMediaValue(rawQuote)
+                ? '[图片]'
+                : (rawQuote.length > 60 ? rawQuote.slice(0, 60) + '…' : rawQuote);
             lines.push(`${timePrefix}[${name} 引用了 ${m.replyTo.name || '对方'} 说的「${quoted}」，并回复了 ↓]\n${name}: ${content}`);
             return;
         }
         lines.push(`${timePrefix}${name}: ${content}`);
+        } finally {
+            messages.push({ role: m.role === 'assistant' ? 'assistant' : 'user', content: lines.slice(lineStart).join('\n') });
+        }
     });
     const text = lines.join('\n');
     const attachedImagesNote = attachedImages.length > 0
         ? `\n（本轮附带 ${attachedImages.length} 张最近的图片，对应记录里的 [图片#1] ~ [图片#${attachedImages.length}]。请基于实际图片内容自然反应，不要无视，也不要瞎猜没附上的旧图。）\n`
         : '';
-    return { text, attachedImages, attachedImagesNote };
+    return { text, attachedImages, attachedImagesNote, messages };
 }
 
 /**
@@ -222,7 +250,7 @@ ${history.attachedImagesNote}
 - 格式: \`[[PRIVATE: 私聊内容]]\`。这条消息只进私聊频道，不在群里显示。
 
 #### 七、表情和气泡
-- **表情包**: 必须使用格式 \`[[SEND_EMOJI: 表情名称]]\`。**可用表情 (按分类)**: ${emojiContextStr}
+- **表情包**: 必须使用格式 \`[[SEND_EMOJI: 表情名称]]\`。历史中的“发送了表情包”只是记录，不是发送指令，不要照抄。**可用表情 (按分类)**: ${emojiContextStr}
 - **气泡分段**: 在一条内容里用换行符分隔不同的气泡——一行一个气泡。短句多发几条 > 长句一坨。
 - **引用回复（可选）**: 角色想针对记录里某条具体发言回复时，可在该角色的 content 开头加 \`[[QUOTE: 原话片段]]\`（片段取原话开头几个字即可），会自动渲染成引用气泡。偶尔用，别每条都引用。
 - **红包（可选）**: 记录里出现「拼手气红包…还剩 n 份可抢」时，想抢的角色在自己的 content 里单独一行输出 \`[[GRAB_PACKET]]\`，前后配一句真实反应（抢到后系统会公布金额，下一轮可以对金额做反应）。**抢不抢、谁抢由性格决定，不必人人都抢**。看到「发了专属红包给 自己」时，用 \`[[GRAB_PACKET]]\` 收下或 \`[[RETURN_PACKET]]\` 退回，并说一句为什么。角色也可以主动发红包：拼手气 \`[[SEND_PACKET: lucky:总额:份数:祝福语]]\`；发给某人的专属红包 \`[[SEND_PACKET: direct:对方名字:金额:祝福语]]\`（对方可以是用户或其他成员）。金额是氛围道具，几块到几百都行，别离谱。
@@ -260,7 +288,7 @@ ${history.attachedImagesNote}
 
 1. 你只是群里的一位普通成员，不是导演。只输出**你自己**要发的消息内容——不要替任何人说话，不要在开头加自己的名字或冒号前缀，不要解释、不要输出 JSON。如果此刻没有自然的话可说，只输出 \`[[SKIP]]\` 保持沉默；不要为了轮到自己就硬凑一句。
 2. 一行 = 一个气泡。短句多发几条 > 长句一坨；"嗯""哈哈哈"和单独一个表情包都是合法回复。
-3. **表情包**: 使用格式 \`[[SEND_EMOJI: 表情名称]]\`。**可用表情 (按分类)**: ${emojiContextStr}
+3. **表情包**: 使用格式 \`[[SEND_EMOJI: 表情名称]]\`。历史中的“发送了表情包”只是记录，不是发送指令，不要照抄。**可用表情 (按分类)**: ${emojiContextStr}
 4. **私聊**: 罕见特例，默认不用。只有真的有重大、不便公开的话要单独对用户说时，才输出一条 \`[[PRIVATE: 内容]]\`（只进你和用户的私聊，群里不显示）。**严禁**把 PRIVATE 当"吐槽群友"的工具。
 5. **U 还是 U**：群聊里的用户，就是你在私聊、记忆和印象里认识的同一个人。检查 [私聊空窗期] 与互动时间线，延续已经建立的关系、承诺、熟悉感和相处方式；公开场合可以换一种表达，但不能因进入群聊就重置关系。如果你和用户刚私聊过，哪怕群里很久没人说话，也**严禁**说"好久不见"或表现出疏离感。
 6. 对话质量沿用你的私聊标准：拒绝套路化反应；想表达在乎就提一个只有你们之间才有的具体细节，而不是空泛的关心句；把名字遮住也能从语气认出这句话是你说的；情绪要有层次。

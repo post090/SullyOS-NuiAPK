@@ -6,9 +6,16 @@ export interface DirectorAction {
     content: string;
 }
 
-/** 剥掉 markdown 代码围栏（```json / ```yaml / ``` 等），LLM 很爱裹这个 */
+/**
+ * 剥掉模型输出外面的包装：
+ * - 思考块 <think> / <thinking> / <thought>（含没写完就断掉的）：推理模型和用户世界书里的
+ *   CoT 都会让模型先想一段，不剥的话会被当成群聊发言，或者里面打的草稿被当成正式输出。
+ * - markdown 代码围栏（```json / ```yaml / ``` 等），LLM 很爱裹这个。
+ */
 const stripFences = (raw: string): string =>
     String(raw ?? '')
+        .replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, '')
+        .replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, '')
         .replace(/```[a-zA-Z]*\r?\n?/g, '')
         .replace(/```/g, '')
         .trim();
@@ -56,11 +63,15 @@ export function parseDirectorActions(raw: string): DirectorAction[] {
 }
 
 /**
- * [[SKIP]] 输出剥离兜底（提示词已不再教这个标记——轮询模式现在要求每位成员必发言）：
- * 模型若仍吐出 [[SKIP]] 或空内容，剥净后没剩正文 = 本轮跳过该成员。
+ * 轮询模式单个成员的输出清理：剥思考块 / 围栏 / [[SKIP]]，再剥模型自作主张加的
+ * 「名字：」前缀（提示词禁止了，但仍要兜底；放在剥思考块之后，前缀才露得出来）。
+ * 剥净后没剩正文 = 本轮跳过该成员。
  */
-export function stripSkipMarker(raw: string): { skipped: boolean; content: string } {
-    const content = stripFences(raw).replace(/\[\[\s*SKIP\s*\]\]/gi, '').trim();
+export function stripSkipMarker(raw: string, speakerName = ''): { skipped: boolean; content: string } {
+    let content = stripFences(raw).replace(/\[\[\s*SKIP\s*\]\]/gi, '').trim();
+    if (speakerName && (content.startsWith(`${speakerName}:`) || content.startsWith(`${speakerName}：`))) {
+        content = content.slice(speakerName.length + 1).trim();
+    }
     return { skipped: content === '', content };
 }
 
@@ -83,11 +94,7 @@ export interface GroupTopicBoxParsed {
  * 三层皆空返回 null，由调用方决定是否提示用户。
  */
 export function parseGroupTopicBox(raw: string): GroupTopicBoxParsed | null {
-    const text = String(raw ?? '')
-        .replace(/<think>[\s\S]*?<\/think>/gi, '') // 推理模型的思考块，会把 JSON 冲垮
-        .replace(/```[a-zA-Z]*\r?\n?/g, '')
-        .replace(/```/g, '')
-        .trim();
+    const text = stripFences(raw); // 推理模型的思考块会把 JSON 冲垮，一并剥掉
     if (!text) return null;
 
     const fromObj = (p: any): GroupTopicBoxParsed | null => {

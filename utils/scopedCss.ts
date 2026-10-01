@@ -2,6 +2,7 @@
 // 注意：这是编辑期软校验（语法检查 + 选择器作用域白名单），不做 XSS 级安全过滤；
 // 注入端仍是原样 <style>，作用域白名单只为防止用户样式外溢污染整个应用。
 
+import {cssRuleSelectors,maskCssComments,splitCssSelectors} from './cssRuleSelectors';
 export type CssValidationResult = {
     isValid: boolean;
     errors: string[];
@@ -47,37 +48,29 @@ export const validateScopedCss = (css: string, selectorRegex: RegExp, scopeHint:
     }
 
     // Minimal syntax check 2: brace balance
-    const braceStack: number[] = [];
-    [...source].forEach((char, index) => {
-        if (char === '{') braceStack.push(index);
-        if (char === '}') {
-            if (braceStack.length === 0) {
-                pushError('发现多余的 `}`，请检查大括号闭合。', findLineNumberByIndex(source, index));
-            } else {
-                braceStack.pop();
-            }
-        }
-    });
-    braceStack.forEach(index => pushError('存在未闭合的 `{`，请补全规则块。', findLineNumberByIndex(source, index)));
+    const parsed=cssRuleSelectors(source);
+    parsed.extra.forEach(index=>pushError('发现多余的 `}`，请检查大括号闭合。',findLineNumberByIndex(source,index)));
+    parsed.unclosed.forEach(index=>pushError('存在未闭合的 `{`，请补全规则块。',findLineNumberByIndex(source,index)));
 
     // Scope check（先去掉注释，避免 /* comment */ .selector 误报）
-    const sourceWithoutComments = source.replace(/\/\*[\s\S]*?\*\//g, '');
-    const ruleRegex = /([^{}]+)\{/g;
-    let selectorMatch = ruleRegex.exec(sourceWithoutComments);
-    while (selectorMatch) {
-        const selectorGroup = selectorMatch[1].trim();
-        if (!selectorGroup.startsWith('@')) {
-            const selectorList = selectorGroup.split(',').map(item => item.trim()).filter(Boolean);
+    const sourceWithoutComments = maskCssComments(source);
+    for (const rule of parsed.rules) {
+        const selectorGroup = sourceWithoutComments.slice(rule.start,rule.end).trim();
+        {
+            const selectorList = splitCssSelectors(selectorGroup).map(item => item.trim()).filter(Boolean);
             selectorList.forEach(selector => {
+                // @keyframes 的内部步骤也会被上面的轻量 ruleRegex 读成普通“选择器”。
+                // 它们不访问 DOM，不属于作用域外溢，应该放行；真正的语法仍由
+                // CSSStyleSheet.replaceSync / 大括号检查负责。
+                if (/^(?:from|to|\d+(?:\.\d+)?%)$/i.test(selector)) return;
                 if (!selectorRegex.test(selector)) {
                     pushError(
                         `选择器 \`${selector}\` 超出限定范围，仅允许以 ${scopeHint} 开头。`,
-                        findLineNumberByIndex(sourceWithoutComments, selectorMatch!.index)
+                        findLineNumberByIndex(sourceWithoutComments, rule.start)
                     );
                 }
             });
         }
-        selectorMatch = ruleRegex.exec(sourceWithoutComments);
     }
 
     return {

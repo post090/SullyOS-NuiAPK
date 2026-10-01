@@ -52,7 +52,7 @@ const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYA
 // 源图故意用 JPEG，用来验证「不管进来什么都得转成 PNG」
 const SOURCE_JPEG_BLOB = () => new Blob(['fake-jpeg-bytes'], { type: 'image/jpeg' });
 
-import { injectPwaIcon, clearPwaIcon, initPwaIcon, PWA_ICON_APP_ID } from './appIcon';
+import { injectPwaIcon, clearPwaIcon, initPwaIcon, PWA_ICON_APP_ID, PWA_CLASSIC_ICON_VALUE } from './appIcon';
 
 // ── helpers ─────────────────────────────────────────────────────────
 
@@ -318,14 +318,17 @@ describe('manifest 替换（standalone）', () => {
 
     expect(manifest.start_url).toBe(`${BASE}/`);
     expect(manifest.scope).toBe(`${BASE}/`);
+    // Even a cached manifest with the old name keeps the updated display name.
+    expect(manifest.name).toBe('SullyOS·糯米机');
+    expect(manifest.short_name).toBe('SullyOS·糯米机');
   });
 
-  it('非 standalone 下不动 manifest', async () => {
+  it('浏览器安装前也更新 manifest', async () => {
     mockIsStandalone.mockReturnValue(false);
 
     await injectPwaIcon('blobref:test');
 
-    expect(manifestHref()).toBe(ORIGINAL_MANIFEST_HREF);
+    expect(manifestHref()).toMatch(/^blob:mock-/);
   });
 
   it('fetch manifest 失败 → apple-touch-icon 照常更新，不抛异常', async () => {
@@ -414,5 +417,32 @@ describe('PWA_ICON_APP_ID', () => {
   it('是 _pwa_，下划线前缀保证不跟 App id 撞名', () => {
     expect(PWA_ICON_APP_ID).toBe('_pwa_');
     expect(PWA_ICON_APP_ID.startsWith('_')).toBe(true);
+  });
+});
+
+describe('built-in icon choices', () => {
+  it.each([false, true])('classic uses bundled PNGs and a stable manifest (standalone=%s)', async standalone => {
+    mockIsStandalone.mockReturnValue(standalone);
+    await injectPwaIcon(PWA_CLASSIC_ICON_VALUE);
+    expect(appleIconHrefs()[0]).toMatch(/icons\/apple-touch-icon\.png$/);
+    expect(manifestHref()).toMatch(/manifest-classic\.webmanifest$/);
+    expect(mockGetBlobForRef).not.toHaveBeenCalled();
+    expect(mockToSquarePngDataUrl).not.toHaveBeenCalled();
+    clearPwaIcon();
+    expect(manifestHref()).toBe(ORIGINAL_MANIFEST_HREF);
+    expect(appleIconHrefs()).toEqual([ORIGINAL_TOUCH_ICON_HREF]);
+  });
+  it('restores classic from the existing saved icon field', async () => {
+    await initPwaIcon({ [PWA_ICON_APP_ID]: PWA_CLASSIC_ICON_VALUE });
+    expect(manifestHref()).toMatch(/manifest-classic\.webmanifest$/);
+  });
+  it('a slow upload cannot overwrite a later default selection', async () => {
+    let release!: (blob: Blob) => void;
+    mockGetBlobForRef.mockReturnValue(new Promise<Blob>(resolve => { release = resolve; }));
+    const pending = injectPwaIcon('blobref:slow');
+    clearPwaIcon();
+    release(SOURCE_JPEG_BLOB());
+    await pending;
+    expect(appleIconHrefs()).toEqual([ORIGINAL_TOUCH_ICON_HREF]);
   });
 });

@@ -1,6 +1,6 @@
 
 import { CharacterProfile, UserProfile, SongSheet, SongMood, SongGenre, LyricCoWritingStyle } from '../types';
-import { ContextBuilder } from './context';
+// Character context is assembled by ContextBuilder at the request boundary.
 import { extractJson } from './safeApi';
 
 // --- Song Genre & Mood Config ---
@@ -574,7 +574,6 @@ export const SongPrompts = {
         recentMessages: { role: string; content: string }[]
     ): string => {
         // Use ContextBuilder with includeDetailedMemories = true
-        const charContext = ContextBuilder.buildCoreContext(char, user, true);
 
         const genreInfo = SONG_GENRES.find(g => g.id === song.genre);
         const moodInfo = SONG_MOODS.find(m => m.id === song.mood);
@@ -589,7 +588,7 @@ export const SongPrompts = {
             ? `\n- 你可以延续你和${user.name}既有的熟悉感，但不得让日常聊天记忆盖过本轮歌词任务。`
             : '';
 
-        return `${charContext}
+        return `
 
 ### 【当前场景：写歌工作室】
 你现在和${user.name}一起在写歌。此场景中，你首先是专业的中文歌词编辑与共写人，其次才是聊天伙伴。
@@ -713,9 +712,8 @@ ${userInput}
         char: CharacterProfile,
         user: UserProfile,
     ): string => {
-        const charContext = ContextBuilder.buildCoreContext(char, user, true);
 
-        return `${charContext}
+        return `
 
 ### 【当前场景：写歌工作室 · 完成作品】
 你刚刚以共创搭档的身份和${user.name}完成了一首歌，现在要当面说一段完成评语。

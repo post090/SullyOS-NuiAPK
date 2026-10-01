@@ -1,8 +1,7 @@
 /**
- * Shared Web Push subscribe helpers used by the Instant Push, Proactive Push
- * and 主动消息 2.0 paths. All of them hit the same browser race / encoding
- * quirks; this file is the single source of truth so a future browser-quirk
- * patch lands in one place instead of three.
+ * Shared Web Push subscribe helpers used by the Proactive Push and 主动消息 2.0
+ * paths. Both hit the same browser race / encoding quirks; this file is the
+ * single source of truth so a future browser-quirk patch lands in one place.
  *
  * 同时也是「浏览器这一侧推送现状」的唯一读法（readBrowserPushState 及它下面那
  * 几个 detect*）——设置页的状态面板拿它显示，各层不用各写一份厂商判定。
@@ -83,9 +82,13 @@ export function describePushCapabilityGap(): string | null {
  * 但底下那条通往推送服务商的路不通。Chromium 系（Chrome / Edge）安卓版的网页
  * 推送是转交系统里的谷歌服务（GMS）去注册的，国行安卓机默认不装 GMS，于是
  * 能力检测全绿、subscribe() 必挂。
+ *
+ * 'no-subscription' 是它的邻居：subscribe() 既没抛错、也没给订阅，直接兑现成空。
+ * 拿不到任何错误对象，所以只报事实、不替浏览器猜原因。
  */
 export type SubscribeFailureKind =
   | 'channel-unreachable'
+  | 'no-subscription'
   | 'unsupported'
   | 'permission'
   | 'state'
@@ -108,7 +111,7 @@ const LAST_SUBSCRIBE_FAILURE_KEY = 'push_last_subscribe_failure_v1';
  * 为什么要落盘：失败原文以前只走 toast，一闪而过，用户回头想看就没了——而这类
  * 失败恰恰是最需要照着原文排查的。落盘之后设置页的面板能把它固定显示出来。
  *
- * 三条推送链路（主动消息 2.0 / Instant Push / Proactive Push）共用这一份记录，
+ * 推送链路（主动消息 2.0 / Proactive Push）共用这一份记录，
  * 因为底下调的是同一个 `pushManager.subscribe()`，失败原因是设备级的、不分链路。
  *
  * 写在 subscribeWithRetry 里面而不是各调用方：调用方漏写一处，那条路径的失败就
@@ -321,7 +324,7 @@ export async function subscribeWithRetry(
   };
 
   for (let attempt = 0; attempt < SUBSCRIBE_ATTEMPTS_MAX; attempt++) {
-    let sub: PushSubscription;
+    let sub: PushSubscription | null;
     try {
       sub = await reg.pushManager.subscribe({
         userVisibleOnly: true,
@@ -330,6 +333,16 @@ export async function subscribeWithRetry(
     } catch (e) {
       console.warn(`${logPrefix} pushManager.subscribe failed`, e);
       return fail(explainSubscribeError(e));
+    }
+    // 安卓 Firefox 实测：连不上 Mozilla 的推送服务器时，subscribe() 既不抛错、也不给订阅，
+    // 而是直接兑现成 null。少这一手的话，下一行读 endpoint 就抛 TypeError——用户看到的是
+    // 一句「can't access property "endpoint"」的英文报错，面板上还一条失败记录都留不下。
+    if (!sub) {
+      console.warn(`${logPrefix} pushManager.subscribe resolved without a subscription`);
+      return fail({
+        kind: 'no-subscription',
+        text: '浏览器没给出推送订阅——没报错，也没拿到订阅。换个网络、或者换个浏览器再试试',
+      });
     }
     if (!isDeadPushEndpoint(sub.endpoint)) {
       clearSubscribeFailure();

@@ -21,6 +21,7 @@ import {
     readStallHint,
     resetReachabilityProbeCooldown,
     shouldProbeReachability,
+    summarizeFetchRequestBody,
 } from './networkFailureDiagnosis';
 
 const failedToFetch = () => new TypeError('Failed to fetch');
@@ -86,6 +87,28 @@ describe('classifyFetchFailure', () => {
     });
 });
 
+describe('summarizeFetchRequestBody', () => {
+    it('只保留结构统计，不泄露剧情正文', () => {
+        const summary = summarizeFetchRequestBody(JSON.stringify({
+            messages: [
+                { role: 'system', content: '绝不能写进日志的秘密设定' },
+                { role: 'assistant', content: '预填充' },
+            ],
+            stream: true,
+            top_p: 0.7,
+            presence_penalty: 0.2,
+        }));
+        expect(summary).toMatchObject({
+            messageCount: 2,
+            contentChars: 15,
+            lastMessageRole: 'assistant',
+            stream: true,
+            optionalParams: ['top_p', 'presence_penalty'],
+        });
+        expect(JSON.stringify(summary)).not.toContain('秘密设定');
+    });
+});
+
 describe('buildFetchFailureDetail', () => {
     const detail = () => buildFetchFailureDetail({
         url: 'https://sullymeow.ccwu.cc/api/health',
@@ -122,6 +145,63 @@ describe('buildFetchFailureDetail', () => {
         expect(text).not.toContain('跨域请求');
     });
 
+    it('同一个 POST 刚成功时，不再把剧情模式失败甩给 DNS 或整域名代理', () => {
+        const now = 1_786_894_455_703;
+        const text = buildFetchFailureDetail({
+            url: 'https://open.selart.cc/v1/chat/completions',
+            method: 'POST',
+            durationMs: 3828,
+            error: new TypeError('Load failed'),
+            online: true,
+            pageOrigin: 'https://qegj567-cloud.github.io',
+            pageProtocol: 'https:',
+            requestPurpose: '剧情见面生成',
+            requestSummary: summarizeFetchRequestBody(JSON.stringify({
+                messages: [{ role: 'system', content: '设定' }, { role: 'assistant', content: '<content>' }],
+                stream: true,
+                top_p: 0.8,
+            })),
+            recentSuccessfulSameRequest: { timestamp: now - 42_000, status: 200 },
+        }, { startedAt: 0, now, perf: { getEntriesByName: () => [] } });
+
+        expect(text).toContain('调用用途: 剧情见面生成');
+        expect(text).toContain('messages=2');
+        expect(text).toContain('末条 role=assistant');
+        expect(text).toContain('额外参数: top_p');
+        expect(text).toContain('同一个 POST 已成功返回 HTTP 200');
+        expect(text).toContain('当前请求/响应特有的失败');
+        expect(text).toContain('剧情上下文或请求体更大');
+        expect(text).toContain('末条 assistant 预填充或额外参数');
+        expect(text).not.toContain('DNS 解析不到');
+        expect(text).not.toContain('代理把这个域名的连接掐了');
+    });
+
+    it('普通聊天和记忆请求不会套用剧情专属诊断', () => {
+        const now = 1_786_894_455_703;
+        const text = buildFetchFailureDetail({
+            url: 'https://open.selart.cc/v1/chat/completions',
+            method: 'POST',
+            durationMs: 3828,
+            error: new TypeError('Load failed'),
+            online: true,
+            pageOrigin: 'https://qegj567-cloud.github.io',
+            pageProtocol: 'https:',
+            requestPurpose: '记忆提取',
+            requestSummary: summarizeFetchRequestBody(JSON.stringify({
+                messages: [{ role: 'system', content: '设定' }, { role: 'assistant', content: '<content>' }],
+                stream: false,
+                top_p: 0.8,
+            })),
+            recentSuccessfulSameRequest: { timestamp: now - 42_000, status: 200 },
+        }, { startedAt: 0, now, perf: { getEntriesByName: () => [] } });
+
+        expect(text).toContain('调用用途: 记忆提取');
+        expect(text).toContain('当前请求体或响应与刚才成功的请求不同');
+        expect(text).toContain('上游限流或临时故障');
+        expect(text).not.toContain('剧情上下文');
+        expect(text).not.toContain('assistant 预填充');
+    });
+
     it('混合内容给的是「改成 https」而不是「查梯子」', () => {
         const text = buildFetchFailureDetail({
             url: 'http://my-bridge.example.com/api/health',
@@ -149,7 +229,7 @@ describe('buildFetchFailureDetail', () => {
             pageProtocol: 'https:',
         }, { startedAt: 0, perf: { getEntriesByName: () => [] } });
         expect(text).toContain('请求超时');
-        expect(text).toContain('连接建立阶段被吞');
+        expect(text).toContain('不能仅凭耗时确定失败阶段');
         expect(text).not.toContain('不符合已知');
         expect(text).not.toContain('看下面的错误原文');
     });
@@ -188,25 +268,35 @@ describe('buildFetchFailureDetail', () => {
                 getEntriesByName: () => [{ startTime: 9_000, responseStatus: 200, transferSize: 0, duration: 1038 }],
             },
         });
-        expect(text).toContain('连接建立阶段被吞');
+        expect(text).toContain('不能仅凭耗时确定失败阶段');
         expect(text).not.toContain('对方其实回了');
         expect(text).not.toContain('responseStatus=200');
     });
 });
 
 describe('readStallHint', () => {
-    it('挂了 20s 才失败 → 判成「连接被吞」，指向代理分流规则', () => {
+    it('MiniMax 的快速 GET 失败保留 CORS 可能性，不误判为请求未发出', () => {
+        const text = buildFetchFailureDetail({
+            url: 'https://audio.example.com/voice.mp3', method: 'GET', durationMs: 162,
+            error: new TypeError('Load failed'), online: true, pageOrigin: 'https://friedsully.com',
+        }, { startedAt: 0, perf: { getEntriesByName: () => [] } });
+        expect(text).toContain('请求: GET');
+        expect(text).toContain('CORS');
+        expect(text).not.toContain('拿到响应头之前就失败');
+        expect(text).not.toContain('通常说明连接压根没建立');
+    });
+    it('耗时较长不能确定卡在连接阶段，也可能是上游处理或 CORS', () => {
         const hint = readStallHint(20187, 'blocked');
         expect(hint).toContain('20.2s');
-        expect(hint).toContain('连接建立阶段被吞');
         expect(hint).toContain('代理');
-        expect(hint).toContain('不是「立刻被拒」');
-        expect(hint).not.toContain('DNS');
+        expect(hint).toContain('CORS');
+        expect(hint).toContain('不能仅凭耗时');
+        expect(hint).not.toContain('一个字节都没收到');
     });
 
-    it('几十毫秒就失败 → 判成「立刻被拒」，指向 DNS/扩展，不能提被墙', () => {
+    it('几十毫秒就失败也可能是已收到响应后的 CORS 拒绝', () => {
         const hint = readStallHint(43, 'blocked');
-        expect(hint).toContain('立刻被拒');
+        expect(hint).toContain('CORS');
         expect(hint).toContain('DNS');
         expect(hint).not.toContain('连接建立阶段被吞');
     });
@@ -222,7 +312,7 @@ describe('readStallHint', () => {
 });
 
 describe('readResourceTimingHint', () => {
-    it('没有记录时说明「连接可能压根没建立」', () => {
+    it('没有记录时不武断认定连接未建立', () => {
         expect(readResourceTimingHint('https://a.example.com/x', {
             startedAt: 1000, perf: { getEntriesByName: () => [] },
         })).toContain('没有这条请求的记录');
@@ -357,7 +447,7 @@ describe('probeOriginReachability', () => {
 
 describe('describeReachabilityProbe', () => {
     it('通了 → 只确认域名可达，并警告生成后失败仍可能计费', () => {
-        const text = describeReachabilityProbe('reachable', 'sullymeow.ccwu.cc');
+        const text = describeReachabilityProbe('reachable', 'sullymeow.ccwu.cc', 'POST');
         expect(text).toContain('域名当前可达');
         expect(text).toContain('原 POST');
         expect(text).toContain('CORS');
@@ -365,6 +455,14 @@ describe('describeReachabilityProbe', () => {
         expect(text).toContain('不要连续重发');
         expect(text).not.toContain('问题出在响应本身');
         expect(text).not.toContain('梯子的分流规则');
+    });
+
+    it('GET 音频下载失败不能被说成 POST 生成失败', () => {
+        const text = describeReachabilityProbe('reachable', 'audio.example.com', 'GET');
+        expect(text).toContain('原 GET');
+        expect(text).toContain('资源加载失败不等于生成失败');
+        expect(text).not.toContain('POST');
+        expect(text).not.toContain('可能计费');
     });
 
     it('没通 → 指向线路，不能再提 CORS 把人带偏', () => {

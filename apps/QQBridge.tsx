@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { useChatAI } from '../hooks/useChatAI';
@@ -5,6 +6,7 @@ import { DB } from '../utils/db';
 import { Message } from '../types';
 import { Plugs, Power, Trash, Plug } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
+import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 
 const LS = {
@@ -50,6 +52,7 @@ const QQBridge: React.FC = () => {
     realtimeConfig,
     memoryPalaceConfig,
     updateCharacter,
+    updateUserProfile,
     closeApp,
   } = useOS();
   const [pickerGroupId, setPickerGroupId] = useState<string>(GROUP_FILTER_ALL); // 回复角色的分组筛选
@@ -95,6 +98,7 @@ const QQBridge: React.FC = () => {
     realtimeConfig,
     memoryPalaceConfig,
     updateCharacter,
+    updateUserProfile,
   });
 
   // Load history when char changes; mark existing assistant msgs as already-forwarded
@@ -105,13 +109,13 @@ const QQBridge: React.FC = () => {
       return;
     }
     let cancelled = false;
-    DB.getRecentMessagesByCharId(char.id, char.contextLimit || 200).then(msgs => {
+    loadCharacterContextMessages(char).then(msgs => {
       if (cancelled) return;
       setMessages(msgs);
       lastForwardedIdRef.current = msgs.reduce((acc, m) => Math.max(acc, m.id), 0);
     });
     return () => { cancelled = true; };
-  }, [char?.id, char?.contextLimit]);
+  }, [char?.id, char?.contextLimit, char?.contextRangeMode, char?.contextUserStartMessageId, char?.autoArchiveEnabled, char?.contextFollowsMemoryPalaceHwm]);
 
   // Forward newly arrived assistant text messages to QQ
   useEffect(() => {
@@ -193,7 +197,7 @@ const QQBridge: React.FC = () => {
       content: text,
       metadata: { source: 'qq', qqUserId: userId },
     });
-    const fresh = await DB.getRecentMessagesByCharId(char.id, char.contextLimit || 200);
+    const fresh = await loadCharacterContextMessages(char);
     setMessages(fresh);
     await chatAI.triggerAI(fresh);
   }, [char, chatAI, log]);
@@ -382,7 +386,7 @@ const QQBridge: React.FC = () => {
                         : 'bg-white border-slate-200 hover:border-sky-200'
                     } ${enabled ? 'opacity-70 cursor-not-allowed' : 'active:scale-95'}`}
                   >
-                    <img src={c.avatar} alt="" className="w-8 h-8 rounded-full object-cover" />
+                    <TokenImg value={c.avatar} alt="" className="w-8 h-8 rounded-full object-cover" />
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-semibold text-slate-700 truncate">{c.name}</div>
                       <div className="text-[10px] text-slate-400 truncate">{c.description || '—'}</div>

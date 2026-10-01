@@ -47,6 +47,14 @@ describe('用户反馈回归保护', () => {
         expect(maker).toContain("<h2 className='text-sm font-bold'>续写参数</h2>");
     });
 
+    it('剧情预设导出复用原生分享链路，不依赖 Android WebView 的 a.download', () => {
+        const storyTheater = read('./storyTheater.ts');
+
+        expect(storyTheater).toContain("import { shareOrDownloadFile } from './shareExport'");
+        expect(storyTheater).toContain('shareOrDownloadFile({');
+        expect(storyTheater).not.toContain("anchor.download = `${preset.name");
+    });
+
     it('统一请求出口会在发送前修正 Claude 超范围温度', () => {
         const osContext = read('../context/OSContext.tsx');
 
@@ -61,5 +69,16 @@ describe('用户反馈回归保护', () => {
         expect(portrait).not.toContain('key={`${value}-${expressionKey}`}');
         expect(portrait).not.toContain('companion-static-expression-in');
         expect(home).not.toContain('staticExpressionKey');
+    });
+
+    it('聊天翻译支持按角色保存直接展开模式，并在气泡内同时渲染原文和译文', () => {
+        const chat = read('../apps/Chat.tsx');
+        const modals = read('../components/chat/ChatModals.tsx');
+        const item = read('../components/chat/MessageItem.tsx');
+
+        expect(chat).toContain('chat_translate_expanded_${activeCharacterId}');
+        expect(modals).toContain('原文与译文同时展开');
+        expect(item).toContain('showExpandedTranslation');
+        expect(item).toContain('{renderContent(langBContent)}');
     });
 });

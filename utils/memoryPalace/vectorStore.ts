@@ -30,13 +30,20 @@ export async function vectorizeAndStore(
     nodes: MemoryNode[],
     embeddingConfig: EmbeddingConfig,
     remoteVectorConfig?: RemoteVectorConfig,
-    options: { skipDedup?: boolean } = {},
+    options: {
+        skipDedup?: boolean;
+        /** Commit related state in the same local transaction; remote publish still follows success only. */
+        commit?: (entries: { node: MemoryNode; vector: MemoryVector }[]) => Promise<void>;
+    } = {},
 ): Promise<{ stored: number; skipped: number }> {
     if (nodes.length === 0) return { stored: 0, skipped: 0 };
 
     // 1. 批量向量化
     const texts = nodes.map(n => n.content);
     const vectors = await getEmbeddings(texts, embeddingConfig);
+    if (vectors.length !== nodes.length || vectors.some(vector => !vector.length || !Array.from(vector).every(Number.isFinite))) {
+        throw new Error('Embedding 返回的向量不完整或无效，本次没有写入记忆');
+    }
 
     // 2. 加载已有向量用于去重（EventBox summary / 迁移等场景跳过）
     const charId = nodes[0].charId;
@@ -44,6 +51,7 @@ export async function vectorizeAndStore(
 
     let stored = 0;
     let skipped = 0;
+    const entries: { node: MemoryNode; vector: MemoryVector }[] = [];
 
     for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
@@ -63,9 +71,6 @@ export async function vectorizeAndStore(
         }
 
         // 3. 保存
-        node.embedded = true;
-        await MemoryNodeDB.save(node);
-
         const memoryVector: MemoryVector = {
             memoryId: node.id,
             charId: node.charId,
@@ -73,17 +78,23 @@ export async function vectorizeAndStore(
             dimensions: embeddingConfig.dimensions,
             model: embeddingConfig.model,
         };
-        await MemoryVectorDB.save(memoryVector);
-
-        // 同步写入远程（fire-and-forget，不阻塞本地流程）
-        if (remoteVectorConfig?.enabled && remoteVectorConfig.initialized) {
-            remoteUpsert(remoteVectorConfig, node.id, node.charId, vector, node, embeddingConfig.dimensions, embeddingConfig.model).catch(() => {});
-        }
+        entries.push({ node: { ...node, embedded: true }, vector: memoryVector });
 
         // 将新向量也加入已有列表，后续去重时可以检测同批次内的重复
         existingVectors.push(memoryVector);
 
         stored++;
+    }
+
+    if (options.commit) await options.commit(entries);
+    else await MemoryNodeDB.saveVectorizedMany(entries);
+    const committedIds = new Set(entries.map(entry => entry.node.id));
+    for (const node of nodes) if (committedIds.has(node.id)) node.embedded = true;
+    // Only publish remote state after the local batch committed successfully.
+    if (remoteVectorConfig?.enabled && remoteVectorConfig.initialized) {
+        for (const { node, vector } of entries) {
+            remoteUpsert(remoteVectorConfig, node.id, node.charId, ensureFloat32(vector.vector), node, embeddingConfig.dimensions, embeddingConfig.model).catch(() => {});
+        }
     }
 
     console.log(`✅ [VectorStore] Stored ${stored}, skipped ${skipped} duplicates`);

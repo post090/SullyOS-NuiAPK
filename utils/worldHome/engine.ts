@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../chatContextRange';
 /**
  * 「家园」演绎引擎 —— 一轮"观测"的完整闭环。
  *
@@ -20,6 +21,7 @@ import type {
     WorldProfile, WorldEpisode, WorldCharBeat, WorldCardMeta,
 } from '../../types';
 import { DB } from '../db';
+import { recoverWorldProgress } from './episodeOrder';
 import { buildChatRequestPayload } from '../chatRequestPayload';
 import { safeFetchJson } from '../safeApi';
 import { processNewMessagesWithAutoArchive } from '../memoryPalace/autoArchive';
@@ -218,6 +220,42 @@ function buildCardContent(world: WorldProfile, storyTime: string, beat: WorldCha
     return lines.join('\n');
 }
 
+/** 以纪事里的最新正文为准，只读本人经历，避免依赖尚未同步的聊天卡片/向量召回。 */
+export function buildOwnWorldHistory(world: WorldProfile, episodes: WorldEpisode[], charId: string): string {
+    const recent = episodes.filter(e => world.timeMode !== 'sim' || e.round > (world.simSummarizedClock || 0))
+        .slice(0, 8).reverse();
+    const entries = recent.flatMap(e => {
+        const beat = e.beats.find(b => b.charId === charId);
+        return beat ? [buildCardContent(world, e.storyTime, beat)] : [];
+    });
+    return entries.length ? '\n\n## 你在家园已经经历的事（当前有效版本）\n以下是你本人的经历和备忘录；如旧聊天卡片或回忆与此冲突，以这里为准。承接已有进展，不要重复演绎。\n' + entries.join('\n\n') : '';
+}
+
+/** 撤销本角色这一拍，再生成替代副作用；其他角色的消息、关系和伏笔保持原样。 */
+export function rollbackWorldBeat(world: WorldProfile, episode: WorldEpisode, charId: string, members: { id: string; name: string }[]): void {
+    const old = episode.beats.find(b => b.charId === charId);
+    if (!old) return;
+    for (const thread of world.threads || []) {
+        thread.messages = thread.messages.filter(m => !(m.fromId === charId && m.round === episode.round && m.storyTime === episode.storyTime));
+    }
+    world.seeds = (world.seeds || []).filter(s => !(s.charId === charId && s.round === episode.round && s.storyTime === episode.storyTime));
+    if (episode.relationshipsBefore) {
+        world.relationships = [
+            ...world.relationships.filter(r => r.fromId !== charId),
+            ...episode.relationshipsBefore.filter(r => r.fromId === charId).map(r => ({ ...r })),
+        ];
+    } else {
+        // 旧存档没有精确快照：只能撤销已知 delta；旧标签无法反推，清除失效标签。
+        for (const delta of [...(old.relationshipDeltas || [])].reverse()) {
+            const target = members.find(m => m.name === delta.withName)?.id;
+            const rel = world.relationships.find(r => r.fromId === charId && r.toId === target);
+            if (!rel) continue;
+            rel.value = Math.max(-100, Math.min(100, rel.value - delta.delta));
+            if (delta.newLabel && rel.label === delta.newLabel) delete rel.label;
+        }
+    }
+}
+
 /** 组装某一拍的 world_card metadata（与彼方 vr_card 同构，注入聊天 / 进记忆用）。 */
 export function buildWorldCardMeta(world: WorldProfile, beat: WorldCharBeat, round: number, storyTime: string): WorldCardMeta {
     return {
@@ -273,43 +311,46 @@ export async function injectWorldCard(world: WorldProfile, beat: WorldCharBeat, 
 }
 
 export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpisodeResult> {
-    const { world, characters, apiConfig, userProfile, groups, realtimeConfig, memoryPalaceConfig, trigger } = deps;
+    const { characters, apiConfig, userProfile, groups, realtimeConfig, memoryPalaceConfig, trigger } = deps;
+    const worldId = deps.world.id;
 
-    if (running.has(world.id)) return { ok: false, reason: 'busy' };
-
-    // 旧存档（一天三段制）防御性迁移到四段制（含凌晨）：启动 sweep 可能还没跑完就被 tick 抢跑，
-    // 这里原地换算，storyClock/clockSegs 随本轮结束的 saveWorld 一并持久化。
-    migrateWorldDaySegs(world);
-
-    const members = world.memberIds
-        .map(id => characters.find(c => c.id === id))
-        .filter(Boolean) as CharacterProfile[];
-    if (members.length === 0) return { ok: false, reason: 'no-members' };
-
-    // API 优先级：世界私有覆盖（旧数据）> 家园全局设置（localStorage）> 全局聊天默认
-    const worldHomeApi = readWorldHomeApiOverride();
-    const api = world.api?.baseUrl ? world.api : (worldHomeApi || apiConfig);
-    if (!api.baseUrl) return { ok: false, reason: 'no-api' };
-    const baseUrl = api.baseUrl.replace(/\/+$/, '');
-
-    // real 模式：演的那一段跟着真实时钟走，且只能补当天错过的段；已追上现实就没东西可演
-    const realTarget = world.timeMode !== 'sim' ? realObserveTarget(world) : null;
-    if (world.timeMode !== 'sim' && !realTarget) return { ok: false, reason: 'caught-up' };
-
-    running.add(world.id);
-    const storyTime = realTarget ? formatRealClock(realTarget) : worldTimeLabel(world);
-    const round = world.storyClock + 1;
-    // sim 模式不进记忆/聊天——演绎攒在家园里，靠每 20 天的结卷总结沉淀
-    const entersMemory = world.timeMode !== 'sim' && world.injectToChat !== false;
-    // sim 模式：已结卷归档的原文不再喂；最新一卷的单视角总结 + 氛围作为上文
-    const latestChapter = (world.chapters || [])[(world.chapters?.length || 0) - 1];
-    // 线程容器就位：本轮所有消息（NPC 群聊冒泡 / 角色私聊与群聊）都即时落在 world.threads 上，
-    // 链式后续角色构建上下文时直接读到——消息在同一轮内就完成传递。
-    ensureThreads(world);
-    dispatch('world-episode-start', { worldId: world.id, worldName: world.name, storyTime, total: members.length });
-
+    if (running.has(worldId)) return { ok: false, reason: 'busy' };
+    running.add(worldId);
     try {
-        const lastEpisodes = await DB.getWorldEpisodes(world.id, 2);
+        const world = await DB.getWorld(worldId) || deps.world;
+        const lastEpisodes = await DB.getWorldEpisodes(worldId, 8);
+
+        // 旧存档（一天三段制）防御性迁移到四段制（含凌晨）：启动 sweep 可能还没跑完就被 tick 抢跑，
+        // 这里原地换算，storyClock/clockSegs 随本轮结束的 saveWorld 一并持久化。
+        migrateWorldDaySegs(world);
+        recoverWorldProgress(world, lastEpisodes);
+
+        const members = world.memberIds
+            .map(id => characters.find(c => c.id === id))
+            .filter(Boolean) as CharacterProfile[];
+        if (members.length === 0) return { ok: false, reason: 'no-members' };
+
+        // API 优先级：世界私有覆盖（旧数据）> 家园全局设置（localStorage）> 全局聊天默认
+        const worldHomeApi = readWorldHomeApiOverride();
+        const api = world.api?.baseUrl ? world.api : (worldHomeApi || apiConfig);
+        if (!api.baseUrl) return { ok: false, reason: 'no-api' };
+        const baseUrl = api.baseUrl.replace(/\/+$/, '');
+
+        // real 模式：演的那一段跟着真实时钟走，且只能补当天错过的段；已追上现实就没东西可演
+        const realTarget = world.timeMode !== 'sim' ? realObserveTarget(world) : null;
+        if (world.timeMode !== 'sim' && !realTarget) return { ok: false, reason: 'caught-up' };
+
+        const storyTime = realTarget ? formatRealClock(realTarget) : worldTimeLabel(world);
+        const round = world.storyClock + 1;
+        // sim 模式不进记忆/聊天——演绎攒在家园里，靠每 20 天的结卷总结沉淀
+        const entersMemory = world.timeMode !== 'sim' && world.injectToChat !== false;
+        // sim 模式：已结卷归档的原文不再喂；最新一卷的单视角总结 + 氛围作为上文
+        const latestChapter = (world.chapters || [])[(world.chapters?.length || 0) - 1];
+        // 线程容器就位：本轮所有消息（NPC 群聊冒泡 / 角色私聊与群聊）都即时落在 world.threads 上，
+        // 链式后续角色构建上下文时直接读到——消息在同一轮内就完成传递。
+        ensureThreads(world);
+        dispatch('world-episode-start', { worldId: world.id, worldName: world.name, storyTime, total: members.length });
+
         // 给一点纵深：最近两轮的梗概都喂进去，世界才有"昨天"的概念。
         // sim 模式下，已归档（round ≤ simSummarizedClock）的原文不再喂——交给章节总结。
         const sinceClock = world.simSummarizedClock || 0;
@@ -317,7 +358,7 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
             ? lastEpisodes.filter(e => e.round > sinceClock)
             : lastEpisodes;
         const lastSummary = summarySource.length > 0
-            ? summarySource.slice().reverse().map(e => e.summary).join('\n')
+            ? summarySource.slice(0, 2).reverse().map(e => e.summary).join('\n')
             : undefined;
 
         // NPC 引擎改到角色之后跑（见 ── 2.5 ──）：这样 NPC 能看到角色这一轮刚发的私聊/动态/
@@ -348,13 +389,14 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                     ].join('\n')
                     : undefined;
 
-                const contextLimit = char.contextLimit || 500;
-                const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+                const historyMsgs = await loadCharacterContextMessages(char);
+                const contextLimit = Math.max(1, historyMsgs.length);
                 // 家园内角色的当前时间与日程日期都必须对齐同一把世界钟。
                 const worldChar = alignCharToWorldClock(world, char);
                 const payload = await buildChatRequestPayload({
                     char: worldChar, userProfile, groups, emojis: [], categories: [],
                     historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
+                    recallEntryPoint: 'world_home',
                     // 家园可配独立 API（可能不支持视觉，image_url 会 400）→ 历史图片压平成文本占位
                     stripImages: true,
                 });
@@ -377,7 +419,7 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
                     directive: directive ? { impulseText: directive.impulseText, text: directive.text } : undefined,
                     priorChapter,
                     userName: userProfile?.name || '',
-                });
+                }) + buildOwnWorldHistory(world, lastEpisodes, char.id);
                 if (directive) consumedDirectiveIds.push(directive.id);
 
                 const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
@@ -457,6 +499,7 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
             summary: buildSummary(storyTime, beats, npcHooks),
             createdAt: Date.now(),
         };
+        episode.relationshipsBefore = world.relationships.map(r => ({ ...r }));
         await DB.saveWorldEpisode(episode);
 
         applyRelationshipDeltas(world, beats, members);
@@ -576,52 +619,77 @@ export async function runWorldEpisode(deps: WorldEpisodeDeps): Promise<WorldEpis
         console.error('[WorldHome] episode error:', err);
         return { ok: false, reason: 'error' };
     } finally {
-        running.delete(world.id);
-        dispatch('world-episode-end', { worldId: world.id });
+        running.delete(worldId);
+        dispatch('world-episode-end', { worldId });
     }
 }
 
 /**
  * 单个角色重 roll：只重演某一轮里某个角色这一拍（用于本轮该角色生成失败、或用户想换个写法）。
  * - direction：用户给的「大致重写方向」，没有就完全重写。
- * - 之前是「失败缺这拍」→ 补上后照常落线程/伏笔/关系，真实模式补一张 world_card；
- *   之前已有这拍（用户想换写法）→ 只替换这拍内容，不重复落副作用（避免重复加好感/重复消息）。
+ * - 仅重演最新观测；撤销旧拍副作用，再原子替换剧情、线程、伏笔、关系及聊天卡片。
  */
 export async function rerollWorldCharBeat(
     deps: WorldEpisodeDeps & { episodeId: string; charId: string; direction?: string },
 ): Promise<WorldEpisodeResult> {
-    const { world, characters, apiConfig, userProfile, groups, realtimeConfig, episodeId, charId, direction } = deps;
-    if (running.has(world.id)) return { ok: false, reason: 'busy' };
-    const members = world.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as CharacterProfile[];
-    const char = members.find(m => m.id === charId);
-    if (!char) return { ok: false, reason: 'no-char' };
-    const memberNames = members.map(m => m.name);
-    const worldHomeApi = readWorldHomeApiOverride();
-    const api = world.api?.baseUrl ? world.api : (worldHomeApi || apiConfig);
-    if (!api.baseUrl) return { ok: false, reason: 'no-api' };
-    const baseUrl = api.baseUrl.replace(/\/+$/, '');
-
-    const episodes = await DB.getWorldEpisodes(world.id, 30);
-    const episode = episodes.find(e => e.id === episodeId);
-    if (!episode) return { ok: false, reason: 'no-episode' };
-    const hadBeat = episode.beats.some(b => b.charId === charId);
-
-    running.add(world.id);
-    dispatch('world-episode-start', { worldId: world.id, worldName: world.name, storyTime: episode.storyTime, total: 1 });
-    dispatch('world-beat-done', { worldId: world.id, stage: 'char', charId, charName: char.name, done: 0, total: 1 });
+    const { characters, apiConfig, userProfile, groups, realtimeConfig, episodeId, charId, direction } = deps;
+    const worldId = deps.world.id;
+    if (running.has(worldId)) return { ok: false, reason: 'busy' };
+    running.add(worldId);
     try {
-        const prevEp = episodes.find(e => e.round === episode.round - 1);
+        const storedWorld = await DB.getWorld(worldId);
+        if (!storedWorld) return { ok: false, reason: 'no-world' };
+        const world = structuredClone(storedWorld);
+        const members = world.memberIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as CharacterProfile[];
+        const char = members.find(m => m.id === charId);
+        if (!char) return { ok: false, reason: 'no-char' };
+        const memberNames = members.map(m => m.name);
+        const worldHomeApi = readWorldHomeApiOverride();
+        const api = world.api?.baseUrl ? world.api : (worldHomeApi || apiConfig);
+        if (!api.baseUrl) return { ok: false, reason: 'no-api' };
+        const baseUrl = api.baseUrl.replace(/\/+$/, '');
+
+        const episodes = await DB.getWorldEpisodes(world.id, 30);
+        const episode = episodes.find(e => e.id === episodeId);
+        if (!episode) return { ok: false, reason: 'no-episode' };
+        if (episodes[0]?.id !== episode.id) return { ok: false, reason: 'not-latest' };
+        if (world.timeMode === 'sim' && episode.round <= (world.simSummarizedClock || 0)) return { ok: false, reason: 'archived' };
+        const baseline = structuredClone(world);
+        if (!episode.relationshipsBefore) {
+            for (const oldBeat of episode.beats) rollbackWorldBeat(baseline, episode, oldBeat.charId, members);
+        }
+        const relationshipsBefore = episode.relationshipsBefore || baseline.relationships.map(r => ({ ...r }));
+        // 用旧发言后第一条保留消息作锚点，避免重演把发起方挪到回复方后面。
+        const insertBefore = new Map<string, string>();
+        for (const thread of world.threads || []) {
+            const replaced = (m: (typeof thread.messages)[number]) =>
+                m.fromId === charId && m.round === episode.round && m.storyTime === episode.storyTime;
+            const first = thread.messages.findIndex(replaced);
+            if (first < 0) continue;
+            const next = thread.messages.slice(first + 1).find(m => !replaced(m));
+            if (next) insertBefore.set(thread.id, next.id);
+        }
+        rollbackWorldBeat(world, episode, charId, members);
+
+        dispatch('world-episode-start', { worldId: world.id, worldName: world.name, storyTime: episode.storyTime, total: 1 });
+        dispatch('world-beat-done', { worldId: world.id, stage: 'char', charId, charName: char.name, done: 0, total: 1 });
+        const previousEpisodes = episodes.slice(1);
+        const prevEp = previousEpisodes[0];
         const otherBeats = episode.beats.filter(b => b.charId !== charId);
         const others = memberNames.filter(n => n !== char.name);
         const recallQueryHint = others.length > 0
             ? `此刻在「${world.name}」共同生活的人：${others.join('、')}。\n我对${others.join('、')}的印象、我和${others.join('、')}之间的关系与过往。`
             : undefined;
-        const contextLimit = char.contextLimit || 500;
-        const historyMsgs = await DB.getRecentMessagesByCharId(char.id, contextLimit);
+        const historyMsgs = (await loadCharacterContextMessages(char)).filter(m => {
+            const meta = m.metadata as WorldCardMeta | undefined;
+            return !(meta?.worldId === world.id && meta.round === episode.round && meta.storyTime === episode.storyTime);
+        });
+        const contextLimit = Math.max(1, historyMsgs.length);
         const worldChar = alignCharToWorldClock(world, char);
         const payload = await buildChatRequestPayload({
             char: worldChar, userProfile, groups, emojis: [], categories: [],
             historyMsgs, contextLimit, realtimeConfig, recallQueryHint,
+            recallEntryPoint: 'world_home',
             // 同上：独立 API 可能不支持视觉 → 历史图片压平成文本占位
             stripImages: true,
         });
@@ -638,7 +706,8 @@ export async function rerollWorldCharBeat(
             recentPosts: collectRecentPosts(prevEp?.beats || [], otherBeats),
             exposures: buildExposures(world, char.id, char.name),
             priorChapter, userName: userProfile?.name || '',
-        });
+        }) + buildOwnWorldHistory(world, previousEpisodes, char.id);
+        turn += '\n\n本轮正在重演：这一时段你原来的剧情、备忘和发言已作废，不得把旧版本当作已经发生的经历；以此前有效纪事和本次重写方向继续。';
         if (direction && direction.trim()) {
             turn += `\n\n## 重写方向（用户希望这次往这个方向重演，请据此给出全新的一拍）\n${direction.trim()}`;
         }
@@ -655,49 +724,43 @@ export async function rerollWorldCharBeat(
         // 重演这一拍同样剔除和最近动态重复的 post
         dropDuplicatePosts(beat, collectRecentPosts(prevEp?.beats || [], otherBeats));
 
+        const hadBeat = episode.beats.some(b => b.charId === charId);
         const newBeats = hadBeat ? episode.beats.map(b => b.charId === charId ? beat : b) : [...episode.beats, beat];
         const stillFailed = (episode.failedCharIds || []).filter(id => id !== charId);
         const updatedEp: WorldEpisode = {
             ...episode,
+            relationshipsBefore,
             beats: newBeats,
             failedCharIds: stillFailed.length > 0 ? stillFailed : undefined,
             summary: buildSummary(episode.storyTime, newBeats, episode.npcHooks || []),
         };
-        await DB.saveWorldEpisode(updatedEp);
 
         // 重演会换掉这一拍的动态，但点赞/评论按 `round_charId_idx` 关联——不清掉旧反应，
         // 上一次的评论就会原样挂到新动态上（评论对不上号）。这里把这名角色这一轮的反应全抹掉；
         // 重演不再跑 NPC 引擎，新动态先没有互动也好过挂错评论。
-        let worldDirty = false;
         if (world.feedReactions) {
             const prefix = `${episode.round}_${charId}_`;
             const kept = Object.fromEntries(Object.entries(world.feedReactions).filter(([k]) => !k.startsWith(prefix)));
             if (Object.keys(kept).length !== Object.keys(world.feedReactions).length) {
                 world.feedReactions = kept;
-                worldDirty = true;
             }
         }
 
-        // 仅当之前是「失败缺这拍」时补副作用，避免对已有拍重复加好感/重复消息
-        if (!hadBeat) {
-            applyBeatToThreads(world, beat, members, episode.round, episode.storyTime);
-            collectSeeds(world, beat, episode.round, episode.storyTime);
-            applyRelationshipDeltas(world, [beat], members);
-            worldDirty = true;
-            if (world.timeMode !== 'sim' && world.injectToChat !== false) {
-                try { await injectWorldCard(world, beat, episode.round, episode.storyTime); } catch { /* ignore */ }
-            }
-        }
-        if (worldDirty) {
-            await DB.saveWorld({ ...world, threads: world.threads, seeds: world.seeds, relationships: world.relationships, feedReactions: world.feedReactions, updatedAt: Date.now() });
-        }
+        applyBeatToThreads(world, beat, members, episode.round, episode.storyTime, insertBefore);
+        collectSeeds(world, beat, episode.round, episode.storyTime);
+        applyRelationshipDeltas(world, [beat], members);
+        await DB.replaceWorldBeat(world, updatedEp, charId, {
+            content: buildCardContent(world, episode.storyTime, beat),
+            metadata: buildWorldCardMeta(world, beat, episode.round, episode.storyTime),
+            insertIfMissing: world.timeMode !== 'sim' && world.injectToChat !== false,
+        }, storedWorld, episode);
         dispatch('world-episode-done', { worldId: world.id, episodeId: updatedEp.id, storyTime: episode.storyTime, round: episode.round });
         return { ok: true, episode: updatedEp };
     } catch (err) {
         console.error('[WorldHome] reroll error:', err);
         return { ok: false, reason: 'error' };
     } finally {
-        running.delete(world.id);
-        dispatch('world-episode-end', { worldId: world.id });
+        running.delete(worldId);
+        dispatch('world-episode-end', { worldId });
     }
 }

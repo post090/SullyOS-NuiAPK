@@ -177,7 +177,8 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
   const handleExport = useCallback(async () => {
     if (!homeState) return;
     const name = charName + '的家';
-    await downloadPreset(homeState, assets, name, userName);
+    const result = await downloadPreset(homeState, assets, name, userName);
+    if (result === 'cancelled') return;
     addToast?.('预设已导出', 'success');
     trackEvent('导出像素家园预设');
   }, [homeState, assets, charName, userName, addToast]);
@@ -363,7 +364,7 @@ const PixelHomeView: React.FC<Props> = ({ charId, charName, charAvatar, userName
             <BottomTab label="捏我" onClick={() => { setEditorTarget('user'); setViewMode('charEditor'); trackEvent('打开像素捏人器', { target: 'user' }); }} />
             <BottomTab label="导入" onClick={() => importInputRef.current?.click()} />
           </div>
-          <input ref={importInputRef} type="file" accept=".json" className="hidden"
+          <input ref={importInputRef} type="file" accept=".json,.png,application/json,image/png" className="hidden"
             onChange={e => { if (e.target.files?.[0]) { handleImportFile(e.target.files[0]); e.target.value = ''; } }} />
         </div>
       )}

@@ -25,6 +25,7 @@ import type {
     RecalledMemorySnapshot,
 } from '../../utils/apiCallLog';
 import { trackEvent } from '../../utils/analytics';
+import { shareOrDownloadFile } from '../../utils/shareExport';
 
 interface ApiCallLogModalProps {
     isOpen: boolean;
@@ -405,19 +406,16 @@ async function copyCaptureText(value: string): Promise<void> {
     textarea.remove();
 }
 
-function downloadCaptureTxt(capture: ApiRequestCapture, content: string): void {
+async function downloadCaptureTxt(capture: ApiRequestCapture, content: string): Promise<void> {
     const d = new Date(capture.capturedAt);
     const pad = (value: number) => String(value).padStart(2, '0');
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-    const blob = new Blob(['\uFEFF', content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `SullyOS-LLM本次发送统计-${stamp}.txt`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+    await shareOrDownloadFile({
+        content: `\uFEFF${content}`,
+        fileName: `SullyOS-LLM本次发送统计-${stamp}.txt`,
+        mimeType: 'text/plain;charset=utf-8',
+        shareTitle: 'SullyOS·糯米机 LLM 本次发送统计',
+    });
 }
 
 const OneShotCapturePanel: React.FC<{
@@ -494,9 +492,9 @@ const OneShotCapturePanel: React.FC<{
             .sort((a, b) => b.chars - a.chars);
     }, [capture]);
 
-    const exportTxt = useCallback(() => {
+    const exportTxt = useCallback(async () => {
         if (!capture || !txtReport) return;
-        downloadCaptureTxt(capture, txtReport);
+        await downloadCaptureTxt(capture, txtReport);
         setCopyNotice('TXT 已导出');
         window.setTimeout(() => setCopyNotice(''), 1600);
     }, [capture, txtReport]);
@@ -708,7 +706,7 @@ const OneShotCapturePanel: React.FC<{
                         <div className="mt-4 border-t border-slate-200/70 pt-3">
                             <div className="mb-2">
                                 <h4 className="text-[11px] font-bold text-slate-600">动态内容与请求配置</h4>
-                                <p className="mt-0.5 text-[9px] text-slate-400">按实际发送顺序列出；每段都标明来源和原始请求位置。</p>
+                                <p className="mt-0.5 text-[9px] text-slate-400">按实际发送顺序列出；分区与来源按正文标题识别。世界书正文中的小标题保留在原分区内，核对实际发送内容可查看完整请求 JSON。</p>
                             </div>
                             <div className="space-y-1.5">
                             {detailSections.map(renderSection)}

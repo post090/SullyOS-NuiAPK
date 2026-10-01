@@ -1,11 +1,12 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { DailySchedule, ScheduleSlot, ScheduleRevision, CharacterProfile } from '../../types';
+import { DailySchedule, ScheduleSlot, ScheduleRevision, CharacterProfile, OSTheme } from '../../types';
 import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
 import { resolveCharTimeZone, tzShortLabel } from '../../utils/timezone';
 import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
+import TokenImg from '../os/TokenImg';
 
 interface ScheduleCardProps {
     schedule: DailySchedule | null;
@@ -45,16 +46,18 @@ const formatClock = (now: Date): string =>
  * 每分钟走一次的「此刻」。卡片可能一直开着，不刷新的话顶部的钟会停，
  * NOW 标记也不会随着时间推进挪到下一个时段。
  */
-const useTickingNow = (): Date => {
-    const [now, setNow] = useState(() => new Date());
+const useTickingNow = (fixed?:Date): Date => {
+    const [now, setNow] = useState(() => fixed || new Date());
     useEffect(() => {
+        if(fixed)return;
         const id = window.setInterval(() => setNow(new Date()), 30_000);
         return () => window.clearInterval(id);
-    }, []);
-    return now;
+    }, [fixed]);
+    return fixed||now;
 };
 
-const ScheduleCard: React.FC<ScheduleCardProps> = ({
+export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previewNow?:Date}> = ({
+    theme,previewNow,
     schedule,
     character,
     contentColor: inheritedContentColor = '#ffffff',
@@ -66,7 +69,6 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
     onPlayTheater,
     isGenerating = false,
 }) => {
-    const { theme } = useOS();
     const [editingIdx, setEditingIdx] = useState<number | null>(null);
     const [editTime, setEditTime] = useState('');
     const [editActivity, setEditActivity] = useState('');
@@ -108,7 +110,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
         }
     };
 
-    const tickingNow = useTickingNow();
+    const tickingNow = useTickingNow(previewNow);
     const wallClock = getScheduleWallClock(character, tickingNow);
     const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character, tickingNow) : -1;
     // 角色设了自己的时区时，上面那个钟走的是 ta 那边的时间——标出地名，
@@ -190,7 +192,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                 border: `1px solid ${palette.line}`,
             }}
         >
-            <ScheduleCustomCssStyle />
+
             {/* Header */}
             <div className="sully-schedule-header relative px-5 pt-5 pb-3 flex items-start justify-between">
                 <div>
@@ -218,7 +220,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                         >
                             {formatDate(wallClock)}
                         </span>
-                        <ScheduleAppearanceButton compact />
+                        {!previewNow&&<ScheduleAppearanceButton compact />}
                     </div>
                     {charTzName && (
                         <span className="text-[9px] font-bold opacity-40 tracking-wide">
@@ -243,8 +245,8 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
                 {/* Character Image Banner */}
                 <div className="sully-schedule-cover relative w-full h-32 overflow-hidden flex-shrink-0">
                     {(coverImage || charAvatar) ? (
-                        <img
-                            src={coverImage || charAvatar}
+                        <TokenImg
+                            value={coverImage || charAvatar}
                             alt=""
                             className="absolute inset-0 w-full h-full object-cover opacity-70"
                             style={{ objectPosition: 'center 30%' }}
@@ -611,4 +613,5 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
     );
 };
 
+const ScheduleCard:React.FC<ScheduleCardProps> = props => {const {theme}=useOS();return <><ScheduleCustomCssStyle/><ScheduleCardView {...props} theme={theme}/></>;};
 export default ScheduleCard;

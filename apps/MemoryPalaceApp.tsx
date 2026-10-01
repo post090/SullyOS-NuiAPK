@@ -1,4 +1,15 @@
-import React, { useState, useEffect, useCallback, useDeferredValue, useMemo } from 'react';
+import MemoryMaintenancePanel from '../components/chat/MemoryMaintenancePanel';
+import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
+import { MemoryTimeText } from '../components/MemoryTimeText';
+import { relativeTimeEdit } from '../utils/memoryPalace/relativeTime';
+import { MemoryContentEditor } from '../components/MemoryContentEditor';
+import { DB } from '../utils/db';
+import { askLinkedArchiveDeletion, deleteNodeAndLinkedArchive } from '../utils/memoryPalace/linkedArchiveDeletion';
+import { markAmsgStateDirty } from '../utils/amsgStateSync';
+import { loadRangeMessagePage, formatRangeTimestamp } from '../utils/memoryPalace/rangeMessagePage';
+import { MainApiMemoryChoice, SkipVectorMemoryChoice } from '../components/MemoryGuideActions';
+import { useFirstUseGuideStep, GUIDE_SULLY_ID } from '../utils/firstUseGuide';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
 import { useBackGuard } from '../hooks/useBackGuard';
 import {
@@ -15,24 +26,26 @@ import {
     getBootstrapResume, setBootstrapResume, clearBootstrapResume,
     rebuildAllVectors, embedMissingVectors,
     updateStoredMemoryNode,
+    regenerateEventBoxSummary,
+    DEFAULT_CHARACTER_ACCOMMODATION,
 } from '../utils/memoryPalace';
 import type { Anticipation, MigrationProgress, DigestResult, MemoryLink, EventBox, DigestReport } from '../utils/memoryPalace';
 import { confirmExportSafety } from '../utils/exportGuard';
-import type { CharacterProfile, MemoryPalaceWaterlinePreset, Message } from '../types';
+import type { CharacterAccommodationPolicy, CharacterProfile, MemoryPalaceWaterlinePreset, Message } from '../types';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import GlassSelect from '../components/os/GlassSelect';
 import ApiConnectionPicker from '../components/os/ApiConnectionPicker';
+import TokenImg from '../components/os/TokenImg';
 import {
     CONTEXT_RANGE_POLICY_VERSION,
     DEFAULT_MANUAL_CONTEXT_LIMIT,
 } from '../utils/chatContextRange';
 import {
-    buildRangeSearchEntries,
-    filterRangeSearchEntries,
     getRangeEndpointLabel,
     getRangeSelectionHint,
 } from '../utils/memoryPalace/rangeSelection';
 import { trackEvent } from '../utils/analytics';
+import { saveMemoryPalaceExport } from '../utils/memoryPalace/saveExport';
 import {
     EXTERNAL_MEMORY_MAX_CHARS,
     getExternalMemoryLengthInfo,
@@ -52,15 +65,7 @@ import {
 const RANGE_PAGE_SIZE = 50;
 
 /** 手动总结面板：把毫秒时间戳格式化成「2026-03-20 14:30」 */
-const fmtRangeTs = (ts: number): string => {
-    if (!ts) return '';
-    try {
-        return new Date(ts).toLocaleString('zh-CN', {
-            year: 'numeric', month: '2-digit', day: '2-digit',
-            hour: '2-digit', minute: '2-digit',
-        });
-    } catch { return ''; }
-};
+const fmtRangeTs = formatRangeTimestamp;
 
 /** UI 内部类型：统一描述"关联"来源（EventBox 兄弟 or 旧 MemoryLink） */
 type LinkedMemoryUI = {
@@ -662,11 +667,21 @@ const MemoryWaterlineEditor: React.FC<{
 // ─── 主组件 ───────────────────────────────────────────
 
 export default function MemoryPalaceApp() {
-    const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, updateRemoteVectorConfig, addToast, apiConfig, characterGroups } = useOS();
+    const guideStep = useFirstUseGuideStep();
+    const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, updateRemoteVectorConfig, addToast, apiConfig, characterGroups, groups, realtimeConfig } = useOS();
     const char = characters.find(c => c.id === activeCharacterId);
     const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选角色页的分组筛选
 
-    const [view, setView] = useState<'picker' | 'palace' | 'room' | 'memory' | 'settings' | 'globalSettings' | 'all' | 'boxes'>('picker');
+    const [view, setView] = useState<'picker' | 'palace' | 'room' | 'memory' | 'settings' | 'globalSettings' | 'all' | 'boxes'>(() => guideStep === 1 ? 'globalSettings' : 'picker');
+    useEffect(() => {
+        const reveal = () => {
+            if (guideStep === 1) setView('globalSettings');
+            if (guideStep === 2) setView('picker');
+        };
+        reveal();
+        window.addEventListener('sully:guide-navigate', reveal);
+        return () => window.removeEventListener('sully:guide-navigate', reveal);
+    }, [guideStep]);
     const [selectedRoom, setSelectedRoom] = useState<MemoryRoom | null>(null);
     const [selectedNode, setSelectedNode] = useState<MemoryNode | null>(null);
     const [roomCounts, setRoomCounts] = useState<Record<MemoryRoom, number>>({} as any);
@@ -695,6 +710,7 @@ export default function MemoryPalaceApp() {
     const [boxNameDraft, setBoxNameDraft] = useState('');
     const [boxTagsDraft, setBoxTagsDraft] = useState('');
     const [savingBox, setSavingBox] = useState(false);
+    const [regeneratingBoxId, setRegeneratingBoxId] = useState<string | null>(null);
 
     // 迁移状态
     const [migrating, setMigrating] = useState(false);
@@ -746,6 +762,8 @@ export default function MemoryPalaceApp() {
     const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set());
 
     // 手动总结与向量化（保底机制）：圈选聊天区间 → 走一次总结，不碰水位线
+    const [showHistoryCleanup, setShowHistoryCleanup] = useState(false);
+    useEffect(() => setShowHistoryCleanup(false), [char?.id]);
     const [rangeModalOpen, setRangeModalOpen] = useState(false);
     const [rangeMessages, setRangeMessages] = useState<Message[]>([]);
     const [rangeLoading, setRangeLoading] = useState(false);
@@ -758,16 +776,31 @@ export default function MemoryPalaceApp() {
     const [rangeRunning, setRangeRunning] = useState(false);
     const [rangeProgress, setRangeProgress] = useState('');
     const [rangeResult, setRangeResult] = useState<string | null>(null);
-    // 输入优先响应；消息内容和格式化日期只在记录集变化时预计算一次。
-    const deferredRangeQuery = useDeferredValue(rangeQuery);
-    const rangeSearchEntries = useMemo(
-        () => buildRangeSearchEntries(rangeMessages, fmtRangeTs),
-        [rangeMessages],
-    );
-    const filteredRangeMessages = useMemo(
-        () => filterRangeSearchEntries(rangeSearchEntries, deferredRangeQuery),
-        [rangeSearchEntries, deferredRangeQuery],
-    );
+    const [rangeCursor, setRangeCursor] = useState<{ beforeId?: number; afterId?: number }>({});
+    const [rangeHasOlder, setRangeHasOlder] = useState(false);
+    const [rangeHasNewer, setRangeHasNewer] = useState(false);
+    useEffect(() => {
+        if (!rangeModalOpen || !char) { setRangeMessages([]); return; }
+        const controller = new AbortController();
+        setRangeLoading(true);
+        setRangePendingId(null);
+        const timer = setTimeout(() => {
+            void loadRangeMessagePage(char.id, { ...rangeCursor, query: rangeQuery, limit: RANGE_PAGE_SIZE, signal: controller.signal })
+                .then(result => {
+                    if (controller.signal.aborted) return;
+                    setRangeMessages(result.messages);
+                    setRangeHasOlder(rangeCursor.afterId !== undefined || result.hasMore);
+                    setRangeHasNewer(rangeCursor.beforeId !== undefined || (rangeCursor.afterId !== undefined && result.hasMore));
+                }).catch(error => {
+                    if (controller.signal.aborted) return;
+                    setRangeMessages([]);
+                    setRangeHasOlder(false);
+                    setRangeHasNewer(false);
+                    addToast('加载聊天记录失败：' + (error?.message || error), 'error');
+                }).finally(() => { if (!controller.signal.aborted) setRangeLoading(false); });
+        }, rangeQuery ? 250 : 0);
+        return () => { clearTimeout(timer); controller.abort(); };
+    }, [rangeModalOpen, char?.id, rangeCursor, rangeQuery]);
     // 完成后的结果弹窗（逐条列出新增记忆，和水位线总结一致）
     const [rangeResultData, setRangeResultData] = useState<import('../utils/memoryPalace/pipeline').RangeProcessResult | null>(null);
 
@@ -1246,6 +1279,73 @@ export default function MemoryPalaceApp() {
         }
     };
 
+    /**
+     * 用盒内全部 archived + live 原始节点重新生成 summary。
+     * 数据层保证 Embedding 成功后才覆盖旧正文；这里负责确认、忙碌态和刷新 UI。
+     */
+    const handleRegenerateBoxSummary = async (box: EventBox) => {
+        if (!char || regeneratingBoxId) return;
+        const lightApi = memoryPalaceConfig.lightLLM;
+        const embedding = memoryPalaceConfig.embedding;
+        if (!lightApi?.baseUrl || !lightApi.apiKey || !lightApi.model) {
+            addToast('请先在记忆宫殿设置中完整配置副 API', 'error');
+            return;
+        }
+        if (!embedding?.baseUrl || !embedding.apiKey || !embedding.model) {
+            addToast('请先在记忆宫殿设置中完整配置 Embedding API', 'error');
+            return;
+        }
+
+        const sourceCount = new Set([
+            ...box.archivedMemoryIds,
+            ...box.liveMemoryIds,
+        ]).size;
+        if (sourceCount === 0) {
+            addToast('盒内没有可用于重新整合的原始记忆', 'error');
+            return;
+        }
+        if (!window.confirm(
+            `重新整合「${box.name || '未命名事件'}」？\n\n`
+            + `副 API 会重新读取盒内全部 ${sourceCount} 条原始记忆，不使用当前整合回忆；`
+            + `随后重新生成语义向量。成功后，本次参与整合的活节点会归档（保留原文），累计归档满 12 条会封盒；失败则保持原样。`,
+        )) return;
+
+        setRegeneratingBoxId(box.id);
+        try {
+            const result = await regenerateEventBoxSummary(
+                box.id,
+                lightApi,
+                embedding,
+                char.name,
+                userProfile?.name,
+                remoteVectorConfig,
+            );
+
+            const fresh = result.box;
+            const live = (await Promise.all(
+                fresh.liveMemoryIds.map(id => MemoryNodeDB.getById(id)),
+            )).filter((node): node is MemoryNode => Boolean(node));
+            const archived = (await Promise.all(
+                fresh.archivedMemoryIds.map(id => MemoryNodeDB.getById(id)),
+            )).filter((node): node is MemoryNode => Boolean(node));
+            setBoxMembers(prev => ({
+                ...prev,
+                [fresh.id]: { summary: result.summary, live, archived },
+            }));
+
+            const boxes = await EventBoxDB.getByCharId(char.id);
+            boxes.sort((a, b) => b.updatedAt - a.updatedAt);
+            setAllBoxes(boxes);
+            setSelectedNode(prev => prev?.id === result.summary.id ? result.summary : prev);
+            await loadStats();
+            addToast(`已重新整合并归档 ${result.sourceCount} 条原始记忆，语义向量已更新`, 'success');
+        } catch (e: any) {
+            addToast(`重新整合失败：${e?.message || e}`, 'error');
+        } finally {
+            setRegeneratingBoxId(null);
+        }
+    };
+
     /** 一键移出某 box 的所有活节点（应急出口：压缩连续失败导致活池堆到几十条时用）。
      *  记忆不删，回到"地上"作为独立记忆。summary / archived 保持不动。 */
     const handleUnbindAllLive = async (box: EventBox) => {
@@ -1390,12 +1490,14 @@ export default function MemoryPalaceApp() {
 
     const handleSaveEdit = async () => {
         if (!selectedNode || !char) return;
+        const annotate = memoryPalaceConfig.relativeTimeAnnotations === true && !selectedNode.archived && !selectedNode.isBoxSummary;
         setSaving(true);
         try {
             const result = await updateStoredMemoryNode(
                 selectedNode.id,
                 {
                 content: editContent.trim(),
+                ...relativeTimeEdit(selectedNode, editContent, annotate),
                 importance: editImportance,
                 mood: editMood.trim(),
                 room: editRoom,
@@ -1461,6 +1563,17 @@ export default function MemoryPalaceApp() {
         });
         setRrSaved(true);
         setTimeout(() => setRrSaved(false), 2000);
+    };
+
+    const updateAccommodation = (key: keyof CharacterAccommodationPolicy, value: number) => {
+        if (!char) return;
+        updateCharacter(char.id, {
+            interactionAccommodation: {
+                ...DEFAULT_CHARACTER_ACCOMMODATION,
+                ...(char.interactionAccommodation || {}),
+                [key]: value,
+            },
+        });
     };
 
     const handleSaveLightApi = () => {
@@ -1762,22 +1875,9 @@ export default function MemoryPalaceApp() {
         setRangeEndId(null);
         setRangePendingId(null);
         setRangeQuery('');
-        try {
-            const { DB } = await import('../utils/db');
-            // includeProcessed=true：手动保底要能重总结早已过水位线的旧消息
-            const msgs = await DB.getMessagesByCharId(char.id, true);
-            const list = (msgs || [])
-                .filter((m: Message) => m && typeof m.content === 'string' && m.content.trim().length > 0)
-                .sort((a: Message, b: Message) => a.id - b.id);
-            setRangeMessages(list);
-            // 默认翻到最后一页（最新消息），和聊天记录翻到底部一致
-            setRangePage(Math.max(0, Math.ceil(list.length / RANGE_PAGE_SIZE) - 1));
-        } catch (e: any) {
-            addToast(`加载聊天记录失败：${e?.message || e}`, 'error');
-            setRangeMessages([]);
-        } finally {
-            setRangeLoading(false);
-        }
+        setRangeCursor({});
+        setRangePage(0);
+        setRangeMessages([]);
     };
 
     // 点选一条消息：先进入"待确认"，由用户再点[设为起点]/[设为终点]，避免误触
@@ -1957,6 +2057,12 @@ export default function MemoryPalaceApp() {
 
     /** 彻底删除一条记忆（node + vector + links + EventBox 成员引用 + 远程同步） */
     const deleteMemory = async (nodeId: string) => {
+        const node = await MemoryNodeDB.getById(nodeId);
+        if (!node) return true;
+        const character = await DB.getCharacter(node.charId);
+        const hasBackup = character?.memories?.some(memory => memory.palaceMemoryId === nodeId);
+        const choice = hasBackup ? await askLinkedArchiveDeletion() : undefined;
+        if (choice === null) return false;
         // 先从 EventBox 中移除（若属于某盒）
         try { await removeMemoryFromBox(nodeId); } catch { /* ignore */ }
         // 删关联
@@ -1974,7 +2080,8 @@ export default function MemoryPalaceApp() {
             );
         }
         // 删节点
-        await MemoryNodeDB.delete(nodeId);
+        await deleteNodeAndLinkedArchive(node, choice);
+        return true;
     };
 
     /** 批量删除选中的记忆 */
@@ -1983,7 +2090,7 @@ export default function MemoryPalaceApp() {
         setDeleting(true);
         try {
             for (const id of selectedIds) {
-                await deleteMemory(id);
+                if (!await deleteMemory(id)) break;
             }
             // 刷新房间数据
             if (selectedRoom) {
@@ -1994,6 +2101,8 @@ export default function MemoryPalaceApp() {
             setSelectedIds(new Set());
             setSelectMode(false);
             loadStats();
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '删除失败，请重试', 'error');
         } finally {
             setDeleting(false);
         }
@@ -2003,7 +2112,7 @@ export default function MemoryPalaceApp() {
     const handleDeleteSingle = async (nodeId: string) => {
         setDeleting(true);
         try {
-            await deleteMemory(nodeId);
+            if (!await deleteMemory(nodeId)) return;
             setSelectedNode(null);
             setView(prevView);
             if (prevView === 'room' && selectedRoom && char) {
@@ -2021,6 +2130,8 @@ export default function MemoryPalaceApp() {
                 setExpandedBoxId(null);
             }
             loadStats();
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '删除失败，请重试', 'error');
         } finally {
             setDeleting(false);
         }
@@ -2094,18 +2205,15 @@ export default function MemoryPalaceApp() {
             const json = JSON.stringify(data, null, 2);
             const safeName = (char.name || 'character').replace(/[\\/:*?"<>|]/g, '_');
             const fileName = `${safeName}_记忆宫殿_${new Date().toISOString().slice(0, 10)}.json`;
-            const blob = new Blob([json], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = fileName;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
+            const exportDisposition = await saveMemoryPalaceExport(json, fileName, `${char.name}的记忆宫殿`);
+            if (exportDisposition.kind === 'cancelled') {
+                setExportResult('[warn]已取消分享');
+                return;
+            }
             trackEvent('导出记忆宫殿备份');
             const vecPart = exportWithVectors ? `、${c.vectors} 条向量` : '';
-            setExportResult(`[ok]已导出 ${nodeCount} 条记忆、${c.eventBoxes} 个事件盒、${c.anticipations} 个期盼${vecPart}`);
+            const destination = exportDisposition.kind === 'shared' ? '已交给系统分享，请在所选应用中完成保存：' : '已交给浏览器下载：';
+            setExportResult(`[ok]${destination}${nodeCount} 条记忆、${c.eventBoxes} 个事件盒、${c.anticipations} 个期盼${vecPart}`);
         } catch (e: any) {
             setExportResult(`[err]导出失败：${e?.message || e}`);
         } finally {
@@ -2125,7 +2233,7 @@ export default function MemoryPalaceApp() {
             const text = await fileObj.text();
             const data = JSON.parse(text);
             if (!isMemoryPalaceExportFile(data)) {
-                setImportResult('[err]这不是 SullyOS 记忆宫殿导出文件');
+                setImportResult('[err]这不是 SullyOS·糯米机 记忆宫殿导出文件');
                 return;
             }
             const totalNodes = data.characters.reduce((s, c) => s + (c.nodes?.length || 0), 0);
@@ -2233,7 +2341,7 @@ export default function MemoryPalaceApp() {
             const allNodes = await MemoryNodeDB.getByCharId(char.id);
             const migrated = allNodes.filter(n => n.boxId?.startsWith('migrated_'));
             for (const node of migrated) {
-                await deleteMemory(node.id);
+                if (!await deleteMemory(node.id)) break;
             }
             setMigrationResult(`已清除 ${migrated.length} 条迁移数据`);
             loadStats();
@@ -2458,7 +2566,7 @@ export default function MemoryPalaceApp() {
                                                     background: '#f3f4f6',
                                                 }}
                                             >
-                                                <img src={c.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                <TokenImg value={c.avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                                 {palaceOn && (
                                                     <div
                                                         style={{
@@ -2512,7 +2620,7 @@ export default function MemoryPalaceApp() {
                                         <div style={{ height: 1, background: 'linear-gradient(90deg, transparent, #ede9fe, transparent)' }} />
 
                                         {/* 开关区 */}
-                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        <div data-guide={c.id === GUIDE_SULLY_ID ? 'sully-memory' : undefined} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                                             {/* 记忆宫殿开关 */}
                                             <div
                                                 style={{
@@ -2851,8 +2959,10 @@ export default function MemoryPalaceApp() {
     }
 
     // ─── 未启用记忆宫殿 ─────────────────────────────────
+    // 走到这里时只有全局配置页可能没有 char（上面的 picker 分支兜住了其它 view），
+    // 下面各个角色视图都带上 char 判断，免得从选人页直接进全局配置时读空角色崩掉
 
-    if (!char!.memoryPalaceEnabled && view !== 'globalSettings') {
+    if (char && !char.memoryPalaceEnabled && view !== 'globalSettings') {
         return (
             <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
                 <div
@@ -2886,7 +2996,7 @@ export default function MemoryPalaceApp() {
                                 border: '1px solid #e5e7eb', backgroundColor: '#fafafa',
                             }}
                         >
-                            <img src={c.avatar} alt="" style={{ width: 28, height: 28, borderRadius: 8, objectFit: 'cover' }} />
+                            <TokenImg value={c.avatar} alt="" style={{ width: 28, height: 28, borderRadius: 8, objectFit: 'cover' }} />
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 600 }}>{c.name}</div>
                                 <div style={{ fontSize: 10, color: '#7c3aed', display: 'inline-flex' }}>
@@ -2916,7 +3026,7 @@ export default function MemoryPalaceApp() {
         v <= 0.5 ? '偶尔会想起旧事' :
         v <= 0.8 ? '敏感，容易纠结旧事' : '执念很深，难以释怀';
 
-    if (detectingPersonality && view !== 'globalSettings') {
+    if (char && detectingPersonality && view !== 'globalSettings') {
         return (
             <div style={{ paddingLeft: 32, paddingRight: 32, paddingBottom: 32, paddingTop: SAFE_PAD_TOP, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
                 <div style={{ marginBottom: 16, color: '#7c3aed', animation: 'pulse 2s ease-in-out infinite', display: 'inline-flex' }}>
@@ -2932,7 +3042,7 @@ export default function MemoryPalaceApp() {
         );
     }
 
-    if (pendingPersonality && view !== 'globalSettings') {
+    if (char && pendingPersonality && view !== 'globalSettings') {
         return (
             <div style={{ paddingLeft: 24, paddingRight: 24, paddingBottom: 24, paddingTop: SAFE_PAD_TOP, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 300 }}>
                 <div style={{ marginBottom: 12, color: '#7c3aed', display: 'inline-flex' }}>
@@ -3042,10 +3152,12 @@ export default function MemoryPalaceApp() {
 
     if (view === 'settings' || view === 'globalSettings') {
         const isGlobal = view === 'globalSettings';
+        const guideSetup = isGlobal && guideStep === 1;
         const backTarget: 'palace' | 'picker' = isGlobal ? 'picker' : 'palace';
         const backLabel = isGlobal ? '← 返回选择角色' : '← 返回宫殿';
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div data-guide={guideSetup ? 'memory-apis' : undefined} style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: guideSetup ? 16 : SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+                {!guideSetup && <>
                 <div
                     onClick={() => setView(backTarget)}
                     style={{ fontSize: 13, color: '#6b7280', cursor: 'pointer', marginBottom: 16 }}
@@ -3065,10 +3177,23 @@ export default function MemoryPalaceApp() {
                     </div>
                 </div>
 
+                </>}
                 {/* 费用警告 */}
                 {isGlobal && (<>
 
-                <div style={{
+                {!guideSetup && <div style={{ padding: 16, marginBottom: 16, borderRadius: 12, background: '#f5f3ff' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontWeight: 600 }}>
+                        <input type="checkbox" checked={memoryPalaceConfig.relativeTimeAnnotations === true}
+                            onChange={e => updateMemoryPalaceConfig({ relativeTimeAnnotations: e.target.checked })} />
+                        相对时间补注
+                    </label>
+                    <p style={{ fontSize: 12, lineHeight: 1.7, margin: '8px 0 0', color: '#6b7280' }}>
+                        默认关闭。开启后，活节点正文和角色召回会显示“昨天〔具体日期〕”。紫色括号由系统生成，修改措辞会自动重算；直接写具体日期就不再补注。
+                        上周按参照日前七天左右标注。封盒摘要不补注；没有可靠来源日期的旧记忆不补注，可自行在原文中写明日期。关闭后隐藏全部补注，保留原文，不重新向量化。
+                    </p>
+                </div>}
+
+                {!guideSetup && <div style={{
                     padding: 14, borderRadius: 14, marginBottom: 16,
                     background: '#fef2f2', border: '2px solid #fca5a5',
                     fontSize: 12, color: '#991b1b', lineHeight: 1.7,
@@ -3083,7 +3208,7 @@ export default function MemoryPalaceApp() {
                     <span style={{ fontSize: 11, color: '#b91c1c' }}>
                         注：「导入旧记忆」是一次性大批量操作，调用次数会明显多于日常，单独见那里的提示。
                     </span>
-                </div>
+                </div>}
 
                 {/* 副 API 配置 */}
                 <div style={{ background: '#f0fdf4', borderRadius: 16, padding: 16, border: '1px solid #bbf7d0', marginBottom: 16 }}>
@@ -3095,7 +3220,8 @@ export default function MemoryPalaceApp() {
                         用于<b>记忆提取、关联分析、认知消化</b>等后台任务。此配置全局生效，所有角色共用。
                         <span style={{ color: '#9ca3af' }}>仅作用于记忆宫殿相关流程，不影响主聊天，也不影响情绪感知。</span>
                     </div>
-                    <div style={{
+                    <MainApiMemoryChoice />
+                    {!guideSetup && <div style={{
                         fontSize: 10, color: '#9a3412', background: '#fff7ed',
                         border: '1px solid #fed7aa', borderRadius: 8, padding: '6px 8px',
                         marginBottom: 12, lineHeight: 1.6,
@@ -3103,7 +3229,7 @@ export default function MemoryPalaceApp() {
                         下方<b>不填</b>（URL 留空）时，记忆宫殿会<b>自动回退用主 API</b> 跑后台处理。
                         想让后台任务走更便宜的账户 / 不想占主 API 额度，就在这里填一个便宜模型。
                         看不懂怎么选？直接挑一个<b>每百万 token 几毛钱</b>的模型即可，后台任务不需要推理能力。
-                    </div>
+                    </div>}
 
                     {/* API 连接：站点+模型选择器（写回 lightUrl/lightKey/lightModel，保存/测试逻辑不变） */}
                     <ApiConnectionPicker
@@ -3188,7 +3314,7 @@ export default function MemoryPalaceApp() {
                         </div>
                     )}
 
-                    {!hasLightApi && (
+                    {!guideSetup && !hasLightApi && (
                         <div style={{ marginTop: 8, fontSize: 11, color: '#a16207', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}>
                             <Icon name="warning" size={12} />
                             <span>副 API 未配置 — 后台处理会<b>回退使用主 API</b>（功能可用，但会占主 API 额度）</span>
@@ -3197,14 +3323,14 @@ export default function MemoryPalaceApp() {
                 </div>
 
                 {/* Embedding API */}
-                <div style={{ background: '#f8f7ff', borderRadius: 16, padding: 16, border: '1px solid #e9e5ff' }}>
+                <div data-guide="embedding" style={{ background: '#f8f7ff', borderRadius: 16, padding: 16, border: '1px solid #e9e5ff' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Icon name="link" size={14} />
                         <span>Embedding API（OpenAI 兼容格式）</span>
                     </div>
                     <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 16, lineHeight: 1.6 }}>
-                        推荐使用硅基流动（SiliconFlow），注册即送免费额度。
-                        下方选择模型后只需填入 API Key 即可。
+                        新手可使用硅基流动（SiliconFlow），请先在网页版完成实名认证才能使用。
+                        下方选择向量模型并填入 API Key 后保存。熟悉 Embedding 的用户也可配置其他兼容向量模型；不要填聊天模型。
                         <br/>
                         <span style={{ color: '#a16207', fontWeight: 600 }}>
                             注意：Embedding 用的是 <code>/embeddings</code> 端点，和主 API 不通用，因此
@@ -3385,6 +3511,7 @@ export default function MemoryPalaceApp() {
                         )}
                     </button>
 
+                    <SkipVectorMemoryChoice />
                     {testResult && (
                         <div style={{
                             marginTop: 8, fontSize: 12, padding: '8px 12px', borderRadius: 8,
@@ -3634,6 +3761,7 @@ export default function MemoryPalaceApp() {
                     </div>
                 </div>
 
+                {!guideSetup && <>
                 {/* Rerank API（可选 cross-encoder 二次排序） */}
                 <details style={{ marginTop: 16, background: '#f0f9ff', borderRadius: 16, padding: 16, border: '1px solid #bae6fd' }}>
                     <summary style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -4024,10 +4152,11 @@ create table if not exists memory_vectors (
                         </button>
                     )}
                 </details>
+                </>}
                 </>)}
 
                 {/* 人格风格 & 反刍倾向：由 LLM 自动推断，默认折叠 */}
-                {!isGlobal && (<>
+                {!isGlobal && char && (<>
                 <details style={{ marginTop: 16 }}>
                     <summary style={{ fontSize: 10, color: '#c4c4c4', cursor: 'pointer', userSelect: 'none' }}>
                         认知参数
@@ -4084,6 +4213,57 @@ create table if not exists memory_vectors (
                     </div>
                 </details>
 
+                <details style={{ marginTop: 12 }}>
+                    <summary style={{ fontSize: 10, color: '#0f766e', cursor: 'pointer', userSelect: 'none' }}>
+                        ChatApp 交流步伐
+                    </summary>
+                    <div style={{ marginTop: 8, background: '#f0fdfa', borderRadius: 12, padding: 14, border: '1px solid #99f6e4' }}>
+                        <div style={{ fontSize: 11, color: '#115e59', lineHeight: 1.65, marginBottom: 12 }}>
+                            设置这个角色愿意在多大程度上跟随用户当下的说话步伐。0% 表示该维度完全保持自己，100% 也只会在安全范围内适应，不会改写角色人格。
+                        </div>
+                        {([
+                            ['length', '回复长度'],
+                            ['rhythm', '来回节奏'],
+                            ['energy', '情绪能量'],
+                            ['punctuation', '标点力度'],
+                            ['emoji', 'Emoji 使用'],
+                        ] as Array<[keyof CharacterAccommodationPolicy, string]>).map(([key, label]) => {
+                            const value = char.interactionAccommodation?.[key]
+                                ?? DEFAULT_CHARACTER_ACCOMMODATION[key];
+                            return (
+                                <div key={key} style={{ marginBottom: key === 'emoji' ? 0 : 10 }}>
+                                    <label className={labelClass} style={{ display: 'flex', justifyContent: 'space-between' }}>
+                                        <span>{label}</span>
+                                        <span style={{ color: '#0f766e' }}>{Math.round(value * 100)}%</span>
+                                    </label>
+                                    <input
+                                        type="range"
+                                        min="0"
+                                        max="1"
+                                        step="0.05"
+                                        value={value}
+                                        onChange={event => updateAccommodation(key, parseFloat(event.target.value))}
+                                        style={{ width: '100%', accentColor: '#0f766e' }}
+                                    />
+                                </div>
+                            );
+                        })}
+                        <button
+                            onClick={() => updateCharacter(char.id, { interactionAccommodation: { ...DEFAULT_CHARACTER_ACCOMMODATION } })}
+                            style={{
+                                width: '100%', marginTop: 12, padding: '8px 0', borderRadius: 9,
+                                border: '1px solid #99f6e4', background: '#ffffff',
+                                fontSize: 11, fontWeight: 700, color: '#0f766e', cursor: 'pointer',
+                            }}
+                        >
+                            恢复温和默认值
+                        </button>
+                        <div style={{ fontSize: 10, color: '#0f766e', lineHeight: 1.55, marginTop: 10 }}>
+                            这里只影响 ChatApp 回复。角色回复不会被拿来反向训练这些数值，其他 App 的写作人格也不会变化。
+                        </div>
+                    </div>
+                </details>
+
                 {/* 手动总结与向量化（保底机制）：圈选聊天区间走一次总结，不碰水位线 */}
                 <div style={{ marginTop: 16, background: '#f5f3ff', borderRadius: 16, padding: 16, border: '1px solid #ddd6fe' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#5b21b6', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -4117,21 +4297,27 @@ create table if not exists memory_vectors (
                     </button>
                 </div>
 
+                {!isGlobal && char && <div style={{ marginTop: 16 }}>
+                    <button type="button" onClick={() => setShowHistoryCleanup(true)} className="w-full rounded-2xl border border-red-100 bg-red-50 py-3 text-sm font-bold text-red-700">清理指定范围 / 保留最近 N 条</button>
+                    <p className="mt-2 text-center text-xs text-slate-500">不需要副 API。永久删除前会有两次确认。</p>
+                    {showHistoryCleanup && <ChatHistoryCleanupModal key={char.id} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={() => {
+                        trackEvent('清空聊天记录');
+                        // 同 Chat.tsx：用户删的正是云端那份快照里存着的对话原文，不能让它
+                        // 因为「这个角色没有待触发任务」被悄悄留下。
+                        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig }, 'invalidate');
+                        setRangeModalOpen(false); setRangeMessages([]); setRangeStartId(null); setRangeEndId(null);
+                        addToast('选中的聊天原文已清理，已有记忆保留', 'success');
+                    }} />}
+                </div>}
+
                 {/* 手动总结：区间选择弹窗（浏览聊天记录 → 点选起点/终点 → 总结） */}
                 {rangeModalOpen && char && (() => {
                     const bothSet = rangeStartId != null && rangeEndId != null;
                     const hasEndpoint = rangeStartId != null || rangeEndId != null;
                     const lo = bothSet ? Math.min(rangeStartId!, rangeEndId!) : null;
                     const hi = bothSet ? Math.max(rangeStartId!, rangeEndId!) : null;
-                    const selectedCount = (lo != null && hi != null)
-                        ? rangeMessages.filter(m => m.id >= lo && m.id <= hi).length
-                        : (hasEndpoint ? 1 : 0);
-
-                    // 翻页：每页 RANGE_PAGE_SIZE 条，避免一次渲染几百条 DOM
-                    const totalPages = Math.max(1, Math.ceil(filteredRangeMessages.length / RANGE_PAGE_SIZE));
-                    const page = Math.min(Math.max(0, rangePage), totalPages - 1);
-                    const pageStart = page * RANGE_PAGE_SIZE;
-                    const shown = filteredRangeMessages.slice(pageStart, pageStart + RANGE_PAGE_SIZE);
+                    const shown = rangeMessages;
+                    const page = rangePage;
 
                     return (
                         <div
@@ -4176,7 +4362,7 @@ create table if not exists memory_vectors (
                                         </span>
                                         <input
                                             value={rangeQuery}
-                                            onChange={e => { setRangeQuery(e.target.value); setRangePage(0); }}
+                                            onChange={e => { setRangeQuery(e.target.value); setRangePage(0); setRangeCursor({}); }}
                                             placeholder="模糊搜索内容或日期（如 生日 / 2026-03）"
                                             style={{
                                                 width: '100%', padding: '8px 10px 8px 30px', borderRadius: 10,
@@ -4196,29 +4382,29 @@ create table if not exists memory_vectors (
                                     )}
                                     {!rangeLoading && shown.length === 0 && (
                                         <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 12, padding: 24 }}>
-                                            {rangeMessages.length === 0 ? '这个角色还没有聊天记录' : '没有匹配的消息'}
+                                            {rangeQuery ? '没有匹配的消息' : '没有聊天记录'}
                                         </div>
                                     )}
-                                    {!rangeLoading && filteredRangeMessages.length > RANGE_PAGE_SIZE && (
+                                    {!rangeLoading && (rangeHasOlder || rangeHasNewer) && (
                                         <div style={{
                                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                             gap: 8, padding: '6px 8px', marginBottom: 6,
                                             background: '#faf5ff', borderRadius: 8,
                                         }}>
                                             <button
-                                                onClick={() => setRangePage(p => Math.max(0, p - 1))}
-                                                disabled={page <= 0}
-                                                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid #ddd6fe', background: page <= 0 ? '#f1f5f9' : '#fff', color: page <= 0 ? '#cbd5e1' : '#7c3aed', cursor: page <= 0 ? 'not-allowed' : 'pointer' }}
+                                                onClick={() => { setRangeCursor({ beforeId: shown[0]?.id }); setRangePage(p => p + 1); }}
+                                                disabled={!rangeHasOlder}
+                                                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid #ddd6fe', background: !rangeHasOlder ? '#f1f5f9' : '#fff', color: !rangeHasOlder ? '#cbd5e1' : '#7c3aed', cursor: !rangeHasOlder ? 'not-allowed' : 'pointer' }}
                                             >
                                                 ‹ 更早
                                             </button>
                                             <span style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600 }}>
-                                                第 {page + 1} / {totalPages} 页 · 共 {filteredRangeMessages.length} 条
+                                                从最新起第 {page + 1} 页 · 本页 {shown.length} 条
                                             </span>
                                             <button
-                                                onClick={() => setRangePage(p => Math.min(totalPages - 1, p + 1))}
-                                                disabled={page >= totalPages - 1}
-                                                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid #ddd6fe', background: page >= totalPages - 1 ? '#f1f5f9' : '#fff', color: page >= totalPages - 1 ? '#cbd5e1' : '#7c3aed', cursor: page >= totalPages - 1 ? 'not-allowed' : 'pointer' }}
+                                                onClick={() => { setRangeCursor({ afterId: shown[shown.length - 1]?.id }); setRangePage(p => Math.max(0, p - 1)); }}
+                                                disabled={!rangeHasNewer}
+                                                style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 7, border: '1px solid #ddd6fe', background: !rangeHasNewer ? '#f1f5f9' : '#fff', color: !rangeHasNewer ? '#cbd5e1' : '#7c3aed', cursor: !rangeHasNewer ? 'not-allowed' : 'pointer' }}
                                             >
                                                 更新 ›
                                             </button>
@@ -4301,7 +4487,7 @@ create table if not exists memory_vectors (
                                     )}
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                                         <span style={{ fontSize: 11, color: '#64748b' }}>
-                                            {getRangeSelectionHint(rangeStartId, rangeEndId, selectedCount)}
+                                            {bothSet ? '已选区间（包含起点与终点）' : getRangeSelectionHint(rangeStartId, rangeEndId, 0)}
                                         </span>
                                         <button
                                             onClick={() => { setRangeStartId(null); setRangeEndId(null); }}
@@ -4749,13 +4935,13 @@ create table if not exists memory_vectors (
                     </label>
 
                     {exportResult && (
-                        <div style={{ fontSize: 12, marginBottom: 8, color: exportResult.startsWith('[err]') ? '#dc2626' : exportResult.startsWith('[warn]') ? '#d97706' : '#16a34a' }}>
+                        <div style={{ fontSize: 12, marginBottom: 8, overflowWrap: 'anywhere', color: exportResult.startsWith('[err]') ? '#dc2626' : exportResult.startsWith('[warn]') ? '#d97706' : '#16a34a' }}>
                             <StatusMessage msg={exportResult} />
                         </div>
                     )}
 
                     <button
-                        onClick={handleExportMemories}
+                        onClick={() => void handleExportMemories()}
                         disabled={exporting}
                         style={{
                             width: '100%', padding: '10px 0', borderRadius: 12,
@@ -4772,6 +4958,7 @@ create table if not exists memory_vectors (
                             </span>
                         )}
                     </button>
+
 
                     {/* 外部文本搬家：原文清洗后直接向量化、分房间并建链 */}
                     <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid #dbeafe' }}>
@@ -4918,7 +5105,7 @@ create table if not exists memory_vectors (
                             {importing ? '导入中…' : (
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                     <Icon name="document" size={13} />
-                                    <span>从 SullyOS JSON 导入</span>
+                                    <span>从 SullyOS·糯米机 JSON 导入</span>
                                 </span>
                             )}
                         </button>
@@ -4927,7 +5114,8 @@ create table if not exists memory_vectors (
                 </>)}
 
                 {/* 危险区：一键清空 */}
-                {isGlobal && (
+                {!guideSetup && <MemoryMaintenancePanel key={char?.id || 'global'} config={memoryPalaceConfig} update={updateMemoryPalaceConfig} char={isGlobal ? null : char} userName={userProfile.name} />}
+                {isGlobal && !guideSetup && (
                 <div style={{ marginTop: 16, background: '#fef2f2', borderRadius: 16, padding: 16, border: '2px solid #fca5a5' }}>
                     <div style={{ fontSize: 12, fontWeight: 800, color: '#991b1b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
                         <Icon name="warning" size={14} />
@@ -5000,7 +5188,7 @@ create table if not exists memory_vectors (
 
     // ─── 宫殿概览视图 ────────────────────────────────
 
-    if (view === 'palace') {
+    if (view === 'palace' && char) {
         return (
             <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
                 {/* 标题 + 返回 + 设置 */}
@@ -5035,7 +5223,7 @@ create table if not exists memory_vectors (
                         onClick={() => setShowCharPicker(!showCharPicker)}
                         style={{ fontSize: 18, fontWeight: 700, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}
                     >
-                        <img src={char!.avatar} alt="" style={{ width: 24, height: 24, borderRadius: 8, objectFit: 'cover' }} />
+                        <TokenImg value={char!.avatar} alt="" style={{ width: 24, height: 24, borderRadius: 8, objectFit: 'cover' }} />
                         {char!.name} 的记忆宫殿
                         <span style={{ fontSize: 10, color: '#9ca3af' }}>▼</span>
                     </div>
@@ -5123,7 +5311,7 @@ create table if not exists memory_vectors (
                                         backgroundColor: c.id === activeCharacterId ? '#f3f0ff' : 'transparent',
                                     }}
                                 >
-                                    <img src={c.avatar} alt="" style={{ width: 32, height: 32, borderRadius: 10, objectFit: 'cover' }} />
+                                    <TokenImg value={c.avatar} alt="" style={{ width: 32, height: 32, borderRadius: 10, objectFit: 'cover' }} />
                                     <div>
                                         <div style={{ fontSize: 13, fontWeight: 600 }}>{c.name}</div>
                                         <div style={{ fontSize: 10, color: '#9ca3af' }}>
@@ -5175,7 +5363,7 @@ create table if not exists memory_vectors (
                                 }}>
                                     <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openMemory(node, 'all')}>
                                         <div style={{ fontSize: 13, lineHeight: 1.5, color: '#1f2937' }}>
-                                            {node.content.length > 80 ? node.content.slice(0, 80) + '...' : node.content}
+                                            <MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                         </div>
                                         <div style={{ fontSize: 10, color: '#92400e', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                             <RoomIcon room={node.room} size={12} style={{ color: ROOM_COLORS[node.room] }} />
@@ -5223,7 +5411,7 @@ create table if not exists memory_vectors (
                                     }}
                                 >
                                     <div style={{ fontSize: 13, lineHeight: 1.5, color: '#1f2937' }}>
-                                        {node.content.length > 100 ? node.content.slice(0, 100) + '...' : node.content}
+                                        <MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={100} />
                                     </div>
                                     <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -5479,7 +5667,7 @@ create table if not exists memory_vectors (
 
                 {sorted.length === 0 ? (
                     <div style={{ textAlign: 'center', color: '#9ca3af', padding: 40, fontSize: 13 }}>
-                        还没有任何记忆
+                        这里还没有整理好的记忆
                     </div>
                 ) : (
                     sorted.map((node: MemoryNode) => (
@@ -5492,7 +5680,7 @@ create table if not exists memory_vectors (
                                 backgroundColor: '#fafafa',
                             }}
                         >
-                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>{node.content}</div>
+                            <div style={{ fontSize: 13, lineHeight: 1.5 }}><MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
                             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                                     <RoomIcon room={node.room} size={12} style={{ color: ROOM_COLORS[node.room] }} />
@@ -5666,6 +5854,33 @@ create table if not exists memory_vectors (
 
                                 {expanded && members && (
                                     <div style={{ padding: '0 12px 12px', borderTop: '1px solid #e0e7ff' }}>
+                                        {(members.live.length > 0 || members.archived.length > 0) && (
+                                            <div style={{
+                                                marginTop: 10, padding: '9px 10px', borderRadius: 8,
+                                                border: '1px solid #c7d2fe', background: '#eef2ff',
+                                                display: 'flex', alignItems: 'center', gap: 10,
+                                            }}>
+                                                <div style={{ flex: 1, minWidth: 0, fontSize: 10, lineHeight: 1.45, color: '#6366f1' }}>
+                                                    从全部 {members.live.length + members.archived.length} 条原始记忆重做总结，并重新生成语义向量
+                                                </div>
+                                                <button
+                                                    onClick={(e) => { e.stopPropagation(); handleRegenerateBoxSummary(box); }}
+                                                    disabled={regeneratingBoxId !== null}
+                                                    title="不使用旧整合回忆，重新读取全部归档和活节点"
+                                                    style={{
+                                                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                                                        flexShrink: 0, padding: '5px 9px', borderRadius: 7,
+                                                        border: '1px solid #a5b4fc', background: '#fff',
+                                                        color: '#4f46e5', fontSize: 10, fontWeight: 700,
+                                                        cursor: regeneratingBoxId !== null ? 'wait' : 'pointer',
+                                                        opacity: regeneratingBoxId !== null && regeneratingBoxId !== box.id ? 0.5 : 1,
+                                                    }}
+                                                >
+                                                    <Icon name="refresh" size={11} />
+                                                    <span>{regeneratingBoxId === box.id ? '重新整合中…' : '重新整合'}</span>
+                                                </button>
+                                            </div>
+                                        )}
                                         {members.summary && (
                                             <div
                                                 onClick={() => openMemory(members.summary!, 'boxes')}
@@ -5721,7 +5936,7 @@ create table if not exists memory_vectors (
                                                         }}
                                                     >
                                                         <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1f2937' }}>
-                                                            {n.content.length > 80 ? n.content.slice(0, 80) + '...' : n.content}
+                                                            <MemoryTimeText node={n} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                                         </div>
                                                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                             <RoomIcon room={n.room} size={11} style={{ color: ROOM_COLORS[n.room] }} />
@@ -5750,7 +5965,7 @@ create table if not exists memory_vectors (
                                                         }}
                                                     >
                                                         <div style={{ fontSize: 12, lineHeight: 1.5, color: '#4b5563', paddingRight: 56 }}>
-                                                            {n.content.length > 80 ? n.content.slice(0, 80) + '...' : n.content}
+                                                            <MemoryTimeText node={n} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                                         </div>
                                                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                             <RoomIcon room={n.room} size={11} style={{ color: ROOM_COLORS[n.room] }} />
@@ -5872,7 +6087,7 @@ create table if not exists memory_vectors (
                                     <Icon name={selectedIds.has(node.id) ? 'square-check' : 'square'} size={16} />
                                 </div>
                             )}
-                            <div style={{ fontSize: 13, lineHeight: 1.5 }}>{node.content}</div>
+                            <div style={{ fontSize: 13, lineHeight: 1.5 }}><MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
                             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, display: 'flex', gap: 8 }}>
                                 <span>重要性: {node.importance}</span>
                                 <span>{node.mood}</span>
@@ -5931,12 +6146,8 @@ create table if not exists memory_vectors (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                             <div>
                                 <label className={labelClass}>内容</label>
-                                <textarea
-                                    value={editContent}
-                                    onChange={e => setEditContent(e.target.value)}
-                                    className={inputClass}
-                                    style={{ minHeight: 100, resize: 'vertical', fontFamily: 'inherit' }}
-                                />
+                                <MemoryContentEditor node={selectedNode} value={editContent} onChange={setEditContent}
+                                    enabled={memoryPalaceConfig.relativeTimeAnnotations === true} className={inputClass} />
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                                 <div>
@@ -6022,7 +6233,7 @@ create table if not exists memory_vectors (
                     ) : (
                         /* ─── 查看模式 ─── */
                         <>
-                            <div style={{ fontSize: 15, lineHeight: 1.6, marginBottom: 12 }}>{selectedNode.content}</div>
+                            <div style={{ fontSize: 15, lineHeight: 1.6, marginBottom: 12 }}><MemoryTimeText node={selectedNode} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
 
                             <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.8 }}>
                                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -6109,7 +6320,7 @@ create table if not exists memory_vectors (
                                                 }}>
                                                     <div style={{ flex: 1 }}>
                                                         <div style={{ fontSize: 11, lineHeight: 1.5, color: '#1f2937' }}>
-                                                            {node.content.length > 60 ? node.content.slice(0, 60) + '...' : node.content}
+                                                            <MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={60} />
                                                         </div>
                                                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                             <RoomIcon room={node.room} size={11} style={{ color: ROOM_COLORS[node.room] }} />
@@ -6198,7 +6409,7 @@ create table if not exists memory_vectors (
                                                     <span>{relationText}</span>
                                                 </div>
                                                 <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1f2937' }}>
-                                                    {linkedNode.content.length > 80 ? linkedNode.content.slice(0, 80) + '...' : linkedNode.content}
+                                                    <MemoryTimeText node={linkedNode} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                                 </div>
                                                 <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                                     <RoomIcon room={linkedNode.room} size={11} style={{ color: ROOM_COLORS[linkedNode.room] }} />

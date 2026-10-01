@@ -33,7 +33,7 @@ AI 模式任务（自动/提示词）走「满血」链路：前端平时把带�
 READ_DIARY / FS_READ_DIARY / READ_NOTE / XHS_*）由 worker 就地执行后回填继续生成
 （默认 5 轮 / 240s，客户端全程不用在线）；副作用标签（POKE / TRANSFER / 写日记 /
 MUSIC_ACTION / XHS 互动等）结构化成 directives 挂最后一条 push 的 metadata，客户端
-收到时重放。classifier 与 instant push 共用同一份（`worker/instant-push/src/classifier.ts`）；
+收到时重放。classifier 与 instant push 共用同一份（`worker/amsg/src/classifier.ts`）；
 最终正文的分段也与 instant / 客户端气泡共用同一份（`utils/sanitize.ts` 的
 `sanitizeIntoSegments`：按换行切，`[[...]]` / `[html]` 等标签块保持原子不被句读劈碎），
 push 的 `notification.body` 带净化文本给系统横幅，`message` 保留原始标签给客户端渲染。

@@ -12,11 +12,9 @@ import type {
 } from '../types';
 import nightScreeningV627 from '../assets/presets/night-screening-v6.14.sully.json';
 import {
-    formatWorldbookSection,
-    resolveWorldbookEntries,
-    splitWorldbookSections,
     type WorldbookScanMessage,
 } from './worldbook';
+import { shareOrDownloadFile } from './shareExport';
 
 export type StoryApiRole = 'system' | 'user' | 'assistant';
 export interface StoryApiMessage { role: StoryApiRole; content: string; }
@@ -38,6 +36,25 @@ export interface StoryGenerationSettings {
     presence_penalty?: number;
     max_tokens: number;
 }
+
+/**
+ * 默认完整发送酒馆预设中的采样参数。只有用户为当前剧情显式开启兼容开关时，才省略
+ * top_p / frequency_penalty / presence_penalty；不能用少数中转的兼容问题牺牲正常预设效果。
+ */
+export const prepareStoryGenerationSettings = (
+    settings?: Partial<StoryGenerationSettings>,
+    omitSamplingParams = false,
+): Partial<StoryGenerationSettings> => {
+    if (!settings) return {};
+    if (!omitSamplingParams) return { ...settings };
+    const {
+        top_p: _topP,
+        frequency_penalty: _frequencyPenalty,
+        presence_penalty: _presencePenalty,
+        ...compatible
+    } = settings;
+    return compatible;
+};
 
 export interface StoryAffinityInput {
     characterId?: string;
@@ -171,6 +188,7 @@ export const createStoryTheaterDraft = (now: number = Date.now()): StoryTheaterE
     archives: [],
     selectedWorldbookIds: [],
     forceUserLastMessage: false,
+    omitSamplingParams: false,
     createdAt: now,
     updatedAt: now,
 });
@@ -202,6 +220,7 @@ export const normalizeStoryTheater = (entry: StoryTheaterEntry): StoryTheaterEnt
         presetId: /^builtin-night-screening-v\d/i.test(String(entry.presetId || '')) ? 'builtin-night-screening' : entry.presetId,
         presetOverride: entry.presetOverride?.schema === 'sullyos.story-preset' && Array.isArray(entry.presetOverride.prompts) ? entry.presetOverride : undefined,
         forceUserLastMessage: entry.forceUserLastMessage === true,
+        omitSamplingParams: entry.omitSamplingParams === true,
         createdAt: Number(entry.createdAt) || Date.now(),
         updatedAt: Number(entry.updatedAt) || Number(entry.createdAt) || Date.now(),
     };
@@ -278,6 +297,9 @@ const normalizeDocument = (value: any, fallbackName: string): StoryTheaterPreset
         enabled: prompt?.enabled !== false,
         role: normalizeRole(prompt?.role),
         content: String(prompt?.content || ''),
+        ...(prompt?.section?.id && ['start', 'end'].includes(prompt.section.edge) ? {
+            section: { id: String(prompt.section.id), name: String(prompt.section.name || '自定义分组'), edge: prompt.section.edge },
+        } : {}),
         ...(NATIVE_MARKERS.includes(prompt?.marker) ? { marker: prompt.marker } : {}),
     }));
     if (prompts.length === 0) throw new Error('预设中没有提示词条目');
@@ -559,6 +581,7 @@ export interface StoryPresetPromptGroup {
     startIndex: number;
     endIndex: number;
     protected: boolean;
+    customSectionId?: string;
 }
 
 const STORY_PRESET_GROUP_SPECS = [
@@ -573,7 +596,7 @@ const STORY_PRESET_GROUP_SPECS = [
     { key: 'exit', label: '出口与收尾', description: '出口检查、核心续写与定义增强', start: 'nmj-v64-section-exit-start', end: 'enhanceDefinitions' },
 ] as const;
 
-export const isStoryPresetSectionMarker = (prompt: StoryTheaterPresetPrompt): boolean => /^nmj-v6[45]-section-.+-(start|end)$/.test(prompt.id);
+export const isStoryPresetSectionMarker = (prompt: StoryTheaterPresetPrompt): boolean => Boolean(prompt.section) || /^nmj-v6[45]-section-.+-(start|end)$/.test(prompt.id);
 
 export const isProtectedStoryPrompt = (prompt: StoryTheaterPresetPrompt): boolean => Boolean(
     prompt.marker || prompt.id === 'nmj-v64-section-sources-start' || prompt.id === 'nmj-v64-section-sources-end'
@@ -587,7 +610,7 @@ export const getStoryPresetPromptGroups = (document: StoryTheaterPresetDocument)
     for (const spec of STORY_PRESET_GROUP_SPECS) {
         const startIndex = prompts.findIndex(prompt => prompt.id === spec.start);
         const endIndex = prompts.findIndex(prompt => prompt.id === spec.end);
-        if (startIndex < 0 || endIndex < startIndex) continue;
+        if (startIndex < 0 || endIndex < startIndex || claimed.has(startIndex) || claimed.has(endIndex)) continue;
         const indexes = Array.from({ length: endIndex - startIndex + 1 }, (_, offset) => startIndex + offset);
         indexes.forEach(index => claimed.add(index));
         groups.push({
@@ -599,6 +622,15 @@ export const getStoryPresetPromptGroups = (document: StoryTheaterPresetDocument)
             endIndex,
             protected: 'protected' in spec && spec.protected === true,
         });
+    }
+    for (let startIndex = 0; startIndex < prompts.length; startIndex++) {
+        const section = prompts[startIndex].section;
+        if (section?.edge !== 'start' || claimed.has(startIndex)) continue;
+        const endIndex = prompts.findIndex((prompt, index) => index > startIndex && prompt.section?.id === section.id && prompt.section.edge === 'end');
+        if (endIndex < 0 || prompts.slice(startIndex + 1, endIndex).some(prompt => prompt.section) || Array.from({ length: endIndex - startIndex + 1 }, (_, offset) => startIndex + offset).some(index => claimed.has(index))) continue;
+        const indexes = Array.from({ length: endIndex - startIndex + 1 }, (_, offset) => startIndex + offset);
+        indexes.forEach(index => claimed.add(index));
+        groups.push({ key: `section:${section.id}`, label: section.name, description: '自定义分组 · 可添加提示词、调整顺序', promptIds: indexes.map(index => prompts[index].id), startIndex, endIndex, protected: false, customSectionId: section.id });
     }
     let cursor = 0;
     while (cursor < prompts.length) {
@@ -618,6 +650,37 @@ export const getStoryPresetPromptGroups = (document: StoryTheaterPresetDocument)
         cursor += 1;
     }
     return groups.sort((a, b) => a.startIndex - b.startIndex);
+};
+
+export const addStoryPresetGroup = (document: StoryTheaterPresetDocument, name: string): StoryTheaterPresetDocument => {
+    const id = makeStoryTheaterId();
+    return { ...document, prompts: [...document.prompts, ...(['start', 'end'] as const).map(edge => ({
+        id: makeStoryTheaterId(), name: name.trim() || '自定义分组', enabled: false, role: 'system' as const, content: '',
+        section: { id, name: name.trim() || '自定义分组', edge },
+    }))] };
+};
+
+export const renameStoryPresetGroup = (document: StoryTheaterPresetDocument, sectionId: string, name: string): StoryTheaterPresetDocument => ({
+    ...document, prompts: document.prompts.map(prompt => prompt.section?.id === sectionId
+        ? { ...prompt, section: { ...prompt.section, name } } : prompt),
+});
+
+export const ungroupStoryPresetGroup = (document: StoryTheaterPresetDocument, sectionId: string): StoryTheaterPresetDocument => ({
+    ...document, prompts: document.prompts.filter(prompt => prompt.section?.id !== sectionId),
+});
+
+export const moveStoryPresetPromptToGroup = (document: StoryTheaterPresetDocument, promptId: string, groupKey: string): StoryTheaterPresetDocument => {
+    const groups = getStoryPresetPromptGroups(document);
+    const source = groups.find(group => group.promptIds.includes(promptId));
+    const target = groups.find(group => group.key === groupKey);
+    const prompt = document.prompts.find(item => item.id === promptId);
+    if (!prompt || !target || target.protected || source?.protected || source?.key === target.key || isProtectedStoryPrompt(prompt) || isStoryPresetSectionMarker(prompt)) return document;
+    const next = { ...document, prompts: document.prompts.filter(item => item.id !== promptId) };
+    const destination = getStoryPresetPromptGroups(next).find(group => group.key === groupKey);
+    if (!destination) return document;
+    const last = next.prompts[destination.endIndex];
+    next.prompts.splice(isStoryPresetSectionMarker(last) ? destination.endIndex : destination.endIndex + 1, 0, prompt);
+    return next;
 };
 
 export const applyStoryPresetChoice = (
@@ -728,6 +791,101 @@ export const appendStoryAffinityInputs = (content: string, inputs: StoryAffinity
     return `${content}\n\n<u_affinity_updates>\n${rows.join('\n')}\n</u_affinity_updates>`;
 };
 
+interface StoryAffinityScoreState {
+    cToU: number;
+    uToC: number;
+}
+
+const affinityTagValue = (source: string, tag: string): string => (
+    new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}\\s*>`, 'i').exec(source)?.[1]?.replace(/<[^>]+>/g, '').trim() || ''
+);
+
+const affinityInteger = (value: unknown, fallback: number): number => {
+    const parsed = Number(String(value ?? '').replace(/[^+\d.-]/g, ''));
+    return Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+};
+
+const clampAffinityScore = (value: number): number => Math.max(0, Math.min(100, Math.round(value)));
+const clampAffinityDelta = (value: number): number => Math.max(-100, Math.min(100, Math.round(value)));
+const affinityIdentityKey = (value: string): string => value.trim().toLocaleLowerCase().normalize('NFKC');
+
+const setAffinityTagValue = (source: string, tag: string, value: string): string => {
+    const pattern = new RegExp(`(<${tag}\\b[^>]*>)[\\s\\S]*?(<\\/${tag}\\s*>)`, 'i');
+    if (pattern.test(source)) return source.replace(pattern, `$1${value}$2`);
+    return `${source.trimEnd()}\n<${tag}>${value}</${tag}>`;
+};
+
+const readAffinityScoreStates = (
+    content: string,
+    actors: Array<{ id: string; name: string }>,
+): Map<string, StoryAffinityScoreState> => {
+    const states = new Map<string, StoryAffinityScoreState>();
+    const personPattern = /<affinity_person\b[^>]*>([\s\S]*?)<\/affinity_person\s*>/gi;
+    for (const match of content.matchAll(personPattern)) {
+        const body = match[1];
+        const state = {
+            cToU: clampAffinityScore(affinityInteger(affinityTagValue(body, 'c_to_u_score'), 50)),
+            uToC: clampAffinityScore(affinityInteger(affinityTagValue(body, 'u_to_c_score'), 50)),
+        };
+        const id = affinityIdentityKey(affinityTagValue(body, 'character_id'));
+        const name = affinityIdentityKey(affinityTagValue(body, 'character_name'));
+        if (id) states.set(`id:${id}`, state);
+        if (name) states.set(`name:${name}`, state);
+    }
+    // 兼容升级前的单角色根级面板；多人时绝不猜这一个旧槽属于谁。
+    if (states.size === 0 && actors.length === 1) {
+        const cScore = affinityTagValue(content, 'c_score');
+        const uScore = affinityTagValue(content, 'u_score');
+        if (cScore || uScore) {
+            const state = {
+                cToU: clampAffinityScore(affinityInteger(cScore, 50)),
+                uToC: clampAffinityScore(affinityInteger(uScore, 50)),
+            };
+            states.set(`id:${affinityIdentityKey(actors[0].id)}`, state);
+            states.set(`name:${affinityIdentityKey(actors[0].name)}`, state);
+        }
+    }
+    return states;
+};
+
+/**
+ * 模型只决定“本轮变化多少”，绝对值由前端按上一轮 + delta 复算。
+ * 这样 U→C 的用户输入与 C→U 的模型变化都不会再依赖 LLM 心算。
+ */
+export const reconcileStoryAffinityScores = (
+    generated: string,
+    previousAssistantContent: string,
+    inputs: StoryAffinityInput[],
+    actors: Array<{ id: string; name: string }>,
+): string => {
+    const previous = readAffinityScoreStates(previousAssistantContent, actors);
+    const actorById = new Map(actors.map(actor => [affinityIdentityKey(actor.id), actor]));
+    const actorByName = new Map(actors.map(actor => [affinityIdentityKey(actor.name), actor]));
+    const inputById = new Map(inputs.filter(input => input.characterId).map(input => [affinityIdentityKey(input.characterId || ''), input]));
+    const inputByName = new Map(inputs.filter(input => input.characterName).map(input => [affinityIdentityKey(input.characterName || ''), input]));
+    const personPattern = /(<affinity_person\b[^>]*>)([\s\S]*?)(<\/affinity_person\s*>)/gi;
+
+    return generated.replace(personPattern, (_whole, opening: string, rawBody: string, closing: string) => {
+        const rawId = affinityIdentityKey(affinityTagValue(rawBody, 'character_id'));
+        const rawName = affinityIdentityKey(affinityTagValue(rawBody, 'character_name'));
+        const actor = actorById.get(rawId) || actorByName.get(rawName);
+        const id = affinityIdentityKey(actor?.id || rawId);
+        const name = affinityIdentityKey(actor?.name || rawName);
+        const prior = previous.get(`id:${id}`) || previous.get(`name:${name}`) || { cToU: 50, uToC: 50 };
+        const input = inputById.get(id) || inputByName.get(name);
+        const cDelta = clampAffinityDelta(affinityInteger(affinityTagValue(rawBody, 'c_to_u_delta'), 0));
+        const uDelta = clampAffinityDelta(input?.delta == null ? 0 : affinityInteger(input.delta, 0));
+        const cScore = clampAffinityScore(prior.cToU + cDelta);
+        const uScore = clampAffinityScore(prior.uToC + uDelta);
+        let body = rawBody;
+        body = setAffinityTagValue(body, 'c_to_u_score', String(cScore));
+        body = setAffinityTagValue(body, 'c_to_u_delta', cDelta >= 0 ? `+${cDelta}` : String(cDelta));
+        body = setAffinityTagValue(body, 'u_to_c_score', String(uScore));
+        body = setAffinityTagValue(body, 'u_to_c_delta', uDelta >= 0 ? `+${uDelta}` : String(uDelta));
+        return `${opening}${body}${closing}`;
+    });
+};
+
 export const buildStoryMultiAffinityGuide = (characters: Array<{ id: string; name: string }>): string => {
     if (characters.length === 0) return '';
     const cast = characters.map(character => `- ${character.id}：${character.name}`).join('\n');
@@ -742,6 +900,7 @@ export const buildStoryMultiAffinityGuide = (characters: Array<{ id: string; nam
         '- C→U 与 trust、security、possessive_pull、emotional_pressure、repair_will 只读取对应角色的亲历事实、性格、处境与后果；不得用某个角色的变化影响另一位角色。',
         '- 最新 <u_affinity_updates> 只出现本轮由用户填写变化的角色。某角色没有对应更新时，其 U→C 绝对值保持不变，delta 记 +0，原因写“本轮未填写”。',
         '- U→C 新值 = 该角色上一轮 U→C + 对应 delta，并限制在 0—100。不得用某个角色的变化影响另一位角色。',
+        '- 你只需正确决定每个 delta；前端会依据上一轮绝对值复算 C→U 与 U→C score，防止心算错误。',
         '- 察觉规则只作用于同一条 u_affinity 指向的角色；其他角色不会因为同伴被选择为“已察觉”而共享透视。',
         '',
         '【输出】',
@@ -841,6 +1000,7 @@ const pushPromptMessage = (messages: StoryApiMessage[], role: StoryApiRole, cont
 export const compileStoryPreset = (input: {
     preset?: StoryTheaterPreset | null;
     slots: StoryPromptSlots;
+    historyMessages?: StoryApiMessage[];
     userName: string;
     characterNames: string[];
 }): { messages: StoryApiMessage[]; settings: StoryGenerationSettings; assistantPrefill?: StoryApiMessage } => {
@@ -875,11 +1035,15 @@ export const compileStoryPreset = (input: {
             );
             injectedMarkers.add('world_before');
         }
-        if (!prompt.enabled) continue;
+        if (!prompt.enabled || prompt.section) continue;
         let raw = prompt.content;
         if (prompt.marker) {
             if (injectedMarkers.has(prompt.marker)) continue;
             injectedMarkers.add(prompt.marker);
+            if (prompt.marker === 'history' && input.historyMessages) {
+                messages.push(...input.historyMessages);
+                continue;
+            }
             raw = slotForMarker(prompt.marker, slots);
         }
         if (!raw.trim()) continue;
@@ -980,26 +1144,6 @@ export const buildStoryWorldbookScanMessages = (
         ...(historyLimit > 0 ? history.slice(-historyLimit) : []),
         { role: 'user', content: current },
     ];
-};
-
-export const buildTheaterWorldbookSlots = (
-    books: MountedWorldbook[],
-    scanMessages: WorldbookScanMessage[],
-    userName: string,
-    characterNames: string[] = [],
-): { worldBefore: string; worldAfter: string } => {
-    const resolved = splitWorldbookSections(resolveWorldbookEntries(books, scanMessages, characterNames.join('、'), userName));
-    return {
-        worldBefore: formatWorldbookSection(resolved.beforeCharacter, '剧情沙盒世界书 · 角色设定前'),
-        worldAfter: [
-            formatWorldbookSection(resolved.afterCharacter, '剧情沙盒世界书'),
-            formatWorldbookSection(resolved.beforeExamples, '剧情沙盒世界书 · 示例前'),
-            formatWorldbookSection(resolved.afterExamples, '剧情沙盒世界书 · 示例后'),
-            formatWorldbookSection(resolved.authorsNoteTop, '剧情沙盒世界书 · 作者注释顶部'),
-            formatWorldbookSection(resolved.authorsNoteBottom, '剧情沙盒世界书 · 作者注释底部'),
-            formatWorldbookSection(resolved.atDepth, '剧情沙盒世界书 · 当前场景'),
-        ].filter(Boolean).join('\n'),
-    };
 };
 
 export const buildBareTheaterActorContext = (char: CharacterProfile): string => [
@@ -1318,14 +1462,17 @@ export const memoryTimestampForCharacter = (entry: StoryTheaterEntry, charId: st
     return storyAnchor + Math.max(0, realTimestamp - entry.createdAt);
 };
 
-export const downloadStoryPreset = (preset: StoryTheaterPreset): void => {
-    const blob = new Blob([JSON.stringify(preset.document, null, 2)], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `${preset.name || '剧情预设'}.json`;
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(url);
+export const makeStoryPresetFileName = (name: string): string => {
+    const safeName = name.replace(/[\\/:*?"<>|]/g, '_').trim().slice(0, 80) || '剧情预设';
+    return `${safeName}.json`;
 };
+
+export const downloadStoryPreset = async (preset: StoryTheaterPreset): Promise<'shared' | 'downloaded' | 'cancelled'> => (
+    shareOrDownloadFile({
+        card: { kind: 'story', title: preset.name || '剧情预设' },
+        content: JSON.stringify(preset.document, null, 2),
+        fileName: makeStoryPresetFileName(preset.name),
+        mimeType: 'application/json',
+        shareTitle: `剧情预设：${preset.name || '未命名'}`,
+    })
+);

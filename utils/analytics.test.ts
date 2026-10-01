@@ -17,6 +17,8 @@ const SCALE = {
     maxMemoryCount: 1,
     maxMessageCount: 1,
     storageBytes: 0,
+    storageQuotaBytes: 1024 * 1024 * 1024,
+    persistedStorage: false,
     standalone: false,
 };
 
@@ -76,12 +78,26 @@ function installFakeDom(
     });
 }
 
+/**
+ * 五组快照的槽位顺序，跟 analytics.ts 里的 SNAPSHOT_SLOTS 一致。
+ * 不用手动核对是否同步：那边顺序一改，「五个槽位各报各的」那条就会挂。
+ */
+const SLOT_ORDER = ['data-scale', 'appearance', 'char-settings', 'features', 'sar'] as const;
+type Slot = (typeof SLOT_ORDER)[number];
+
 /** 每个用例都要重新 import：环境变量是在模块加载那一刻读死的。 */
-async function loadModule(configured: boolean) {
+async function loadModule(configured: boolean, slot: Slot = 'data-scale') {
     vi.resetModules();
     vi.stubEnv('VITE_UMAMI_SCRIPT_URL', configured ? SCRIPT_URL : '');
     vi.stubEnv('VITE_UMAMI_WEBSITE_ID', configured ? WEBSITE_ID : '');
-    return import('./analytics');
+    // 模块加载那一刻会掷一次骰子，决定这次冷启动报五组快照里的哪一组。用例要能稳定
+    // 测到指定的那组，这里把骰子按住，import 完就松手——别影响到用例自己的代码。
+    const dice = vi.spyOn(Math, 'random').mockReturnValue(SLOT_ORDER.indexOf(slot) / SLOT_ORDER.length);
+    try {
+        return await import('./analytics');
+    } finally {
+        dice.mockRestore();
+    }
 }
 
 beforeEach(() => {
@@ -359,6 +375,16 @@ describe('规模档位', () => {
         expect(a.bucketStorageBytes(1024 * MB)).toBe('1GB+');
     });
 
+    it('存储水位的档位边界', async () => {
+        const a = await loadModule(true);
+        const GB = 1024 * 1024 * 1024;
+        expect(a.bucketStorageWatermark(0, GB)).toBe('<25%');
+        expect(a.bucketStorageWatermark(0.25 * GB, GB)).toBe('25-50%');
+        expect(a.bucketStorageWatermark(0.5 * GB, GB)).toBe('50-80%');
+        expect(a.bucketStorageWatermark(0.8 * GB, GB)).toBe('80%+');
+        expect(a.bucketStorageWatermark(GB, GB)).toBe('80%+');
+    });
+
     it('每次会话最多报一次，重复调用不再发', async () => {
         installFakeDom({ withUmami: true });
         const a = await loadModule(true);
@@ -381,13 +407,30 @@ describe('规模档位', () => {
             maxMemoryCount: 388,
             maxMessageCount: 6431,
             storageBytes: 137_428_992,
+            storageQuotaBytes: 2_147_483_648,
+            persistedStorage: true,
             standalone: true,
         });
 
         const payload = JSON.stringify(tracked[0][1]);
-        for (const raw of ['412', '388', '6431', '137428992']) {
+        for (const raw of ['412', '388', '6431', '137428992', '2147483648']) {
             expect(payload).not.toContain(raw);
         }
+    });
+
+    it('持久化许可只报「已获得 / 未获得」两个写死的值', async () => {
+        installFakeDom({ withUmami: true });
+        const a = await loadModule(true);
+        a.trackDataScaleOnce({ ...SCALE, persistedStorage: true });
+        expect((tracked[0][1] as any)['持久化许可']).toBe('已获得');
+    });
+
+    it('查不了持久化状态的浏览器，这一项缺席而不是当成「未获得」', async () => {
+        // 查不了 ≠ 没拿到。混为一谈会把 Safari 那批人全算成裸奔，结论直接反过来。
+        installFakeDom({ withUmami: true });
+        const a = await loadModule(true);
+        a.trackDataScaleOnce({ ...SCALE, persistedStorage: null });
+        expect(tracked[0][1] as any).not.toHaveProperty('持久化许可');
     });
 
     it('浏览器不给存储配额时，这一项直接缺席，不拿 0 顶上', async () => {
@@ -396,6 +439,24 @@ describe('规模档位', () => {
         a.trackDataScaleOnce({ ...SCALE, storageBytes: null });
 
         expect(Object.keys(tracked[0][1] as object)).not.toContain('本地存储占用');
+    });
+
+    it('读不到配额上限时，水位这一项缺席', async () => {
+        installFakeDom({ withUmami: true });
+        const a = await loadModule(true);
+        a.trackDataScaleOnce({ ...SCALE, storageBytes: 100, storageQuotaBytes: null });
+
+        expect(tracked[0][1] as any).not.toHaveProperty('存储水位');
+    });
+
+    it('配额报成 0 时也缺席 —— 别拿 0 去除算出一条假的「80%+」', async () => {
+        // 隐私模式下有浏览器会回 quota: 0。除零得 Infinity，落进最高档，
+        // 结论就成了「这批人全都快满了」，正好反过来。
+        installFakeDom({ withUmami: true });
+        const a = await loadModule(true);
+        a.trackDataScaleOnce({ ...SCALE, storageBytes: 100, storageQuotaBytes: 0 });
+
+        expect(tracked[0][1] as any).not.toHaveProperty('存储水位');
     });
 
     it('全屏运行只有是/否两个值', async () => {
@@ -414,6 +475,51 @@ describe('规模档位', () => {
         expect(keys).not.toContain('umami.disabled');
         // 唯一允许出现的键是开关本身（用户偏好），而且这次没动过开关，所以应该一个键都没有。
         expect(keys).toHaveLength(0);
+    });
+});
+
+/**
+ * 回归守卫：五组快照事件轮流报，一次页面加载只出一组。
+ *
+ * 外观、角色设置、功能启用是主要属性开销；SAR 发布状态参与同一次抽签，
+ * 不额外上报一条，也不扩大已有功能事件。
+ *
+ * 所以「一次只出一组」是这几条事件的成本底线，不是可有可无的优化。哪天有人为了让
+ * 交叉分析好做一点，把某一组挪出轮转变成每次都报，这里就会挂。
+ */
+describe('快照事件的槽位轮转', () => {
+    /** 五组挨个调一遍，返回实际发出去的事件名。 */
+    const fireAll = (a: Awaited<ReturnType<typeof loadModule>>) => {
+        a.trackDataScaleOnce({ ...SCALE });
+        a.trackCurrentAppearanceOnce({ 深色模式: '开' });
+        a.trackCurrentCharSettingsOnce({ 记忆宫殿: '有人开' });
+        a.trackCurrentFeaturesOnce({ 天气: '开' });
+        a.trackCurrentSARFeaturesOnce({ 自动回复: '开' });
+        return tracked.map(([name]) => name);
+    };
+
+    it('一次页面加载只报一组，另外四组静默跳过', async () => {
+        installFakeDom({ withUmami: true });
+        const a = await loadModule(true, 'appearance');
+        expect(fireAll(a)).toEqual(['当前外观']);
+    });
+
+    it('五个槽位各报各的那一条，没有哪组被永久锁死', async () => {
+        const expected = ['数据规模', '当前外观', '当前角色设置', '当前功能启用', '当前SAR与聊天输入'];
+        for (let i = 0; i < SLOT_ORDER.length; i++) {
+            installFakeDom({ withUmami: true });
+            const a = await loadModule(true, SLOT_ORDER[i]);
+            expect(fireAll(a)).toEqual([expected[i]]);
+        }
+    });
+
+    it.each(['features', 'sar'] as const)('轮到的 %s 仍然一次会话只报一次', async slot => {
+        installFakeDom({ withUmami: true });
+        const a = await loadModule(true, slot);
+        const report = slot === 'sar' ? a.trackCurrentSARFeaturesOnce : a.trackCurrentFeaturesOnce;
+        report({ 天气: '开' });
+        report({ 天气: '关' });
+        expect(tracked).toHaveLength(1);
     });
 });
 
@@ -563,7 +669,6 @@ describe('上报出口', () => {
 
         expect(() => a.trackEvent('触发翻译白屏护栏')).not.toThrow();
         expect(() => a.initAnalytics()).not.toThrow();
-        await expect(a.readStorageBytes()).resolves.toBeNull();
     });
 
     it('事件名和枚举属性原样透传', async () => {

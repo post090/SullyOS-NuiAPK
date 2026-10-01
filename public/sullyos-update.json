@@ -1,14 +1,16 @@
 {
   "schemaVersion": 1,
-  "versionCode": 30404,
-  "versionName": "3.4.4",
-  "apkUrl": "https://github.com/qegj567-cloud/SullyOS/releases/download/android-v3.4.4/SullyOS-Android-v3.4.4.apk",
-  "sha256": "acf3d7dc202a64bd6efbd617afe1e8fd597eab508746fd653e87517e33bbfd65",
-  "sizeBytes": 36822764,
-  "publishedAt": "2026-08-13T16:50:08Z",
+  "versionCode": 30506,
+  "versionName": "3.5.6",
+  "apkUrl": "https://github.com/qegj567-cloud/SullyOS/releases/download/android-v3.5.6/SullyOS-Android-v3.5.6.apk",
+  "sha256": "8d2dbc2313856c1541135a50e5b59ba291b4c363b5f0a546e764ce6afd5cfc49",
+  "sizeBytes": 50590617,
+  "publishedAt": "2026-09-28T13:39:02Z",
   "releaseNotes": [
-    "修复首次使用应用内更新时 Cache/updates 目录未创建导致的下载失败",
-    "对齐最新 master 389c8738（含 PR #577）",
-    "延续固定签名、UnifiedPush / ntfy、Android PDF 导入与更新包校验"
+    "同步最新 master 9fe99615，包含相机与查手机对话修复",
+    "优化相机贴纸拖动预览，并确保发送完整分辨率成片",
+    "兼容查手机对话中的数组和对象格式，保留相机横竖屏与权限修复",
+    "保留 UnifiedPush / ntfy、PDF 导入、Umami 和更新器防重复下载，沿用固定签名覆盖升级",
+    "本次未新增跨域处理或 ntfy 推送修复"
   ]
 }

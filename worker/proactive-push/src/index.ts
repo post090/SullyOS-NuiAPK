@@ -22,7 +22,7 @@ interface Env {
   HEARTBEAT_WINDOW_MS: string;
 }
 
-// 最小 Worker 运行时类型（跟 post-office / instant-push 一样，只声明本文件真正用到的
+// 最小 Worker 运行时类型（跟 post-office 一样，只声明本文件真正用到的
 // 那几个成员，不引 @cloudflare/workers-types）。
 interface D1Database {
   prepare(query: string): D1PreparedStatement;

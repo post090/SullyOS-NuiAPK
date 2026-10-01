@@ -16,6 +16,9 @@
 import { MemoryNodeDB, AnticipationDB, EventBoxDB, MemoryVectorDB, RoomPlateDB, plateId } from './db';
 import type { MemoryNode, Anticipation, EventBox, MemoryVector, RoomPlate, PlateRoom } from './types';
 import { getRoomLabel, PLATE_ROOMS, PLATE_ENTRY_CAPS } from './types';
+import { memoryContentWithDates, relativeTimeEnabled } from './relativeTime';
+
+type ReadableExportNode = MemoryNode & { relativeTimeExport?: { version: 1; originalContent: string } };
 
 /** 导出时随向量一起带上的元信息（便于接入方判断能否复用） */
 export interface ExportedVector {
@@ -92,7 +95,13 @@ async function collectCharacter(
     }
 
     // 给每条记忆补一个人类可读的房间名，外置库无需自己映射枚举
-    const enrichedNodes = nodes.map(n => ({ ...n, roomLabel: getRoomLabel(n.room) }));
+    const annotate = relativeTimeEnabled();
+    const enrichedNodes = nodes.map(n => {
+        const content = memoryContentWithDates(n, annotate);
+        return { ...n, content, roomLabel: getRoomLabel(n.room),
+            ...(content !== n.content ? { relativeTimeExport: { version: 1, originalContent: n.content } } : {}),
+        };
+    });
     return {
         charId,
         charName,
@@ -129,7 +138,8 @@ export async function exportMemoryPalace(
         exportedAt: now,
         exportedAtISO: new Date(now).toISOString(),
         includeVectors,
-        note: includeVectors ? NOTE_WITH_VECTORS : NOTE_NO_VECTORS,
+        note: (includeVectors ? NOTE_WITH_VECTORS : NOTE_NO_VECTORS) + (relativeTimeEnabled()
+            ? '相对时间补注已开启：content 包含可读日期；relativeTimeExport.originalContent 保留原文，向量对应原文。重新导入时恢复原文和日期来源，避免重复补注。' : ''),
         characters,
     };
 }
@@ -179,7 +189,7 @@ export async function importMemoryPalace(
     targetCharId: string,
 ): Promise<ImportResult> {
     if (!isMemoryPalaceExportFile(file)) {
-        throw new Error('文件格式不对：不是 SullyOS 记忆宫殿导出文件');
+        throw new Error('文件格式不对：不是 SullyOS·糯米机 记忆宫殿导出文件');
     }
 
     // 跨全部角色收集老 ID → 新 ID 映射（节点 / 事件盒）
@@ -212,9 +222,21 @@ export async function importMemoryPalace(
         // 节点
         for (const n of c.nodes || []) {
             const newId = nodeIdMap.get(n.id)!;
-            const hasVector = vectorByOldId.has(n.id);
+            let hasVector = vectorByOldId.has(n.id);
             // 去掉导出时附加的 roomLabel 字段，只保留 MemoryNode 自身的字段
-            const { roomLabel, ...rest } = n as MemoryNode & { roomLabel?: string };
+            const { roomLabel, relativeTimeExport, ...rest } = n as ReadableExportNode & { roomLabel?: string };
+            if (relativeTimeExport) {
+                const original = relativeTimeExport.originalContent;
+                if (relativeTimeExport.version === 1 && typeof original === 'string'
+                    && memoryContentWithDates({ ...rest, content: original }, true) === n.content) {
+                    rest.content = original;
+                } else {
+                    // The exported readable text was edited: preserve it, never silently replace it or reuse stale vectors.
+                    delete rest.relativeTimeAnchor;
+                    vectorByOldId.delete(n.id);
+                    hasVector = false;
+                }
+            }
             nodesToSave.push({
                 ...rest,
                 id: newId,

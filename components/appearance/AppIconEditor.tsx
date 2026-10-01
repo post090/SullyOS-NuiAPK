@@ -7,7 +7,7 @@ import { useOS } from '../../context/OSContext';
 import { processImageToBlob } from '../../utils/file';
 import { putImageBlob, useBlobRefUrl } from '../../utils/blobRef';
 import { isStandaloneDisplayMode } from '../../utils/iosStandalone';
-import { injectPwaIcon, clearPwaIcon, PWA_ICON_APP_ID } from '../../utils/appIcon';
+import { injectPwaIcon, clearPwaIcon, PWA_ICON_APP_ID, PWA_CLASSIC_ICON_VALUE, PWA_DEFAULT_ICON_URL, PWA_CLASSIC_ICON_URL } from '../../utils/appIcon';
 
 type Mode = 'upload' | 'url';
 
@@ -22,7 +22,8 @@ const AppIconEditor: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isStandalone = isStandaloneDisplayMode();
-  const previewUrl = useBlobRefUrl(currentValue);
+  const customPreviewUrl = useBlobRefUrl(currentValue === PWA_CLASSIC_ICON_VALUE ? undefined : currentValue);
+  const previewUrl = currentValue === PWA_CLASSIC_ICON_VALUE ? PWA_CLASSIC_ICON_URL : customPreviewUrl || PWA_DEFAULT_ICON_URL;
 
   // ── 保存 ───────────────────────────────────────────────────
 
@@ -101,6 +102,16 @@ const AppIconEditor: React.FC = () => {
     addToast('PWA 图标已恢复默认', 'info');
   }, [setCustomIcon, addToast]);
 
+  const chooseBuiltin = async (classic: boolean) => {
+    if (processing) return;
+    setProcessing(true);
+    try {
+      if (classic) await saveIcon(PWA_CLASSIC_ICON_VALUE);
+      else await handleReset();
+    } catch { addToast('图标保存失败，请重试', 'error'); }
+    finally { setProcessing(false); }
+  };
+
   // ── 渲染 ───────────────────────────────────────────────────
 
   return (
@@ -111,6 +122,17 @@ const AppIconEditor: React.FC = () => {
           <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" />
         </svg>
         <span className="text-sm font-medium text-slate-700">PWA 应用图标</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3" role="group" aria-label="内置 PWA 图标">
+        {[{ classic: false, name: '水母', image: PWA_DEFAULT_ICON_URL }, { classic: true, name: '经典', image: PWA_CLASSIC_ICON_URL }].map(option => {
+          const selected = option.classic ? currentValue === PWA_CLASSIC_ICON_VALUE : !currentValue;
+          return <button key={option.name} type="button" disabled={processing} aria-pressed={selected}
+            onClick={()=>void chooseBuiltin(option.classic)} className={`flex flex-col items-center gap-2 p-3 rounded-2xl border transition-colors disabled:opacity-50 ${selected ? 'border-primary bg-primary/5' : 'border-slate-200'}`}>
+            <img src={option.image} alt="" className="w-20 h-20 rounded-2xl"/>
+            <span className="text-xs text-slate-700">{option.name}{selected ? ' · 已选' : ''}</span>
+          </button>;
+        })}
       </div>
 
       {/* 当前图标预览 */}
@@ -128,7 +150,7 @@ const AppIconEditor: React.FC = () => {
         </div>
         <div className="min-w-0">
           <div className="text-xs text-slate-500">
-            {currentValue ? '已设置自定义图标' : '使用默认图标'}
+            {currentValue === PWA_CLASSIC_ICON_VALUE ? '经典图标' : currentValue ? '已设置自定义图标' : '水母图标 · 默认'}
           </div>
           {currentValue && (
             <button
@@ -218,28 +240,26 @@ const AppIconEditor: React.FC = () => {
 
       {/* 环境感知提示 */}
       {isStandalone ? (
-        <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4 space-y-2">
-          <div className="text-sm font-bold text-red-600 text-center">
-            ⚠️ 删掉重装会丢数据 ⚠️
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-2">
+          <div className="text-sm font-bold text-slate-700">
+            主屏图标更新说明
           </div>
-          <div className="text-xs text-red-500 leading-relaxed space-y-1.5">
+          <div className="text-xs text-slate-500 leading-relaxed space-y-1.5">
             <p>
-              主屏图标只在「添加到主屏幕」那一刻读取一次，装完之后改不了。
-              要看到新图标，<strong>只能删掉 App 重新「添加到主屏幕」</strong>。
+              <strong>功能更新不需要重装。</strong>安卓 Chrome 安装的 PWA 默认图标通常会自动更新，但可能延迟；iPhone / iPad 主屏图标通常需重新添加。自定义上传或切换图标不保证同步到已安装的 App。
+            </p>
+            <p className="text-slate-600 font-medium">
+              卸载或重新添加可能影响本地数据，尤其是 iOS 的独立存储。不要为换图标直接删 App。
             </p>
             <p className="text-red-600 font-bold">
-              注意：装成 App 的 SullyOS，数据是单独的一份——跟浏览器里打开的不通，跟别的 PWA 也互相隔离。删掉 App，这一份数据就跟着没了。
-            </p>
-            <p className="text-red-600 font-bold">
-              删之前一定要先备份：设置 → 备份 → 导出，重装完再导入。
+              如需重新添加，请先到设置导出完整备份，确认文件已保存，再操作并导入。
             </p>
           </div>
         </div>
       ) : (
         <div className="rounded-xl bg-blue-50 border border-blue-200 p-3">
           <div className="text-xs text-blue-600 leading-relaxed">
-            ✨ 标签页图标已更新。下次「添加到主屏幕」时就会用新图标啦～
-            已经装好的 App 不受影响。
+            这里的选择会用于标签页及下次「添加到主屏幕」。已安装图标能否同步取决于系统；功能更新不需要重装。
           </div>
         </div>
       )}

@@ -2,9 +2,11 @@
 import React, { useRef, useState } from 'react';
 import { useOS } from '../context/OSContext';
 import { processImage } from '../utils/file';
+import { migrateDataUrlToRef } from '../utils/blobRef';
 import LifeRecordPanel from '../components/lifeRecord/LifeRecordPanel';
 import PerCharAvatarPicker from '../components/user/PerCharAvatarPicker';
 import { COMMON_TIMEZONES } from '../utils/timezone';
+import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 
 const UserApp: React.FC = () => {
@@ -17,7 +19,9 @@ const UserApp: React.FC = () => {
         if (file) {
             try {
                 const base64 = await processImage(file);
-                updateUserProfile({ avatar: base64 });
+                // 头像存令牌，二进制单独躺在 blob_assets 里（省掉 base64 那 ~33% 的膨胀）。
+                // 同一张图之前存过就复用它的令牌；转不动时原样还回这条 data URL，图不会丢。
+                updateUserProfile({ avatar: await migrateDataUrlToRef(base64) });
                 addToast('头像已更新', 'success');
             } catch (err: any) {
                 addToast(err.message, 'error');
@@ -37,6 +41,7 @@ const UserApp: React.FC = () => {
                     </button>
                     <h1 className="text-lg font-bold text-slate-700 tracking-wide">个人档案</h1>
                 </div>
+                <p className="px-4 pb-2 text-[10px] leading-relaxed text-slate-400">生理期、药盒、记账与锻炼，也可以让角色帮你记。</p>
                 {/* Tab：我的档案 / 生活记录 */}
                 <div className="flex gap-1.5 px-4 pb-2.5">
                     {([['profile', '我的档案'], ['life', '生活记录']] as const).map(([key, label]) => (
@@ -73,7 +78,7 @@ const UserApp: React.FC = () => {
                             className="relative w-24 h-24 rounded-full cursor-pointer group mx-auto"
                         >
                             <div className="w-full h-full rounded-full ring-4 ring-white bg-slate-100 overflow-hidden shadow-md">
-                                <img src={userProfile.avatar} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
+                                <TokenImg value={userProfile.avatar} className="w-full h-full object-cover group-hover:opacity-80 transition-opacity" />
                             </div>
                             {/* camera badge */}
                             <div className="absolute bottom-0.5 right-0.5 w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center ring-2 ring-white shadow-sm">

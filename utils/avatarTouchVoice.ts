@@ -4,9 +4,14 @@ import type {
   CompanionStartupSettings,
   CompanionTouchReaction,
 } from '../types';
-import { DB } from './db';
 import { synthesizeSpeechDetailed } from './ttsRouter';
 import type { AvatarTouchReactionPack, AvatarTouchZone } from './avatarTouch';
+import {
+  deleteCompanionVoiceBlob,
+  getCompanionVoiceBlob,
+  makeCompanionVoiceAssetId,
+  saveCompanionVoiceBlob,
+} from './companionVoiceAssets';
 
 export interface AvatarTouchVoiceGenerationResult {
   reactions: AvatarTouchReactionPack;
@@ -16,14 +21,6 @@ export interface AvatarTouchVoiceGenerationResult {
 }
 
 const VOICE_CONCURRENCY = 2;
-
-const voiceAssetId = (characterId: string, zone: AvatarTouchZone, index: number): string => (
-  `companion-touch-voice:${encodeURIComponent(characterId)}:${zone}:${index}`
-);
-
-const startupVoiceAssetId = (characterId: string): string => (
-  `companion-startup-voice:${encodeURIComponent(characterId)}`
-);
 
 export const generateCompanionStartupVoice = async (options: {
   text: string;
@@ -42,8 +39,9 @@ export const generateCompanionStartupVoice = async (options: {
     );
     playableUrl = result.url;
     if (!result.blob) throw new Error('语音服务未返回可持久保存的音频');
-    const assetId = startupVoiceAssetId(options.character.id);
-    await DB.putBlobAsset(assetId, result.blob);
+    // 每次生成独占一个资产 ID；否则新语音会覆盖旧预设正在引用的 Blob。
+    const assetId = makeCompanionVoiceAssetId('startup', options.character.id);
+    await saveCompanionVoiceBlob(assetId, result.blob);
     return {
       voiceAssetId: assetId,
       voiceMimeType: result.blob.type || 'audio/mpeg',
@@ -73,7 +71,7 @@ export const cleanupAvatarTouchVoiceAssets = async (
   keepIds: Set<string> = new Set(),
 ): Promise<void> => {
   const staleIds = [...collectAvatarTouchVoiceAssetIds(previous)].filter(id => !keepIds.has(id));
-  await Promise.all(staleIds.map(id => DB.deleteBlobAsset(id).catch(error => {
+  await Promise.all(staleIds.map(id => deleteCompanionVoiceBlob(id).catch(error => {
     console.warn('[companion] stale touch voice cleanup skipped:', error);
   })));
 };
@@ -86,6 +84,7 @@ export const generateAvatarTouchVoicePack = async (options: {
   onProgress?: (completed: number, total: number) => void;
 }): Promise<AvatarTouchVoiceGenerationResult> => {
   const cloned: AvatarTouchReactionPack = {};
+  const packAssetId = makeCompanionVoiceAssetId('touch', options.character.id);
   const tasks: Array<{
     zone: AvatarTouchZone;
     index: number;
@@ -120,8 +119,8 @@ export const generateAvatarTouchVoicePack = async (options: {
         );
         playableUrl = result.url;
         if (!result.blob) throw new Error('语音服务未返回可持久保存的音频');
-        const assetId = voiceAssetId(options.character.id, task.zone, task.index);
-        await DB.putBlobAsset(assetId, result.blob);
+        const assetId = `${packAssetId}:${task.zone}:${task.index}`;
+        await saveCompanionVoiceBlob(assetId, result.blob);
         task.reaction.voiceAssetId = assetId;
         task.reaction.voiceMimeType = result.blob.type || 'audio/mpeg';
         task.reaction.voiceText = spokenText;
@@ -162,6 +161,6 @@ export const createAvatarTouchVoiceUrl = async (
   reaction: Pick<CompanionTouchReaction, 'voiceAssetId'>,
 ): Promise<string | null> => {
   if (!reaction.voiceAssetId) return null;
-  const blob = await DB.getBlobAsset(reaction.voiceAssetId);
+  const blob = await getCompanionVoiceBlob(reaction.voiceAssetId);
   return blob ? URL.createObjectURL(blob) : null;
 };

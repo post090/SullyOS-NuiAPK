@@ -27,13 +27,32 @@ import { EventBoxDB, MemoryNodeDB } from './db';
 import type { LightLLMConfig } from './pipeline';
 import { vectorizeAndStore } from './vectorStore';
 import { bulkSetArchived } from './supabaseVector';
-import { safeFetchJson, extractJson } from '../safeApi';
+import { safeFetchJson, extractContent, extractJson } from '../safeApi';
 import { enforceSummaryLengthBudget } from './summaryLengthBudget';
+import { buildSARMemoryBoundaryInstruction } from '../messageFormat';
 
 const VALID_ROOMS: MemoryRoom[] = [
     'living_room', 'bedroom', 'study', 'user_room',
     'self_room', 'attic', 'windowsill',
 ];
+
+// Automatic compression and manual regeneration must never publish over each other.
+const compressingBoxes = new Set<string>();
+async function withEventBoxCompressionLock<T>(boxId: string, work: () => Promise<T>): Promise<T> {
+    const busy = () => new Error('这个事件盒正在整合，请等待本次完成后再试');
+    if (compressingBoxes.has(boxId)) throw busy();
+    compressingBoxes.add(boxId);
+    try {
+        // Web Locks also coordinate other tabs. The Set covers runtimes without Web Locks.
+        if (typeof navigator !== 'undefined' && navigator.locks?.request) {
+            return await navigator.locks.request(`sullyos:event-box-compression:${boxId}`, { ifAvailable: true }, lock => {
+                if (!lock) throw busy();
+                return work();
+            });
+        }
+        return await work();
+    } finally { compressingBoxes.delete(boxId); }
+}
 
 function generateNodeId(): string {
     return `mn_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
@@ -55,6 +74,29 @@ interface CompressionLLMResult {
     room: MemoryRoom;
     importance: number;
     mood: string;
+}
+
+/**
+ * 检测模型把“怎么算字数 / 怎么压缩”的过程误塞进整合回忆正文。
+ *
+ * 只凭一个英文短语就拒绝会误伤真实对话，所以要求至少命中两种典型信号；
+ * 显式 think 标签则可以直接判定。这个守卫主要兜 Gemini/推理中转把未标记
+ * reasoning 混进 content 的情况，例如：Paragraph 1: 31 chars / Still too long。
+ */
+export function hasSummaryReasoningLeak(content: string): boolean {
+    const text = content.trim();
+    if (!text) return false;
+    if (/<(?:think|thinking|thought)>/i.test(text)) return true;
+
+    const signals = [
+        /\bparagraph\s*\d+\s*:\s*\d+\s*(?:chars?|characters?)\b/i,
+        /\btotal\s*:\s*[\d\s+]+\s*(?:chars?|characters?)\b/i,
+        /\bstill\s+too\s+long\b/i,
+        /\bneed\s+to\s+get\s+under\s+\d+\b/i,
+        /\blet(?:'|’)s\s+(?:count|condense|compress|shorten)\b/i,
+        /(?:^|\n)\s*(?:analysis|reasoning)\s*:/i,
+    ];
+    return signals.reduce((count, pattern) => count + (pattern.test(text) ? 1 : 0), 0) >= 2;
 }
 
 /**
@@ -142,6 +184,7 @@ async function callCompressionLLM(
     const oldSummaryBlock = oldSummaryContent
         ? `\n## 你之前已经回忆过这件事一次，那时记下的是：\n${oldSummaryContent}\n\n后来又新增了下面这些：\n`
         : `\n## 关于这件事的零散记忆碎片：\n`;
+    const sarMemoryBoundary = buildSARMemoryBoundaryInstruction(`${oldSummaryContent || ''}\n${livesText}`);
 
     const systemPrompt = `你是 ${charName}。下面这些记忆都属于一件事：「${box.name}」。
 请把它们整合成一段连贯的、第一人称（「我」）的回忆。
@@ -154,6 +197,7 @@ async function callCompressionLLM(
 5. **连贯但简洁**：不套「起因/经过/结果」模板，但要让读者能按顺序看懂事情怎么发展的。
 6. **覆盖所有关键词**（这是给向量检索用的）—— 每条新增的旧记忆里出现过的具体名词、地点、人物必须在 content 里出现一次。
 7. **content 字符串内严禁使用半角双引号 \`"\`**。要引用人物原话、书名、外号、术语，一律用中文方角引号「」、《》或单引号 \`'\`。否则会破坏外层 JSON 解析、整批记忆白丢。
+${sarMemoryBoundary ? `\n${sarMemoryBoundary}` : ''}
 
 附带输出 metadata：
 - name：5-12 字的精炼盒名
@@ -197,7 +241,9 @@ async function callCompressionLLM(
             2, 120_000, { appName: '记忆宫殿', purpose: '事件压缩' }
         );
 
-        const reply = data.choices?.[0]?.message?.content || '';
+        // 统一剥除 <think> 块并兼容分段 content / reasoning-only 中转。
+        // 未标记的推理泄漏由 hasSummaryReasoningLeak 在手动重整路径继续拦截。
+        const reply = extractContent(data);
         let parsed: any = extractJson(reply);
         const parseFailed = !parsed || typeof parsed !== 'object';
         const contentMissing = !parseFailed && (!parsed.content || typeof parsed.content !== 'string');
@@ -227,6 +273,13 @@ async function callCompressionLLM(
                 (t) => recompressSummary(t, EVENT_BOX_SUMMARY_TARGET_MAX_CHARS, llmConfig, charName),
                 EVENT_BOX_SUMMARY_HARD_MAX_CHARS,
             );
+        }
+        // 这种输出即使 JSON 合法、长度也没过硬上限，语义上仍不是回忆正文。
+        // 自动压缩同样拒绝，避免以后继续产出截图里的污染 summary；活节点会保留，
+        // 下次触发仍可重试。手动重新整合的外层还会立即再试一次。
+        if (hasSummaryReasoningLeak(content)) {
+            console.error(`🧹 [Compression] 检测到整合回忆混入字数计算/推理过程，已拒绝保存`);
+            return null;
         }
         return {
             content,
@@ -350,15 +403,10 @@ async function compressEventBox(
         summaryNode = createSummaryNode(box, result, now);
         box.summaryNodeId = summaryNode.id;
     }
-    await MemoryNodeDB.save(summaryNode);
-
-    // 5. 向量化 summary（跳过去重，因为内容必然和 live 节点重叠）
+    // 先生成向量再保存新摘要；限流/失败时保留旧摘要和全部活节点。
     const remoteCfg = getRemoteVectorConfig();
-    try {
-        await vectorizeAndStore([summaryNode], embeddingConfig, remoteCfg, { skipDedup: true });
-    } catch (e: any) {
-        console.warn(`🗜️ [Compression] summary 向量化失败（继续后续步骤）: ${e?.message}`);
-    }
+    const vectorized = await vectorizeAndStore([summaryNode], embeddingConfig, remoteCfg, { skipDedup: true });
+    if (vectorized.stored !== 1) throw new Error('摘要向量化未完成，事件盒仍保留原始记忆');
 
     // 6. 标记活节点 archived（本地）
     const liveIds = box.liveMemoryIds.slice();
@@ -400,7 +448,7 @@ async function compressEventBox(
     //    封盒的沉淀物就是语义事实——这是"情景→语义"固化的即时触发点。
     try {
         const { isPlateRoom, updatePlateFromBoxSummary } = await import('./roomPlates');
-        if (isPlateRoom(summaryNode.room)) {
+        if (!llmConfig.deferPlateMaintenance && isPlateRoom(summaryNode.room)) {
             await updatePlateFromBoxSummary(
                 box.charId, summaryNode.room, summaryNode.content,
                 llmConfig, charName, userName,
@@ -433,6 +481,152 @@ function createSummaryNode(box: EventBox, result: CompressionLLMResult, now: num
     };
 }
 
+export interface RegenerateEventBoxSummaryResult {
+    box: EventBox;
+    summary: MemoryNode;
+    sourceCount: number;
+}
+
+/**
+ * 手动“重新整合全部回忆”。
+ *
+ * 与自动增量压缩刻意不同：
+ * - 原料始终是 archived + live 的全部成员，不使用旧 summary，避免坏总结自我复制；
+ * - 成功后归档本次参与的原始节点，新增归档记一次压缩，达到阈值封盒；
+ * - 新总结必须先成功生成 Embedding，才会覆盖旧 summary 节点；
+ * - 已封盒同样允许执行。
+ */
+export async function regenerateEventBoxSummary(
+    boxId: string,
+    llmConfig: LightLLMConfig,
+    embeddingConfig: EmbeddingConfig,
+    charName: string,
+    userName?: string,
+    remoteVectorConfig?: RemoteVectorConfig,
+): Promise<RegenerateEventBoxSummaryResult> {
+    return withEventBoxCompressionLock(boxId, () => regenerateEventBoxSummaryUnlocked(
+        boxId, llmConfig, embeddingConfig, charName, userName, remoteVectorConfig,
+    ));
+}
+
+async function regenerateEventBoxSummaryUnlocked(
+    boxId: string,
+    llmConfig: LightLLMConfig,
+    embeddingConfig: EmbeddingConfig,
+    charName: string,
+    userName?: string,
+    remoteVectorConfig?: RemoteVectorConfig,
+): Promise<RegenerateEventBoxSummaryResult> {
+    const box = await EventBoxDB.getById(boxId);
+    if (!box) throw new Error('这个事件盒已经不存在了');
+
+    const sourceIds = [...new Set([
+        ...box.archivedMemoryIds,
+        ...box.liveMemoryIds,
+    ])].filter(id => id !== box.summaryNodeId);
+    const loaded = await Promise.all(sourceIds.map(id => MemoryNodeDB.getById(id)));
+    const sourceNodes = loaded
+        .filter((node): node is MemoryNode => Boolean(
+            node
+            && node.charId === box.charId
+            && (!node.eventBoxId || node.eventBoxId === box.id)
+            && node.id !== box.summaryNodeId
+            && !node.isBoxSummary,
+        ))
+        .sort((a, b) => a.createdAt - b.createdAt);
+    if (sourceNodes.length === 0) throw new Error('盒内没有可用于重新整合的原始记忆');
+
+    // 输出结构失败或出现典型推理泄漏时自动重试一次。两次都失败则保持旧总结不动。
+    let result: CompressionLLMResult | null = null;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+        const candidate = await callCompressionLLM(
+            box,
+            null, // 关键：绝不把旧 summary 当原料
+            sourceNodes,
+            llmConfig,
+            charName,
+            userName,
+        );
+        if (candidate && !hasSummaryReasoningLeak(candidate.content)) {
+            result = candidate;
+            break;
+        }
+        if (candidate) {
+            console.error(`🧹 [Compression] ${box.id} 第 ${attempt} 次重新整合混入推理过程，已拒绝保存`);
+        }
+    }
+    if (!result) {
+        throw new Error('副 API 两次都没有返回干净的整合回忆，原内容已保留');
+    }
+
+    const now = Date.now();
+    const existing = box.summaryNodeId
+        ? await MemoryNodeDB.getById(box.summaryNodeId)
+        : undefined;
+    const summaryNode: MemoryNode = existing
+        ? {
+            ...existing,
+            content: result.content,
+            room: result.room,
+            importance: result.importance,
+            mood: result.mood,
+            tags: result.tags,
+            lastAccessedAt: now,
+            embedded: false,
+            eventBoxId: box.id,
+            isBoxSummary: true,
+            archived: false,
+            origin: 'system',
+        }
+        : createSummaryNode(box, result, now);
+
+    // Embedding 成功后，在同一事务写总结、向量、归档标记和成员列表。
+    // 不预存 summaryNode，任何一步失败都保留原内容。
+    const remoteCfg = remoteVectorConfig?.enabled && remoteVectorConfig.initialized
+        ? remoteVectorConfig
+        : getRemoteVectorConfig();
+    let committed: { box: EventBox; archived: MemoryNode[] } | undefined;
+    const vectorized = await vectorizeAndStore(
+        [summaryNode],
+        embeddingConfig,
+        remoteCfg,
+        { skipDedup: true, commit: async entries => {
+            if (entries.length !== 1) throw new Error('整合回忆向量不完整，原内容已保留');
+            committed = await EventBoxDB.commitRegeneration(box, sourceNodes, entries[0], result.name, now);
+        } },
+    );
+    if (vectorized.stored !== 1 || !committed) {
+        throw new Error('整合回忆已生成，但语义向量没有成功写入，原内容已保留');
+    }
+
+    const freshBox = committed.box;
+    if (remoteCfg) await bulkSetArchived(remoteCfg, committed.archived.map(node => node.id), true).catch(() => {});
+
+    // 与自动压缩保持一致：若总结属于门牌房间，让新的干净结论继续沉淀。
+    // 门牌失败不影响已经成功落库的总结与向量。
+    try {
+        const { isPlateRoom, updatePlateFromBoxSummary } = await import('./roomPlates');
+        if (isPlateRoom(summaryNode.room)) {
+            await updatePlateFromBoxSummary(
+                freshBox.charId,
+                summaryNode.room,
+                summaryNode.content,
+                llmConfig,
+                charName,
+                userName,
+            );
+        }
+    } catch (e: any) {
+        console.warn(`🚪 [Compression] 重新整合后的门牌同步失败（总结与向量已生效）: ${e?.message || e}`);
+    }
+
+    return {
+        box: freshBox,
+        summary: { ...summaryNode, embedded: true },
+        sourceCount: sourceNodes.length,
+    };
+}
+
 // ─── 公共 API：扫描 + 触发压缩 ──────────────────────────
 
 /**
@@ -450,14 +644,12 @@ export async function maybeCompressEventBoxes(
     let skipped = 0;
 
     for (const id of boxIds) {
-        const box = await EventBoxDB.getById(id);
-        if (!box) { skipped++; continue; }
-        if (box.liveMemoryIds.length < EVENT_BOX_COMPRESSION_THRESHOLD) {
-            skipped++;
-            continue;
-        }
         try {
-            const ok = await compressEventBox(box, llmConfig, embeddingConfig, charName, userName);
+            const ok = await withEventBoxCompressionLock(id, async () => {
+                const box = await EventBoxDB.getById(id);
+                if (!box || box.liveMemoryIds.length < EVENT_BOX_COMPRESSION_THRESHOLD) return false;
+                return compressEventBox(box, llmConfig, embeddingConfig, charName, userName);
+            });
             if (ok) compressed++;
             else skipped++;
         } catch (e: any) {

@@ -1,3 +1,5 @@
+import {requestBeautyLibrary} from '../../utils/beautyNavigation';
+import {AppID} from '../../types';
 import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -53,7 +55,7 @@ const CSS_TEMPLATES = [
     },
 ];
 
-const AI_PROMPT = `你是 CSS 设计师，请为 SullyOS 的日程卡片写一段自定义 CSS。
+const AI_PROMPT = `你是 CSS 设计师，请为 SullyOS·糯米机 的日程卡片写一段自定义 CSS。
 只能使用以 .sully-schedule-* 开头的选择器；覆盖内联样式时使用 !important。
 
 可用钩子：
@@ -98,7 +100,7 @@ export const ScheduleCustomCssStyle: React.FC = () => {
 };
 
 const ScheduleAppearanceButton: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
-    const { theme, updateTheme, addToast } = useOS();
+    const { theme, updateTheme, addToast,openApp } = useOS();
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<ScheduleCardAppearance>(() =>
         defaultDraft(theme.scheduleCardAppearance)
@@ -175,7 +177,7 @@ const ScheduleAppearanceButton: React.FC<{ compact?: boolean }> = ({ compact = f
                 <div className="sticky top-0 z-10 flex items-center justify-between gap-3 px-5 py-4 bg-[#fbfafc]/95 backdrop-blur border-b border-slate-200/70">
                     <div>
                         <div className="text-[10px] font-bold tracking-[.2em] uppercase text-violet-400">Schedule skin</div>
-                        <h2 className="text-base font-black mt-0.5">日程卡片美化</h2>
+                        <h2 className="text-base font-black mt-0.5">日程卡片美化</h2><button className="text-xs text-violet-600 mt-2" onClick={()=>{setOpen(false);requestBeautyLibrary('schedule');openApp(AppID.Appearance);}}>到外观 App 收藏与分享 ›</button>
                     </div>
                     <button
                         className="w-9 h-9 rounded-full grid place-items-center bg-slate-100 text-slate-500"

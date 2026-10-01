@@ -16,6 +16,15 @@
 const RELOAD_MARK_KEY = 'sullyos_chunk_reload_at';
 const RELOAD_COOLDOWN_MS = 60_000;
 
+// EOF 本身不能证明是 chunk：JSON / 用户脚本也会报语法错误。
+// 只为懒加载 Promise 的拒绝记录来源，保留原 Error 和堆栈（也兼容 frozen Error）。
+const moduleLoadErrors = new WeakSet<object>();
+export const markModuleLoadError = (error: unknown): void => {
+    if (error !== null && typeof error === 'object') moduleLoadErrors.add(error);
+};
+
+const INCOMPLETE_MODULE_RE = /^(?:Unexpected EOF|Unexpected end of (?:input|script))\.?$/i;
+
 /** 各浏览器动态 import / chunk 加载失败的报错指纹 (Safari / Chrome / Firefox / webpack 风格) */
 const CHUNK_ERROR_RE = new RegExp(
     [
@@ -23,6 +32,8 @@ const CHUNK_ERROR_RE = new RegExp(
         'Failed to fetch dynamically imported module', // Chrome
         'error loading dynamically imported module',   // Firefox
         'Failed to load module script',                 // MIME/网络层失败
+        'not a valid JavaScript MIME type',             // Safari: 'text/html' is not a valid JavaScript MIME type
+        'server responded with a MIME type of ["\']?text/html', // Chromium: SPA fallback returned HTML for a module
         'Unable to preload CSS',                        // Vite __vitePreload CSS 依赖失败
         'ChunkLoadError',
         'Loading chunk \\S+ failed',
@@ -34,7 +45,11 @@ export const isChunkLoadError = (err: unknown): boolean => {
     const msg = err instanceof Error
         ? `${err.name}: ${err.message}`
         : typeof err === 'string' ? err : '';
-    return CHUNK_ERROR_RE.test(msg);
+    if (CHUNK_ERROR_RE.test(msg)) return true;
+    return err instanceof Error
+        && moduleLoadErrors.has(err)
+        && err.name === 'SyntaxError'
+        && INCOMPLETE_MODULE_RE.test(err.message.trim());
 };
 
 /**

@@ -13,9 +13,8 @@ interface PushVapidSettingsModalProps {
 /**
  * 推送凭据 (VAPID) 配置面板.
  *
- * 抽出来单独管理是因为 Proactive Push 和 Instant Push 共用一份 VAPID — 两边
- * 用不同的 key 时会反复 unsubscribe 抢同一个 pushManager 订阅. 把 UI 提到
- * 顶层后, 用户一眼看到这是全局推送凭据, 不会再以为它属于 Instant Push.
+ * 这对密钥是主动消息 2.0 Worker 签推送用的: 一键部署时自动沿用, 手动部署时照着填进
+ * Worker env. 整个站点只有一个 pushManager 订阅, 所以它放在设置顶层当全局推送凭据管.
  *
  * 私钥也存 localStorage 方便复制到 CF Worker env, 这里不当成一次性密钥处理.
  */
@@ -61,7 +60,7 @@ export const PushVapidSettingsModal: React.FC<PushVapidSettingsModalProps> = ({ 
   };
 
   const handleClear = () => {
-    if (!confirm('确定清空 VAPID 密钥对？Proactive / Instant Push 都会立即失效，下次订阅需要重建。')) {
+    if (!confirm('确定清空 VAPID 密钥对？之后重新部署的 Worker 会换成新的一对，推送订阅需要重建。')) {
       trackEvent('清空 VAPID 密钥对', { confirmed: false });
       return;
     }
@@ -150,8 +149,8 @@ export const PushVapidSettingsModal: React.FC<PushVapidSettingsModalProps> = ({ 
           <p className="font-bold mb-1">⚠ 一份 VAPID, 两个用法</p>
           <p>
             浏览器订阅 push 用<b>公钥</b>; Worker 签名 push 用<b>私钥</b>.
-            Proactive Push 和 Instant Push <b>都从这里读公钥</b> ——
-            两边公钥不一致会反复 unsubscribe 抢同一个订阅, 是 "推送配额没掉但是收不到通知" 的常见原因.
+            主动消息 2.0 部署 Worker 时<b>用的就是这一对</b> ——
+            Worker 上的公钥和浏览器订阅绑的不一致时, 推送会被 403 拒掉.
           </p>
           <p className="mt-1">
             生成 / 改了之后, 你的 CF Worker env (<code>VAPID_PUBLIC_KEY</code> + <code>VAPID_PRIVATE_KEY</code>) 也要同步更新, 否则签名校验会失败.
@@ -251,7 +250,7 @@ export const PushVapidSettingsModal: React.FC<PushVapidSettingsModalProps> = ({ 
               onClick={handleClear}
               className="text-[11px] text-rose-500 hover:text-rose-600 font-medium underline-offset-2 hover:underline"
             >
-              清空 VAPID（Proactive / Instant 都会失效）
+              清空 VAPID（重新部署后推送订阅要重建）
             </button>
           </div>
         )}

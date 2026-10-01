@@ -1,24 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
 import { useBackGuard } from '../hooks/useBackGuard';
 import { DB } from '../utils/db';
-import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSimLog, ConvTopic, AiSession, AiServiceKind, TavernCard } from '../types';
+import { CharacterProfile, PhoneEvidence, PhoneCustomApp, PhoneContact, PhoneSimLog, ConvTopic, AiSession, AiServiceKind, TavernCard, APIConfig } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
+import TokenImg from '../components/os/TokenImg';
+import { useBlobRefUrl } from '../utils/blobRef';
 import { safeResponseJson, extractContent, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
     runRealConversation, runNpcConversation, upsertContact, matchRealChar,
     clampAffinity, normName, flipTranscript, parseTranscript, serializeTurns, appendLearned,
-    topicText, summarizeConversation,
+    topicText, summarizeConversation, applyRealConversationToPhoneState,
 } from '../utils/relationshipChat';
 import PersonaSim, { LifeLog, generatePersonaScript } from './PersonaSim';
 import { usePersonaSim, personaSimStore } from '../utils/personaSimStore';
 import { getLastInnerState } from '../utils/emotionApply';
 import { buildTaskSupervisionContext } from '../utils/taskContextInjector';
 import { trackEvent } from '../utils/analytics';
-import { normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
+import { buildPhoneEvidenceChatCard, normalizePhoneEvidence, phoneFieldToText } from '../utils/phoneEvidence';
+import { normalizePhoneAiSession } from '../utils/phoneTranscript';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
+import { getCheckPhoneApi, resolveCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import {
     User, Phone, ChatCircleDots, ChatCircle, ShoppingBag, Hamburger, Compass, GearSix,
     Plus, SignOut, CaretLeft, CaretRight, Cloud, ImagesSquare, LockSimple, Package,
@@ -256,7 +261,7 @@ const HomeCard: React.FC<{
 );
 
 const CheckPhone: React.FC = () => {
-    const { closeApp, characters, activeCharacterId, updateCharacter, apiConfig, addToast, userProfile, characterGroups } = useOS();
+    const { closeApp, characters, activeCharacterId, updateCharacter, apiConfig, apiPresets, addToast, userProfile, characterGroups } = useOS();
     const [view, setView] = useState<'select' | 'phone'>('select');
     // activeAppId: 'home' | 'chat_detail' | 'app_id'
     const [activeAppId, setActiveAppId] = useState<string>('home');
@@ -265,11 +270,18 @@ const CheckPhone: React.FC = () => {
     const [page, setPage] = useState(0); // 0 = home, 1 = custom apps
     const [selectPage, setSelectPage] = useState(0); // Target Device 选人界面的翻页（每页 6 人）
     const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选人界面的分组筛选
+    const [showApiSettings, setShowApiSettings] = useState(false);
+    const [phoneApiConfig, setPhoneApiConfigState] = useState<APIConfig | null>(() => getCheckPhoneApi());
+    const [testingPhoneApi, setTestingPhoneApi] = useState(false);
+    const [phoneApiTestResult, setPhoneApiTestResult] = useState<string | null>(null);
+    const effectiveApiConfig = resolveCheckPhoneApi(phoneApiConfig, apiConfig);
+    const phoneApiFollowsDefault = !phoneApiConfig?.baseUrl;
 
     // Detail State
     const [selectedChatRecord, setSelectedChatRecord] = useState<PhoneEvidence | null>(null);
     const [selectedEvidenceRecord, setSelectedEvidenceRecord] = useState<PhoneEvidence | null>(null);
     const [evidenceBackAppId, setEvidenceBackAppId] = useState<string>('home');
+    const [evidenceMenu, setEvidenceMenu] = useState<{ record: PhoneEvidence; backAppId: string } | null>(null);
     const chatEndRef = useRef<HTMLDivElement>(null);
     const contactEndRef = useRef<HTMLDivElement>(null);
 
@@ -351,6 +363,10 @@ const CheckPhone: React.FC = () => {
     const touchStartX = useRef<number | null>(null);
     const touchStartY = useRef<number | null>(null);
 
+    // 桌面底图用的是角色的见面背景，字段里存的是 blobref 令牌（二进制在 IndexedDB）。
+    // 令牌塞不进 CSS url()，先在组件顶层解析成能用的地址；非令牌值原样透传。
+    const dateBackgroundUrl = useBlobRefUrl(targetChar?.dateBackground);
+
     // Derived state for evidence records
     const records = (targetChar?.phoneState?.records || []).map(normalizePhoneEvidence);
     const customApps = targetChar?.phoneState?.customApps || [];
@@ -367,7 +383,8 @@ const CheckPhone: React.FC = () => {
         ))?.detail
         : undefined;
     // 智能体 App：偷看到的 AI 会话 / 角色卡
-    const aiSessions = targetChar?.phoneState?.aiAgent?.sessions || [];
+    const rawAiSessions = targetChar?.phoneState?.aiAgent?.sessions;
+    const aiSessions = useMemo(() => (rawAiSessions || []).map(normalizePhoneAiSession), [rawAiSessions]);
     const aiCards = targetChar?.phoneState?.aiAgent?.cards || [];
     // 详情页会话从 sessions 实时取（互动续写后自动跟随最新状态）
     const selectedAiSession = aiSessions.find(s => s.id === selectedAiSessionId) || null;
@@ -407,6 +424,12 @@ const CheckPhone: React.FC = () => {
         }
     }, [characters]);
 
+    useEffect(() => {
+        const sync = () => setPhoneApiConfigState(getCheckPhoneApi());
+        window.addEventListener('check-phone-api-changed', sync);
+        return () => window.removeEventListener('check-phone-api-changed', sync);
+    }, []);
+
     // Reset page scroll on navigation to prevent mobile layout shift
     useEffect(() => {
         window.scrollTo(0, 0);
@@ -445,6 +468,60 @@ const CheckPhone: React.FC = () => {
         setSelectedEvidenceRecord(null);
         setEvidenceBackAppId('home');
         setPage(0);
+    };
+
+    const apiHost = (url?: string) => {
+        try { return url ? new URL(url).host : '未配置'; }
+        catch { return url || '未配置'; }
+    };
+    const isSamePhoneApi = (config: APIConfig) => Boolean(phoneApiConfig)
+        && phoneApiConfig!.baseUrl === config.baseUrl
+        && phoneApiConfig!.model === config.model
+        && phoneApiConfig!.apiKey === config.apiKey;
+
+    const choosePhoneApi = (config: APIConfig | null) => {
+        setCheckPhoneApi(config);
+        setPhoneApiConfigState(config?.baseUrl ? config : null);
+        setPhoneApiTestResult(null);
+        addToast(config ? '查手机已切换到独立 API' : '查手机已改为跟随聊天默认', 'success');
+        trackEvent('切换查手机独立 API', { mode: config ? 'independent' : 'default' });
+    };
+
+    const testPhoneApi = async () => {
+        const config = effectiveApiConfig;
+        if (!config?.baseUrl || !config?.model) {
+            setPhoneApiTestResult('当前没有可用的 API');
+            return;
+        }
+        setTestingPhoneApi(true);
+        setPhoneApiTestResult(null);
+        try {
+            const response = await fetch(`${config.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${config.apiKey || 'sk-none'}`,
+                },
+                body: JSON.stringify({
+                    model: config.model,
+                    messages: [{ role: 'user', content: 'Hi' }],
+                    max_tokens: 5,
+                    stream: false,
+                }),
+            });
+            if (!response.ok) {
+                const detail = await response.text().catch(() => '');
+                setPhoneApiTestResult(`HTTP ${response.status}${detail ? `：${detail.slice(0, 80)}` : ''}`);
+                return;
+            }
+            const data = await safeResponseJson(response);
+            const reply = extractContent(data) || '';
+            setPhoneApiTestResult(`连接成功${reply ? ` · ${reply.slice(0, 24)}` : ''}`);
+        } catch (error: any) {
+            setPhoneApiTestResult(`连接失败：${error?.message || '网络错误'}`);
+        } finally {
+            setTestingPhoneApi(false);
+        }
     };
 
     const handleExitPhone = () => {
@@ -492,10 +569,14 @@ const CheckPhone: React.FC = () => {
     };
 
     const evidenceEntryProps = (record: PhoneEvidence, backAppId: string) => ({
+        ...longPress(() => setEvidenceMenu({ record, backAppId })),
         role: 'button' as const,
         tabIndex: 0,
-        'aria-label': `查看${record.title}详情`,
-        onClick: () => openEvidenceRecord(record, backAppId),
+        'aria-label': `查看${record.title}详情，长按可同步到私聊`,
+        onClick: () => {
+            if (lpFired.current) { lpFired.current = false; return; }
+            openEvidenceRecord(record, backAppId);
+        },
         onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
@@ -627,7 +708,7 @@ const CheckPhone: React.FC = () => {
 
     // --- Core Generation Logic ---
     const handleGenerate = async (type: string, customPrompt?: string, layout?: LayoutId) => {
-        if (!targetChar || !apiConfig.apiKey) {
+        if (!targetChar || !effectiveApiConfig.apiKey) {
             addToast('配置错误', 'error');
             return;
         }
@@ -639,14 +720,8 @@ const CheckPhone: React.FC = () => {
 
         try {
             await injectMemoryPalace(targetChar);
-            const msgs = await DB.getMessagesByCharId(targetChar.id);
+            const msgs = await loadCharacterContextMessages(targetChar);
             const lastMsg = msgs[msgs.length - 1];
-
-            // 「距离上次联系多久」交给 buildCoreContext 统一注入（受时间感知开关管控、口径与聊天/见面一致）
-            const context = ContextBuilder.buildCoreContext(
-                targetChar, userProfile, true, undefined, undefined,
-                { lastInteractionTs: lastMsg?.timestamp },
-            );
 
             // 时光契约监督状态（只读）：让角色在查手机场景感知自己监督的任务进度，
             // 但不教 LLM 输出 [[TASK_*]] 命令（这些场景不能操作任务，只能看）。
@@ -654,7 +729,14 @@ const CheckPhone: React.FC = () => {
             const taskBlock = await buildTaskSupervisionContext(
                 targetChar.id, userProfile.name, { verbose: false },
             ).catch(() => '');
-            const contextWithTasks = taskBlock ? `${context}\n${taskBlock}` : context;
+
+            // 「距离上次联系多久」交给 buildCharacterRequest 统一注入（受时间感知开关管控、口径与聊天/见面一致）；
+            // 时光契约监督块走 instructions 追加在核心上下文之后。
+            const characterContextInput = {
+                char: targetChar, user: userProfile, includeDetailedMemories: true,
+                timeOptions: { lastInteractionTs: lastMsg?.timestamp },
+                ...(taskBlock ? { instructions: taskBlock } : {}),
+            };
 
             // 聊天/通讯录类按 chatapp 的上下文设置（默认 500）取，其它 App 维持轻量 50 条
             const recentWindow = (type === 'chat' || type === 'contacts')
@@ -760,14 +842,14 @@ ${realCharRule}
 - **绝不是用户「${userProfile.name}」的社交关系**：不要生成用户的人脉圈，也不要从用户的角度/口吻写备注。
 - 用户「${userProfile.name}」只是在偷看你的手机，TA **不是**你的联系人、**不进**你的通讯录（下面「和用户的最近聊天」只是背景参考，不是要生成的对象，也别把用户的熟人搬进来）。`;
 
-            const fullPrompt = `${contextWithTasks}\n\n### [你和用户「${userProfile.name}」的最近聊天（仅背景参考）]\n${recentMsgs}\n\n${perspectiveLock}\n\n### [Task]\n${promptInstruction}\n请结合上面的「当前时间 / 距离上次联系」和人设调整生成内容的时间戳和情绪。如果很久没联系，记录可能是近期的独处状态；如果刚聊过，记录可能与聊天内容相关。`;
+            const fullPrompt = `### [你和用户「${userProfile.name}」的最近聊天（仅背景参考）]\n${recentMsgs}\n\n${perspectiveLock}\n\n### [Task]\n${promptInstruction}\n请结合上面的「当前时间 / 距离上次联系」和人设调整生成内容的时间戳和情绪。如果很久没联系，记录可能是近期的独处状态；如果刚聊过，记录可能与聊天内容相关。`;
 
-            const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+            const response = await fetch(`${effectiveApiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApiConfig.apiKey}` },
                 body: JSON.stringify({
-                    model: apiConfig.model,
-                    messages: [{ role: "user", content: fullPrompt }],
+                    model: effectiveApiConfig.model,
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: fullPrompt }]),
                     temperature: 0.8
                 })
             });
@@ -839,18 +921,21 @@ ${realCharRule}
                     if (pushToChat) {
                         // 包装成上下文可读的漂亮卡片（phone_card），不再是古早的 [系统:...] 纯文本
                         // 进角色上下文的措辞：第二人称讲「你自己手机里有啥」，不暗示用户在偷看
-                        const cardContent = type === 'chat'
-                            ? `[你手机的聊天软件] 你和「${recordTitle}」的对话：${recordDetail.replace(/\n/g, ' ')}`
-                            : `[你手机的${logPrefix}] ${recordTitle}${recordValue ? ` · ${recordValue}` : ''} — ${recordDetail}`;
-                        await DB.saveMessage({
+                        const card = buildPhoneEvidenceChatCard({
+                            id: 'pending',
+                            type,
+                            title: recordTitle,
+                            detail: recordDetail,
+                            value: recordValue || undefined,
+                            timestamp: Date.now(),
+                        }, logPrefix);
+                        savedMsgId = await DB.saveMessage({
                             charId: targetChar.id,
                             role: 'assistant',
                             type: 'phone_card',
-                            content: cardContent,
-                            metadata: { phoneCard: { app: logPrefix, kind: type, title: recordTitle, detail: recordDetail, value: recordValue || undefined } },
+                            content: card.content,
+                            metadata: card.metadata,
                         } as any);
-                        const currentMsgs = await DB.getMessagesByCharId(targetChar.id);
-                        savedMsgId = currentMsgs[currentMsgs.length - 1]?.id;
                     }
 
                     newRecordsToAdd.push({
@@ -900,11 +985,15 @@ ${realCharRule}
     // ============================================================
 
     // 裸 LLM 调用（智能体生成 / 互动续写共用）
-    const callLLM = async (prompt: string, temperature = 0.85): Promise<string> => {
-        const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const callLLM = async (prompt: string, temperature = 0.85, withCharacter = true): Promise<string> => {
+        const recent = withCharacter && targetChar ? await loadCharacterContextMessages(targetChar) : [];
+        const messages = withCharacter && targetChar ? ContextBuilder.buildCharacterRequest({
+            char: targetChar, user: userProfile, timeOptions: { lastInteractionTs: recent[recent.length - 1]?.timestamp },
+        }, [{ role: 'user', content: prompt }]) : [{ role: 'user', content: prompt }];
+        const response = await fetch(`${effectiveApiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-            body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature }),
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApiConfig.apiKey}` },
+            body: JSON.stringify({ model: effectiveApiConfig.model, messages, temperature }),
         });
         if (!response.ok) throw new Error('API Error');
         const data = await safeResponseJson(response);
@@ -916,25 +1005,22 @@ ${realCharRule}
     // 组 context：跟 handleGenerate 一致（含记忆宫殿 + 时间感知 + 最近聊天），让偷看到的 AI 记录贴合真实近况
     const buildAiContext = async (char: CharacterProfile) => {
         await injectMemoryPalace(char);
-        const msgs = await DB.getMessagesByCharId(char.id);
-        const lastMsg = msgs[msgs.length - 1];
-        const context = ContextBuilder.buildCoreContext(
-            char, userProfile, true, undefined, undefined, { lastInteractionTs: lastMsg?.timestamp },
-        );
-        const recentMsgs = msgs.slice(-50).map(m => {
+        const msgs = await loadCharacterContextMessages(char);
+
+        const recentMsgs = msgs.map(m => {
             const roleName = m.role === 'user' ? userProfile.name : char.name;
             return `${roleName}: ${m.type === 'text' ? m.content : `[${m.type}]`}`;
         }).join('\n');
-        return { context, recentMsgs };
+        return { recentMsgs };
     };
 
     // 生成：偷看机主在某个 AI 服务里的使用记录
     const handleGenerateAiAgent = async (service: AiServiceKind) => {
-        if (!targetChar || !apiConfig.apiKey) { addToast('配置错误', 'error'); return; }
+        if (!targetChar || !effectiveApiConfig.apiKey) { addToast('配置错误', 'error'); return; }
         setIsLoading(true);
         trackEvent('偷看 AI 助手使用记录', { service });
         try {
-            const { context, recentMsgs } = await buildAiContext(targetChar);
+            const { recentMsgs } = await buildAiContext(targetChar);
             const userName = userProfile?.name || '用户';
             const pushToChat = targetChar.phoneState?.sendToChat !== false;
             const svcName = AI_SERVICES.find(s => s.id === service)?.name || 'AI';
@@ -989,7 +1075,7 @@ ${AI_VENDOR_LORE}
 要点：扮演内容（剧情里）暴露你的幻想 / 渴望 / 不敢实现的关系。酒馆是 TA 卸下防备的安全屋，扮演里可以流露平时藏起来的反差面（暴戾者忽然温柔、温柔者露出掌控/施虐欲、疏离者变黏人），但**底色始终是「爱」**，不刻意过火。`;
             }
 
-            const fullPrompt = `${context}\n\n### [Recent Chat Context]\n${recentMsgs}\n\n### [Task]\n${task}\n请结合「当前时间 / 距离上次联系」和人设，让内容贴合你近期的真实状态。只输出 JSON，不要解释。`;
+            const fullPrompt = `\n\n### [Recent Chat Context]\n${recentMsgs}\n\n### [Task]\n${task}\n请结合「当前时间 / 距离上次联系」和人设，让内容贴合你近期的真实状态。只输出 JSON，不要解释。`;
 
             const content = await callLLM(fullPrompt);
             const now = Date.now();
@@ -1012,20 +1098,20 @@ ${AI_VENDOR_LORE}
                 }
                 for (const sess of (obj.sessions || [])) {
                     if (!sess?.transcript) continue;
-                    newSessions.push({
+                    newSessions.push(normalizePhoneAiSession({
                         id: `ai-${now}-${rid()}`, service, serviceName: sess.serviceName || sess.cardName || '酒馆',
                         title: sess.title || '一段扮演', transcript: sess.transcript, cardId: nameToId[normName(sess.cardName || '')], updatedAt: now,
-                    });
+                    }));
                 }
             } else {
                 const parsed = extractJson(content);
                 const arr: any[] = Array.isArray(parsed) ? parsed : [];
                 for (const sess of arr) {
                     if (!sess?.transcript) continue;
-                    newSessions.push({
+                    newSessions.push(normalizePhoneAiSession({
                         id: `ai-${now}-${rid()}`, service, serviceName: sess.serviceName || (service === 'claude' ? 'Claude' : 'AI 助手'),
                         title: sess.title || '一段对话', transcript: sess.transcript, updatedAt: now,
-                    });
+                    }));
                 }
             }
 
@@ -1079,7 +1165,7 @@ ${AI_VENDOR_LORE}
                 ...cur.phoneState, records: cur.phoneState?.records || [],
                 aiAgent: {
                     cards: cur.phoneState?.aiAgent?.cards || [],
-                    sessions: (cur.phoneState?.aiAgent?.sessions || []).map(s => s.id === sessionId ? patch(s) : s),
+                    sessions: (cur.phoneState?.aiAgent?.sessions || []).map(s => s.id === sessionId ? patch(normalizePhoneAiSession(s)) : s),
                 },
             },
         }));
@@ -1122,7 +1208,7 @@ ${prevRecap ? `\n【已有前情（仅供衔接，别重复）】\n${prevRecap}\
 ${olderText}
 
 要求：第三人称，含起因→经过→结果，重点写人物关系/情绪的变化与暴露的心事，200~350 字，文笔流畅，不要分点、不要"总结如下"开场白。直接输出正文：`;
-            let summaryText = (await callLLM(prompt, 0.7)).trim();
+            let summaryText = (await callLLM(prompt, 0.7, false)).trim();
             if (!summaryText) summaryText = '（这段剧情继续推进了）';
             const now = Date.now();
             patchAiSession(sessionId, (s) => ({
@@ -1139,7 +1225,7 @@ ${olderText}
     const handleAiSend = async () => {
         const session = selectedAiSession;
         const text = aiInput.trim();
-        if (!session || !text || !targetChar || !apiConfig.apiKey) return;
+        if (!session || !text || !targetChar || !effectiveApiConfig.apiKey) return;
         const isTavern = session.service === 'tavern';
         setAiSending(true);
         setAiInput('');
@@ -1155,8 +1241,8 @@ ${olderText}
             let prompt = '';
             if (isTavern) {
                 const card = aiCards.find(c => c.id === session.cardId);
-                const { context } = await buildAiContext(targetChar);
-                prompt = `${context}\n\n你正在玩"酒馆"沉浸式长剧情角色扮演（像和 AI 合写小说）。你是玩家 ${charName}，对面是 AI 扮演的角色「${card?.name || session.serviceName}」${card?.persona ? `（人设：${card.persona}）` : ''}${card?.scenario ? `（背景：${card.scenario}）` : ''}${card?.basedOn ? `（这角色是照着你在意的「${card.basedOn}」捏的）` : ''}。
+                await buildAiContext(targetChar);
+                prompt = `\n\n你正在玩"酒馆"沉浸式长剧情角色扮演（像和 AI 合写小说）。你是玩家 ${charName}，对面是 AI 扮演的角色「${card?.name || session.serviceName}」${card?.persona ? `（人设：${card.persona}）` : ''}${card?.scenario ? `（背景：${card.scenario}）` : ''}${card?.basedOn ? `（这角色是照着你在意的「${card.basedOn}」捏的）` : ''}。
 下面是对戏记录（"我:"=你/玩家，"对方:"=AI 扮的角色）。对方刚回了最新一段。
 **最关键的前提：你非常清楚「对方」只是一个 AI 在扮演「${card?.name || session.serviceName}」这个角色——不是真人。** 正因为它是 AI、是你召来陪你玩的工具，你**握着绝对主导权**：可以随意对它下指令、调教它、OOC 它、让它重演、改设定。你绝不会把它错当成真人去迁就讨好。
 **同时你是个有独立人格和意志的人**：有自己的脾气、立场、节奏和底线，该怼就怼、该愣就愣、不爽就不配合。对方写得好你才会被带动、真情流露（甚至流露平时藏起来的反差面：暴戾者忽然温柔、温柔者露出掌控欲 / 施虐欲、疏离者变黏人，底色是「爱」、不刻意过火）；写得烂或不对胃口，你完全可以不接、嫌弃、跳出来调教它。
@@ -1169,11 +1255,11 @@ ${olderText}
 只输出你这层楼真正发出去的字，不要 "我:" 前缀、不要解释。${recap}\n\n${transcript}`;
             } else {
                 // 潜入：你扮 AI（刚由你写完"对方:"那句），LLM 演 char 本人对这句的真实反应
-                const { context } = await buildAiContext(targetChar);
+                await buildAiContext(targetChar);
                 const aiDesc = session.service === 'claude'
                     ? `一个像 Claude 那样的深度对话 AI「${session.serviceName}」（你的树洞，你会对它说当面对人说不出口的真心话）`
                     : `AI 助手「${session.serviceName}」（你拿它查东西 / 出主意 / 排解，它只是个工具）`;
-                prompt = `${context}\n\n你（${charName}）正在用手机和 ${aiDesc} 聊天。下面是对话（"我:"=你本人，"对方:"=那个 AI）。AI 刚回了最新一段，请以你的本色人设续写 "我:" 的下一句——你对它这句话的真实反应 / 追问 / 倾诉，贴合你的处境与心事。可以满意、可以失望、可以怼它答非所问、可以顺着深聊，别一味客气。别太长。只输出正文，不要前缀、不要解释。${recap}\n\n${transcript}`;
+                prompt = `\n\n你（${charName}）正在用手机和 ${aiDesc} 聊天。下面是对话（"我:"=你本人，"对方:"=那个 AI）。AI 刚回了最新一段，请以你的本色人设续写 "我:" 的下一句——你对它这句话的真实反应 / 追问 / 倾诉，贴合你的处境与心事。可以满意、可以失望、可以怼它答非所问、可以顺着深聊，别一味客气。别太长。只输出正文，不要前缀、不要解释。${recap}\n\n${transcript}`;
             }
 
             let reply = (await callLLM(prompt)).trim();
@@ -1196,7 +1282,7 @@ ${olderText}
     // 自然推进：不用 user 开口，让 LLM 接着剧情自己往下写一轮（双方都由 AI 演）
     const handleAiAutoContinue = async () => {
         const session = selectedAiSession;
-        if (!session || !targetChar || !apiConfig.apiKey || aiSending) return;
+        if (!session || !targetChar || !effectiveApiConfig.apiKey || aiSending) return;
         const isTavern = session.service === 'tavern';
         setAiSending(true);
         try {
@@ -1205,8 +1291,8 @@ ${olderText}
             let prompt = '';
             if (isTavern) {
                 const card = aiCards.find(c => c.id === session.cardId);
-                const { context } = await buildAiContext(targetChar);
-                prompt = `${context}\n\n你在还原一段"酒馆"沉浸式长剧情角色扮演（像小说）。玩家是 ${charName}(本色人设)，AI 扮演角色「${card?.name || session.serviceName}」${card?.persona ? `（人设：${card.persona}）` : ''}${card?.scenario ? `（背景：${card.scenario}）` : ''}${card?.basedOn ? `（这角色照着 TA 在意的「${card.basedOn}」捏的，扮演里那份在意会渗出来）` : ''}。
+                await buildAiContext(targetChar);
+                prompt = `\n\n你在还原一段"酒馆"沉浸式长剧情角色扮演（像小说）。玩家是 ${charName}(本色人设)，AI 扮演角色「${card?.name || session.serviceName}」${card?.persona ? `（人设：${card.persona}）` : ''}${card?.scenario ? `（背景：${card.scenario}）` : ''}${card?.basedOn ? `（这角色照着 TA 在意的「${card.basedOn}」捏的，扮演里那份在意会渗出来）` : ''}。
 **这是"替玩家跑一个完整回合"——所以要写"一来一回"两层楼**：先 AI 扮的角色「${card?.name || session.serviceName}」回应一段（"对方:"），再玩家 ${charName} 续一段（"我:"），承接最后一段（最后通常是"我:"，那就先"对方:"答、再"我:"续）。各 3-5 句小说体，*星号*包动作神态心理。**整段必须以 "我:"(玩家)收尾**（停在等对方处，方便随时接着玩）。
 **"我:"是玩家敲进输入框的 RP——只写故事场景里所扮角色的动作/对白**，括号外绝不要写玩家现实里的身体反应（盯屏幕、扔手机、吃东西、后背发凉等，那不会被敲进输入框）；**（全角括号内）= 越过角色直接跟皮下 AI 本体说话**（骂它 / OOC 提醒 / 指导怎么演 / 指出哪段不对）。玩家保有独立人格、清楚对面只是 AI。
 **两段都要带 "对方:" / "我:" 前缀，各自成行。** 不要解释。${recap}\n\n${session.transcript}`;
@@ -1334,25 +1420,25 @@ ${olderText}
 
     // 用指定的卡开一局：生成一段以这张卡为对手的酒馆剧情（卡片本身不新增、不顶掉）
     const handlePlayCard = async (card: TavernCard) => {
-        if (!targetChar || !apiConfig.apiKey) { addToast('配置错误', 'error'); return; }
+        if (!targetChar || !effectiveApiConfig.apiKey) { addToast('配置错误', 'error'); return; }
         setIsLoading(true);
         trackEvent('用角色卡开一局');
         try {
-            const { context, recentMsgs } = await buildAiContext(targetChar);
+            const { recentMsgs } = await buildAiContext(targetChar);
             const task = `你（${charName}）在玩"酒馆"AI 角色扮演（沉浸式长剧情、像和 AI 合写小说）。这次的对手是你的角色卡「${card.name}」${card.kind === 'world' ? '（大型世界卡）' : ''}：
 人设/设定：${card.persona || '（自行发挥，贴合卡名）'}${card.scenario ? `\n初始场景：${card.scenario}` : ''}
 请生成 1 段你和这张卡的扮演记录。
 **transcript 写法**：长剧情小说体，第三人称叙事 + 引号对白，动作/神态/心理用 *星号*；"我:" = 你(玩家 ${charName}) 敲进输入框的 RP，"对方:" = AI 扮的「${card.name}」，交替推进，4-6 轮，首轮"对方:"当开场白、**整段以 "我:"(玩家)收尾**（停在等对方回应处）。**"我:"括号外只写故事里所扮角色的动作/对白，不要写你现实里的身体反应（盯屏幕/扔手机/吃东西等）；（全角括号内）= 越过角色直接跟皮下 AI 本体说话（骂它/OOC 提醒/指导怎么演/指出哪段不对）。**
 返回 JSON：{ "title": "剧情标题(12字内)", "transcript": "我: ...\\n对方: ..." }`;
-            const fullPrompt = `${context}\n\n### [Recent Chat Context]\n${recentMsgs}\n\n### [Task]\n${task}\n只输出 JSON，不要解释。`;
+            const fullPrompt = `\n\n### [Recent Chat Context]\n${recentMsgs}\n\n### [Task]\n${task}\n只输出 JSON，不要解释。`;
             const content = await callLLM(fullPrompt);
             const obj: any = extractJson(content) || {};
             if (!obj.transcript) { addToast('没生成出来，再试一次', 'error'); return; }
             const now = Date.now();
-            const sess: AiSession = {
+            const sess: AiSession = normalizePhoneAiSession({
                 id: `ai-${now}-${Math.random().toString(36).slice(2, 6)}`, service: 'tavern',
                 serviceName: card.name, title: obj.title || `与${card.name}的一局`, transcript: obj.transcript, cardId: card.id, updatedAt: now,
-            };
+            });
             updateCharacter(targetChar.id, (cur) => ({
                 phoneState: {
                     ...cur.phoneState, records: cur.phoneState?.records || [],
@@ -1612,32 +1698,14 @@ ${olderText}
         owner: CharacterProfile, partnerName: string, partnerCharId: string,
         detail: string, delta: number, partnerNote?: string, learnedNew?: string, seedIdentity?: string,
     ) => {
-        // 对方在我方通讯录里是否已存在——决定是否要「先建联系人」并给个起始备注名
-        const hadContact = (owner.phoneState?.contacts || []).some(
-            c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName),
-        );
-        // upsert 指向对方的真实联系人（不存在则在这里先建好，名字/头像/备注名都补上，再挂消息）
-        let contacts = upsertContact(owner.phoneState?.contacts || [], {
-            name: partnerName, kind: 'real', linkedCharId: partnerCharId, lastInteraction: Date.now(),
-            note: partnerNote,
-            // 仅新建时给个起始备注名（多数关系标签是对称的：网友↔网友、前任↔前任），已有则不动
-            identity: hadContact ? undefined : seedIdentity,
-        });
-        const cid = contacts.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName))?.id;
-        // 好感增减 + 自动加删友 + 累积「了解」
-        let broadcast = '';
-        contacts = contacts.map(c => {
-            if (c.id !== cid) return c;
-            const newAff = clampAffinity(c.affinity + delta);
-            let status = c.status;
-            if (newAff <= -60 && c.status === 'friend') { status = 'deleted'; broadcast = `（我把 ${c.name} 删了，懒得再联系。）`; }
-            else if (newAff >= 60 && c.status !== 'friend' && c.status !== 'blocked') { status = 'friend'; broadcast = `（我又把 ${c.name} 加回来了。）`; }
-            const learned = learnedNew ? appendLearned(c.learned, learnedNew) : c.learned;
-            return { ...c, affinity: newAff, status, learned, lastInteraction: Date.now() };
-        });
-        // chat 记录（按联系人 upsert）
-        const recs = owner.phoneState?.records || [];
-        const existing = recs.find(r => r.type === 'chat' && (r.contactId === cid || (!r.contactId && normName(r.title) === normName(partnerName))));
+        const timestamp = Date.now();
+        const result = {
+            partnerName, partnerCharId, detail, delta, partnerNote, learnedNew, seedIdentity,
+            timestamp, recordId: `rec-${timestamp}-${Math.random()}`,
+        };
+        const contact = owner.phoneState?.contacts?.find(c => c.linkedCharId === partnerCharId || normName(c.name) === normName(partnerName));
+        const existing = owner.phoneState?.records?.find(r => r.type === 'chat'
+            && ((contact && r.contactId === contact.id) || (!r.contactId && normName(r.title) === normName(partnerName))));
         const ownerSendToChat = owner.phoneState?.sendToChat !== false;
         let msgId: number | undefined;
         if (ownerSendToChat) {
@@ -1649,15 +1717,14 @@ ${olderText}
                 metadata: { phoneCard: { app: '聊天软件', kind: 'chat', title: partnerName, detail } },
             } as any);
         }
-        const now = Date.now();
-        const nextRecs = existing
-            ? recs.map(r => r.id === existing.id ? { ...r, detail, timestamp: now, contactId: cid, systemMessageId: msgId ?? r.systemMessageId } : r)
-            : [...recs, { id: `rec-${now}-${Math.random()}`, type: 'chat', title: partnerName, detail, timestamp: now, contactId: cid, systemMessageId: msgId }];
         // 自动加删友播报：进机主与用户的私聊（同样受 sendToChat 控制）
+        const { broadcast } = applyRealConversationToPhoneState(owner.phoneState, result);
         if (broadcast && ownerSendToChat) {
             await DB.saveMessage({ charId: owner.id, role: 'assistant', type: 'text', content: broadcast } as any);
         }
-        updateCharacter(owner.id, (cur) => ({ phoneState: { ...cur.phoneState, contacts, records: nextRecs } }));
+        updateCharacter(owner.id, (cur) => ({
+            phoneState: applyRealConversationToPhoneState(cur.phoneState, { ...result, systemMessageId: msgId }).phoneState,
+        }));
     };
 
     // 聊满 100 条触发总结：把待归档的每 100 条原文，A/B 各自第一人称浓缩成一条话题盒记忆，推进水位线。
@@ -1674,8 +1741,8 @@ ${olderText}
             const aChunk = serializeTurns(aLines.slice(mark, mark + ARCHIVE_EVERY));
             const bChunk = flipTranscript(aChunk);
             const [aSum, bSum] = await Promise.all([
-                summarizeConversation({ api: apiConfig as any, speakerName: targetChar.name, otherName: b.name, transcript: aChunk }),
-                summarizeConversation({ api: apiConfig as any, speakerName: b.name, otherName: targetChar.name, transcript: bChunk }),
+                summarizeConversation({ api: effectiveApiConfig as any, speakerName: targetChar.name, otherName: b.name, transcript: aChunk }),
+                summarizeConversation({ api: effectiveApiConfig as any, speakerName: b.name, otherName: targetChar.name, transcript: bChunk }),
             ]);
             const ts = Date.now();
             const mk = () => `tp-${ts}-${Math.random().toString(36).slice(2, 7)}`;
@@ -1703,7 +1770,7 @@ ${olderText}
 
     // P1：真角色双向对话（A 发 B 回，双 LLM，镜像到 B）
     const handleRealConversation = async (contact: PhoneContact) => {
-        if (!targetChar || !apiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
+        if (!targetChar || !effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
         const b = characters.find(c => c.id === contact.linkedCharId);
         if (!b) { addToast('该联系人未绑定真实角色', 'error'); return; }
         setIsLoading(true);
@@ -1717,7 +1784,7 @@ ${olderText}
             const archivedALines = aAllLines.slice(0, aArchived);            // 留着给用户看的原文
             const recentDetail = serializeTurns(aAllLines.slice(aArchived));  // 喂上下文的近段
             const result = await runRealConversation({
-                a: targetChar, b, user: userProfile, api: apiConfig as any,
+                a: targetChar, b, user: userProfile, api: effectiveApiConfig as any,
                 affinityA: contact.affinity, affinityB: bToA?.affinity ?? 0,
                 existingDetail: recentDetail,
                 // bNote = A 对 B 的备注（喂给 A）；aNote = B 对 A 的备注（喂给 B）。别接反。
@@ -1746,13 +1813,13 @@ ${olderText}
 
     // 与虚构 NPC 的对话（机主脑补，单 LLM，纯虚构、不镜像）
     const handleNpcConversation = async (contact: PhoneContact) => {
-        if (!targetChar || !apiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
+        if (!targetChar || !effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
         setIsLoading(true);
         trackEvent('生成一段与联系人的对话', { contactKind: 'npc' });
         try {
             const existing = (targetChar.phoneState?.records || []).find(r => r.type === 'chat' && (r.contactId === contact.id || normName(r.title) === normName(contact.name)));
             const { detail, learnedNew } = await runNpcConversation({
-                host: targetChar, user: userProfile, api: apiConfig as any,
+                host: targetChar, user: userProfile, api: effectiveApiConfig as any,
                 npcName: contact.name, identity: contact.identity, note: contact.note,
                 learned: contact.learned, rounds: 4, existingDetail: existing?.detail,
             });
@@ -1902,14 +1969,14 @@ ${olderText}
     // ----- 人格模拟：后台生成（生成期间用户可离开本 App 去别处逛） -----
     const runSim = async (m: 'daily' | 'event', t: string, presence: 'default' | 'light' | 'none' = 'default', tone: 'mix' | 'depressive' | 'darkhumor' | 'cute' = 'mix') => {
         if (!targetChar) return;
-        if (!apiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
+        if (!effectiveApiConfig.apiKey) { addToast('请先配置 API', 'error'); return; }
         const cid = targetChar.id, cname = targetChar.name;
         personaSimStore.set({ status: 'loading', mode: m, theme: t, charId: cid, charName: cname });
         // 只报模式（日常/事件）这个固定枚举；主题 t 是用户自己写的文本，不上报
         trackEvent('生成人格模拟演出', { mode: m });
         try {
             const generated = await generatePersonaScript({
-                char: targetChar, userProfile, apiConfig: apiConfig as any, mode: m, theme: t, userPresence: presence, tone,
+                char: targetChar, userProfile, apiConfig: effectiveApiConfig as any, mode: m, theme: t, userPresence: presence, tone,
             });
             personaSimStore.set({ status: 'ready', mode: m, theme: t, script: generated, charId: cid, charName: cname });
             addToast('演出已就绪', 'success');
@@ -1976,6 +2043,48 @@ ${olderText}
             case 'social': return '朋友圈';
             case 'call': return '通话';
             default: return customApps.find(a => a.id === type)?.name || 'App';
+        }
+    };
+
+    const syncEvidenceRecordToChat = async (record: PhoneEvidence) => {
+        if (!targetChar) return;
+        try {
+            if (record.systemMessageId) {
+                const existing = await DB.getMessageById(record.systemMessageId);
+                if (existing) {
+                    addToast('这条记录已经同步到私聊', 'info');
+                    setEvidenceMenu(null);
+                    return;
+                }
+            }
+            const app = record.type === 'chat' ? '聊天软件' : appLabel(record.type);
+            const card = buildPhoneEvidenceChatCard(record, app);
+            const messageId = await DB.saveMessage({
+                charId: targetChar.id,
+                role: 'assistant',
+                type: 'phone_card',
+                content: card.content,
+                metadata: card.metadata,
+            } as any);
+            updateCharacter(targetChar.id, (current) => ({
+                phoneState: {
+                    ...current.phoneState,
+                    records: (current.phoneState?.records || []).map(item => item.id === record.id
+                        ? { ...item, systemMessageId: messageId }
+                        : item),
+                },
+            }));
+            if (selectedEvidenceRecord?.id === record.id) {
+                setSelectedEvidenceRecord({ ...selectedEvidenceRecord, systemMessageId: messageId });
+            }
+            if (selectedChatRecord?.id === record.id) {
+                setSelectedChatRecord({ ...selectedChatRecord, systemMessageId: messageId });
+            }
+            setEvidenceMenu(null);
+            addToast('已把这条查手机记录同步到私聊', 'success');
+            trackEvent('事后同步查手机记录到私聊', { kind: record.type });
+        } catch (error: any) {
+            addToast(error?.message || '同步失败，请重试', 'error');
         }
     };
 
@@ -2061,10 +2170,14 @@ ${olderText}
                         const last = segs.length ? segs[segs.length - 1].text : '...';
                         const av = contactOfRecord(r) ? contactAvatar(contactOfRecord(r)!) : undefined;
                         return (
-                            <div key={r.id} onClick={() => { setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail'); }}
+                            <div key={r.id} {...longPress(() => setEvidenceMenu({ record: r, backAppId: 'chat' }))}
+                                onClick={() => {
+                                    if (lpFired.current) { lpFired.current = false; return; }
+                                    setSelectedChatRecord(r); setTranscriptExpanded(false); setActiveAppId('chat_detail');
+                                }}
                                 className="group relative flex items-center gap-3.5 rounded-2xl p-3.5 bg-white/[0.035] border border-white/[0.06] active:scale-[0.99] transition cursor-pointer animate-fade-in">
                                 {av ? (
-                                    <img src={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
+                                    <TokenImg value={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
                                 ) : (
                                     <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-white font-semibold text-lg"
                                         style={{ background: `linear-gradient(135deg, ${accent}40, ${accent}10)`, boxShadow: `inset 0 0 18px ${accent}25` }}>
@@ -2118,7 +2231,7 @@ ${olderText}
                         <div key={idx} className={`flex items-end gap-2 ${msg.isMe ? 'justify-end' : 'justify-start'}`}>
                             {!msg.isMe && (
                                 partnerAvatar ? (
-                                    <img src={partnerAvatar} alt="" className="w-8 h-8 rounded-xl object-cover shrink-0" />
+                                    <TokenImg value={partnerAvatar} alt="" className="w-8 h-8 rounded-xl object-cover shrink-0" />
                                 ) : (
                                     <div className="w-8 h-8 rounded-xl flex items-center justify-center text-xs text-white shrink-0"
                                         style={{ background: `linear-gradient(135deg, ${accent}40, ${accent}10)` }}>
@@ -2134,7 +2247,7 @@ ${olderText}
                                 style={msg.isMe ? { background: `linear-gradient(135deg, ${accent}, ${accent}bb)` } : undefined}>
                                 {msg.content}
                             </div>
-                            {msg.isMe && <img src={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
+                            {msg.isMe && <TokenImg value={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
                         </div>
                     ))}
                     <div ref={chatEndRef} />
@@ -2193,7 +2306,7 @@ ${olderText}
                         <article>
                             <div className="flex items-center gap-3 pb-4 border-b border-white/[0.07]">
                                 {targetChar?.avatar
-                                    ? <img src={targetChar.avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
+                                    ? <TokenImg value={targetChar.avatar} alt="" className="w-12 h-12 rounded-full object-cover" />
                                     : <div className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold" style={{ background: accent }}>{charName.slice(0, 1)}</div>}
                                 <div className="min-w-0">
                                     <div className="text-[15px] font-semibold text-white/95">{charName}</div>
@@ -2259,6 +2372,10 @@ ${olderText}
                         <div className="flex justify-between gap-4"><dt className="text-white/30">记录编号</dt><dd className="text-white/40 text-right font-mono">#{r.id.slice(-8).toUpperCase()}</dd></div>
                     </dl>
 
+                    <button onClick={() => void syncEvidenceRecordToChat(r)} disabled={!!r.systemMessageId}
+                        className="w-full mt-2 py-3 rounded-2xl text-[12px] font-semibold text-sky-100 bg-sky-400/10 border border-sky-300/20 active:scale-[0.99] transition flex items-center justify-center gap-2 disabled:text-white/30 disabled:bg-white/[0.03] disabled:border-white/[0.06]">
+                        <PaperPlaneTilt size={15} weight="bold" /> {r.systemMessageId ? '已同步到私聊' : '同步这条到私聊'}
+                    </button>
                     <button onClick={() => askConfirm({
                         title: '删除这条记录？', desc: '删除「' + r.title + '」后无法恢复。', confirmLabel: '删除', danger: true,
                         onConfirm: () => handleDeleteRecord(r),
@@ -2401,7 +2518,7 @@ ${olderText}
                             className="group relative rounded-2xl p-4 pr-8 bg-white/[0.035] border border-white/[0.06] animate-slide-up cursor-pointer active:scale-[0.99] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/60">
                             <div className="flex items-center gap-3 mb-2.5">
                                 {targetChar?.avatar
-                                    ? <img src={targetChar.avatar} className="w-9 h-9 rounded-full object-cover" />
+                                    ? <TokenImg value={targetChar.avatar} className="w-9 h-9 rounded-full object-cover" />
                                     : <div className="w-9 h-9 rounded-full" style={{ background: accent }} />}
                                 <div className="min-w-0">
                                     <div className="text-[13px] font-semibold text-white/95">{charName}</div>
@@ -2492,7 +2609,7 @@ ${olderText}
                                     <span className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 text-[11px] font-bold transition ${selected ? 'bg-pink-500 border-pink-500 text-white' : 'border-white/30 text-transparent'}`}>✓</span>
                                 )}
                                 {av ? (
-                                    <img src={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
+                                    <TokenImg value={av} alt="" className="w-12 h-12 rounded-2xl object-cover shrink-0" />
                                 ) : (
                                     <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 text-white font-semibold text-lg"
                                         style={{ background: `linear-gradient(135deg, ${accent}40, ${accent}10)`, boxShadow: `inset 0 0 18px ${accent}25` }}>
@@ -2788,7 +2905,7 @@ ${olderText}
                                 <div className="flex items-center gap-2 mb-2">
                                     <div className="w-7 h-7 rounded-lg flex items-center justify-center overflow-hidden shrink-0"
                                         style={{ background: f.isMe ? 'transparent' : `${t.accent}1f` }}>
-                                        {f.isMe ? <img src={targetChar.avatar} className="w-7 h-7 object-cover" /> : <span className="text-base">{partnerEmoji}</span>}
+                                        {f.isMe ? <TokenImg value={targetChar.avatar} className="w-7 h-7 object-cover" /> : <span className="text-base">{partnerEmoji}</span>}
                                     </div>
                                     <span className="text-[12.5px] font-semibold" style={{ color: f.isMe ? t.accent : t.text }}>{who}</span>
                                     {f.isMe && <span className="text-[9px] px-1.5 py-0.5 rounded-full" style={{ background: `${t.accent}26`, color: t.accent }}>玩家</span>}
@@ -2817,7 +2934,7 @@ ${olderText}
                                     }}>
                                     {m.text}
                                 </div>
-                                {m.isMe && <img src={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
+                                {m.isMe && <TokenImg value={targetChar.avatar} className="w-8 h-8 rounded-xl object-cover shrink-0" />}
                             </div>
                         );
                     })}
@@ -2877,7 +2994,7 @@ ${olderText}
         const commitAff = () => { if (affinityDraft != null) { handleSetAffinity(c, affinityDraft); setAffinityDraft(null); } };
         const closeProfile = () => { setShowProfile(false); setEditingIdentity(false); setEditingNote(false); };
         const avatarNode = (size: string, txt: string) => av
-            ? <img src={av} alt="" className={`${size} rounded-2xl object-cover shrink-0`} />
+            ? <TokenImg value={av} alt="" className={`${size} rounded-2xl object-cover shrink-0`} />
             : <div className={`${size} rounded-2xl flex items-center justify-center shrink-0 text-white font-semibold ${txt}`} style={{ background: `linear-gradient(135deg, ${accent}40, ${accent}10)` }}>{c.name[0]}</div>;
         return (
             <SubAppShell>
@@ -2930,11 +3047,11 @@ ${olderText}
                                 <span className={`w-4 h-4 rounded-full border flex items-center justify-center shrink-0 text-[9px] font-bold self-center ${sel ? 'bg-pink-500 border-pink-500 text-white' : 'border-white/30 text-transparent'} ${m.isMe ? 'order-last' : ''}`}>✓</span>
                             )}
                             {!m.isMe && (av
-                                ? <img src={av} alt="" className="w-7 h-7 rounded-xl object-cover shrink-0" />
+                                ? <TokenImg value={av} alt="" className="w-7 h-7 rounded-xl object-cover shrink-0" />
                                 : <div className="w-7 h-7 rounded-xl flex items-center justify-center text-[11px] text-white shrink-0" style={{ background: `linear-gradient(135deg, ${accent}40, ${accent}10)` }}>{c.name[0]}</div>)}
                             <div className={`px-3.5 py-2.5 rounded-2xl max-w-[76%] text-[13px] leading-relaxed break-words ${m.isMe ? 'text-white rounded-br-md' : 'bg-white/[0.07] text-white/90 border border-white/[0.06] rounded-bl-md'}`}
                                 style={m.isMe ? { background: `linear-gradient(135deg, ${accent}, ${accent}bb)` } : undefined}>{m.content}</div>
-                            {m.isMe && <img src={targetChar.avatar} alt="" className="w-7 h-7 rounded-xl object-cover shrink-0" />}
+                            {m.isMe && <TokenImg value={targetChar.avatar} alt="" className="w-7 h-7 rounded-xl object-cover shrink-0" />}
                         </div>
                     );})}
                     {isLoading && (
@@ -3430,7 +3547,7 @@ ${olderText}
     );
 
     const renderDesktop = () => {
-        const hasBg = !!targetChar?.dateBackground;
+        const hasBg = !!dateBackgroundUrl;
         const totalPages = customApps.length > 0 ? 2 : 1;
 
         const onTouchStart = (e: React.TouchEvent) => {
@@ -3456,7 +3573,7 @@ ${olderText}
                     style={{ background: 'radial-gradient(120% 80% at 50% 0%, #1a1d2b 0%, #0a0c12 55%, #060709 100%)' }} />
                 {hasBg && (
                     <div className="absolute inset-0 opacity-25 pointer-events-none"
-                        style={{ backgroundImage: `url(${targetChar!.dateBackground})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+                        style={{ backgroundImage: `url("${dateBackgroundUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
                 )}
                 <div className="absolute inset-0 pointer-events-none"
                     style={{ background: 'linear-gradient(to bottom, rgba(7,8,9,0.35) 0%, rgba(7,8,9,0.1) 30%, rgba(7,8,9,0.85) 100%)' }} />
@@ -3527,7 +3644,11 @@ ${olderText}
                         <CaretLeft size={18} weight="bold" />
                     </button>
                     <span className="font-semibold tracking-[0.25em] uppercase text-[13px] text-white/80">Target Device</span>
-                    <div className="w-9" />
+                    <button onClick={() => { setPhoneApiTestResult(null); setShowApiSettings(true); }} aria-label="查手机 API 设置"
+                        className="relative w-9 h-9 rounded-full flex items-center justify-center text-white/75 bg-white/[0.05] border border-white/[0.08] active:scale-90 transition">
+                        <GearSix size={17} weight={phoneApiFollowsDefault ? 'regular' : 'fill'} />
+                        {!phoneApiFollowsDefault && <span className="absolute right-1.5 bottom-1.5 h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_6px_#a78bfa]" />}
+                    </button>
                 </div>
                 {(() => {
                     const PER_PAGE = 6;
@@ -3546,7 +3667,7 @@ ${olderText}
                                         className="min-h-0 rounded-3xl border border-white/[0.07] bg-white/[0.03] backdrop-blur-xl p-4 flex flex-col items-center justify-center gap-3 cursor-pointer active:scale-95 transition group hover:border-violet-400/50 hover:shadow-[0_0_24px_rgba(157,124,255,0.25)] relative overflow-hidden">
                                         <div className="absolute -top-10 -right-10 w-28 h-28 rounded-full blur-3xl bg-violet-500/0 group-hover:bg-violet-500/20 transition" />
                                         <div className="w-20 h-20 rounded-full p-[2px] border-2 border-white/15 group-hover:border-violet-400/70 transition-colors relative z-10 shrink-0">
-                                            <img src={c.avatar} className="w-full h-full rounded-full object-cover grayscale group-hover:grayscale-0 transition-all" />
+                                            <TokenImg value={c.avatar} className="w-full h-full rounded-full object-cover grayscale group-hover:grayscale-0 transition-all" />
                                         </div>
                                         <div className="text-center relative z-10">
                                             <div className="font-semibold text-white/90 text-sm group-hover:text-violet-300">{c.name}</div>
@@ -3576,6 +3697,59 @@ ${olderText}
                         </div>
                     );
                 })()}
+                <Modal isOpen={showApiSettings} title="查手机 · API 设置" onClose={() => setShowApiSettings(false)}>
+                    <div className="space-y-3">
+                        <p className="text-[11px] leading-relaxed text-slate-500">
+                            查手机里的内容生成、人际关系对话、智能体和人格模拟都会走这里。单独选择后不影响聊天；不设置则跟随聊天默认。
+                        </p>
+                        <div className="rounded-2xl bg-slate-50 border border-slate-200 p-3.5">
+                            <div className="text-[10px] tracking-[0.18em] text-slate-400 mb-1">当前生效</div>
+                            <div className="text-[13px] font-bold text-slate-800 break-all">{effectiveApiConfig?.model || '未配置'}</div>
+                            <div className="text-[10.5px] text-slate-400 mt-0.5 break-all">
+                                {apiHost(effectiveApiConfig?.baseUrl)} · {phoneApiFollowsDefault ? '跟随聊天默认' : '查手机独立'}
+                            </div>
+                            <button onClick={testPhoneApi} disabled={testingPhoneApi}
+                                className="mt-2.5 px-3 py-1.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-bold disabled:opacity-50">
+                                {testingPhoneApi ? '测试中…' : '测试连接'}
+                            </button>
+                            {phoneApiTestResult && (
+                                <div className={`mt-2 rounded-xl px-2.5 py-2 text-[10.5px] leading-relaxed ${phoneApiTestResult.startsWith('连接成功') ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                                    {phoneApiTestResult}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="text-[10px] tracking-[0.18em] text-slate-400 px-1">选择 API</div>
+                        <button onClick={() => choosePhoneApi(null)}
+                            className={`w-full rounded-2xl border p-3 text-left transition ${phoneApiFollowsDefault ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white'}`}>
+                            <div className="flex items-center gap-2">
+                                <div className="min-w-0 flex-1">
+                                    <div className="text-[12px] font-bold text-slate-800">跟随聊天默认</div>
+                                    <div className="text-[10px] text-slate-400 truncate">{apiConfig?.model || '未配置'} · {apiHost(apiConfig?.baseUrl)}</div>
+                                </div>
+                                {phoneApiFollowsDefault && <span className="text-[10px] font-bold text-violet-600">✓ 使用中</span>}
+                            </div>
+                        </button>
+
+                        {apiPresets.length === 0 ? (
+                            <p className="px-1 text-[10.5px] leading-relaxed text-slate-400">“设置”里还没有保存的 API 预设。先保存预设，这里就能单独选择。</p>
+                        ) : apiPresets.map(preset => {
+                            const active = isSamePhoneApi(preset.config);
+                            return (
+                                <button key={preset.id} onClick={() => choosePhoneApi(preset.config)}
+                                    className={`w-full rounded-2xl border p-3 text-left transition ${active ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white'}`}>
+                                    <div className="flex items-center gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-[12px] font-bold text-slate-800 truncate">{preset.name}</div>
+                                            <div className="text-[10px] text-slate-400 truncate">{preset.config.model || '未配置'} · {apiHost(preset.config.baseUrl)}</div>
+                                        </div>
+                                        {active && <span className="text-[10px] font-bold text-violet-600">✓ 使用中</span>}
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </Modal>
             </div>
         );
     }
@@ -3644,6 +3818,29 @@ ${olderText}
                                 className="w-full py-3.5 rounded-2xl text-white font-bold active:scale-[0.99] transition"
                                 style={{ background: '#5f82ef' }}>关闭</button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 查手机记录 · 长按后可事后补同步到私聊 */}
+            {evidenceMenu && (
+                <div className="fixed inset-0 z-[120] flex items-end justify-center animate-fade-in" onClick={() => setEvidenceMenu(null)}>
+                    <div className="absolute inset-0 bg-black/50" />
+                    <div className="relative w-full max-w-sm m-3 mb-6 space-y-2" onClick={event => event.stopPropagation()}>
+                        <div className="rounded-2xl overflow-hidden bg-[#1c1d22] border border-white/10">
+                            <div className="px-4 py-2.5 text-[12px] text-white/50 border-b border-white/10 truncate">查手机记录：{evidenceMenu.record.title}</div>
+                            <button
+                                onClick={() => void syncEvidenceRecordToChat(evidenceMenu.record)}
+                                disabled={!!evidenceMenu.record.systemMessageId}
+                                className="w-full px-4 py-3.5 text-left text-[14px] text-sky-300 active:bg-white/5 transition flex items-center gap-3 disabled:text-white/30"
+                            ><PaperPlaneTilt size={17} /> {evidenceMenu.record.systemMessageId ? '已同步到私聊' : '同步到私聊'}</button>
+                            <button onClick={() => {
+                                const record = evidenceMenu.record;
+                                setEvidenceMenu(null);
+                                askConfirm({ title: '删除这条记录？', desc: `删除「${record.title}」后无法恢复。`, confirmLabel: '删除', danger: true, onConfirm: () => handleDeleteRecord(record) });
+                            }} className="w-full px-4 py-3.5 text-left text-[14px] text-rose-400 active:bg-white/5 transition flex items-center gap-3 border-t border-white/10"><Trash size={17} /> 删除记录</button>
+                        </div>
+                        <button onClick={() => setEvidenceMenu(null)} className="w-full rounded-2xl bg-[#1c1d22] border border-white/10 py-3.5 text-[14px] font-semibold text-white/80">取消</button>
                     </div>
                 </div>
             )}
@@ -3897,7 +4094,7 @@ ${olderText}
                                             onClick={() => handleRebindContact(selectedContact, { kind: 'real', charId: rc.id })}
                                             disabled={current}
                                             className={`w-full flex items-center gap-2.5 rounded-xl p-2.5 border text-left transition ${current ? 'border-pink-300 bg-pink-50' : 'border-slate-200 bg-slate-50 active:scale-[0.99]'}`}>
-                                            <img src={rc.avatar} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
+                                            <TokenImg value={rc.avatar} alt="" className="w-8 h-8 rounded-lg object-cover shrink-0" />
                                             <span className="text-[13px] font-semibold text-slate-700 flex-1 truncate">{rc.name}</span>
                                             {current && <span className="text-[10px] font-bold text-pink-500 shrink-0">当前绑定</span>}
                                         </button>

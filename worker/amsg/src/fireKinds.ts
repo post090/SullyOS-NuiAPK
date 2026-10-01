@@ -45,6 +45,10 @@ export interface KindFireCtx {
 /** handler 用得上的那部分每轮 session ctx。 */
 export interface KindSessionCtx {
   llmOutputText: string;
+  /** 以下三项只给跳过诊断用（见 ./skipDiagnostics），上游每轮都会给。 */
+  sessionId?: string;
+  iteration?: number;
+  llmResponse?: unknown;
   scratch?: Record<string, unknown>;
   writeState?: KindWriteState;
   /**

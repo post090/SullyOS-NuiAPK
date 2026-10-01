@@ -175,7 +175,9 @@ type ParsedPackage = {
 export type Live2DImportProgress = (stage: string) => void;
 
 const normalizePath = (value: string): string => {
-  const path = value.replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
+  // ZIP tools on macOS/iOS may store decomposed Unicode while model3.json uses
+  // composed characters. They are the same visible filename, so compare in NFC.
+  const path = value.normalize('NFC').replace(/\\/g, '/').replace(/^\.\/+/, '').replace(/^\/+/, '');
   const parts = path.split('/').filter(Boolean);
   if (!parts.length || parts.some(part => part === '..')) throw new Error(`Live2D 包含不安全的路径：${value}`);
   return parts.join('/');
@@ -688,12 +690,70 @@ const discoverActionParameters = async (
   }
 };
 
-const collectReferencedFiles = (model: Model3Json): string[] => {
+type Live2DDeclaredReference = {
+  reference: string;
+  required: boolean;
+};
+
+const collectReferencedFiles = (model: Model3Json): Live2DDeclaredReference[] => {
   const refs = model.FileReferences || {};
-  const files = [refs.Moc, ...(refs.Textures || []), refs.Physics, refs.Pose, refs.DisplayInfo, refs.UserData];
-  Object.values(refs.Motions || {}).forEach(items => items.forEach(item => files.push(item.File, item.Sound)));
-  (refs.Expressions || []).forEach(item => files.push(item.File));
-  return files.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()));
+  const required = [refs.Moc, ...(refs.Textures || [])];
+  const optional = [refs.Physics, refs.Pose, refs.DisplayInfo, refs.UserData];
+  Object.values(refs.Motions || {}).forEach(items => items.forEach(item => optional.push(item.File, item.Sound)));
+  (refs.Expressions || []).forEach(item => optional.push(item.File));
+  const compact = (items: Array<string | undefined>, isRequired: boolean): Live2DDeclaredReference[] => items
+    .filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+    .map(reference => ({ reference, required: isRequired }));
+  return [...compact(required, true), ...compact(optional, false)];
+};
+
+/**
+ * Cubism only needs Moc + textures to construct the model. Stale expressions,
+ * motions, sounds, physics and editor metadata are common in VTube Studio packs;
+ * remove missing optional references before turning paths into Blob URLs.
+ */
+export const pruneUnavailableLive2DReferences = (
+  model: Model3Json,
+  modelPath: string,
+  availablePaths: Iterable<string>,
+): number => {
+  const refs = model.FileReferences;
+  if (!refs) return 0;
+  const available = new Set([...availablePaths].map(normalizePath));
+  const exists = (reference?: string): boolean => (
+    Boolean(reference) && available.has(resolveModelReference(modelPath, reference!))
+  );
+  let pruned = 0;
+
+  for (const key of ['Physics', 'Pose', 'DisplayInfo', 'UserData'] as const) {
+    if (refs[key] && !exists(refs[key])) {
+      delete refs[key];
+      pruned += 1;
+    }
+  }
+
+  for (const [group, motions] of Object.entries(refs.Motions || {})) {
+    const kept = motions.filter(motion => {
+      if (exists(motion.File)) return true;
+      if (motion.File) pruned += 1;
+      return false;
+    });
+    for (const motion of kept) {
+      if (motion.Sound && !exists(motion.Sound)) {
+        delete motion.Sound;
+        pruned += 1;
+      }
+    }
+    if (kept.length) refs.Motions![group] = kept;
+    else delete refs.Motions![group];
+  }
+
+  refs.Expressions = (refs.Expressions || []).filter(expression => {
+    if (exists(expression.File)) return true;
+    if (expression.File) pruned += 1;
+    return false;
+  });
+  return pruned;
 };
 
 const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => {
@@ -736,13 +796,15 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
     ...(vtube?.Hotkeys || []).map(hotkey => hotkey.File),
   ].filter((item): item is string => Boolean(item));
   const referencedFiles = [
-    ...collectReferencedFiles(model).map(reference => ({
+    ...collectReferencedFiles(model).map(({ reference, required }) => ({
       reference,
+      required,
       resolvedPath: resolveModelReference(modelPath, reference),
       referencedBy: modelPath,
     })),
     ...vtubeReferencedFiles.map(reference => ({
       reference,
+      required: false,
       resolvedPath: resolveModelReference(vtubePath || modelPath, reference),
       referencedBy: vtubePath || modelPath,
     })),
@@ -755,7 +817,7 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
       && candidate.reference === item.reference
       && candidate.resolvedPath === item.resolvedPath
     )) === index)
-    .map((item): Live2DMissingFileDetail => {
+    .map(item => {
       const lowerPath = item.resolvedPath.toLowerCase();
       const targetName = basename(item.resolvedPath).toLowerCase();
       const caseInsensitiveMatch = packagePaths.find(path => path.toLowerCase() === lowerPath);
@@ -768,8 +830,11 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
         ...(sameNameCandidates.length ? { sameNameCandidates } : {}),
       };
     });
-  if (missing.length) {
-    const error = new Live2DMissingFilesError(modelPath, missing, packagePaths.length);
+  const toMissingDetail = ({ required: _required, ...detail }: typeof missing[number]): Live2DMissingFileDetail => detail;
+  const requiredMissing = missing.filter(item => item.required).map(toMissingDetail);
+  const optionalMissing = missing.filter(item => !item.required).map(toMissingDetail);
+  if (requiredMissing.length) {
+    const error = new Live2DMissingFilesError(modelPath, requiredMissing, packagePaths.length);
     // Keep the user-facing message compact, but make the browser/debug console
     // fully actionable. JSON text is intentional: embedded WebView consoles
     // often collapse Error custom fields and only retain Error.message.
@@ -777,6 +842,11 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
       `[live2d] ${error.message}\n完整缺失引用诊断：\n${JSON.stringify(error.toJSON(), null, 2)}`,
     );
     throw error;
+  }
+  if (optionalMissing.length) {
+    console.warn(
+      `[live2d] 已忽略 ${optionalMissing.length} 个缺失的可选文件引用：\n${JSON.stringify(optionalMissing, null, 2)}`,
+    );
   }
 
   const actions: Live2DAction[] = [];
@@ -822,6 +892,7 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
 
   for (const expression of refs.Expressions || []) {
     if (!expression.File) continue;
+    if (!byPath.has(resolveModelReference(modelPath, expression.File))) continue;
     addExpression(expression.Name || '', expression.File, 'model3');
   }
 
@@ -862,6 +933,7 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
   for (const [group, motions] of Object.entries(refs.Motions || {})) {
     motions.forEach((motion, index) => {
       if (!motion.File) return;
+      if (!byPath.has(resolveModelReference(modelPath, motion.File))) return;
       addMotion(motion.Name || '', motion.File, group, 'model3', index);
     });
   }
@@ -875,6 +947,7 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
     const key = hotkeyText(hotkey);
     if (hotkey.Action === 'ToggleExpression' && hotkey.File) {
       const fullPath = resolveModelReference(vtubePath, hotkey.File);
+      if (!byPath.has(fullPath)) continue;
       addExpression(hotkey.Name || '', modelRelativePath(modelPath, fullPath), 'vtube', key);
     } else if (hotkey.Action === 'RemoveAllExpressions') {
       actions.push({
@@ -895,7 +968,7 @@ const parsePackage = async (entries: PackageEntry[]): Promise<ParsedPackage> => 
   const idleFile = vtube?.FileReferences?.IdleAnimation;
   if (idleFile) {
     const fullPath = resolveModelReference(vtubePath, idleFile);
-    addMotion('待机循环', modelRelativePath(modelPath, fullPath), 'Idle', 'vtube');
+    if (byPath.has(fullPath)) addMotion('待机循环', modelRelativePath(modelPath, fullPath), 'Idle', 'vtube');
   }
 
   const modelDirectory = dirname(modelPath);
@@ -1509,6 +1582,10 @@ export const loadLive2DModelSource = async (
   const settings = JSON.parse(await settingsBlob.text()) as Model3Json & Record<string, any>;
   const refs = settings.FileReferences;
   if (!refs) throw new Error('model3.json 缺少 FileReferences。');
+  const prunedReferenceCount = pruneUnavailableLive2DReferences(settings, config.modelPath, entries.keys());
+  if (prunedReferenceCount > 0) {
+    console.warn(`[live2d] 运行时已跳过 ${prunedReferenceCount} 个缺失的可选文件引用。`);
+  }
   const parameterEntries = await Promise.all(config.actions.map(async action => (
     [action.id, await discoverActionParameters(action, entries, config.modelPath)] as const
   )));
@@ -1528,14 +1605,16 @@ export const loadLive2DModelSource = async (
   for (const action of config.actions) {
     if (action.kind === 'expression' && action.file && !action.resetExpression) {
       const actionPath = resolveModelReference(config.modelPath, action.file);
+      if (!entries.has(actionPath)) continue;
       const existing = refs.Expressions.find(item => item.File && resolveModelReference(config.modelPath, item.File) === actionPath);
       if (existing) existing.Name = action.expressionId || action.name;
       else refs.Expressions.push({ Name: action.expressionId || action.name, File: action.file });
     }
     if (action.kind === 'motion' && action.file) {
       const group = action.group || 'Imported';
-      const motions = refs.Motions[group] ||= [];
       const actionPath = resolveModelReference(config.modelPath, action.file);
+      if (!entries.has(actionPath)) continue;
+      const motions = refs.Motions[group] ||= [];
       if (!motions.some(item => item.File && resolveModelReference(config.modelPath, item.File) === actionPath)) {
         motions.push({ Name: action.name, File: action.file });
       }

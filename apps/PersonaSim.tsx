@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
@@ -9,6 +10,7 @@ import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { safeResponseJson } from '../utils/safeApi';
 import { parsePersonaScriptApiResponse } from '../utils/personaSimParser';
 import { trackEvent } from '../utils/analytics';
+import { useBlobRefUrl } from '../utils/blobRef';
 import {
     CaretLeft, Play, Pause, FastForward, Lock, MagnifyingGlass, MusicNotes,
     BellRinging, ImageSquare, NotePencil, Globe, CloudSun, ArrowClockwise,
@@ -87,10 +89,11 @@ export async function generatePersonaScript(opts: {
 }): Promise<SimScript> {
     const { char, userProfile, apiConfig, mode, theme, userPresence = 'default', tone = 'mix' } = opts;
     await injectMemoryPalace(char, undefined, theme, userProfile.name);
-    const context = ContextBuilder.buildCoreContext(char, userProfile, true, char.memoryPalaceInjection);
-    const msgs = await DB.getMessagesByCharId(char.id);
+    const characterContextInput = { char, user: userProfile, includeDetailedMemories: true, memoryPalaceContext: char.memoryPalaceInjection };
+
+    const msgs = await loadCharacterContextMessages(char);
     // 跟随用户为该角色设置的最大上下文（没设则默认 500）——避免「吵完架来看 if 线，结果 char 不记得吵什么」
-    const ctxLimit = char.contextLimit && char.contextLimit > 0 ? char.contextLimit : 500;
+    const ctxLimit = Math.max(1, msgs.length);
     const recent = msgs.slice(-ctxLimit).map(m => {
         const who = m.role === 'user' ? userProfile.name : char.name;
         const c = m.type === 'text' ? m.content : `[${m.type}]`;
@@ -98,11 +101,11 @@ export async function generatePersonaScript(opts: {
     }).join('\n');
     const firstTs = msgs.find(m => typeof m.timestamp === 'number')?.timestamp;
     const acquaintance = describeAcquaintance(firstTs, userProfile.name, char.name);
-    const prompt = buildDirectorPrompt(context, recent, mode, theme, char.name, acquaintance, userProfile.name, userPresence, tone);
+    const prompt = buildDirectorPrompt('', recent, mode, theme, char.name, acquaintance, userProfile.name, userPresence, tone);
     const res = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-        body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }], temperature: 0.98, max_tokens: 24000 }),
+        body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]), temperature: 0.98, max_tokens: 24000 }),
     });
     if (!res.ok) throw new Error('API');
     const data = await safeResponseJson(res);
@@ -922,14 +925,19 @@ const AppView: React.FC<{ app: NonNullable<Beat['app']>; char: CharacterProfile 
 // ============================================================
 //  SHARED CHROME
 // ============================================================
-const Shell: React.FC<{ children: React.ReactNode; wallpaper?: string }> = ({ children, wallpaper }) => (
+const Shell: React.FC<{ children: React.ReactNode; wallpaper?: string }> = ({ children, wallpaper }) => {
+    // 传进来的是角色见面背景的原始字段值（blobref 令牌 / 旧 data: / 外链），
+    // 令牌喂不了 CSS url()，在这儿解析一次；非令牌值原样透传。
+    const wallpaperUrl = useBlobRefUrl(wallpaper);
+    return (
     <div className="absolute inset-0 z-[80] flex flex-col overflow-hidden text-white" style={{ background: '#07080c' }}>
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'radial-gradient(130% 80% at 50% 0%, #1a1726 0%, #0a0b12 60%, #07080c 100%)' }} />
-        {wallpaper && <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: `url(${wallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center' }} />}
+        {wallpaperUrl && <div className="absolute inset-0 opacity-20 pointer-events-none" style={{ backgroundImage: `url("${wallpaperUrl}")`, backgroundSize: 'cover', backgroundPosition: 'center' }} />}
         <div className="absolute inset-0 pointer-events-none" style={{ background: 'linear-gradient(to bottom, rgba(7,8,12,0.4), rgba(7,8,12,0.2) 40%, rgba(7,8,12,0.9))' }} />
         <div className="relative z-10 flex flex-col flex-1 min-h-0">{children}</div>
     </div>
-);
+    );
+};
 
 const TopBar: React.FC<{ onBack: () => void; right?: React.ReactNode; title?: string }> = ({ onBack, right, title }) => (
     // 顶部安全区：iOS 刘海/状态栏会盖住返回键和「生活记录」，给个 safe-area-inset 兜底

@@ -1,3 +1,5 @@
+import { ContextBuilder, type ContextMessage } from '../utils/context';
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
@@ -28,18 +30,19 @@ import {
     DiamondsFour,
     Cards,
 } from '@phosphor-icons/react';
+import TokenImg from '../components/os/TokenImg';
 
 // --- Helper: Generate ID ---
 const genId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 // --- Helper: API Call ---
-async function callAPI(apiConfig: { baseUrl: string; apiKey: string; model: string }, prompt: string): Promise<string> {
+async function callAPI(apiConfig: { baseUrl: string; apiKey: string; model: string }, messages: ContextMessage[]): Promise<string> {
     const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
         body: JSON.stringify({
             model: apiConfig.model,
-            messages: [{ role: 'user', content: prompt }],
+            messages,
             temperature: 0.9,
             max_tokens: 4000,
             stream: false,
@@ -54,11 +57,10 @@ async function callAPI(apiConfig: { baseUrl: string; apiKey: string; model: stri
     return json?.choices?.[0]?.message?.content?.trim() || '';
 }
 
-// --- Helper: Fetch recent messages as text (uses char.contextLimit) ---
-async function fetchRecentMessages(charId: string, limit: number): Promise<string> {
-    if (limit <= 0) return '';
+// --- Helper: Fetch the shared character context range as text ---
+async function fetchRecentMessages(charId: string): Promise<string> {
     try {
-        const msgs = await DB.getRecentMessagesByCharId(charId, limit);
+        const msgs = await loadCharacterContextMessages(charId);
         const privateMsgs = msgs.filter(m => !m.groupId && (m.type === 'text' || m.type === 'voice'));
         if (privateMsgs.length === 0) return '';
         return privateMsgs.map(m =>
@@ -148,7 +150,7 @@ const GameHeader: React.FC<{
                 <ArrowLeft size={14} />
             </button>
             {charAvatar && (
-                <img src={charAvatar} className="w-8 h-8 rounded-full object-cover shadow-md" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
+                <TokenImg value={charAvatar} className="w-8 h-8 rounded-full object-cover shadow-md" style={{ boxShadow: '0 0 0 2px rgba(180,165,170,0.4)' }} />
             )}
             <div className="flex-1 min-w-0">
                 <div className="text-sm font-bold truncate" style={{ color: '#5a4a50' }}>{title}</div>
@@ -433,7 +435,7 @@ const EndCard: React.FC<{
                     <div className="absolute top-2 right-3 text-lg" style={{ color: 'rgba(180,165,170,0.3)' }}><FlowerLotus size={18} /></div>
 
                     {charAvatar ? (
-                        <img src={charAvatar} className="w-16 h-16 rounded-2xl object-cover shadow-lg mx-auto mb-2" style={{ boxShadow: '0 0 0 3px rgba(180,165,170,0.35), 0 4px 12px rgba(0,0,0,0.1)' }} />
+                        <TokenImg value={charAvatar} className="w-16 h-16 rounded-2xl object-cover shadow-lg mx-auto mb-2" style={{ boxShadow: '0 0 0 3px rgba(180,165,170,0.35), 0 4px 12px rgba(0,0,0,0.1)' }} />
                     ) : (
                         <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-white text-2xl font-bold shadow-lg mx-auto mb-2" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)', boxShadow: '0 0 0 3px rgba(180,165,170,0.35)' }}>
                             {charName[0]}
@@ -549,7 +551,7 @@ const SessionCard: React.FC<{
             <div {...longPressHandlers}>
                 <div className="flex items-center gap-3">
                     {char?.avatar ? (
-                        <img src={char.avatar} className="w-11 h-11 rounded-xl object-cover shadow-sm" style={{ boxShadow: '0 0 0 2px rgba(200,185,190,0.4)' }} />
+                        <TokenImg value={char.avatar} className="w-11 h-11 rounded-xl object-cover shadow-sm" style={{ boxShadow: '0 0 0 2px rgba(200,185,190,0.4)' }} />
                     ) : (
                         <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold shadow-sm" style={{ background: 'linear-gradient(135deg, #b8909a, #a07880)' }}>
                             {char?.name?.[0] || '?'}
@@ -685,8 +687,7 @@ const GuidebookApp: React.FC = () => {
         setError('');
 
         const char = characters.find(c => c.id === selectedCharId)!;
-        const contextLimit = char.contextLimit || 500;
-        const recentMsgs = await fetchRecentMessages(selectedCharId, contextLimit);
+        const recentMsgs = await fetchRecentMessages(selectedCharId);
         setCachedRecentMsgs(recentMsgs);
 
         const newSession: GuidebookSession = {
@@ -708,7 +709,7 @@ const GuidebookApp: React.FC = () => {
         try {
             await injectMemoryPalace(char, undefined, scenarioHint || undefined);
             const prompt = buildOpeningPrompt(char, userProfile, initialAffinity, scenarioHint, 'manual', recentMsgs, char.guidebookInsights);
-            const raw = await callAPI(apiConfig, prompt);
+            const raw = await callAPI(apiConfig, ContextBuilder.buildCharacterRequest({ char, user: userProfile }, [{ role: 'user', content: prompt }]));
             let data = extractJson(raw);
 
             // Flexible segment extraction: try multiple paths
@@ -783,7 +784,7 @@ const GuidebookApp: React.FC = () => {
                 session.currentRound + 1, session.rounds, session.scenarioHint || '',
                 cachedRecentMsgs, wc, nextDirectionHint || undefined
             );
-            const raw = await callAPI(apiConfig, prompt);
+            const raw = await callAPI(apiConfig, ContextBuilder.buildCharacterRequest({ char: selectedChar, user: userProfile }, [{ role: 'user', content: prompt }]));
             const data = extractJson(raw);
             // Flexible: try data.options, or any array field with 3+ items that have text
             let opts: any[] | null = null;
@@ -881,7 +882,7 @@ const GuidebookApp: React.FC = () => {
                 roundNum, session.maxRounds, options, session.rounds, session.scenarioHint || '',
                 cachedRecentMsgs, wc, nextDirectionHint || undefined, roundScenario || undefined
             );
-            const raw = await callAPI(apiConfig, prompt);
+            const raw = await callAPI(apiConfig, ContextBuilder.buildCharacterRequest({ char: selectedChar, user: userProfile }, [{ role: 'user', content: prompt }]));
             const data = extractJson(raw);
             const choice = data?.choice;
             // Accept number, string number, or letter A/B/C
@@ -960,7 +961,7 @@ const GuidebookApp: React.FC = () => {
                 session.initialAffinity, session.currentAffinity, session.rounds,
                 cachedRecentMsgs
             );
-            const raw = await callAPI(apiConfig, prompt);
+            const raw = await callAPI(apiConfig, ContextBuilder.buildCharacterRequest({ char: selectedChar, user: userProfile }, [{ role: 'user', content: prompt }]));
             const data = extractJson(raw);
 
             if (data) {
@@ -1054,7 +1055,7 @@ const GuidebookApp: React.FC = () => {
         } else {
             setCachedRecentMsgs('');
             const resumeChar = characters.find(c => c.id === s.charId);
-            fetchRecentMessages(s.charId, resumeChar?.contextLimit || 500).then(setCachedRecentMsgs);
+            fetchRecentMessages(s.charId).then(setCachedRecentMsgs);
             setView('playing');
         }
     };
@@ -1128,7 +1129,7 @@ const GuidebookApp: React.FC = () => {
                                     <div className="relative h-[100px] overflow-hidden" style={{ borderRadius: '4px' }}>
                                         {/* Background - avatar as cinematic crop or gradient */}
                                         {c.avatar ? (
-                                            <img src={c.avatar}
+                                            <TokenImg value={c.avatar}
                                                 className="absolute inset-0 w-full h-full object-cover"
                                                 style={{
                                                     objectPosition: isEven ? 'center 20%' : 'center 30%',
@@ -1157,7 +1158,7 @@ const GuidebookApp: React.FC = () => {
                                         <div className={`absolute top-1/2 -translate-y-1/2 ${isEven ? 'right-3' : 'left-3'} z-10`}>
                                             {c.avatar ? (
                                                 <div className="relative">
-                                                    <img src={c.avatar}
+                                                    <TokenImg value={c.avatar}
                                                         className="w-[60px] h-[60px] rounded-full object-cover shadow-lg"
                                                         style={{
                                                             border: '2px solid rgba(255,255,255,0.2)',
@@ -1195,7 +1196,7 @@ const GuidebookApp: React.FC = () => {
 
                                             {/* Description line */}
                                             <div className="text-white/50 text-[10px] mt-0.5 leading-tight max-w-[85%] truncate">
-                                                {c.description ? c.description.slice(0, 25) : '等待攻略…'}
+                                                {c.description ? c.description.slice(0, 25) : '这次，轮到 ta 来攻略你。'}
                                             </div>
 
                                             {/* Session badge */}
@@ -1343,7 +1344,7 @@ const GuidebookApp: React.FC = () => {
                             <div className="relative h-[88px] overflow-hidden" style={{ borderRadius: '16px' }}>
                                 {/* Background - avatar cinematic crop */}
                                 {setupChar.avatar ? (
-                                    <img src={setupChar.avatar}
+                                    <TokenImg value={setupChar.avatar}
                                         className="absolute inset-0 w-full h-full object-cover"
                                         style={{ objectPosition: 'center 25%', filter: 'brightness(0.6) contrast(1.1) saturate(1.3) blur(1px)' }}
                                     />
@@ -1358,7 +1359,7 @@ const GuidebookApp: React.FC = () => {
                                 <div className="absolute inset-0 flex items-center gap-3 px-4">
                                     {/* Portrait */}
                                     {setupChar.avatar ? (
-                                        <img src={setupChar.avatar} className="w-14 h-14 rounded-full object-cover shrink-0 shadow-lg"
+                                        <TokenImg value={setupChar.avatar} className="w-14 h-14 rounded-full object-cover shrink-0 shadow-lg"
                                             style={{ border: '2px solid rgba(255,255,255,0.25)', boxShadow: '0 4px 16px rgba(0,0,0,0.3), 0 0 12px rgba(196,139,139,0.2)' }} />
                                     ) : (
                                         <div className="w-14 h-14 rounded-full flex items-center justify-center text-white/70 text-xl font-bold shrink-0 shadow-lg"

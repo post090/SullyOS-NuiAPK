@@ -1,3 +1,4 @@
+import { getMemoryPalaceHighWaterMarkForContext, selectCharacterContextMessages } from './chatContextRange';
 /**
  * 聊天请求载荷统一构造器
  *
@@ -14,7 +15,14 @@
 
 import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig } from '../types';
 import { ChatPrompts, detectChatModeTransition } from './chatPrompts';
+import { ContextBuilder } from './context';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
+import { renderLocalContextGuidance } from './memoryPalace/recallRouter';
+import { renderInteractionAdaptationGuidance } from './memoryPalace/interactionAdaptation';
+import { renderDeepEngagementGuidance } from './memoryPalace/deepEngagement';
+import { renderConversationEngagementGuidance } from './memoryPalace/conversationEngagement';
+import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
+import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
 import { buildHtmlPrompt } from './htmlPrompt';
 import { buildThinkingChainPrompt } from './thinkingChainPrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
@@ -26,10 +34,13 @@ import { buildMcpSystemBlock, MCP_TAIL_REMINDER } from './mcpToolBridge';
 import type { MusicCfg, Song, LyricLine, MusicPlaybackSnapshot, RecentTrackChange } from '../context/MusicContext';
 import { isPromptBuildSkipped, isSystemMessageMergeEnabled } from './devDebug';
 import { mergeSystemMessages } from './systemMessageMerge';
-import { injectWorldbookDepthEntries, resolveWorldbookEntries } from './worldbook';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
+import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
+import { loadCollaborationFileCabinetBlock } from '../features/collaboration/chatLibrary';
+import { buildSARUserSurfaceRequest, selectSARUserSurfaceTargets } from './vrWorld/sarUserSurface';
+import { getSARModuleRuntimePlan } from './vrWorld/sarModuleRuntime';
 
 export { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 
@@ -54,12 +65,16 @@ export interface BuildChatPayloadInput {
      */
     recentMsgsHint?: Message[];
     contextLimit: number;
+    /** 本轮加载原文时的归档水位快照，避免异步构建期间再次读取变化中的水位。 */
+    contextHighWaterMark?: number;
     /**
      * 额外的记忆召回提示词（拼进向量/BM25 检索的 context query）。
      * 用途：彼方等场景下，把"此刻在场的其他玩家名字 / 房间上下文"塞进召回 query，
      * 让角色能回忆起自己跟对面这些人的关系，而不是只按聊天历史召回。
      */
     recallQueryHint?: string;
+    /** 只用于 Trace 和后续功能的作用域判断，不参与当前召回排序。 */
+    recallEntryPoint?: RecallEntryPoint;
 
     // 实时世界 / 角色情绪
     realtimeConfig?: RealtimeConfig;
@@ -107,6 +122,17 @@ export interface BuildChatPayloadResult {
     cleanedApiMessages: Array<{ role: string; content: any }>;
     /** [system, ...cleanedApiMessages, 末尾 bilingual reminder?] —— 主 API 直接发这个 */
     fullMessages: Array<{ role: string; content: any }>;
+    /**
+     * fullMessages 里易变尾段那条 system 的下标；想插在钢印**之前**的块按它定位。
+     *
+     * 「回到你自己」焊在 volatileTail 末尾，靠 recency 抢模型开口前的最后一眼。后来
+     * 贴数组尾巴的块（amsg2 排程清单）会把那一眼抢走——一份带具体内容的待办清单
+     * 摆在最后，模型会当成本轮该办的事。插在这个下标前，钢印就还是最后一句。
+     * -1 = 没有可插的尾段（prompt build 被跳过，或 dev 的 system 合并开关把多条并成了一条）。
+     */
+    volatileTailIndex: number;
+    /** 本轮记忆召回的脱敏 Trace；Prompt Build 被整体跳过时不存在。 */
+    recallTrace?: RecallTrace;
     /** 调试用：bilingual / mcd 是否实际注入 */
     flags: {
         bilingualActive: boolean;
@@ -116,6 +142,7 @@ export interface BuildChatPayloadResult {
         mcpChatActive: boolean;
         htmlActive: boolean;
         thinkingActive: boolean;
+        sarModuleActive: boolean;
         promptBuildSkipped: boolean;
     };
 }
@@ -209,9 +236,15 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         input.categories,
         char.id,
     );
-    const rawRecentMsgsHint = input.recentMsgsHint ?? historyMsgs;
+    // 正文、召回、世界书扫描和识图共用可见范围；UI 近窗可能仍缓存着范围外旧消息。
+    const contextHighWaterMark = input.contextHighWaterMark ?? getMemoryPalaceHighWaterMarkForContext(char.id);
+    const selectedHistory = selectCharacterContextMessages(historyMsgs, char, contextHighWaterMark);
+    const visibleIds = new Set(selectedHistory.map(message => message.id));
+    const rawRecentMsgsHint = input.recentMsgsHint
+        ? input.recentMsgsHint.filter(message => visibleIds.has(message.id))
+        : selectedHistory;
     const useVisionDescriptions = input.visionApiConfig?.enabled === true;
-    let historyMsgsForPrompt = historyMsgs;
+    let historyMsgsForPrompt = selectedHistory;
     let recentMsgsHint = rawRecentMsgsHint;
 
     if (useVisionDescriptions) {
@@ -219,13 +252,13 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         // 再把写回 metadata 的新快照映射回两套窗口，避免同一轮的 system/history 各跑一次识图。
         const uniqueMessages = new Map<number, Message>();
         for (const message of rawRecentMsgsHint) uniqueMessages.set(message.id, message);
-        for (const message of historyMsgs) uniqueMessages.set(message.id, message);
+        for (const message of selectedHistory) uniqueMessages.set(message.id, message);
         const prepared = await materializeVisionDescriptions(
             [...uniqueMessages.values()],
             input.visionApiConfig,
         );
         const preparedById = new Map(prepared.map(message => [message.id, message]));
-        historyMsgsForPrompt = historyMsgs.map(message => preparedById.get(message.id) || message);
+        historyMsgsForPrompt = selectedHistory.map(message => preparedById.get(message.id) || message);
         recentMsgsHint = rawRecentMsgsHint.map(message => preparedById.get(message.id) || message);
     }
 
@@ -237,7 +270,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             userProfile,
             emojis,
             undefined,
-            { useVisionDescriptions },
+            { useVisionDescriptions, contextHighWaterMark },
         );
         const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
         console.warn('[DevDebug] Prompt Build skipped: sending chat history without system prompt injection.');
@@ -245,6 +278,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             systemPrompt: '',
             cleanedApiMessages,
             fullMessages: [...cleanedApiMessages],
+            volatileTailIndex: -1,
             flags: {
                 bilingualActive: false,
                 mcdActive: false,
@@ -253,13 +287,20 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
                 mcpChatActive: false,
                 htmlActive: false,
                 thinkingActive: false,
+                sarModuleActive: false,
                 promptBuildSkipped: true,
             },
         };
     }
 
     // ── 1. Memory Palace 向量召回 ─────────────────────────
-    await injectMemoryPalace(char, recentMsgsHint, input.recallQueryHint, userProfile?.name);
+    const recallTrace = await injectMemoryPalace(
+        char,
+        recentMsgsHint,
+        input.recallQueryHint,
+        userProfile?.name,
+        { entryPoint: input.recallEntryPoint ?? 'chat_payload' },
+    );
 
     // ── 2. 解析音乐共听（如果 caller 没显式给，就从 snapshot 推） ──
     let userListeningContext = input.userListeningContext;
@@ -285,6 +326,20 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 但主 API 的 historyMsgsForPrompt 来自完整 DB，仍然会看到它们。模式切换必须以 API
     // 真正要发送的历史为准，否则模型会收到特殊模式正文，却收不到「切回聊天格式」的提示。
     const returningFromMode = detectChatModeTransition(historyMsgsForPrompt);
+    // 在公共上下文管线之前准备实际历史，世界书触发和摆放共用这一份消息。
+    const { apiMessages } = ChatPrompts.buildMessageHistory(
+        historyMsgsForPrompt,
+        contextLimit,
+        char,
+        userProfile,
+        emojis,
+        undefined,
+        { useVisionDescriptions, contextHighWaterMark },
+    );
+
+    // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
+    const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
+
     const parts = await ChatPrompts.buildSystemPromptParts(
         char, userProfile, groups, emojis, categories, recentMsgsHint,
         realtimeConfig, innerState || undefined,
@@ -295,14 +350,20 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         // 单聊场景：仅当本角色开启了备忘录能力时，才教 AI 用 [[MEMO_ADD/EDIT/DEL:...]] 标签（默认关）
         {
             memoManagement: !!char.memoEnabled,
-            ...(input.timelyByWorker || returningFromMode ? {
-                timelyByWorker: input.timelyByWorker === true,
-                returningFromMode: returningFromMode || undefined,
-            } : {}),
+            history: cleanedApiMessages,
+            timelyByWorker: input.timelyByWorker === true,
+            returningFromMode: returningFromMode || undefined,
         },
     );
     let systemPrompt = parts.stable;
     let volatileTail = parts.volatileState;
+    const sarModulePlan = input.recallEntryPoint === 'chat_app'
+        ? getSARModuleRuntimePlan(char, userProfile)
+        : undefined;
+    const sarModuleBlock = input.recallEntryPoint === 'chat_app'
+        ? ContextBuilder.buildSARModuleContext(char, userProfile, 'chat')
+        : '';
+    const sarEnvelopeActive = sarModulePlan?.requiresEnvelope === true;
 
     // ── 4. 双语指令注入 ───────────────────────────────────
     const sourceLang = normalizeTranslationLangLabel(translationConfig?.sourceLang);
@@ -319,7 +380,9 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 规则：
 - 每句话单独包裹一个<翻译>标签
 - 多句话就输出多个<翻译>标签，一句一个
-- <翻译>标签外不要写任何文字
+- ${sarEnvelopeActive
+            ? 'SAR 模块生效中：最外层必须是 <SAR_MODULE_OUTPUT>；在 CHAR_TRUE 与 CHAR_SURFACE 字段内部，各自用完整的 <翻译> 标签包裹每句话。除这个 SAR 容器与字段标签外，不写散落文字'
+            : '<翻译>标签外不要写任何文字'}
 - 表情包命令 [[SEND_EMOJI: ...]] 放在所有<翻译>标签外面
 - 引用命令 [[QUOTE: ...]] 也放在所有<翻译>标签外面；引用内容请原样照抄用户说过的原文（不要翻译、不要包<翻译>标签）
 
@@ -351,29 +414,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         }
     }
 
-    // ── 7. 历史消息构造 ───────────────────────────────────
-    const { apiMessages } = ChatPrompts.buildMessageHistory(
-        historyMsgsForPrompt,
-        contextLimit,
-        char,
-        userProfile,
-        emojis,
-        undefined,
-        { useVisionDescriptions },
-    );
-
-    // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
-    const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
-    const resolvedWorldbookEntries = resolveWorldbookEntries(
-        char.mountedWorldbooks || [],
-        cleanedApiMessages,
-        char.name,
-        userProfile.name,
-    );
-    const messagesWithWorldbookDepth = injectWorldbookDepthEntries(
-        cleanedApiMessages,
-        resolvedWorldbookEntries.filter(entry => entry.position === 4),
-    );
+    const messagesWithWorldbookDepth = parts.history;
 
     // ── 9. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──
     const mcdActive = !!mcdMiniSnap?.open;
@@ -417,14 +458,38 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     }
 
     // ── 10. recency 钢印归位 + 组装 fullMessages ─────────
+    // 本地语境分析只在 ChatApp 主回复使用：它告诉主模型“这句话此刻在做什么”，
+    // 不指定具体记忆答案、不改变角色人格，也不进入其他 App 的专属写作提示。
+    if (input.recallEntryPoint === 'chat_app') {
+        volatileTail += renderLocalContextGuidance(recallTrace.contextAnalyzer);
+        volatileTail += renderInteractionAdaptationGuidance(recallTrace.interactionAdaptation?.analysis);
+        const engagementTrace = recallTrace.deepEngagement;
+        if (engagementTrace?.engine === 'legacy_depth') {
+            volatileTail += renderDeepEngagementGuidance(engagementTrace.analysis as DeepEngagementAnalysis | undefined);
+        } else if (engagementTrace?.engine === 'conversation_v2') {
+            // M3 核心原则常驻；分析结果只决定是否在后面追加当轮状态策略。
+            volatileTail += renderConversationEngagementGuidance(
+                engagementTrace.analysis as ConversationEngagementAnalysis | undefined,
+            );
+        }
+        if (char.chatCollaborationEnabled) {
+            volatileTail += await loadCollaborationFileCabinetBlock(
+                char.id,
+                historyMsgsForPrompt,
+                userProfile?.name || '用户',
+            );
+        }
+    }
+
     // 「关于对方的表达」+「回到你自己」必须是易变尾段的最后内容：修复旧版把双语/HTML/
     // 思考链/点单块拼在钢印之后、模型开口前最后读到的是格式说明书的问题。
     volatileTail += parts.recencyTail;
+    if (sarModuleBlock) volatileTail += sarModuleBlock;
 
     // 结构：[稳定 system] + [历史消息] + [易变状态 system] (+ 末尾 reminder)。
     // 稳定前缀不再包含分钟级时间戳等易变内容 → 支持前缀缓存的中转能跨轮命中；
     // 易变状态贴着生成点注入，时间/情绪/日程反而拿到最强 recency 注意力。
-    // 注意：instant push 的 worker 端情绪评估把 messages[0] 当 system、messages[1..]
+    // 注意：即时对话的 worker 端情绪评估把 messages[0] 当 system、messages[1..]
     // 展平为对话历史 —— 易变尾段会以「[系统]: …」行出现在历史末尾，信息不丢。
     const fullMessages: Array<{ role: string; content: any }> = [
         { role: 'system', content: systemPrompt },
@@ -434,11 +499,25 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     if (bilingualActive) {
         fullMessages.push({
             role: 'system',
-            content: `[Reminder: 每句话必须用 <翻译><原文>...</原文><译文>...</译文></翻译> 标签包裹。一句一个标签。绝对不能省略。]`,
+            content: sarEnvelopeActive
+                ? `[Reminder: 最外层输出 <SAR_MODULE_OUTPUT>；CHAR_TRUE 和 CHAR_SURFACE 内的每个气泡都分别使用完整的 <翻译><原文>...</原文><译文>...</译文></翻译>，原文/译文语义一致，一句一个标签。]`
+                : `[Reminder: 每句话必须用 <翻译><原文>...</原文><译文>...</译文></翻译> 标签包裹。一句一个标签。绝对不能省略。]`,
         });
     }
     if (mcpChatActive && !input.timelyByWorker) {
         fullMessages.push({ role: 'system', content: MCP_TAIL_REMINDER });
+    }
+    if (sarModuleBlock) {
+        fullMessages.push({
+            role: 'system',
+            content: '[SAR MODULE REMINDER: 模块是角色在彼方能感知、能记得的外来装置，不是幕后文风要求；CHAR_TRUE 必须包含角色对异常的当下反应，不能若无其事。生效时最终只输出 <SAR_MODULE_OUTPUT> 容器。聊天的 CHAR_TRUE / CHAR_SURFACE 必须逐气泡对齐；纯括号动作原位逐字复制，禁止删泡、合并或新增气泡。内置翻译要在两字段中分别保留完整翻译标签；语音要保留 <语音>/<字幕> 结构并同步改写口播与字幕；“日文（中文翻译）”一类同泡格式不可把括号译文误判成动作。真实语义写 CHAR_TRUE，临时外显写 CHAR_SURFACE，用户外显写 USER_SURFACE，不得把外显当作内心。]',
+        });
+    }
+
+    if (sarModulePlan?.user?.phase === 'active') {
+        fullMessages.push({ role: 'system', content: buildSARUserSurfaceRequest(
+            selectSARUserSurfaceTargets(input.historyMsgs, char.id, sarModulePlan.user),
+        ) });
     }
 
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
@@ -454,6 +533,9 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         systemPrompt: systemPrompt + volatileTail,
         cleanedApiMessages: messagesWithWorldbookDepth,
         fullMessages: finalMessages,
-        flags: { bilingualActive, mcdActive, luckinActive, luckinChatActive, mcpChatActive, htmlActive, thinkingActive, promptBuildSkipped: false },
+        // 合并开关开着时多条 system 被并进开头一条，下标失去意义 → 交出 -1，调用方退回贴尾。
+        volatileTailIndex: finalMessages === fullMessages ? 1 + messagesWithWorldbookDepth.length : -1,
+        recallTrace,
+        flags: { bilingualActive, mcdActive, luckinActive, luckinChatActive, mcpChatActive, htmlActive, thinkingActive, sarModuleActive: !!sarModuleBlock, promptBuildSkipped: false },
     };
 }

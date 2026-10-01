@@ -16,6 +16,7 @@ import {
   inferLive2DActionTags,
   inspectLive2DPackage,
   Live2DMissingFilesError,
+  pruneUnavailableLive2DReferences,
   readLive2DTextureDimensions,
   removeLive2DWardrobeAction,
   sniffImageMime,
@@ -180,6 +181,81 @@ describe('Live2D 模型导入解析', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('缺失 exp3 等可选引用时像 VTube Studio 一样跳过，核心模型仍可导入', async () => {
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const staleModel = JSON.parse(modelJson);
+    staleModel.FileReferences.Physics = 'missing.physics3.json';
+    staleModel.FileReferences.Expressions.push({ Name: '旧表情', File: '2旧表情.exp3.json' });
+    staleModel.FileReferences.Motions.TapBody.push({ File: 'missing.motion3.json' });
+    const entries = packageEntries.map(entry => entry.path.endsWith('.model3.json')
+      ? { ...entry, blob: blob(JSON.stringify(staleModel)) }
+      : entry);
+
+    try {
+      const result = await inspectLive2DPackage(entries);
+      expect(result.modelPath).toBe('Skylar/Skylar.model3.json');
+      expect(result.actions.some(action => action.file === '2旧表情.exp3.json')).toBe(false);
+      expect(result.actions.some(action => action.file === 'missing.motion3.json')).toBe(false);
+      expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining('已忽略 3 个缺失的可选'));
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
+  it('运行前清理失效的可选引用，不让 Blob URL 转换阶段再次报错', () => {
+    const settings: any = {
+      FileReferences: {
+        Moc: 'model.moc3',
+        Textures: ['texture.png'],
+        Physics: 'missing.physics3.json',
+        Motions: {
+          Tap: [
+            { File: 'ok.motion3.json', Sound: 'missing.wav' },
+            { File: 'missing.motion3.json' },
+          ],
+        },
+        Expressions: [
+          { Name: 'ok', File: 'ok.exp3.json' },
+          { Name: 'missing', File: 'missing.exp3.json' },
+        ],
+      },
+    };
+
+    expect(pruneUnavailableLive2DReferences(settings, 'Model/model.model3.json', [
+      'Model/model.moc3',
+      'Model/texture.png',
+      'Model/ok.motion3.json',
+      'Model/ok.exp3.json',
+    ])).toBe(4);
+    expect(settings.FileReferences.Physics).toBeUndefined();
+    expect(settings.FileReferences.Motions.Tap).toEqual([{ File: 'ok.motion3.json' }]);
+    expect(settings.FileReferences.Expressions).toEqual([{ Name: 'ok', File: 'ok.exp3.json' }]);
+    // 核心引用绝不由这个兼容清理器删除，缺失时应交给导入校验明确报错。
+    expect(settings.FileReferences.Moc).toBe('model.moc3');
+    expect(settings.FileReferences.Textures).toEqual(['texture.png']);
+  });
+
+  it('iOS/macOS ZIP 的 Unicode 分解文件名能与 model3 引用对应', async () => {
+    const composed = 'café.exp3.json';
+    const decomposed = composed.normalize('NFD');
+    const unicodeModel = JSON.stringify({
+      Version: 3,
+      FileReferences: {
+        Moc: 'model.moc3',
+        Textures: ['texture.png'],
+        Expressions: [{ Name: 'accent', File: composed }],
+      },
+    });
+    const result = await inspectLive2DPackage([
+      { path: 'Model/model.model3.json', blob: blob(unicodeModel) },
+      { path: 'Model/model.moc3', blob: blob('moc') },
+      { path: 'Model/texture.png', blob: blob('png') },
+      { path: `Model/${decomposed}`, blob: blob('{}') },
+    ]);
+
+    expect(result.actions.find(action => action.name === 'accent')?.file).toBe(composed);
   });
 
   it('缺失诊断指出大小写错误和同名文件所在位置', async () => {

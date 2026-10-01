@@ -20,6 +20,7 @@ import {
   type AvatarTouchZone,
 } from '../../utils/avatarTouch';
 import StaticCompanionPortrait from '../os/StaticCompanionPortrait';
+import TokenImg from '../os/TokenImg';
 
 interface VRMVideoCallStageProps {
   characterName: string;
@@ -517,16 +518,18 @@ const VRMVideoCallStage: React.FC<VRMVideoCallStageProps> = ({
         <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center">
           {fallbackAvatar ? (
             <div className={`relative overflow-hidden rounded-full border border-white/15 ${companionMode ? 'h-36 w-36' : 'h-20 w-20'}`} style={{ animation: 'vrm-stage-drift 5.5s ease-in-out infinite', boxShadow: `0 0 55px ${accentColor}4d` }}>
-              <img src={fallbackAvatar} alt={characterName} className="h-full w-full object-cover" />
+              {/* 兜底头像来自 char.avatar：上传的头像存的是 blobref 令牌，裸 <img> 会裂图，
+                  交给 TokenImg 统一解析（旧的 data: / http 外链原样透传） */}
+              <TokenImg value={fallbackAvatar} alt={characterName} className="h-full w-full object-cover" />
             </div>
           ) : (
             <div className="flex h-28 w-28 items-center justify-center rounded-full border border-white/15 text-5xl font-light" style={{ background: `${accentColor}22`, color: accentColor }}>{characterName[0] || '角'}</div>
           )}
           <div className={`${companionMode ? 'mt-5' : 'mt-3'} text-sm font-medium text-white/85`}>
-            {modelMissing ? '模型文件已丢失，需要重新导入' : modelError ? '模型暂时加载失败' : '给这个角色装上视频模型'}
+            {modelMissing ? '模型文件已丢失，需要重新导入' : modelError ? '模型暂时加载失败' : companionMode ? '给 ta 换上陪伴形象' : '给这个角色装上视频模型'}
           </div>
           <p className="mt-1.5 max-w-[17rem] text-xs leading-relaxed text-white/45">
-            {modelError && !modelMissing ? '模型仍保存在本地，可以直接重新建立渲染，不必重复导入。' : '支持 VRM 0.x / 1.0，以及 Cubism model3.json 文件夹或 ZIP。'}
+            {modelError && !modelMissing ? '模型仍保存在本地，可以直接重新建立渲染，不必重复导入。' : companionMode && !modelMissing ? '图片或 GIF 可以在「外观」中设置，也能沿用见面立绘。想使用动态模型，可以在这里导入。' : '支持 VRM 0.x / 1.0，以及 Cubism model3.json 文件夹或 ZIP。'}
           </p>
           {model?.format === 'live2d' && modelError && !modelMissing ? (
             <div className={`${companionMode ? 'mt-4' : 'mt-2.5'} flex items-center gap-2`}>

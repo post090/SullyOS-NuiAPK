@@ -1,0 +1,17 @@
+.sar-layout-editor{min-height:100dvh;display:flex;align-items:center;justify-content:center;gap:32px;padding:20px;background:#1c1b20;color:#eeebf5;font-family:Arial,sans-serif}
+.sar-layout-preview{position:relative;flex:none;width:390px;height:min(844px,calc(100dvh - 40px));overflow:hidden;background:#08090d;box-shadow:0 12px 60px #0005}
+.sar-layout-preview>.sar-npc-dialogue{position:absolute!important}
+.sar-layout-tools{width:310px;max-height:calc(100dvh - 40px);overflow:auto;flex:none}
+.sar-layout-handle{width:100%;display:flex;align-items:center;justify-content:space-between;min-height:48px;font-size:16px;font-weight:bold;text-align:left;background:none;border:0;color:inherit;padding:0}
+.sar-layout-handle small{margin-left:8px;color:#aaa2b6;font-size:10px;font-weight:normal}.sar-layout-handle>span:last-child{font-size:11px;color:#b6adc6}
+.sar-layout-hint{font-size:11px;line-height:1.7;color:#afa8ba;margin:6px 0 14px}
+.sar-layout-tabs{display:flex;border-bottom:1px solid #ffffff20;margin-bottom:12px}
+.sar-layout-tabs button{flex:1;min-height:44px;border:0;border-bottom:2px solid transparent;background:none;color:#aca4b8;font-size:14px}.sar-layout-tabs button[aria-pressed=true]{border-color:#cec0ee;color:#eee5ff}
+.sar-layout-slider{display:block;margin:8px 0}.sar-layout-slider>span{display:flex;justify-content:space-between;font-size:12px;color:#d8d0e4}.sar-layout-slider output{font-variant-numeric:tabular-nums;color:#b3a2d1}
+.sar-layout-slider input{width:100%;height:36px;margin:0;accent-color:#b8a5d8;cursor:ew-resize;touch-action:pan-y}
+.sar-layout-select{display:flex;justify-content:space-between;align-items:center;font-size:12px;gap:10px;margin:6px 0}.sar-layout-select select{min-height:38px;min-width:160px;border:1px solid #ffffff26;background:#28252f;color:#e7dfef;border-radius:6px;padding:0 10px}
+.sar-layout-actions{display:flex;gap:8px;margin-top:16px}.sar-layout-actions button{flex:1;min-height:42px;border:1px solid #ffffff24;border-radius:6px;background:transparent;color:#d4cddd;font-size:12px}.sar-layout-actions button:first-child{background:#d3c5e9;color:#292132;border-color:transparent}
+.sar-layout-save{font-size:10px;color:#aaa0b6;margin:12px 0}.sar-layout-controls details{font-size:11px;color:#a99fb5}.sar-layout-controls summary{cursor:pointer;min-height:28px}.sar-layout-controls textarea{width:100%;height:180px;resize:vertical;background:#121115;border:1px solid #ffffff28;color:#ddd3e9;padding:12px;font-size:11px}
+.sar-layout-back{display:block;min-height:32px;margin-top:8px;font-size:11px;color:#bbb0cb;text-decoration:underline}
+.sar-layout-editor:not(.is-expanded) .sar-layout-controls{display:none}
+@media(max-width:760px){.sar-layout-editor{display:block;padding:0;min-height:100dvh}.sar-layout-preview{width:100%;height:100dvh;box-shadow:none}.sar-layout-tools{position:fixed;z-index:500;bottom:0;left:0;right:0;width:100%;max-height:49dvh;overflow:auto;background:#242129f5;border-top:1px solid #b3a3ca44;padding:0 18px max(6px,env(safe-area-inset-bottom))}.sar-layout-handle{position:sticky;top:0;background:#242129;z-index:1}.sar-layout-controls{padding-bottom:8px}.sar-layout-hint{margin-top:0}.sar-layout-slider{margin:0}.sar-layout-tabs{margin-bottom:8px}}

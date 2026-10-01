@@ -9,12 +9,14 @@
 //  1. apizero content-extract（主）：服务端文本密度算法，浏览器直连（CORS 全开），
 //     正文干净、配额充裕（匿名 5000 次/天/IP，带 key 10000 次/天，key 与 videoParser 共用）。
 //     疑似 SPA 壳（正文过短）/ 服务挂了 → 降级下一层。
-//  2. sfworker /fetch-webpage（Jina Reader 无头渲染，SPA 也能读）→ 失败退裸 HTML。
-//  3. 前端直连抓裸 HTML + DOMParser 启发式提取（多数站点会被 CORS 挡掉，纯末路兜底）。
+//  2. 用户配置 Firecrawl 时，用 /scrape 读取动态页（Key 本地保存，直接请求服务商）。
+//  3. sfworker /fetch-webpage（Jina Reader 无头渲染，SPA 也能读）→ 失败退裸 HTML。
+//  4. 前端直连抓裸 HTML + DOMParser 启发式提取（多数站点会被 CORS 挡掉，纯末路兜底）。
 
 import { htmlToText } from './htmlPrompt';
 import { getProxyWorkerUrl } from './proxyWorker';
 import { getVideoParseKey } from './videoParser';
+import { getFirecrawlApiKey, scrapeWebpageWithFirecrawl } from './firecrawl';
 
 // sfworker：项目自带的通用代理 Worker（小红书签名 / 网易云 weapi / Brave 搜索 / WebDAV /
 // 网页抓取都走它，代码见 worker/index.js）。地址走中心配置 utils/proxyWorker.ts，
@@ -62,6 +64,8 @@ export interface ExtractedWebpage {
   truncated: boolean;
   /** 抓取时间戳。 */
   fetchedAt: number;
+  /** 实际命中的抓取来源，便于诊断和实时展示，不参与角色提示词。 */
+  provider?: 'apizero-content' | 'apizero-video' | 'firecrawl' | 'jina' | 'worker-raw' | 'direct';
   /** 视频平台分享时的附加信息（走 videoParser 解析路径才有）。 */
   video?: VideoShareInfo;
 }
@@ -151,7 +155,7 @@ export function extractXhsShareTitle(text: string): string {
   const xhsUrl = urls.find(candidate => isXhsUrl(candidate.replace(/[.,;:!?'"）)\]】]+$/, '')));
   if (!xhsUrl) return '';
 
-  const prefix = cleanXhsShareTitle(text.slice(0, text.indexOf(xhsUrl)));
+  const prefix = cleanXhsShareTitle(text.slice(0, text.indexOf(xhsUrl)).replace(/\[$/, ''));
   return /^(?:小红书|REDnote)$/i.test(prefix) ? '' : prefix;
 }
 
@@ -166,11 +170,11 @@ export function isXhsUrl(url: string): boolean {
 }
 
 /**
- * 从完整分享文案或单个链接中提取小红书笔记 ID。
+ * 从完整分享文案或单个链接中提取小红书笔记 ID 和已解码的 token。
  * 同时支持国内域名 xiaohongshu.com 和新版国际域名 rednote.com；
  * xhslink.com / xhslink.cn 短链没有 ID，需先 expandShortUrl 后再调用本函数。
  */
-export function extractXhsNoteId(text: string): string | null {
+export function extractXhsNoteLink(text: string): { noteId: string; xsecToken?: string } | null {
   if (!text) return null;
 
   const candidates: string[] = [...(text.match(/https?:\/\/[^\s，。！？；、"'《》()（）【】]+/ig) || [])];
@@ -179,18 +183,33 @@ export function extractXhsNoteId(text: string): string | null {
 
   for (const candidate of candidates) {
     try {
-      const parsed = new URL(candidate.replace(/[.,;:!?'")\]]+$/, ''));
-      const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
-      const isNoteHost = ['xiaohongshu.com', 'rednote.com']
-        .some(domain => host === domain || host.endsWith(`.${domain}`));
-      if (!isNoteHost) continue;
-      const noteId = parsed.pathname.match(XHS_NOTE_PATH_RE)?.[1];
-      if (noteId) return noteId;
+      // 分享文本可能来自 Markdown；只还原链接中的常见转义。
+      let parsed = new URL(candidate.replace(/\\([_&])/g, '$1').replace(/[.,;:!?'")\]]+$/, ''));
+      for (let depth = 0; depth < 4; depth++) {
+        const host = parsed.hostname.toLowerCase().replace(/\.$/, '');
+        const isNoteHost = ['xiaohongshu.com', 'rednote.com']
+          .some(domain => host === domain || host.endsWith(`.${domain}`));
+        if (!isNoteHost || !/^https?:$/.test(parsed.protocol)) break;
+        const noteId = parsed.pathname.match(XHS_NOTE_PATH_RE)?.[1];
+        if (noteId) {
+          // URLSearchParams 解码一次即可：手机分享常带 %3D，不能原样送给详情 API。
+          return { noteId, xsecToken: parsed.searchParams.get('xsec_token') || undefined };
+        }
+        // 兼容旧代理一路 follow 到验证码页的响应，不需要访问或通过验证码。
+        if (parsed.pathname !== '/website-login/captcha') break;
+        const redirectPath = parsed.searchParams.get('redirectPath');
+        if (!redirectPath) break;
+        parsed = new URL(redirectPath, parsed.origin);
+      }
     } catch {
       // 忽略文案里的坏链接，继续检查下一个 URL。
     }
   }
   return null;
+}
+
+export function extractXhsNoteId(text: string): string | null {
+  return extractXhsNoteLink(text)?.noteId || null;
 }
 
 /**
@@ -397,6 +416,7 @@ async function extractViaApizero(url: string): Promise<ExtractedWebpage> {
     image: images[0],
     truncated: rawContent.length > MAX_CONTENT_CHARS,
     fetchedAt: Date.now(),
+    provider: 'apizero-content',
   };
 }
 
@@ -411,6 +431,33 @@ export async function extractWebpageContent(url: string): Promise<ExtractedWebpa
     return null;
   });
   if (viaApizero) return viaApizero;
+
+  // 用户自备 Firecrawl Key 时，用它接手 apizero 抓不到的动态页。Key 只在本机保存，
+  // 客户端直连 Firecrawl，不经过公共 Worker，也不会挤作者的共享额度。
+  if (getFirecrawlApiKey()) {
+    const viaFirecrawl = await scrapeWebpageWithFirecrawl(url).catch((e) => {
+      console.warn('[webpageExtractor] Firecrawl failed, fallback to worker/Jina:', e);
+      return null;
+    });
+    if (viaFirecrawl) {
+      const rawContent = viaFirecrawl.markdown;
+      const content = rawContent.length > MAX_CONTENT_CHARS ? rawContent.slice(0, MAX_CONTENT_CHARS) : rawContent;
+      const finalUrl = viaFirecrawl.finalUrl;
+      const siteName = siteNameFromUrl(finalUrl || url);
+      return {
+        url,
+        finalUrl,
+        title: viaFirecrawl.title || siteName || '网页',
+        siteName,
+        content,
+        excerpt: makeExcerpt(content),
+        image: viaFirecrawl.image || firstImageFromMarkdown(rawContent),
+        truncated: rawContent.length > MAX_CONTENT_CHARS,
+        fetchedAt: Date.now(),
+        provider: 'firecrawl',
+      };
+    }
+  }
 
   const viaWorker = await fetchViaWorker(url).catch((e) => {
     // sfworker 抓取报错：记录后让直连兜底再试一把。
@@ -434,6 +481,7 @@ export async function extractWebpageContent(url: string): Promise<ExtractedWebpa
       image: firstImageFromMarkdown(rawContent),
       truncated: rawContent.length > MAX_CONTENT_CHARS,
       fetchedAt: Date.now(),
+      provider: 'jina',
     };
   }
 
@@ -460,5 +508,6 @@ export async function extractWebpageContent(url: string): Promise<ExtractedWebpa
     image: parsed.image,
     truncated: rawContent.length > MAX_CONTENT_CHARS,
     fetchedAt: Date.now(),
+    provider: viaWorker?.mode === 'raw' ? 'worker-raw' : 'direct',
   };
 }

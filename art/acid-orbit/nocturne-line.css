@@ -1,0 +1,168 @@
+/* NOCTURNE / 夜曲 — 日系聊天装扮：烟灰紫、雾面玻璃、细线轨道。 */
+.sully-chat-root {
+  color: #494653 !important; background-color: #e9e6ee !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='92' height='116' viewBox='0 0 92 116'%3E%3Cg fill='none' stroke='%237a7287' stroke-opacity='.12' stroke-width='.8'%3E%3Cpath d='M46 0C46 24 0 34 0 58s46 34 46 58M46 0c0 24 46 34 46 58s-46 34-46 58M0 0c0 24 46 34 46 58S0 92 0 116M92 0c0 24-46 34-46 58s46 34 46 58'/%3E%3Cpath d='M41 58l5-6 5 6-5 6zM-5 0l5-6 5 6-5 6z'/%3E%3C/g%3E%3C/svg%3E") !important;
+  background-size: 92px 116px !important;
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+/* 单行紧凑顶栏，装饰只占边缘，不占聊天阅读空间。 */
+.sully-chat-header {
+  position: relative !important; padding-top: calc(var(--safe-top, 0px) + 10px) !important;
+  padding-bottom: 12px !important; border: 0 !important; border-radius: 0 !important;
+  background: #504d59 !important; color: #faf6fd !important; box-shadow: none !important;
+  overflow: visible !important;
+}
+.sully-chat-header::before { content: none !important; }
+.sully-chat-header::after, .sully-chat-inputbar::before {
+  content: ""; position: absolute; left: 0; right: 0; height: 11px; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='12' viewBox='0 0 24 12'%3E%3Cpath d='M0 0h24v3C22 3 23 7 20 7c0 4-5 6-8 3C9 13 4 11 4 7 1 7 2 3 0 3z' fill='%23504d59'/%3E%3Cpath d='M5 3c0 6 14 6 14 0M8 3c1 3 7 3 8 0' fill='none' stroke='%23b4aabf' stroke-width='.65' stroke-dasharray='1 1.5'/%3E%3C/svg%3E") left top/24px 12px repeat-x;
+}
+.sully-chat-header::after { bottom: -10px; }
+.sully-chat-name { color: #faf7ff !important; font-size: 17px !important; letter-spacing: .025em !important; }
+.sully-chat-status, .sully-chat-token { color: #ddd5e6 !important; background: transparent !important; border: 0 !important; }
+.sully-chat-back, .sully-chat-trigger {
+  color: #f3edf8 !important; background: transparent !important; border: 0 !important;
+  box-shadow: none !important; border-radius: 50% !important; min-width: 40px; min-height: 40px;
+}
+.sully-chat-avatar { border: 1px solid #d4cadf90 !important; box-shadow: none !important; }
+.sully-chat-buffs button { color: #e8dfef !important; background: #ffffff10 !important; border: 0 !important; }
+/* 头像与气泡同顶边，双方固定留白。 */
+.sully-chat-root .sully-chat-message-ai > .sully-chat-message-avatar-slot,
+.sully-chat-root .sully-chat-message-user > .sully-chat-message-avatar-slot {
+  top: 0 !important; bottom: auto !important; transform: none !important;
+}
+.sully-chat-message { color: #716b7c !important; }
+.sully-chat-message-content { min-width: 0; overflow: visible; }
+.sully-chat-message-sender { color: #716b7c !important; }
+.sully-chat-avatar-wrap { overflow: visible !important; }
+.sully-chat-avatar-wrap::before, .sully-chat-avatar-wrap::after { content: none !important; }
+.sully-chat-message-avatar-img { border-radius: 50% !important; border: 1px solid #fff9 !important; box-shadow: 0 1px 4px #50445c20 !important; }
+.sully-bubble-ai, .sully-bubble-user {
+  position: relative; padding: 11px 15px !important; font-size: 14px; line-height: 1.8;
+  overflow-wrap: anywhere; border: 1px solid #6e667c66 !important;
+  box-shadow: inset 0 1px 2px #ffffff45, 0 2px 3px #4941510d !important;
+}
+.sully-bubble-ai { color: #fcf8ff !important; background: #585461 !important; border-radius: 18px 21px 21px 21px !important; }
+.sully-bubble-user { color: #484350 !important; background: #dad3e6 !important; border-radius: 21px 18px 21px 21px !important; }
+.sully-bubble-ai::before, .sully-bubble-user::before {
+  content: ""; position: absolute; top: 3px; width: 12px; height: 14px;
+  pointer-events: none; border: 0 !important;
+}
+.sully-bubble-ai::before { left: -8px; background: #585461; clip-path: polygon(0 0,100% 28%,100% 100%,60% 77%); }
+.sully-bubble-user::before { right: -8px; background: #dad3e6; clip-path: polygon(100% 0,0 28%,0 100%,40% 77%); }
+.sully-bubble-group-last::after {
+  content: ""; position: absolute; width: 24px; height: 20px; bottom: -8px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='24' viewBox='0 0 32 24'%3E%3Cg fill='%23433d4b' stroke='%23b5aaba' stroke-width='.7'%3E%3Cpath d='M15 9C-4-7-2 17 15 12L10 23l6-5 3 4-2-10C35 17 35-6 17 9z'/%3E%3Crect x='14' y='7' width='4' height='7' rx='2'/%3E%3C/g%3E%3Cpath d='M3 6l11 4M29 6l-11 4' stroke='%23c5b7ce' fill='none'/%3E%3C/svg%3E") center/contain no-repeat;
+  pointer-events: none;
+}
+.sully-bubble-ai.sully-bubble-group-last::after { left: -9px; }
+.sully-bubble-user.sully-bubble-group-last::after { right: -9px; }
+.sully-emoji-msg { object-fit: contain; }
+.sully-chat-system, .sully-chat-interaction { color: #625a6d !important; background: #f3eef6cc !important; border: 1px solid #bdb1c540 !important; border-radius: 12px !important; }
+.sully-voice-bar {
+  color: #f7f0fc !important; background: #585461 !important; border: 1px solid #82788c !important;
+  border-radius: 24px !important; box-shadow: inset 0 1px #fff3 !important; min-height: 42px;
+}
+.sully-chat-message:not(:has(.sully-bubble-ai,.sully-bubble-user)) .sully-voice-bar-shell { margin-top: 0 !important; }
+.sully-voice-bar-button { color: #51485d !important; background: #dbcee8 !important; box-shadow: none !important; }
+.sully-voice-bar-wave-segment { background: #e8dcef !important; min-height: 3px; }
+.sully-voice-bar-toggle { color: #f4eaf9 !important; background: transparent !important; }
+.sully-voice-bar-transcript { color: #504658 !important; background: #f1eaf5 !important; border: 1px solid #beb0ca66; border-radius: 14px !important; }
+/* 转账与卡片采用缎带信封材质，不使用科幻票券和大字标。 */
+.sully-chat-transfer-card, .sully-chat-transfer-receipt {
+  color: #f9f1ff !important; background: linear-gradient(130deg,#756a80,#575260) !important;
+  border: 1px solid #94859e !important; border-radius: 18px !important;
+  box-shadow: inset 0 1px #f7efff55,0 2px 5px #54426015 !important; max-width: 100%;
+}
+.sully-chat-transfer-card { padding: 16px !important; }
+.sully-chat-transfer-header { border-bottom: 1px solid #c8b7d547; padding-bottom: 10px; }
+.sully-chat-transfer-brand { color: #f2e6fa !important; font-size: 11px !important; letter-spacing: .06em; }
+.sully-chat-transfer-icon { color: #efe3f7 !important; background: #d8c5e522 !important; border: 1px solid #d8c5e566; border-radius: 50% !important; }
+.sully-chat-transfer-watermark { color: #e5d5ef !important; opacity: .1 !important; }
+.sully-chat-transfer-amount { color: #fff5ff !important; font-variant-numeric: tabular-nums; }
+.sully-chat-transfer-card .sully-chat-transfer-amount { font-size: 28px !important; font-weight: 500 !important; margin: 10px 0 !important; }
+.sully-chat-transfer-note { color: #efe1f6 !important; white-space: normal !important; overflow-wrap: anywhere; }
+.sully-chat-transfer-recipient { color: #e0d2e9 !important; }
+.sully-chat-transfer-status { color: #f9efff !important; background: #e2cfee1f !important; border-radius: 8px !important; }
+.sully-chat-transfer-card[data-status="accepted"], .sully-chat-transfer-receipt[data-status="accepted"] { border-color: #bcb3c9 !important; }
+.sully-chat-transfer-card[data-status="returned"], .sully-chat-transfer-receipt[data-status="returned"] { background: #66616c !important; }
+.sully-chat-transfer-overlay { background: #29233199 !important; }
+.sully-chat-transfer-dialog { color: #4c4255 !important; background: #f4eef7 !important; border: 1px solid #b4a3c0; }
+.sully-chat-transfer-dialog div, .sully-chat-transfer-dialog span { color: inherit !important; background: transparent !important; }
+.sully-chat-transfer-dialog button { color: #514459 !important; background: #e2d6e9 !important; min-height: 44px; }
+.sully-chat-transfer-dialog .sully-chat-transfer-accept { color: #fff5ff !important; background: #71607e !important; }
+.sully-chat-card[data-card-kind] {
+  --sully-card-background: #f1ebf5; --sully-card-color: #53485c;
+  --sully-card-border: 1px solid #b9acC7; --sully-card-radius: 17px;
+  --sully-card-shadow: 0 2px 5px #51405812;
+}
+.sully-chat-card[data-card-kind] .sully-chat-card-surface { overflow: hidden; }
+.sully-chat-card[data-card-kind]:not([data-card-kind="transfer"]):not([data-card-kind="html_card"]) .sully-chat-card-content :is(div,section,article,header,footer,button,a,p,span,h2,h3,h4,small,strong) {
+  color: #53485c !important; background-color: transparent !important; background-image: none !important; border-color: #b9acc755 !important;
+}
+.sully-chat-card[data-card-kind="transfer"] { --sully-card-background: transparent; --sully-card-border: 0; --sully-card-shadow: none; }
+.sully-chat-card[data-card-kind="transfer"] .sully-chat-card-surface { overflow: visible; }
+.sully-collaboration-file { color: #514459 !important; background: transparent !important; border-color: #b9acc7 !important; border-radius: 16px !important; }
+.sully-collaboration-file-name, .sully-collaboration-file-action { color: #514459 !important; }
+.sully-collaboration-file-icon, .sully-collaboration-file-detail, .sully-collaboration-file-meta { color: #766782 !important; }
+.sully-psyche-card { color: #574760 !important; background: #eee5f3 !important; border: 1px solid #b6a5c2 !important; border-radius: 16px !important; box-shadow: none !important; }
+.sully-psyche-title { color: #695075 !important; }
+.sully-psyche-preview, .sully-psyche-body { color: #574760 !important; line-height: 1.8 !important; }
+/* 输入栏：平直底座、圆润输入区、无外框的线性按钮。 */
+.sully-chat-inputbar { position: relative; color: #f3eaf9 !important; background: #504d59 !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+.sully-chat-inputbar::before { top: -10px; transform: rotate(180deg); }
+.sully-chat-composer { padding: 10px 12px !important; gap: 8px !important; align-items: center !important; }
+.sully-chat-input-wrap { background: #e1d9ea !important; border: 1px solid #c8bbd3 !important; border-radius: 26px !important; box-shadow: inset 0 1px 2px #75658018 !important; }
+.sully-chat-textarea { color: #494050 !important; background: transparent !important; font-size: 16px !important; padding: 10px 12px !important; caret-color: #685574; }
+.sully-chat-textarea::placeholder { color: #84758f !important; }
+.sully-chat-input-wrap button { color: #766381 !important; background: transparent !important; }
+.sully-chat-actions-button, .sully-chat-send-button { color: #eee4f7 !important; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 50% !important; min-width: 40px; min-height: 40px; }
+.sully-chat-panel, .sully-chat-emoji-suggestions, .sully-chat-auto-reply { background: #5b5563 !important; color: #f2e8f8 !important; border-color: #a597b040 !important; }
+.sully-chat-panel button { color: #f2e8f8 !important; background: #ffffff08 !important; border-color: #b8a5c533 !important; }
+.sully-chat-panel button div, .sully-chat-panel button span { color: inherit !important; background-color: transparent !important; }
+.sully-chat-root :is(button,a,textarea):focus-visible { outline: 2px solid #b9a2cc !important; outline-offset: 3px; }
+/* 回执：每一层均定义可读的颜色，长文字自然换行。 */
+.sully-schedule-change { color: #514358 !important; background: #f3edf7 !important; border: 1px solid #b5a2c3 !important; border-radius: 17px !important; box-shadow: 0 5px 20px #42314926 !important; }
+.sully-schedule-change-kicker { color: #514358 !important; font-size: 12px !important; }
+.sully-schedule-change-count { color: #766181 !important; font-size: 11px !important; }
+.sully-schedule-change-mark { color: #fff5ff !important; background: #82708e !important; }
+.sully-schedule-change-row { background: #e8deee !important; padding: 8px 7px !important; }
+.sully-schedule-change-time, .sully-schedule-change-arrow { color: #70577d !important; }
+.sully-schedule-change-before { color: #7a6b82 !important; }
+.sully-schedule-change-after { color: #493950 !important; font-weight: 700 !important; }
+.sully-schedule-change-before, .sully-schedule-change-after { font-size: 12px !important; line-height: 1.65 !important; white-space: normal !important; overflow-wrap: anywhere; overflow: visible !important; }
+.sully-schedule-change-shine { display: none !important; }
+@media (hover:hover) { .sully-chat-actions-button:hover, .sully-chat-send-button:hover { background: #ffffff12 !important; } }
+@media (prefers-reduced-motion:reduce) { .sully-chat-root :is(button,a), .sully-voice-bar-wave-segment { animation: none !important; transition: none !important; } }
+
+/* 保留原创星轨意象，以安静的细线替代蕾丝和蝴蝶结。 */
+.sully-chat-root {
+  background-color: #ece9f0 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='420' height='780' viewBox='0 0 420 780'%3E%3Cg fill='none' stroke='%23948caa' stroke-opacity='.14' stroke-width='.8'%3E%3Cellipse cx='350' cy='510' rx='130' ry='250' transform='rotate(35 350 510)'/%3E%3Cellipse cx='350' cy='510' rx='137' ry='260' transform='rotate(35 350 510)'/%3E%3Ccircle cx='57' cy='159' r='30'/%3E%3Cpath d='M48 159h18M57 150v18M337 300h12M343 294v12'/%3E%3C/g%3E%3C/svg%3E") !important;
+  background-size: 100% auto !important;
+}
+.sully-chat-header { background: #575360 !important; padding-bottom: 11px !important; border-bottom: 1px solid #f6efff70 !important; }
+.sully-chat-header::after {
+  content: ""; bottom: -4px; height: 3px;
+  background: linear-gradient(90deg, transparent 7%, #958ba733 7%, #958ba733 93%, transparent 93%) !important;
+}
+.sully-chat-inputbar { background: #f7f4f9 !important; border-top: 1px solid #c8bfd466 !important; }
+.sully-chat-inputbar::before { content: none !important; }
+.sully-chat-composer { gap: 6px !important; padding: 10px 10px !important; align-items: flex-end !important; }
+.sully-chat-input-wrap { background: #eae5ef !important; border: 1px solid #d7cfe0 !important; border-radius: 24px !important; box-shadow: none !important; }
+.sully-chat-textarea { line-height: 24px !important; padding: 9px 12px !important; }
+.sully-chat-actions-button, .sully-chat-send-button {
+  color: #71627f !important; min-width: 44px; min-height: 44px; width: 44px; height: 44px;
+}
+.sully-chat-send-button:not(:disabled) { background: #e5ddea !important; }
+.sully-chat-send-button:disabled { opacity: .48 !important; }
+.sully-bubble-group-last::after {
+  content: "◇"; width: 13px; height: 13px; bottom: -5px;
+  background: none !important; color: #90819d; font: 12px/1 serif;
+}
+.sully-bubble-ai.sully-bubble-group-last::after { left: auto; right: 9px; }
+.sully-bubble-user.sully-bubble-group-last::after { right: 9px; }
+.sully-chat-input-wrap:focus-within { border-color: #a38fb4 !important; box-shadow: 0 0 0 2px #a38fb414 !important; }
+@media (hover:hover) {
+  .sully-chat-actions-button:hover, .sully-chat-send-button:hover { background: #dcd1e64d !important; }
+}

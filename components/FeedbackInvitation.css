@@ -1,0 +1,34 @@
+.sully-repo-overlay { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; padding: 26px 22px; box-sizing: border-box; }
+.sully-repo-backdrop { position: absolute; inset: 0; background: rgba(48, 42, 37, .38); backdrop-filter: blur(7px); animation: sully-repo-fade .25s ease-out; }
+.sully-repo-letter { position: relative; box-sizing: border-box; width: 100%; max-width: 364px; max-height: calc(100dvh - 52px); display: flex; flex-direction: column; padding: 28px 26px 22px; border: 1px solid #fffcf3; border-radius: 7px 7px 25px 7px; color: #494039; background: #faf6ec; box-shadow: 0 24px 75px #30271938, 5px 6px 0 -2px #ded5c9; font-family: inherit; animation: sully-repo-arrive .48s cubic-bezier(.2,.75,.25,1) both; }
+.sully-repo-letter * { box-sizing: border-box; }
+.sully-repo-letter p, .sully-repo-letter h2 { margin: 0; }
+.sully-repo-tape { position: absolute; z-index: 1; top: -12px; left: calc(50% - 42px); width: 84px; height: 26px; transform: rotate(-5deg); background: #c9badbd4; border-left: 2px dotted #eee6f2; border-right: 2px dotted #eee6f2; }
+.sully-repo-scroll { overflow-y: auto; overflow-x: hidden; min-height: 0; scrollbar-width: thin; scrollbar-color: #c9bbd8 transparent; }
+.sully-repo-topline { display: flex; align-items: center; justify-content: space-between; padding-bottom: 16px; border-bottom: 1px solid #dcd4c5; color: #887c70; font-size: 10px; letter-spacing: .09em; }
+.sully-repo-topline span:last-child { font-size: 9px; letter-spacing: 0; color: #9a8b80; }
+.sully-repo-hero { position: relative; display: flex; align-items: center; min-height: 159px; padding: 18px 0 16px; }
+.sully-repo-aside { display: block; color: #96839f; font-size: 10px; letter-spacing: .1em; margin-bottom: 10px; }
+.sully-repo-letter h2 { position: relative; z-index: 1; font-size: 29px; line-height: 1.33; font-weight: 800; letter-spacing: -.055em; }
+.sully-repo-letter h2 span { color: #7c668f; }
+.sully-repo-letter h2 i { font-style: normal; display: inline-block; transform: rotate(9deg); color: #7c668f; }
+.sully-repo-cat { position: absolute; right: -3px; bottom: 6px; width: 113px; height: 139px; transform: rotate(6deg); }
+.sully-repo-copy { font-size: 12px; line-height: 1.95; }
+.sully-repo-copy > p + p { margin-top: 8px; }
+.sully-repo-copy strong { color: #746083; font-weight: 700; }
+.sully-repo-note { position: relative; margin: 17px 1px 16px; padding: 12px 15px 13px; background: #ede5f2; transform: rotate(-1.4deg); border-radius: 2px; }
+.sully-repo-note-label { font-size: 9px; letter-spacing: .13em; color: #8c779b; }
+.sully-repo-note p { margin-top: 5px; font-weight: 650; font-size: 16px; line-height: 1.65; color: #685377; letter-spacing: .015em; }
+.sully-repo-note p span { margin-left: 5px; font-family: Georgia, serif; font-style: italic; }
+.sully-repo-note-star { position: absolute; right: 15px; bottom: 13px; color: #bda9cf; font-size: 35px; line-height: 1; transform: rotate(12deg); }
+.sully-repo-copy .sully-repo-closing { color: #83766b; font-size: 11px; line-height: 1.9; }
+.sully-repo-signoff { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; padding: 12px 0 1px; border-top: 1px dashed #d8cfc1; font-size: 9px; color: #a09386; }
+.sully-repo-signoff span:last-child { white-space: nowrap; color: #86748e; transform: rotate(-4deg); }
+.sully-repo-button { flex-shrink: 0; width: 100%; margin-top: 19px; padding: 13px 16px; border: 0; border-radius: 12px; background: #78628d; box-shadow: 0 3px 0 #594666; color: #fffafc; font: inherit; font-size: 13px; font-weight: 600; letter-spacing: .12em; cursor: pointer; transition: transform .15s ease, box-shadow .15s ease, background .15s ease; }
+.sully-repo-button:hover { background: #6d5683; }
+.sully-repo-button:active { transform: translateY(2px); box-shadow: 0 1px 0 #594666; }
+.sully-repo-button:focus-visible { outline: 2px solid #a891bb; outline-offset: 4px; }
+@keyframes sully-repo-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sully-repo-arrive { from { opacity: 0; transform: translateY(18px) rotate(-3deg); } to { opacity: 1; transform: translateY(0) rotate(0); } }
+@media (max-width: 360px) { .sully-repo-overlay { padding-inline: 18px; } .sully-repo-letter { padding-inline: 20px; } .sully-repo-letter h2 { font-size: 26px; } .sully-repo-hero { min-height: 140px; } .sully-repo-cat { width: 97px; right: -5px; } }
+@media (prefers-reduced-motion: reduce) { .sully-repo-backdrop, .sully-repo-letter { animation: none; } .sully-repo-button { transition: none; } }

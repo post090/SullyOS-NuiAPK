@@ -219,7 +219,8 @@ export const installIOSStandaloneWorkaround = () => {
     const handleTouchMove = (event: TouchEvent) => {
         if (!document.body.classList.contains('ios-keyboard-open')) return;
         const target = event.target as Element | null;
-        if (target?.closest('.overflow-y-auto')) return;
+        // textarea 有自己的原生滚动与选区手势，不能按外层背景拦截。
+        if (target?.closest('textarea, input, [contenteditable="true"], .overflow-y-auto')) return;
         event.preventDefault();
     };
 

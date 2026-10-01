@@ -2,15 +2,15 @@
 // 加新类只动这里：
 //   1. 在 DevDebugCaptureCategory 加一个字面量
 //   2. 在 DEV_DEBUG_CAPTURE_CATEGORIES 加一行（面板会自动多出一个开关）
-//   3. 写一个语义化的 appendDevDebugXxxLog 薄封装（见文件末尾 appendDevDebugApiLog / appendDevDebugInstantPushLog）
+//   3. 需要的话写一个语义化的 appendDevDebugXxxLog 薄封装（见文件末尾 appendDevDebugApiLog），或直接用 makeDebugLogger
 // 其余存储 / 脱敏 / 限容 / 导出逻辑全部通用，不用改。
-// 分类按「来源通道」切：api = 普通聊天直发模型；instant-push = 经 worker 的通道事件；
+// 分类按「来源通道」切：api = 普通聊天直发模型；amsg = 主动消息 2.0 的收发链路（推送落库、云端回合 trace）；
 // lifecycle = 页面前后台/网络状态变化（排查「请求等着等着就 NetworkError」时跟 api 类对时间线）。
-export type DevDebugCaptureCategory = 'api' | 'instant-push' | 'lifecycle';
+export type DevDebugCaptureCategory = 'api' | 'amsg' | 'lifecycle' | 'memory-palace';
 
 export interface DevDebugCaptureCategoryMeta {
     key: DevDebugCaptureCategory;
-    /** 面板 checkbox 上显示的短标签（如 'API' / 'Instant Push'）。 */
+    /** 面板 checkbox 上显示的短标签（如 'API' / '主动消息'）。 */
     title: string;
     /** 这一类抓什么的说明；面板不再渲染（看不懂就别用），仅作源码内文档。 */
     detail: string;
@@ -23,20 +23,27 @@ export const DEV_DEBUG_CAPTURE_CATEGORIES: DevDebugCaptureCategoryMeta[] = [
         detail: '普通聊天直发模型的 chat completions 请求与响应。',
     },
     {
-        key: 'instant-push',
-        title: 'IP',
-        detail: 'Instant Push 通道：经 worker 的 LLM 交换 + SSE 投递结果（超时 / 收到 / 失败）。',
+        key: 'amsg',
+        title: '主动消息',
+        detail: '主动消息 2.0 的收发链路：收件箱冲刷、推送落库、即时对话回合的 trace。',
     },
     {
         key: 'lifecycle',
         title: '前后台',
         detail: '页面前后台 / 焦点 / 网络状态变化（visibilitychange、focus/blur、pagehide/pageshow、online/offline、freeze/resume），用来跟 api 类对时间线，判断请求失败是不是切后台导致的。',
     },
+    {
+        key: 'memory-palace',
+        title: '记忆',
+        detail: '记忆召回管线 Trace：入口、版本、开关快照、耗时与结果；不记录聊天原文和 API Key。',
+    },
 ];
 
 const CAPTURE_CATEGORY_KEYS: DevDebugCaptureCategory[] = DEV_DEBUG_CAPTURE_CATEGORIES.map((c) => c.key);
 
 export interface DevDebugFlags {
+    /** Local authored SAR replay / expression editor; never grants real progress. */
+    sarExpressionReview: boolean;
     skipPromptBuild: boolean;
     skipEmotionEval: boolean;
     /**
@@ -90,6 +97,7 @@ export const DEV_DEBUG_LOG_EVENT = 'sullyos-dev-debug-log-change';
 const DEV_DEBUG_AVAILABILITY_EVENT = 'sullyos-dev-debug-availability';
 
 export const DEFAULT_DEV_DEBUG_FLAGS: DevDebugFlags = {
+    sarExpressionReview: false,
     skipPromptBuild: false,
     skipEmotionEval: false,
     mergeSystemMessages: false,
@@ -128,8 +136,8 @@ function normalizeCaptureLogs(value: unknown): DevDebugCaptureCategory[] {
     if (!Array.isArray(value)) return [];
     const seen = new Set<DevDebugCaptureCategory>();
     for (const item of value) {
-        // 旧版本只有 'llm' 一类，迁移成 'api'，老用户存档不丢勾选。
-        const migrated = item === 'llm' ? 'api' : item;
+        // 旧存档里的类别名迁到现名，老用户不丢勾选：'llm' → 'api'，'instant-push' → 'amsg'。
+        const migrated = item === 'llm' ? 'api' : item === 'instant-push' ? 'amsg' : item;
         if (CAPTURE_CATEGORY_KEYS.includes(migrated as DevDebugCaptureCategory)) {
             seen.add(migrated as DevDebugCaptureCategory);
         }
@@ -145,6 +153,7 @@ function normalizeFlags(value: unknown): DevDebugFlags {
     const legacyHasCapture = !('captureEnabled' in source) && captureLogs.length > 0;
     return {
         skipPromptBuild: source.skipPromptBuild === true,
+        sarExpressionReview: source.sarExpressionReview === true,
         skipEmotionEval: source.skipEmotionEval === true,
         mergeSystemMessages: source.mergeSystemMessages === true,
         captureEnabled: source.captureEnabled === true || legacyHasCapture,
@@ -435,7 +444,7 @@ export function appendDevDebugLog(category: DevDebugCaptureCategory, input: { la
     }
 }
 
-/** HTTP 类日志的统一形状：api（普通聊天）和 instant-push（通道事件）共用。 */
+/** HTTP 类日志的统一形状。 */
 export interface DevDebugHttpLogInput {
     url: string;
     method?: string;
@@ -464,8 +473,8 @@ function measureRequestChars(body: unknown): number | undefined {
 
 /** 通用 HTTP 日志薄封装；按 category 落到对应类别，请求体 / 错误统一整形。 */
 function appendDevDebugHttpLog(category: DevDebugCaptureCategory, input: DevDebugHttpLogInput): void {
-    // label 前缀加分类——activeMsgRuntime 的 instant-push 交换 url 跟 safeApi 的 api 直发一字不差
-    // （两边都是 baseUrl + /chat/completions），不带前缀的话导出 JSON 里两类条目肉眼分不清。
+    // label 前缀加分类——不同类别的请求 url 可能一字不差（都是 baseUrl + /chat/completions），
+    // 不带前缀的话导出 JSON 里两类条目肉眼分不清。
     appendDevDebugLog(category, {
         label: `[${category}] ${input.method ?? 'POST'} ${input.url}`,
         data: {
@@ -493,9 +502,9 @@ export function appendDevDebugApiLog(input: DevDebugHttpLogInput): void {
     appendDevDebugHttpLog('api', input);
 }
 
-/** instant-push 类：经 worker 的通道事件（消费点 activeMsgRuntime / instantPushClient）。 */
-export function appendDevDebugInstantPushLog(input: DevDebugHttpLogInput): void {
-    appendDevDebugHttpLog('instant-push', input);
+/** 记忆宫殿结构化 Trace；调用方只传脱敏后的统计与状态，不传 query / prompt 原文。 */
+export function appendDevDebugMemoryPalaceLog(input: { label?: string; data: unknown }): void {
+    appendDevDebugLog('memory-palace', input);
 }
 
 // ===== lifecycle 类：页面前后台 / 焦点 / 网络状态变化 =====

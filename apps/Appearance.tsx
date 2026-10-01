@@ -6,6 +6,7 @@ import { AppID, OSTheme, DesktopDecoration, AppearancePreset, Toast } from '../t
 import { INSTALLED_APPS, Icons } from '../constants';
 import { processImage, processImageToBlob } from '../utils/file';
 import { deleteBlobRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
+import TokenImg from '../components/os/TokenImg';
 import {
     companionAvatarSource,
     companionSkinSetPatchValue,
@@ -18,11 +19,13 @@ import { resolveStatusBarMode, type StatusBarMode } from '../utils/iosStandalone
 import { confirmExportSafety } from '../utils/exportGuard';
 import { trackEvent } from '../utils/analytics';
 import { Check, ImageSquare, Sparkle, Trash, UploadSimple } from '@phosphor-icons/react';
-import { ChatAppearanceEditor as ModularChatAppearanceEditor } from '../components/appearance/ChatAppearanceEditor';
 import AppIconEditor from '../components/appearance/AppIconEditor';
-import { Capacitor } from '@capacitor/core';
-import { Filesystem, Directory } from '@capacitor/filesystem';
-import { Share } from '@capacitor/share';
+import BootAnimationSettings from '../components/appearance/BootAnimationSettings';
+import FullscreenSettings from '../components/appearance/FullscreenSettings';
+import { shareOrDownloadBlob } from '../utils/shareExport';
+import { readShareFile } from '../utils/pngShare';
+import BeautyShareChannel from '../components/appearance/BeautyShareChannel';
+import { hasBeautyReceiveRequest,hasBeautyLibraryRequest } from '../utils/beautyNavigation';
 
 const CustomIconImage: React.FC<{ value: string; alt: string; preserveOutline?: boolean }> = ({ value, alt, preserveOutline = false }) => {
     const url = useBlobRefUrl(value);
@@ -32,6 +35,22 @@ const CustomIconImage: React.FC<{ value: string; alt: string; preserveOutline?: 
 const CompanionPortraitPreview: React.FC<{ value?: string; alt: string }> = ({ value, alt }) => {
     const url = useBlobRefUrl(value);
     return url ? <img src={url} className="h-full w-full object-contain" alt={alt} /> : <ImageSquare size={28} className="text-slate-300" />;
+};
+
+/**
+ * 这个令牌还挂在衣柜里吗？
+ *
+ * 桌面静态形象的令牌是「顶层 imageRef 指着现在穿的那套，衣柜里同时留着一条同令牌的条目」
+ * （utils/companionWardrobe.ts 拿令牌当条目 id 认亲，id 与 imageRef 两个值位同值）。
+ * 所以换图 / 移除时不能无条件删旧 Blob——衣柜里还留着的话，那套旧衣服就再也切不回去了。
+ */
+const isCompanionOutfitKeptInWardrobe = (
+    companionAvatar: { imageWardrobe?: unknown } | undefined,
+    ref: string,
+): boolean => {
+    const wardrobe = companionAvatar?.imageWardrobe;
+    if (!Array.isArray(wardrobe)) return false;
+    return wardrobe.some((outfit: any) => outfit?.imageRef === ref || outfit?.id === ref);
 };
 
 // Touch-friendly long-press wrapper. `onContextMenu` alone misses iOS Safari /
@@ -239,6 +258,47 @@ const buildAcnhLeaves = (): DesktopDecoration[] => ACNH_LEAF_LAYOUT.map((p, i) =
   zIndex: 5 + i, flip: p.flip,
 }));
 
+/**
+ * 预设卡片顶部那条缩略图（壁纸打底 + 两个色块 + 装饰数量角标）。
+ *
+ * 预设是直接从 assets 表读出来的 JSON，没走 OSContext 那层壁纸解析，所以
+ * `theme.wallpaper` 很可能还是个 `blobref:` 令牌，直接拼进 CSS 的 url() 加载不出来。
+ * 这里过一道 useBlobRefUrl 把令牌换成 objectURL —— 它对 data: / http(s) / 渐变这类
+ * 非令牌值是渲染期原样透传的，所以只有令牌会真的去读盘。
+ * 因为 hook 不能写在 map 回调里，这块预览单独抽成组件，一个预设一份解析和回收。
+ */
+const PresetPreview: React.FC<{ preset: AppearancePreset }> = ({ preset }) => {
+    const { hue, saturation, lightness, contentColor, desktopDecorations, wallpaper } = preset.theme;
+    const resolvedWallpaper = useBlobRefUrl(wallpaper);
+
+    const themeGradient = `linear-gradient(135deg, hsl(${hue}, ${saturation}%, ${lightness}%), hsl(${hue + 30}, ${saturation}%, ${Math.max(lightness - 15, 10)}%))`;
+    const isCssGradient = !!wallpaper
+        && (wallpaper.startsWith('linear-gradient') || wallpaper.startsWith('radial-gradient') || wallpaper.startsWith('conic-gradient'));
+
+    // 没设壁纸 → 主题色兜底；壁纸本身就是 CSS 渐变 → 原样用；否则当图片铺进 url()。
+    // 令牌还在读盘、或者图已经丢了时 resolvedWallpaper 是 undefined，同样退回主题色，
+    // 免得渲染出一个 url("undefined")。
+    let background: string;
+    if (!wallpaper) background = themeGradient;
+    else if (isCssGradient) background = wallpaper;
+    else background = resolvedWallpaper ? `url("${resolvedWallpaper}") center/cover` : themeGradient;
+
+    return (
+        <div className="h-14 relative overflow-hidden" style={{ background }}>
+            <div className="absolute inset-0 bg-black/10" />
+            <div className="absolute bottom-1.5 left-3 flex gap-1">
+                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: `hsl(${hue}, ${saturation}%, ${lightness}%)` }} />
+                <div className="w-4 h-4 rounded-full" style={{ backgroundColor: contentColor || '#fff' }} />
+            </div>
+            {desktopDecorations && desktopDecorations.length > 0 && (
+                <div className="absolute bottom-1.5 right-3 text-[8px] text-white/80 bg-black/30 px-1.5 py-0.5 rounded-full backdrop-blur-sm">
+                    {desktopDecorations.length} 装饰
+                </div>
+            )}
+        </div>
+    );
+};
+
 // --- Preset Manager Component ---
 interface PresetManagerProps {
     presets: AppearancePreset[];
@@ -247,30 +307,17 @@ interface PresetManagerProps {
     onDelete: (id: string) => void;
     onRename: (id: string, name: string) => void;
     onExport: (id: string) => Promise<Blob>;
-    onImport: (file: File) => Promise<void>;
-    onReset: () => Promise<void>;
+    onImport: (file: File) => Promise<unknown>;
     addToast: (msg: string, type?: Toast['type']) => void;
     currentTheme: OSTheme;
 }
 
-const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply, onDelete, onRename, onExport, onImport, onReset, addToast, currentTheme }) => {
+const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply, onDelete, onRename, onExport, onImport, addToast, currentTheme }) => {
     const [newName, setNewName] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-    const [confirmReset, setConfirmReset] = useState(false);
-    const [resetting, setResetting] = useState(false);
     const importRef = useRef<HTMLInputElement>(null);
-
-    const handleReset = async () => {
-        setResetting(true);
-        try {
-            await onReset();
-        } finally {
-            setResetting(false);
-            setConfirmReset(false);
-        }
-    };
 
     const handleSave = () => {
         const name = newName.trim() || `预设 ${new Date().toLocaleDateString('zh-CN')}`;
@@ -287,45 +334,9 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
             const fileName = `appearance_${preset?.name || 'preset'}.zip`;
             const title = `外观预设 - ${preset?.name || 'preset'}`;
 
-            if (Capacitor.isNativePlatform()) {
-                // Native: 写到 Cache 再调系统分享
-                const base64 = await new Promise<string>((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onloadend = () => resolve(String(reader.result).split(',')[1] || '');
-                    reader.onerror = () => reject(reader.error);
-                    reader.readAsDataURL(blob);
-                });
-                await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
-                const uri = await Filesystem.getUri({ directory: Directory.Cache, path: fileName });
-                await Share.share({ title, files: [uri.uri] });
-            } else {
-                // Web: 先触发浏览器原生下载，再尝试拉起系统分享面板
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = fileName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                try {
-                    const file = new File([blob], fileName, { type: 'application/zip' });
-                    if (
-                        typeof navigator !== 'undefined' &&
-                        typeof navigator.share === 'function' &&
-                        (typeof (navigator as any).canShare !== 'function' || (navigator as any).canShare({ files: [file] }))
-                    ) {
-                        await navigator.share({ title, files: [file] });
-                    }
-                } catch (shareErr: any) {
-                    // 用户取消分享是正常情况，吞掉
-                    if (shareErr?.name !== 'AbortError') {
-                        console.warn('[Appearance] share failed', shareErr);
-                    }
-                }
-            }
-            addToast('预设已导出', 'success');
+            const result = await shareOrDownloadBlob({ blob, fileName, shareTitle: title, card: { kind: 'appearance', title: preset?.name || '外观预设' } });
+            if (result === 'cancelled') return;
+            addToast(result === 'shared' ? '已打开预设分享面板' : '预设已导出', 'success');
         } catch (e: any) {
             addToast(e.message || '导出失败', 'error');
         }
@@ -335,7 +346,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
         const file = e.target.files?.[0];
         if (!file) return;
         try {
-            await onImport(file);
+            await onImport(await readShareFile(file, 'appearance'));
             trackEvent('导入外观预设文件');
         } catch (err: any) {
             addToast(err.message || '导入失败', 'error');
@@ -353,35 +364,6 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
 
     return (
         <div className="space-y-5">
-            {/* One-click Reset */}
-            <section className="bg-gradient-to-br from-rose-50 to-orange-50 rounded-3xl p-5 shadow-sm border border-rose-100">
-                <div className="flex items-center gap-2 mb-2">
-                    <h2 className="text-sm font-bold text-rose-500 uppercase tracking-widest">一键还原外观</h2>
-                </div>
-                <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">
-                    把主题色、壁纸、字体、应用图标、桌面小组件、装饰贴纸全部还原成最初始状态。在不同版本之间反复导入预设导致图标错乱时使用。<br/>
-                    <span className="text-slate-400">已保存的外观预设不会被删除，随时还能切回去。</span>
-                </p>
-                {!confirmReset ? (
-                    <button onClick={() => setConfirmReset(true)}
-                        className="w-full py-2.5 bg-white text-rose-500 font-bold text-xs rounded-xl border border-rose-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-                        还原为初始外观
-                    </button>
-                ) : (
-                    <div className="flex gap-2">
-                        <button onClick={handleReset} disabled={resetting}
-                            className="flex-1 py-2.5 bg-rose-500 text-white font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform disabled:opacity-50">
-                            {resetting ? '正在还原...' : '确认还原'}
-                        </button>
-                        <button onClick={() => setConfirmReset(false)} disabled={resetting}
-                            className="flex-1 py-2.5 bg-white text-slate-500 font-bold text-xs rounded-xl border border-slate-200 active:scale-95 transition-transform disabled:opacity-50">
-                            取消
-                        </button>
-                    </div>
-                )}
-            </section>
-
             {/* Save Current */}
             <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                 <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">保存当前外观</h2>
@@ -404,8 +386,8 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
             {/* Import */}
             <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                 <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-3">导入外观预设</h2>
-                <p className="text-[10px] text-slate-400 mb-3">从 .zip 文件导入他人分享的外观预设（兼容旧版 .json）。系统整合备份也会包含当前外观设置，单独预设文件更适合分享。</p>
-                <input type="file" ref={importRef} className="hidden" accept=".zip,.json,application/zip,application/json" onChange={handleImport} />
+                <p className="text-[10px] text-slate-400 mb-3">支持 PNG 分享原图、ZIP 和旧版 JSON。系统整合备份也会包含当前外观设置，单独预设文件更适合分享。</p>
+                <input type="file" ref={importRef} className="hidden" accept=".png,.zip,.json,image/png,application/zip,application/json" onChange={handleImport} />
                 <button onClick={() => importRef.current?.click()}
                     className="w-full py-2.5 bg-gradient-to-r from-blue-50 to-cyan-50 text-blue-500 font-bold text-xs rounded-xl border border-blue-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
@@ -429,26 +411,7 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
                         {presets.map(preset => (
                             <div key={preset.id} className="bg-slate-50 rounded-2xl border border-slate-100 overflow-hidden">
                                 {/* Preview bar */}
-                                <div className="h-14 relative overflow-hidden"
-                                    style={{
-                                        background: (() => {
-                                            const wp = preset.theme.wallpaper;
-                                            if (!wp) return `linear-gradient(135deg, hsl(${preset.theme.hue}, ${preset.theme.saturation}%, ${preset.theme.lightness}%), hsl(${preset.theme.hue + 30}, ${preset.theme.saturation}%, ${Math.max(preset.theme.lightness - 15, 10)}%))`;
-                                            if (wp.startsWith('linear-gradient') || wp.startsWith('radial-gradient') || wp.startsWith('conic-gradient')) return wp;
-                                            return `url("${wp}") center/cover`;
-                                        })(),
-                                    }}>
-                                    <div className="absolute inset-0 bg-black/10" />
-                                    <div className="absolute bottom-1.5 left-3 flex gap-1">
-                                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: `hsl(${preset.theme.hue}, ${preset.theme.saturation}%, ${preset.theme.lightness}%)` }} />
-                                        <div className="w-4 h-4 rounded-full" style={{ backgroundColor: preset.theme.contentColor || '#fff' }} />
-                                    </div>
-                                    {preset.theme.desktopDecorations && preset.theme.desktopDecorations.length > 0 && (
-                                        <div className="absolute bottom-1.5 right-3 text-[8px] text-white/80 bg-black/30 px-1.5 py-0.5 rounded-full backdrop-blur-sm">
-                                            {preset.theme.desktopDecorations.length} 装饰
-                                        </div>
-                                    )}
-                                </div>
+                                <PresetPreview preset={preset} />
 
                                 {/* Info & actions */}
                                 <div className="p-3">
@@ -519,18 +482,9 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
 };
 
 const Appearance: React.FC = () => {
-  const { theme, updateTheme, closeApp, openApp, setCustomIcon, customIcons, addToast, appearancePresets, saveAppearancePreset, applyAppearancePreset, deleteAppearancePreset, renameAppearancePreset, exportAppearancePreset, importAppearancePreset, resetAppearance, characters, activeCharacterId, updateCharacter } = useOS();
-  // 一键还原全部「聊天白框自定义 CSS」：清掉全局 + 每个角色自带的。
-  // 兼作救援：单角色的坏 CSS 把聊天界面整崩、进不去该角色设置时，从这里一键全清即可恢复。
-  const resetAllChromeCss = () => {
-    let n = 0;
-    if (theme.chatChromeCustomCss) { updateTheme({ chatChromeCustomCss: '' }); n++; }
-    (characters || []).forEach((c: any) => {
-      if (c?.chromeCustomCss) { updateCharacter(c.id, { chromeCustomCss: '' } as any); n++; }
-    });
-    addToast(n ? `已还原 ${n} 处聊天白框美化` : '没有需要还原的白框美化', n ? 'success' : 'info');
-  };
-  const [activeTab, setActiveTab] = useState<'theme' | 'icons' | 'presets' | 'chat'>('theme');
+  const { theme, updateTheme, closeApp, openApp, setCustomIcon, customIcons, addToast, appearancePresets, saveAppearancePreset, applyAppearancePreset, deleteAppearancePreset, renameAppearancePreset, exportAppearancePreset, importAppearancePreset, characters, activeCharacterId, updateCharacter } = useOS();
+  const [activeTab, setActiveTab] = useState<'theme' | 'icons' | 'presets' | 'sharing'>(() => (hasBeautyReceiveRequest()||hasBeautyLibraryRequest()) ? 'sharing' : 'theme');
+  const [shareBusy, setShareBusy] = useState(false);
   const wallpaperInputRef = useRef<HTMLInputElement>(null);
   const [wallpaperUrl, setWallpaperUrl] = useState('');
   const lockWallpaperInputRef = useRef<HTMLInputElement>(null);
@@ -602,7 +556,7 @@ const Appearance: React.FC = () => {
       if (!appearanceCharacter) return;
       const extension = file.name.split('.').pop()?.toLowerCase();
       if (!['png', 'gif'].includes(extension || '') || !['image/png', 'image/gif'].includes(file.type)) {
-          addToast('静态形象仅支持 PNG / GIF', 'error');
+          addToast('图片上传仅支持 PNG / GIF', 'error');
           return;
       }
       if (file.size > 20 * 1024 * 1024) {
@@ -623,11 +577,14 @@ const Appearance: React.FC = () => {
                   importedAt: Date.now(),
               },
           });
-          if (previousRef && previousRef !== imageRef) await deleteBlobRef(previousRef);
+          if (previousRef && previousRef !== imageRef
+              && !isCompanionOutfitKeptInWardrobe(appearanceCharacter.companionAvatar, previousRef)) {
+              await deleteBlobRef(previousRef);
+          }
           trackEvent('导入桌面静态形象', { 格式: file.type === 'image/gif' ? 'GIF' : 'PNG' });
-          addToast(file.type === 'image/gif' ? 'GIF 已原样导入，动画会保留' : 'PNG 静态形象已导入', 'success');
+          addToast(file.type === 'image/gif' ? 'GIF 已原样导入，动画会保留' : 'PNG 形象已导入', 'success');
       } catch (error: any) {
-          addToast(error?.message || '静态形象导入失败', 'error');
+          addToast(error?.message || '图片形象导入失败', 'error');
       }
   };
 
@@ -658,7 +615,9 @@ const Appearance: React.FC = () => {
               importedAt: undefined,
           },
       });
-      await deleteBlobRef(previousRef);
+      if (!isCompanionOutfitKeptInWardrobe(appearanceCharacter.companionAvatar, previousRef)) {
+          await deleteBlobRef(previousRef);
+      }
       trackEvent('移除桌面静态形象');
       addToast('已移除导入图片', 'success');
   };
@@ -792,9 +751,10 @@ const Appearance: React.FC = () => {
       if (!activeWidgetSlot) return;
       try {
           const maxW = activeWidgetSlot === 'wide' ? 800 : activeWidgetSlot === 'dsq' ? 600 : 500;
-          const dataUrl = await processImage(file, { maxWidth: maxW, quality: 0.9 });
+          const blob = await processImageToBlob(file, { maxWidth: maxW, quality: 0.9 });
+          const ref = await putImageBlob(blob);
           const current = theme.launcherWidgets || {};
-          updateTheme({ launcherWidgets: { ...current, [activeWidgetSlot]: dataUrl } });
+          updateTheme({ launcherWidgets: { ...current, [activeWidgetSlot]: ref } });
           addToast('小组件已更新', 'success');
       } catch (e: any) {
           addToast(e.message, 'error');
@@ -907,10 +867,10 @@ const Appearance: React.FC = () => {
 
   return (
     <div className="h-full w-full bg-slate-50 flex flex-col font-light">
-      <div className="bg-white/70 backdrop-blur-md border-b border-white/40 shrink-0 z-10 sticky top-0" style={{ paddingTop: 'var(--safe-top)' }}>
+      {activeTab !== 'sharing' && <><div className="bg-white/70 backdrop-blur-md border-b border-white/40 shrink-0 z-10 sticky top-0" style={{ paddingTop: 'var(--safe-top)' }}>
         <div className="flex items-center px-4 py-3">
           <div className="flex items-center gap-2 w-full">
-              <button onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform">
+              <button disabled={shareBusy} onClick={closeApp} className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform">
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-slate-600">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
                   </svg>
@@ -920,25 +880,25 @@ const Appearance: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex border-b border-slate-200 bg-white sticky top-0 z-20">
+      <fieldset disabled={shareBusy} className="flex border-0 border-b border-slate-200 bg-white sticky top-0 z-20 m-0 p-0 min-w-0">
           <button onClick={() => { setActiveTab('theme'); trackEvent('切换外观定制标签页', { tab: 'theme' }); }} className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'theme' ? 'text-primary border-b-2 border-primary' : 'text-slate-400'}`}>系统主题</button>
           <button onClick={() => { setActiveTab('icons'); trackEvent('切换外观定制标签页', { tab: 'icons' }); }} className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'icons' ? 'text-primary border-b-2 border-primary' : 'text-slate-400'}`}>应用图标</button>
           <button onClick={() => { setActiveTab('presets'); trackEvent('切换外观定制标签页', { tab: 'presets' }); }} className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'presets' ? 'text-primary border-b-2 border-primary' : 'text-slate-400'}`}>外观预设</button>
-          <button onClick={() => { setActiveTab('chat'); trackEvent('切换外观定制标签页', { tab: 'chat' }); }} className={`flex-1 py-3 text-sm font-medium transition-colors ${activeTab === 'chat' ? 'text-primary border-b-2 border-primary' : 'text-slate-400'}`}>聊天界面</button>
-      </div>
+          <button onClick={() => setActiveTab('sharing')} className="flex-1 py-3 text-sm font-medium transition-colors text-slate-400">外观装扮</button>
+      </fieldset></>}
 
-      <div className="flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar">
+      <div className={activeTab === 'sharing' ? 'flex-1 overflow-y-auto min-h-0 no-scrollbar' : 'flex-1 overflow-y-auto p-5 space-y-6 no-scrollbar'}>
         {activeTab === 'theme' ? (
             <>
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-1">动画与过场</h2>
-                    <p className="text-[10px] text-slate-400 mb-2">三项都默认开启，可以分别关闭；关闭加载动画后，超过 7 秒的卡死恢复提示仍会保留。</p>
+                    <p className="text-[10px] text-slate-400 mb-2">三项都默认开启，可以分别关闭；关闭加载动画后，超过 15 秒的卡死恢复提示仍会保留。</p>
                     <div className="divide-y divide-slate-100">
                         {([
                             {
                                 key: 'bootAnimationEnabled' as const,
                                 title: '开机动画',
-                                description: '启动 SullyOS 时的整机入场过场。',
+                                description: '启动 SullyOS·糯米机 时的整机入场过场。',
                             },
                             {
                                 key: 'chatCharacterSwitchAnimationEnabled' as const,
@@ -1055,7 +1015,7 @@ const Appearance: React.FC = () => {
                             </div>
                             <div className="min-w-0 flex-1">
                                 <div className="flex items-center gap-2">
-                                    <h2 className="text-sm font-bold text-slate-700">静态形象</h2>
+                                    <h2 className="text-sm font-bold text-slate-700">陪伴形象</h2>
                                     <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[8px] font-bold tracking-wide text-violet-500">PNG / GIF</span>
                                 </div>
                                 <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
@@ -1074,7 +1034,7 @@ const Appearance: React.FC = () => {
                         <div className="grid grid-cols-3 border-y border-slate-100 bg-slate-50/80 p-1.5">
                             {([
                                 ['model', '动态模型'],
-                                ['upload', '静态图片'],
+                                ['upload', '图片 / GIF'],
                                 ['date', '见面立绘'],
                             ] as const).map(([source, label]) => (
                                 <button
@@ -1198,6 +1158,17 @@ const Appearance: React.FC = () => {
                 {/* Global Font Section */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">全局字体 (Global Font)</h2>
+                    <div className="mb-5">
+                        <div className="text-xs text-slate-500 mb-2">首页时间字体（更换壁纸时保持）</div>
+                        <div className="flex gap-2">
+                            {([['serif', '经典衬线'], ['bold', '粗体数字'], ['system', '跟随全局字体']] as const).map(([value, label]) => (
+                                <button key={value} onClick={() => updateTheme({ desktopClockStyle: value })}
+                                    className={`flex-1 py-2 rounded-xl text-xs ${(theme.desktopClockStyle || (theme.desktopVariant === 'nostalgia' ? 'bold' : 'serif')) === value ? 'bg-primary text-white' : 'bg-slate-100 text-slate-500'}`}>
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                     
                     <div className="flex bg-slate-100 p-1 rounded-xl mb-4">
                         <button onClick={() => setFontMode('local')} className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${fontMode === 'local' ? 'bg-white text-primary shadow-sm' : 'text-slate-400'}`}>本地文件</button>
@@ -1251,6 +1222,8 @@ const Appearance: React.FC = () => {
                     )}
                 </section>
 
+                <FullscreenSettings />
+
                 {/* Status Bar Layout */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">状态栏 (Status Bar)</h2>
@@ -1284,6 +1257,10 @@ const Appearance: React.FC = () => {
                 {/* Desktop Music Widget Style */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">桌面组件</h2>
+                    <label className="flex items-center gap-2 mb-4 text-sm text-slate-700">
+                        <input type="checkbox" checked={theme.launcherMusicVisible !== false} onChange={e => updateTheme({ launcherMusicVisible: e.target.checked })} />
+                        显示音乐组件
+                    </label>
                     <div className="flex items-center justify-between">
                         <div>
                             <div className="text-sm font-medium text-slate-700">音乐卡片浅色系</div>
@@ -1300,7 +1277,7 @@ const Appearance: React.FC = () => {
 
                 {/* Wallpaper Section */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Wallpaper</h2>
+                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">手机壁纸</h2>
                     <LongPressArea
                         className="aspect-[9/16] w-1/2 mx-auto bg-slate-100 rounded-2xl overflow-hidden relative shadow-inner mb-4 group cursor-pointer"
                         onClick={() => wallpaperInputRef.current?.click()}
@@ -1416,12 +1393,17 @@ const Appearance: React.FC = () => {
                             应用网络锁屏壁纸
                         </button>
                     </div>
+                <BootAnimationSettings theme={theme} updateTheme={updateTheme} />
                 </section>
 
                 {/* Page 1 Desktop Square Image */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
                     <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">首页方形图片</h2>
-                    <p className="text-[10px] text-slate-400 mb-4">桌面首页右下角的方形图片槽位，长按移除</p>
+                    <label className="flex items-center gap-2 mb-3 text-sm text-slate-700">
+                        <input type="checkbox" checked={theme.launcherImageVisible !== false} onChange={e => updateTheme({ launcherImageVisible: e.target.checked })} />
+                        显示图片组件
+                    </label>
+                    <p className="text-[10px] text-slate-400 mb-4">桌面第二页的方形图片，长按下方预览可清除图片；取消勾选可隐藏组件。</p>
                     <div className="flex justify-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
                         {(() => {
                             const slot = 'dsq';
@@ -1439,7 +1421,7 @@ const Appearance: React.FC = () => {
                                 >
                                     {img ? (
                                         <>
-                                            <img src={img} className="w-full h-full object-cover" />
+                                            <TokenImg value={img} className="w-full h-full object-cover" />
                                             <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
                                                 <span className="text-white text-[10px] font-bold bg-black/40 px-2 py-0.5 rounded-full">更换</span>
                                             </div>
@@ -1479,7 +1461,7 @@ const Appearance: React.FC = () => {
                                     >
                                         {img ? (
                                             <>
-                                                <img src={img} className="w-full h-full object-cover" />
+                                                <TokenImg value={img} className="w-full h-full object-cover" />
                                                 <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
                                                     <span className="text-white text-[10px] font-bold bg-black/40 px-2 py-0.5 rounded-full">更换</span>
                                                 </div>
@@ -1510,7 +1492,7 @@ const Appearance: React.FC = () => {
                                 >
                                     {img ? (
                                         <>
-                                            <img src={img} className="w-full h-full object-cover" />
+                                            <TokenImg value={img} className="w-full h-full object-cover" />
                                             <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
                                                 <span className="text-white text-[10px] font-bold bg-black/40 px-2 py-0.5 rounded-full">更换</span>
                                             </div>
@@ -1549,12 +1531,12 @@ const Appearance: React.FC = () => {
                                         {(w['tl'] || w['tr']) && (
                                             <div className="flex gap-1.5">
                                                 {['tl', 'tr'].map(k => w[k] ? (
-                                                    <div key={k} className="flex-1 aspect-square rounded-lg overflow-hidden opacity-70"><img src={w[k]} className="w-full h-full object-cover" /></div>
+                                                    <div key={k} className="flex-1 aspect-square rounded-lg overflow-hidden opacity-70"><TokenImg value={w[k]} className="w-full h-full object-cover" /></div>
                                                 ) : <div key={k} className="flex-1" />)}
                                             </div>
                                         )}
                                         {w['wide'] && (
-                                            <div className="w-full h-8 rounded-lg overflow-hidden opacity-70"><img src={w['wide']} className="w-full h-full object-cover" /></div>
+                                            <div className="w-full h-8 rounded-lg overflow-hidden opacity-70"><TokenImg value={w['wide']} className="w-full h-full object-cover" /></div>
                                         )}
                                     </>
                                 );
@@ -1795,12 +1777,12 @@ const Appearance: React.FC = () => {
                 onRename={renameAppearancePreset}
                 onExport={exportAppearancePreset}
                 onImport={importAppearancePreset}
-                onReset={resetAppearance}
                 addToast={addToast}
                 currentTheme={theme}
             />
-        ) : activeTab === 'chat' ? (
-            <ModularChatAppearanceEditor theme={theme} updateTheme={updateTheme} onResetAllChrome={resetAllChromeCss} onOpenApp={openApp} />
+
+        ) : activeTab === 'sharing' ? (
+            <BeautyShareChannel presets={appearancePresets} onExport={exportAppearancePreset} onImport={importAppearancePreset} onBusyChange={setShareBusy} onBack={() => setActiveTab('theme')}/>
         ) : null}
       </div>
     </div>

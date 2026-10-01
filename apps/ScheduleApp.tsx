@@ -44,6 +44,7 @@ import {
 import { getCalendarDayDifference, getLocalDateKey } from '../utils/localDate';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { trackEvent } from '../utils/analytics';
+import TokenImg from '../components/os/TokenImg';
 
 const TWEMOJI_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72';
 const twemojiUrl = (codepoint: string) => `${TWEMOJI_BASE}/${codepoint}.png`;
@@ -300,8 +301,8 @@ const ScheduleApp: React.FC = () => {
             const daysDiff = getCalendarDayDifference(localDateKey, anni.date) ?? Math.ceil((new Date(anni.date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
             const dayText = daysDiff > 0 ? `还有 ${daysDiff} 天` : (daysDiff === 0 ? '就是今天' : `已经过去 ${Math.abs(daysDiff)} 天`);
             await injectMemoryPalace(char, undefined, anni.title);
-            const baseContext = ContextBuilder.buildCoreContext(char, userProfile);
-            const userPrompt = `### 场景：纪念日
+            const characterContextInput = { char, user: userProfile };
+            const userPrompt = `### 场景：纪念日提醒
 事件: "${anni.title}"
 时间状态: ${dayText}
 
@@ -312,13 +313,19 @@ const ScheduleApp: React.FC = () => {
 - 仅输出一句话（不超过 30 字）。
 - 必须使用用户常用语言。
 - 不要有引号、不要有括号说明。`;
+
+            const messages = [
+                { role: "system", content: '' },
+                { role: "user", content: userPrompt }
+            ];
+
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: [{ role: 'system', content: baseContext }, { role: 'user', content: userPrompt }],
-                    temperature: 0.8, max_tokens: 200,
+                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, messages),
+                    temperature: 0.8, max_tokens: 8000,
                 }),
             });
             if (!response.ok) return;
@@ -799,7 +806,7 @@ const ScheduleApp: React.FC = () => {
                         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                             {filterCharactersByGroup(characters, characterGroups, supervisorGroupId).map(c => (
                                 <button key={c.id} onClick={() => setForm({ ...form, supervisorId: c.id })} className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[60px] ${(form.supervisorId || activeCharacterId) === c.id ? (currentThemeMode === 'minimal' ? 'bg-indigo-50/70 border-indigo-300' : currentThemeMode === 'cyber' ? 'border-cyan-500 bg-cyan-50' : 'border-current') : (currentThemeMode === 'cyber' ? 'border-slate-200 bg-white' : 'border-transparent opacity-50')}`}>
-                                    <img src={c.avatar} className="w-10 h-10 rounded-md object-cover" alt="" />
+                                    <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
                                     <span className={`text-[10px] font-bold whitespace-nowrap ${currentThemeMode === 'cyber' ? 'text-slate-700' : theme.text}`}>{c.name}</span>
                                 </button>
                             ))}
@@ -885,7 +892,7 @@ const ScheduleApp: React.FC = () => {
                         <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
                             {filterCharactersByGroup(characters, characterGroups, anniCharGroupId).map(c => (
                                 <button key={c.id} onClick={() => setNewAnniChar(c.id)} className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[60px] ${(newAnniChar || activeCharacterId) === c.id ? (currentThemeMode === 'minimal' ? 'bg-indigo-50/70 border-indigo-300' : currentThemeMode === 'cyber' ? 'border-cyan-500 bg-cyan-50' : 'border-current') : (currentThemeMode === 'cyber' ? 'border-slate-200 bg-white' : 'border-transparent opacity-50')}`}>
-                                    <img src={c.avatar} className="w-10 h-10 rounded-md object-cover" alt="" />
+                                    <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
                                     <span className={`text-[10px] font-bold whitespace-nowrap ${currentThemeMode === 'cyber' ? 'text-slate-700' : theme.text}`}>{c.name}</span>
                                 </button>
                             ))}

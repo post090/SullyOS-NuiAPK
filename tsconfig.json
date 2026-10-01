@@ -17,5 +17,10 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["node_modules", "worker/proactive-push"]
+  "exclude": [
+    "node_modules",
+    "worker/proactive-push",
+    "art/chibi",
+    "test/fixtures/chibi-happy-wave.ts"
+  ]
 }

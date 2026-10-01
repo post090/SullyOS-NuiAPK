@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import { useOS } from '../../context/OSContext';
-import { INSTALLED_APPS } from '../../constants';
+import { INSTALLED_APPS, Icons } from '../../constants';
 import { createPortal } from 'react-dom';
 import { AppID, CharacterProfile, RoomItem, DailySchedule, ScheduleSlot } from '../../types';
 import { DB } from '../../utils/db';
+import { isChatPreviewMessage } from '../../utils/chatMessageVisibility';
 import { getLastInnerState } from '../../utils/emotionApply';
 import { getFlowNarrativeKey } from '../../utils/scheduleInjection';
 import { generateSlotTheater } from '../../utils/theaterGenerator';
@@ -642,11 +643,11 @@ const DayScroll = React.memo<{ slots: { time: string; text: string; passed: bool
     </>
 ));
 
-// ─── 右侧世界之门：家园 / 像素家园 / 梦境——细线胶囊，跟随界面风格 + ◆连饰 ───
-const WorldPortals = React.memo<{ onHome: () => void; onPixel: () => void; onDream: () => void }>(({ onHome, onPixel, onDream }) => {
+// ─── 右侧世界之门：家园 / 彼方 / 梦境——细线胶囊，跟随界面风格 + ◆连饰 ───
+const WorldPortals = React.memo<{ onHome: () => void; onKanata: () => void; onDream: () => void }>(({ onHome, onKanata, onDream }) => {
     const portals = [
         { key: 'home', label: '家园', en: 'HOME', icon: ICON.door, onClick: onHome },
-        { key: 'pixel', label: '像素', en: 'PIXEL', icon: ICON.tv, onClick: onPixel },
+        { key: 'kanata', label: '彼方', en: 'KANATA', icon: <Icons.VRWorld className="w-full h-full" />, onClick: onKanata },
         { key: 'dream', label: '梦境', en: 'DREAM', icon: ICON.moon, onClick: onDream },
     ];
     return (
@@ -893,8 +894,10 @@ const TamagotchiHome: React.FC = () => {
     // + 消息卡的最近 3 条文本气泡预览（同一次查询顺手带出，不多读一次库）
     useEffect(() => {
         if (!isDataLoaded || !char) { setStat({ msgCount: 0, pokeLines: [], recent: [] }); return; }
+        let cancelled = false;
         DB.getMessagesByCharId(char.id).then(msgs => {
-            const visible = msgs.filter(m => m.role !== 'system');
+            if (cancelled) return;
+            const visible = msgs.filter(isChatPreviewMessage);
             const lines = visible
                 .filter(m => m.role === 'assistant')
                 .map(m => m.content.replace(/\[.*?\]/g, '').trim())
@@ -910,8 +913,9 @@ const TamagotchiHome: React.FC = () => {
                     mine: m.role === 'user',
                     text: m.content.length > 56 ? m.content.slice(0, 56) + '…' : m.content,
                 }));
-            setStat({ msgCount: visible.length, pokeLines: lines, recent });
+            setStat({ msgCount: msgs.filter(m => m.role !== 'system').length, pokeLines: lines, recent });
         }).catch(() => {});
+        return () => { cancelled = true; };
     }, [char?.id, lastMsgTimestamp, isDataLoaded]);
 
     // 今日日程：换角色 / 有新消息（聊天会触发生成）时刷一次
@@ -1012,7 +1016,7 @@ const TamagotchiHome: React.FC = () => {
     const openChat = useCallback(() => openApp(AppID.Chat), [openApp]);
     // 世界化入口：带意图打开小屋 App（RoomApp 挂载时消费，落到对应分区 / 开梦境）
     const openHomeland = useCallback(() => { roomLaunch.request({ tab: 'worldHome' }); openApp(AppID.Room); }, [openApp]);
-    const openPixelHome = useCallback(() => { roomLaunch.request({ tab: 'pixelHome', charId: char?.id }); openApp(AppID.Room); }, [char, openApp]);
+    const openKanata = useCallback(() => openApp(AppID.VRWorld), [openApp]);
     const openDream = useCallback(() => { if (char) { roomLaunch.request({ charId: char.id, openDream: true }); openApp(AppID.Room); } }, [char, openApp]);
     const switchChar = useCallback(() => {
         if (characters.length < 2 || !char) return;
@@ -1065,7 +1069,7 @@ const TamagotchiHome: React.FC = () => {
                         <button onClick={switchChar} className={`relative w-[46px] h-[46px] rounded-full p-[2px] shrink-0 ${characters.length > 1 ? 'active:scale-90 transition-transform' : ''}`}
                             style={{ border: `1.5px solid ${PAL.frame}`, boxShadow: '0 0 10px var(--tg-frame-a30)' }}>
                             <div className="w-full h-full rounded-full overflow-hidden" style={{ background: PAL.cardHi }}>
-                                <img src={char.avatar} className="w-full h-full object-cover" alt="" loading="lazy" draggable={false} />
+                                <TokenImg value={char.avatar} className="w-full h-full object-cover" alt="" loading="lazy" draggable={false} />
                             </div>
                             {characters.length > 1 && <span className="absolute -bottom-0.5 -right-0.5 w-[15px] h-[15px] rounded-full flex items-center justify-center text-[8px]" style={{ background: PAL.cardHi, border: `1px solid ${PAL.frameSoft}`, color: PAL.ink }}>⇄</span>}
                         </button>
@@ -1192,7 +1196,7 @@ const TamagotchiHome: React.FC = () => {
                     {scrollOpen && <DayScroll slots={scrollSlots} onPeek={runTheater} onClose={() => setScrollOpen(false)} />}
 
                     {/* 右侧世界之门：家园 / 像素家园 / 梦境 */}
-                    <WorldPortals onHome={openHomeland} onPixel={openPixelHome} onDream={openDream} />
+                    <WorldPortals onHome={openHomeland} onKanata={openKanata} onDream={openDream} />
 
                     {/* 地板上的 ta 的手机（未读会亮；点开小弹窗，一键去回） */}
                     <FloorPhone unread={charUnread} open={phoneOpen} msgs={stat.recent}

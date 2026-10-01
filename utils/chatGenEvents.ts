@@ -10,25 +10,25 @@
  *     「xx 正在回应…」「xx 正在感受…」全局横幅，组件生命周期与 Chat 无关；
  *   - OSContext 监听 reply 落库事件，bump lastMsgTimestamp 让当前挂载的
  *     Chat 重新 reloadMessages，并在用户不在该会话时补未读/toast——
- *     与 instant push 的 'active-msg-received' 回落行为对齐。
+ *     与云端回复的 'active-msg-received' 回落行为对齐。
  *
  * detail 一律是 { charId, charName }。
  */
 
 export const CHAT_GEN_EVENTS = {
-    /** 主回复生成开始（本地 fetch 与 instant push 两条路径都算） */
+    /** 主回复生成开始（本地 fetch 与即时对话两条路径都算） */
     replyStart: 'chat-gen-reply-start',
-    /** 主回复生成会话结束（triggerAI finally，成功/失败/instant 均触发） */
+    /** 主回复生成会话结束（triggerAI finally，成功/失败/即时对话均触发） */
     replyEnd: 'chat-gen-reply-end',
-    /** 本地 fetch 路径：回复已全部落库（后处理管线跑完）。instant 路径不发——它走 'active-msg-received' */
+    /** 本地 fetch 路径：回复已全部落库（后处理管线跑完）。即时对话路径不发——它走 'active-msg-received' */
     replyArrived: 'chat-gen-reply-arrived',
-    /** 情绪评估开始（本地 eval / post-push eval / 主动消息 eval / 上云点灯） */
+    /** 情绪评估开始（本地 eval / 主动消息 eval / 上云点灯） */
     emotionStart: 'chat-gen-emotion-start',
     /** 情绪评估结束（本地路径自己派发；上云路径由下面的 emotionDone 接） */
     emotionEnd: 'chat-gen-emotion-end',
     /**
-     * 上云那两条路（Instant Push / 即时对话）的情绪评估有结论了——成功、失败、
-     * 云端点名说这一轮没成，都算。名字是历史的，改不得：它是三方约定的线上事件名
+     * 即时对话的情绪评估有结论了——成功、失败、云端点名说这一轮没成，都算。
+     * 名字改不得：它是三方约定的线上事件名
      * （worker 推回后由 activeMsgRuntime 派发，Chat 页的徽章和全局横幅各自监听）。
      * 派发一律走 announceEmotionDone，别再各处手写字符串。
      */

@@ -5,7 +5,7 @@ import type { RealtimeConfig } from '../types';
 // 待写日记队列 (写 Notion / 飞书).
 //
 // 为什么需要: 写日记是客户端发起的网络 fetch (NotionManager.createDiaryPage /
-// FeishuManager.createDiaryRecord). instant push 路径下, 如果用户在角色回复到达时把 app
+// FeishuManager.createDiaryRecord). 云端回复 (主动消息 / 即时对话) 路径下, 如果用户在角色回复到达时把 app
 // 切后台 / 浏览器冻结了, 这个 fetch 会被节流/打断而失败, 而 inbox 是"先 ack 后处理"原子消费,
 // 失败的写入就永久丢了 (用户现象: 角色说"写好了"但 Notion 里没有). 文字 chunk 因为先落库所以
 // 照常显示, 造成假象.

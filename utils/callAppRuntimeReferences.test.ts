@@ -183,7 +183,7 @@ describe('CallApp runtime references', () => {
     expect(source).toContain('await captureUserCameraEmotionContext()');
     expect(source).toContain("userCameraMode === 'snapshot'");
     expect(source).toContain('captureUserCameraSnapshotContext()');
-    expect(source).toContain('attachSnapshotToLatestUserMessage(messages, userCameraSnapshot)');
+    expect(source).toContain('prepareUserCameraSnapshot(messages, userCameraSnapshot)');
     expect(source).toContain('userCameraSnapshot ? 0 : 2');
     expect(source).toContain('isVisionInputUnsupportedError(error)');
     expect(source).toContain('await requestAssistantReply(modelInput, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn, audioBlob)');
@@ -207,7 +207,11 @@ describe('CallApp runtime references', () => {
   it('backs retained call snapshots up as media while text-only exports keep [图片]', () => {
     const exportSource = readFileSync(path.resolve(__dirname, '../context/OSContext.tsx'), 'utf8');
 
-    expect(exportSource).toContain("storeName === 'characters' || storeName === 'cc_custom_parts' || storeName === 'messages'");
+    // v3 起快照令牌不再逐 store 解析：onSerialized 从落包文本统一收集、二进制走 blobs/* 旁路。
+    // 这里锚收集管线本体——它一旦被移走，cameraSnapshotRef 的二进制就不再随备份。
+    expect(exportSource).toContain('onSerialized: collectSerialized');
+    expect(exportSource).toContain('collectBlobRefs(s, referencedBlobTokens)');
+    expect(exportSource).toContain('await writeBlobsToZip(');
     expect(exportSource).toContain("metadata.cameraSnapshotExpired = true");
     expect(exportSource).toContain("|| !!m.metadata?.cameraSnapshotRef");
     expect(exportSource).toContain("companionAvatar: c.companionAvatar");

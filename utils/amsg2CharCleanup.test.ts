@@ -39,7 +39,7 @@ vi.mock('./apiCallLog', () => ({
   settleCloudApiCall: vi.fn(),
 }));
 
-import { charMayHaveCloudState, purgeCharCloudState } from './amsg2CharCleanup';
+import { charMayHaveCloudState, disableScheduleCharPurge, purgeCharCloudState } from './amsg2CharCleanup';
 import { ActiveMsgClient } from './activeMsgClient';
 import { settleCloudApiCall } from './apiCallLog';
 import type { CharacterProfile } from '../types';
@@ -56,6 +56,7 @@ beforeEach(() => {
   vi.mocked(settleCloudApiCall).mockClear();
   vi.mocked(ActiveMsgClient.cancelTask).mockClear();
   vi.mocked(ActiveMsgClient.clearClientStateValue).mockClear();
+  vi.mocked(ActiveMsgClient.deleteLlmCredentials).mockClear();
   clearMock().mockReset();
   clearMock().mockResolvedValue(['fire_pack', 'tool_pack']);
 });
@@ -177,6 +178,54 @@ describe('purgeCharCloudState', () => {
     clearMock().mockResolvedValue([]);
     await expect(purgeCharCloudState(charWith({ enabled: true })))
       .resolves.toEqual({ status: 'cleared', keys: [] });
+  });
+
+  it('默认走全量清单：四行凭据全删、在飞的门牌整理也撤', async () => {
+    inFlight.current = { jobId: 'job-1', at: Date.now(), snapshotAt: Date.now(), uuid: 'u-plate' };
+    await purgeCharCloudState(charWith({ enabled: true }));
+
+    expect(ActiveMsgClient.deleteLlmCredentials).toHaveBeenCalledWith({
+      credIds: ['char:char-1/chat', 'char:char-1/instant', 'char:char-1/emotion', 'char:char-1/memory'],
+    });
+    expect(ActiveMsgClient.cancelTask).toHaveBeenCalledWith('u-plate');
+  });
+});
+
+// 关掉定时主动消息 ≠ 删角色：即时对话和记忆宫殿的后台活儿可能还活着，照删角色那套
+// 清一遍，清掉的是别人正在用的东西。这一组钉的就是两份清单的分界。
+describe('关掉定时主动消息时的清单', () => {
+  it('即时对话已经不生效：连上下文一起清，但记忆宫殿那行凭据和在飞的后台活儿不碰', async () => {
+    inFlight.current = { jobId: 'job-1', at: Date.now(), snapshotAt: Date.now(), uuid: 'u-plate' };
+
+    const result = await purgeCharCloudState(
+      charWith({ enabled: false }),
+      disableScheduleCharPurge(false),
+    );
+
+    expect(clearMock()).toHaveBeenCalledWith('char-1');
+    expect(ActiveMsgClient.deleteLlmCredentials).toHaveBeenCalledWith({
+      credIds: ['char:char-1/chat', 'char:char-1/instant', 'char:char-1/emotion'],
+    });
+    // 门牌整理跟主动消息是两条独立的路，关掉这个不该把那个也弄停。
+    expect(ActiveMsgClient.cancelTask).not.toHaveBeenCalled();
+    expect(result.status).toBe('cleared');
+  });
+
+  it('即时对话还开着：上下文是活的（每轮聊天都会重写），只收掉定时任务那行凭据', async () => {
+    await purgeCharCloudState(charWith({ enabled: false }), disableScheduleCharPurge(true));
+
+    expect(clearMock()).not.toHaveBeenCalled();
+    expect(ActiveMsgClient.deleteLlmCredentials).toHaveBeenCalledWith({
+      credIds: ['char:char-1/chat'],
+    });
+  });
+
+  it('没填 worker 地址时照样一个请求都不发', async () => {
+    workerUrl = '';
+    const result = await purgeCharCloudState(charWith({ enabled: false }), disableScheduleCharPurge(false));
+
+    expect(result).toEqual({ status: 'skipped' });
+    expect(ActiveMsgClient.deleteLlmCredentials).not.toHaveBeenCalled();
   });
 });
 

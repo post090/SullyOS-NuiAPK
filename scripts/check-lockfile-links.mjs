@@ -42,7 +42,7 @@ export function findExternalLinks(lockfileText) {
     }
     if (!inImporters) return;
 
-    // 缩进 2 空格的键是 importer 目录，形如 `  .:` 或 `  worker/instant-push:`
+    // 缩进 2 空格的键是 importer 目录，形如 `  .:` 或 `  worker/amsg:`
     const importerMatch = line.match(/^ {2}(\S.*?):\s*$/);
     if (importerMatch) {
       currentImporter = importerMatch[1].replace(/['"]/g, '');

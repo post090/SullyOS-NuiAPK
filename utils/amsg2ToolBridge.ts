@@ -28,8 +28,8 @@ import {
   describeTaskMode, describeTaskProgress, findTaskByShortId, formatTaskTime,
   getPendingTasks, isPendingTask, pruneStaleTasks, resolveExpirePolicy, shortTaskId,
 } from './amsg2Tasks';
-import { resolveMaxUnansweredSends } from './amsgFirePack';
-import { EXPIRE_POLICY_DESCRIPTION } from './amsgFireSchedule';
+import { type AmsgLimits, checkSelfScheduleRules, resolveAmsgLimits } from './amsgLimits';
+import { buildScheduleParameters, MIN_SCHEDULE_LEAD_MS, resolveSendAtMs } from './amsgFireSchedule';
 import { resolveCharTimeZone } from './timezone';
 
 // ─── OpenAI tools schema ───
@@ -39,7 +39,12 @@ interface OpenAITool {
   function: { name: string; description: string; parameters: Record<string, any> };
 }
 
-export const AMSG2_TOOLS: OpenAITool[] = [
+/**
+ * 前台聊天里给角色的四个工具。排程那个的签名跟着用户的设置走：没放开「每天/每周重复」
+ * 就不给 recurrence 参数，没放开「到点必发」就不给 expire_policy——摆在那儿等于邀请模型
+ * 去选，选了再被打回白费一轮。任务名额也是用户定的，描述里写实数。
+ */
+export const buildAmsg2Tools = (limits: AmsgLimits): OpenAITool[] => [
   {
     type: 'function',
     function: {
@@ -50,41 +55,19 @@ export const AMSG2_TOOLS: OpenAITool[] = [
         '如果要"卡点"送达（比如整点），建议提前 1 分钟。',
         '推荐使用 mode=auto：角色根据最新聊天内容自动决定说什么，后续聊天会自动同步至上下文。',
         'mode=prompted：给角色一个提示方向（如"问问对方吃了没"），角色围绕这个方向生成。',
-        '每个角色最多同时挂 5 个任务；到点作废与否由 expire_policy 决定。',
+        `每个角色最多同时挂 ${limits.maxActiveTasks} 个任务`
+          + (limits.allowSelfForce ? '；到点作废与否由 expire_policy 决定。' : '；到点碰上用户正在聊天会自动作废。'),
       ].join('\n'),
-      parameters: {
-        type: 'object',
-        properties: {
-          send_at: {
-            type: 'string',
-            // 只教裸墙钟：角色照着自己那边的钟写，系统按角色时区还原成绝对时刻
-            // （跟 worker 到点解析 send_at 同一份规则）。教它写 +08:00 这种偏移的话，
-            // 纽约角色会照抄示例里的东八区，说出来的「明早九点」实际差一个时差。
-            description: '开始生成消息的时间，写你本地的墙钟时间，格式 YYYY-MM-DDTHH:mm:ss（如 2026-07-20T20:00:00），不要带时区后缀。必须晚于当前时间。',
-          },
-          mode: {
-            type: 'string',
-            enum: ['auto', 'prompted'],
-            description: '生成模式。auto=根据最新聊天自动生成（推荐）；prompted=围绕 prompt_hint 方向生成。默认 auto。',
-          },
-          prompt_hint: {
-            type: 'string',
-            description: '仅 mode=prompted 时有效。给角色的提示方向，如"问问对方晚饭吃了没"。',
-          },
-          recurrence: {
-            type: 'string',
-            enum: ['none', 'daily', 'weekly'],
-            description: '重复类型。none=一次性（默认）；daily=每天同一时间；weekly=每周同一天同一时间。',
-          },
-          expire_policy: {
-            type: 'string',
-            enum: ['expire', 'force'],
-            // 与 fire 侧共用一份：同一个策略在两个入口说两套话，角色的选择会跟着入口漂。
-            description: EXPIRE_POLICY_DESCRIPTION,
-          },
-        },
-        required: ['send_at'],
-      },
+      parameters: buildScheduleParameters({
+        // 只教裸墙钟：角色照着自己那边的钟写，系统按角色时区还原成绝对时刻
+        // （跟 worker 到点解析 send_at 同一份规则）。教它写 +08:00 这种偏移的话，
+        // 纽约角色会照抄示例里的东八区，说出来的「明早九点」实际差一个时差。
+        sendAtDescription: '开始生成消息的时间，写你本地的墙钟时间，格式 YYYY-MM-DDTHH:mm:ss（如 2026-07-20T20:00:00），不要带时区后缀。必须晚于当前时间。',
+        modeDescription: '生成模式。auto=根据最新聊天自动生成（推荐）；prompted=围绕 prompt_hint 方向生成。默认 auto。',
+        promptHintDescription: '仅 mode=prompted 时有效。给角色的提示方向，如"问问对方晚饭吃了没"。',
+        recurrenceDescription: '重复类型。none=一次性（默认）；daily=每天同一时间；weekly=每周同一天同一时间。',
+        abilities: { allowRecurring: limits.allowSelfRecurring, allowForce: limits.allowSelfForce },
+      }),
     },
   },
   {
@@ -129,7 +112,9 @@ export const AMSG2_TOOLS: OpenAITool[] = [
   },
 ];
 
-export const AMSG2_TOOL_NAMES = new Set(AMSG2_TOOLS.map((t) => t.function.name));
+export const AMSG2_TOOL_NAMES = new Set(
+  buildAmsg2Tools(resolveAmsgLimits(undefined)).map((t) => t.function.name),
+);
 
 // ─── 执行器 ───
 
@@ -206,19 +191,53 @@ const TOOL_FOLLOW_UP = [
   '前面已经说出去的内容不要重写，接着往下写就行。]',
 ].join('\n');
 
-export const executeAmsg2Tool = async (
+/**
+ * 一次工具调用的结局，给工具循环判断「这一轮有没有进展」、也给 trace 留痕用。
+ *
+ * 不带任何聊天内容：
+ * - done：跑成了（排上 / 取消掉 / 改好 / 列出来了）；
+ * - rejected：跑了但清单一条没变（被规矩打回、没找到任务、远端没确认……），reason 是能说清的那几种；
+ * - duplicate：同名同参第二次，没有再跑；
+ * - error：抛错了，message 是报错原文的开头一截。
+ */
+export interface Amsg2ToolOutcome {
+  tool: string;
+  status: 'done' | 'rejected' | 'duplicate' | 'error';
+  reason?: string;
+  message?: string;
+}
+
+/**
+ * 被打回时的原因码。handler 返回的是给模型读的一句话，原因码走这张表旁路带出来，
+ * 不改 handler 的返回形状。键是本轮的 deps，一次调用读完就删。
+ */
+const rejectionReasons = new WeakMap<Amsg2ToolDeps, string>();
+
+/** handler 打回时用它：记下原因码，原样返回给模型的那句话。 */
+const reject = (deps: Amsg2ToolDeps, reason: string, text: string): string => {
+  rejectionReasons.set(deps, reason);
+  return text;
+};
+
+const taskSignature = (deps: Amsg2ToolDeps): string =>
+  (deps.getConfig()?.tasks ?? []).map((t) => `${t.taskUuid}:${t.status}`).join('|');
+
+/** 执行一次工具调用，连同结局一起返回（工具循环用这个；只要回话的用 executeAmsg2Tool）。 */
+export const executeAmsg2ToolWithOutcome = async (
   toolName: string,
   args: Record<string, any>,
   deps: Amsg2ToolDeps,
-): Promise<string> => {
+): Promise<{ text: string; outcome: Amsg2ToolOutcome }> => {
   const mutating = MUTATING_TOOLS.has(toolName);
   // 同名同参第二次直接打回，一次网络请求都不发。上面那段软提示挡不住时靠它兜底，
   // 与 worker 的 fire 循环同一道闸。只拦**完全一样**的调用——换时间、换方向照常放行，
   // 多轮能力一点不减。
   const fingerprint = mutating ? toolCallFingerprint(toolName, args) : '';
   if (mutating && deps.seenCalls.some((r) => r.fingerprint === fingerprint)) {
-    return buildDuplicateToolMessage(toolName);
+    return { text: buildDuplicateToolMessage(toolName), outcome: { tool: toolName, status: 'duplicate' } };
   }
+  const before = mutating ? taskSignature(deps) : '';
+  rejectionReasons.delete(deps);
   try {
     const result = await (() => {
       switch (toolName) {
@@ -237,11 +256,30 @@ export const executeAmsg2Tool = async (
     // 记账放在跑完之后：抛错的那次等于没跑成（远端没建出东西），把它记下来的话，
     // 角色连一次原样重试的机会都没有。
     if (mutating) deps.seenCalls.push({ name: toolName, fingerprint });
-    return mutating ? `${result}\n${TOOL_FOLLOW_UP}` : result;
+    const reason = rejectionReasons.get(deps);
+    rejectionReasons.delete(deps);
+    // 会改清单的工具看清单变没变：回话是给模型读的散文，拿它判成败靠不住。
+    let outcome: Amsg2ToolOutcome;
+    if (toolName === 'list_active_messages') outcome = { tool: toolName, status: 'done' };
+    else if (!mutating) outcome = { tool: toolName, status: 'rejected', reason: 'unknown_tool' };
+    else if (taskSignature(deps) !== before) outcome = { tool: toolName, status: 'done' };
+    else outcome = { tool: toolName, status: 'rejected', reason: reason ?? 'no_change' };
+    return { text: mutating ? `${result}\n${TOOL_FOLLOW_UP}` : result, outcome };
   } catch (e: any) {
-    return `操作失败：${e?.message || String(e)}`;
+    rejectionReasons.delete(deps);
+    return {
+      text: `操作失败：${e?.message || String(e)}`,
+      // 报错原文只留一小截：多半是这边自己写的话（名额满了、没填地址），排障时一眼能认出是哪道。
+      outcome: { tool: toolName, status: 'error', message: String(e?.message || e).slice(0, 120) },
+    };
   }
 };
+
+export const executeAmsg2Tool = async (
+  toolName: string,
+  args: Record<string, any>,
+  deps: Amsg2ToolDeps,
+): Promise<string> => (await executeAmsg2ToolWithOutcome(toolName, args, deps)).text;
 
 /** tasks 已归一化成数组的 config，下面的 handler 直接 `config.tasks` 即可。 */
 type LoadedConfig = ActiveMsg2CharacterConfig & { tasks: ActiveMsg2TaskRecord[] };
@@ -277,13 +315,15 @@ async function handleSchedule(args: Record<string, any>, deps: Amsg2ToolDeps): P
   // 让模型当场改口。本地轮次用户刚开口（连发计数已清零），所以只数还没响的自排任务；
   // 面板里用户亲手排的（source!=='character'）不占额度，与 worker 侧同一口径。
   // 改期/补当次（__replaceTaskUuid / __makeupForTaskUuid）不新占额度，放行。
+  // 上限读本轮最新的 config（跟任务清单同一份），用户的设置都在上面。
+  const limits = resolveAmsgLimits(config);
   if (!args.__replaceTaskUuid && !args.__makeupForTaskUuid) {
-    const unansweredLimit = resolveMaxUnansweredSends(char.activeMsg2Config?.maxUnansweredSends);
+    const unansweredLimit = limits.maxUnansweredSends;
     const plannedSelfSends = config.tasks
       .filter((t) => t.source === 'character' && isPendingTask(t, Date.now()))
       .length;
     if (plannedSelfSends + 1 > unansweredLimit) {
-      return `对方还没回复，这期间你已经排了 ${plannedSelfSends} 条后续，用户设置的连发上限是 ${unansweredLimit} 条——这次别排了，等 ta 回复再说。`;
+      return reject(deps, 'unanswered_limit', `对方还没回复，这期间你已经排了 ${plannedSelfSends} 次后续，用户设的连发上限是 ${unansweredLimit} 次——这次别排了，等 ta 回复再说。`);
     }
   }
   // 回话里的时间按角色的钟写：到点 worker 渲染排程清单用的也是角色时区，两边对不上的话
@@ -291,17 +331,52 @@ async function handleSchedule(args: Record<string, any>, deps: Amsg2ToolDeps): P
   const charTz = resolveCharTimeZone(char);
   const mode = (args.mode === 'prompted' ? 'prompted' : 'auto') as 'auto' | 'prompted';
   const recurrence = (['daily', 'weekly'].includes(args.recurrence) ? args.recurrence : 'none') as 'none' | 'daily' | 'weekly';
-  const expirePolicy = resolveExpirePolicy(mode, args.expire_policy === 'force' ? 'force' : 'expire');
+  let expirePolicy = resolveExpirePolicy(mode, args.expire_policy === 'force' ? 'force' : 'expire');
+
+  // 用户定的规矩（与到点生成里的排程工具同一份判定）：能不能排重复的、跟已经排着的
+  // 隔够没有、「到点必发」放没放开。用户刚在聊天，所以只跟排着的任务比间隔，不拿「上一条
+  // 主动消息」卡它。时间解析不出来的交给下面的排程接口报错，那边的说法更准。
+  const sendAtMs = typeof args.send_at === 'string'
+    ? resolveSendAtMs(args.send_at, { tzId: charTz ?? Intl.DateTimeFormat().resolvedOptions().timeZone })
+    : Number.NaN;
+  if (Number.isFinite(sendAtMs)) {
+    const now = Date.now();
+    const busy = getPendingTasks(config, now)
+      .filter((t) => t.taskUuid !== args.__replaceTaskUuid)
+      .map((t) => currentOccurrenceMs(t, now))
+      .filter((ms): ms is number => ms != null);
+    const rules = checkSelfScheduleRules({
+      limits,
+      sendAtMs,
+      recurrence,
+      expirePolicy,
+      busy,
+      earliestMs: now + MIN_SCHEDULE_LEAD_MS,
+      formatTime: (ms) => formatTaskTime(ms, charTz),
+    });
+    if (!rules.ok) return reject(deps, rules.reason, rules.message);
+    // 改期沿用原任务的策略：用户自己排的「到点必发」被角色挪个时间，不该顺手降级。
+    if (!args.__replaceTaskUuid) expirePolicy = rules.expirePolicy;
+  }
   const taskInput = {
     mode, firstSendTime: args.send_at, recurrenceType: recurrence,
     promptHint: args.prompt_hint || undefined,
     expirePolicy,
   };
 
+  // 改期（renew 一次性任务）不换主人：用户自己排的「8 点叫我」被角色挪个时间，还是用户的
+  // 任务——不打自排标记，到点那几道只管角色自排的闸（连发、间隔、到点必发降级）不拦它，
+  // 面板上也照旧显示「手动创建」。跟到点生成里的原地改期（上游 renewTask 保留原 metadata）
+  // 同一个结果。补当次（makeup）是角色新排的一条，照常算自排。
+  const replaced = args.__replaceTaskUuid
+    ? config.tasks.find((t) => t.taskUuid === args.__replaceTaskUuid)
+    : undefined;
+  const selfScheduled = !replaced || replaced.source === 'character';
+
   const result = await ActiveMsgClient.scheduleCharacterTask({
     // selfScheduled：角色自己排的要带标记进任务 metadata——连发上限的到点兜底闸只拦
     // 带它的任务，用户在面板里亲手排的不带、不受限（面板走的是同一个入口但不传这个）。
-    char, config, task: { ...taskInput, selfScheduled: true },
+    char, config, task: { ...taskInput, selfScheduled },
     replaceTaskUuid: args.__replaceTaskUuid,   // renew 内部复用，LLM 不感知
     userProfile, groups, realtimeConfig, apiConfig,
   });
@@ -313,8 +388,7 @@ async function handleSchedule(args: Record<string, any>, deps: Amsg2ToolDeps): P
     // send_at 是角色那边的墙钟，落盘存排程接口折好的绝对时刻。存原串的话，本地读它的地方
     // （面板卡片、待触发判定、下面这句回话）一律 new Date() 按设备时区解析，异国角色差一个时差。
     firstSendTime: result.firstSendAt,
-    anchorLastUserMsgAt: result.anchorMs,
-    source: 'character',
+    source: selfScheduled ? 'character' : (replaced?.source ?? 'user'),
     status: 'scheduled',
     createdAt: Date.now(),
   };

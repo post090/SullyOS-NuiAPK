@@ -9,10 +9,9 @@
  * 大文本（角色的 system prompt、完整对话历史）留成占位符，由本次请求已有的 chat 段
  * 还原回原位。这样上下文不必在请求体里重复发一份，输出又与本地逐字对齐。
  *
- * 还原规则与 instant push worker 的 `runEmotionEval`（worker/instant-push/src/index.ts）
- * **逐字同款**——两边吃的是同一个模板，格式一漂输出就变味。所以内核收敛在
- * utils/emotionEvalCore.ts 这份零依赖叶子里，两个 worker bundle 共用；这里只留
- * amsg 侧特有的部分（评估配置的摘取与红线处理、旁路存储键）。
+ * 还原规则必须与前端生成模板时的约定**逐字同款**——格式一漂输出就变味。内核放在
+ * utils/emotionEvalCore.ts 这份零依赖叶子里；这里只留 amsg 侧特有的部分（评估配置的
+ * 摘取与红线处理、旁路存储键）。
  *
  * 失败绝不连累主回复——用户等的是那句话，情绪只是附赠；跑挂了就带一句短原因回去，
  * 让客户端能照实说明白，而不是丢一句「可查 worker 日志」。
@@ -161,7 +160,7 @@ export const takeEmotionEvalSpec = (
   return isUsableEvalSpec(spec) ? spec : null;
 };
 
-// 占位符还原 / 打码 / 请求内核在 utils/emotionEvalCore.ts（与 instant-push 共用）。
+// 占位符还原 / 打码 / 请求内核在 utils/emotionEvalCore.ts。
 // re-export 保住既有导入点（本文件历史上就是它们的家）。
 export { restoreEvalPrompt } from '../../../utils/emotionEvalCore';
 

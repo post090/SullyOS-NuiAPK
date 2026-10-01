@@ -85,6 +85,19 @@ export function externalImageMirrors(url: string): string[] {
     return mirrors;
 }
 
+/**
+ * Audio files need byte-range support. jsDelivr rejects this repository once its
+ * total package size exceeds 50 MB, while Statically currently returns 403 for
+ * these MP3 requests. Prefer GitHub Raw for audio so playback does not have to
+ * fail through several known-bad mirrors before reaching the working source.
+ */
+export function audioMirrors(pathOrUrl: string): string[] {
+    const mirrors = pathOrUrl.includes('://') ? mirrorsForUrl(pathOrUrl) : assetMirrors(pathOrUrl);
+    const raw = mirrors.filter(url => url.startsWith('https://raw.githubusercontent.com/'));
+    const rest = mirrors.filter(url => !url.startsWith('https://raw.githubusercontent.com/'));
+    return [...raw, ...rest];
+}
+
 // ─── 运行时探测（浏览器）────────────────────────────────────────────────────
 // 探测结果缓存（key=主源 url）：整个会话每个素材只探一次，命中直接复用。
 const probed = new Map<string, string>();
@@ -141,7 +154,7 @@ export function useResilientAssetUrl(path: string | null | undefined): string {
  * pathOrUrl 可为仓库相对路径或完整素材 url。
  */
 export function attachAudioMirrorFallback(audio: HTMLAudioElement, pathOrUrl: string): () => void {
-    const mirrors = pathOrUrl.includes('://') ? mirrorsForUrl(pathOrUrl) : assetMirrors(pathOrUrl);
+    const mirrors = audioMirrors(pathOrUrl);
     let idx = 0;
     audio.src = mirrors[0];
     const onError = () => {

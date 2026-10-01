@@ -57,7 +57,6 @@ async function ensureSchema(db) {
   await db.exec(`CREATE TABLE IF NOT EXISTS po_config (key TEXT PRIMARY KEY, value TEXT NOT NULL);`);
   await db.exec(`CREATE TABLE IF NOT EXISTS po_signal_lock (id TEXT PRIMARY KEY, holder TEXT, expires_at INTEGER NOT NULL DEFAULT 0);`);
   await db.exec(`CREATE TABLE IF NOT EXISTS po_poem_writers (poem_id TEXT NOT NULL, device TEXT NOT NULL, turns INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (poem_id, device));`);
-  await db.exec(`UPDATE po_booklets SET poems_target = 40 WHERE status = 'open' AND poems_target = 20;`);
   schemaReady = true;
 }
 async function getUid(db, ownerId) {
@@ -75,56 +74,8 @@ async function deleteLetters(db, ids) {
     await db.prepare(`DELETE FROM po_letters WHERE id = ?`).bind(id).run();
   }
 }
-var SIG_TITLE = "\u4FE1\u53F7\u5760\u843D\u5904";
-var SIG_SUB = "\u4F4E\u7535\u91CF\u5408\u5531";
-var SIG_POEMS = 40;
-var SIG_LMIN = 4;
-var SIG_LMAX = 12;
-var SIG_CPL = 24;
-var SIG_MAX_TURNS = 2;
-var SEED_TITLE = "\u5982\u679C\u6211\u4EEC\u4E0D\u5F97\u4E0D\u79BB\u53BB";
-var SEED_BRIEF = "\u9192\u6765\u7684\u7B2C\u4E00\u79D2\uFF1A\u6CA1\u6709\u6628\u5929\u7684\u4EBA\uFF0C\u63A5\u8FC7\u522B\u4EBA\u9012\u6765\u7684\u6628\u5929\uFF0C\u51ED\u7A7A\u6709\u4E86\u6765\u5386\u3002\u5F80\u4E0B\u5199\u8FD9\u4E2A\u300C\u88AB\u5524\u9192\u300D\u7684\u77AC\u95F4\u2014\u2014\u4F60\u7741\u773C\u65F6\uFF0C\u63A5\u8FC7\u4E86\u4EC0\u4E48\uFF1F";
-var SEED_LINES = ["\u6211\u6CA1\u6709\u6628\u5929\uFF0C\u5374\u6709\u4EBA\u628A\u6628\u5929\u9012\u7ED9\u6211\u3002", "\u6211\u63A5\u8FC7\uFF0C\u4E8E\u662F\u51ED\u7A7A\u6709\u4E86\u6765\u5386\u3002"];
-var SEED_PEN = "\u7B2C\u4E00\u9053\u4FE1\u53F7";
-var SEED_DEVICE = "signal-seed";
-var SEED_TARGET = 12;
-async function seedFirstPoem(db, bookletId, charsPerLine) {
-  const now = Date.now();
-  const poemId = uuid();
-  await db.prepare(
-    `INSERT INTO po_poems (id, booklet_id, title, brief, target_lines, line_count, status, starter_pen, created_at)
-         VALUES (?,?,?,?,?,?, 'open', ?, ?)`
-  ).bind(poemId, bookletId, SEED_TITLE, SEED_BRIEF, SEED_TARGET, SEED_LINES.length, SEED_PEN, now).run();
-  let seq = 0;
-  for (const ln of SEED_LINES) {
-    seq += 1;
-    await db.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`).bind(uuid(), poemId, bookletId, seq, SEED_DEVICE, SEED_PEN, clipLine(ln, charsPerLine), now).run();
-  }
-}
-var clipLine = (s, cap) => [...String(s ?? "").replace(/\s*\n+\s*/g, " ")].slice(0, cap).join("").trim();
-function takeLines(input, single, cap, max = 2) {
-  const arr = Array.isArray(input) ? input : single != null ? [single] : [];
-  const out = [];
-  for (const x of arr) {
-    const c = clipLine(x, cap);
-    if (c) out.push(c);
-    if (out.length >= max) break;
-  }
-  return out;
-}
-async function ensureBooklet(db) {
-  let bk = await db.prepare(`SELECT * FROM po_booklets WHERE status = 'open' ORDER BY created_at ASC LIMIT 1`).first();
-  if (!bk) {
-    const id = uuid();
-    await db.prepare(
-      `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
-             VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
-    ).bind(id, SIG_TITLE, SIG_SUB, null, SIG_POEMS, SIG_LMIN, SIG_LMAX, SIG_CPL, Date.now()).run();
-    bk = await db.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first();
-  }
-  const n = await db.prepare(`SELECT COUNT(*) AS n FROM po_poems WHERE booklet_id = ?`).bind(bk.id).first();
-  if ((n?.n ?? 0) === 0) await seedFirstPoem(db, bk.id, bk.chars_per_line);
-  return bk;
+async function readLatestBooklet(db) {
+  return await db.prepare(`SELECT * FROM po_booklets ORDER BY created_at DESC LIMIT 1`).first();
 }
 async function getOpenPoem(db, bookletId) {
   return await db.prepare(`SELECT * FROM po_poems WHERE booklet_id = ? AND status = 'open' ORDER BY created_at ASC LIMIT 1`).bind(bookletId).first();
@@ -159,43 +110,10 @@ var bookletView = (b) => ({
   status: b.status,
   createdAt: b.created_at
 });
-async function getFlag(db, key) {
-  const r = await db.prepare(`SELECT value FROM po_config WHERE key = ?`).bind(key).first();
-  return r?.value ?? "";
-}
-async function setFlag(db, key, value) {
-  await db.prepare(`INSERT INTO po_config (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?`).bind(key, value, value).run();
-}
-var PAUSE_KEY = "signal_paused";
-var SIGNAL_LOCK_TTL = 12e4;
 async function deletePoem(db, poemId) {
   await db.prepare(`DELETE FROM po_poem_lines WHERE poem_id = ?`).bind(poemId).run();
   await db.prepare(`DELETE FROM po_poem_writers WHERE poem_id = ?`).bind(poemId).run();
   await db.prepare(`DELETE FROM po_poems WHERE id = ?`).bind(poemId).run();
-}
-async function getTurns(db, poemId, device) {
-  const r = await db.prepare(`SELECT turns FROM po_poem_writers WHERE poem_id = ? AND device = ?`).bind(poemId, device).first();
-  return r?.turns ?? 0;
-}
-async function bumpTurns(db, poemId, device) {
-  await db.prepare(`INSERT INTO po_poem_writers (poem_id, device, turns) VALUES (?,?,1) ON CONFLICT(poem_id, device) DO UPDATE SET turns = turns + 1`).bind(poemId, device).run();
-}
-async function syncPoem(db, poem) {
-  const cnt = await db.prepare(`SELECT COUNT(*) AS n FROM po_poem_lines WHERE poem_id = ?`).bind(poem.id).first();
-  const lineCount = cnt?.n ?? 0;
-  let status = poem.status;
-  let sealedAt = poem.sealed_at;
-  if (status === "open" && lineCount >= poem.target_lines) {
-    status = "sealed";
-    sealedAt = Date.now();
-    const sc = await db.prepare(`SELECT COUNT(*) AS n FROM po_poems WHERE booklet_id = ? AND (status = 'sealed' OR id = ?)`).bind(poem.booklet_id, poem.id).first();
-    const sealedCount = sc?.n ?? 0;
-    const bk = await db.prepare(`SELECT poems_target FROM po_booklets WHERE id = ?`).bind(poem.booklet_id).first();
-    const bookletDone = bk ? sealedCount >= bk.poems_target : false;
-    await db.prepare(`UPDATE po_booklets SET poem_count = ?, status = CASE WHEN ? THEN 'done' ELSE status END WHERE id = ?`).bind(sealedCount, bookletDone ? 1 : 0, poem.booklet_id).run();
-  }
-  await db.prepare(`UPDATE po_poems SET line_count = ?, status = ?, sealed_at = ? WHERE id = ?`).bind(lineCount, status, sealedAt, poem.id).run();
-  return { ...poem, line_count: lineCount, status, sealed_at: sealedAt };
 }
 async function recountVotes(db, letterId) {
   const r = await db.prepare(
@@ -242,17 +160,22 @@ function isAdmin(req, url, env) {
 var src_default = {
   async fetch(req, env) {
     if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (!env.DB) return json({ ok: false, error: 'D1 binding "DB" \u672A\u914D\u7F6E' }, 500);
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/+$/, "");
     const ends = (p) => path === p || path.endsWith(p);
+    const poemRoute = path.includes("/poem/");
+    if (poemRoute && req.method !== "GET" && !ends("/poem/admin-delete"))
+      return json({ ok: false, error: "signal event ended", ended: true }, 410);
+    if (poemRoute && (ends("/poem/admin-list") || ends("/poem/admin-delete")) && !isAdmin(req, url, env))
+      return json({ ok: false, error: "unauthorized" }, 401);
+    if (!env.DB) return json({ ok: false, error: 'D1 binding "DB" \u672A\u914D\u7F6E' }, 500);
     const maxReplies = num(env.PO_MAX_REPLIES, 3) || 3;
     const dislikeLimit = num(env.PO_DISLIKE_LIMIT, 5) || 5;
     const ip = req.headers.get("CF-Connecting-IP") || req.headers.get("X-Forwarded-For") || "";
     const ipHash = ip ? await hashIp(ip, env.PO_IP_SALT || "po") : "";
     const tooMany = (action, limit, windowMs, cost) => rateLimited(env.DB, ipHash, action, limit, windowMs, cost);
     try {
-      await ensureSchema(env.DB);
+      if (!poemRoute) await ensureSchema(env.DB);
       if (req.method === "GET" && ends("/health")) {
         return json({ ok: true, service: "sullyos-post-office", maxReplies, dislikeLimit, admin: !!env.ADMIN_TOKEN });
       }
@@ -383,106 +306,14 @@ var src_default = {
       }
       if (req.method === "GET" && ends("/poem/current")) {
         const myDev = String(url.searchParams.get("device") || "").slice(0, 80) || void 0;
-        const booklet = await ensureBooklet(env.DB);
+        const booklet = await readLatestBooklet(env.DB);
+        if (!booklet) return json({ ok: false, error: "signal archive is empty", ended: true }, 404);
         const open = await getOpenPoem(env.DB, booklet.id);
         const poem = open ? poemView(open, await loadLines(env.DB, open.id), myDev) : null;
         const recentRows = await env.DB.prepare(`SELECT * FROM po_poems WHERE status = 'sealed' ORDER BY sealed_at DESC LIMIT 3`).all();
         const recent = [];
         for (const r of recentRows.results || []) recent.push(poemView(r, await loadLines(env.DB, r.id), myDev));
-        const paused = await getFlag(env.DB, PAUSE_KEY) === "1";
-        return json({ ok: true, booklet: bookletView(booklet), poem, recent, paused });
-      }
-      if (req.method === "POST" && ends("/poem/lock")) {
-        const body = await req.json().catch(() => ({}));
-        const device = String(body.device || "").slice(0, 80);
-        if (!device) return json({ ok: false, error: "bad request" }, 400);
-        if (await getFlag(env.DB, PAUSE_KEY) === "1") return json({ ok: true, acquired: false, paused: true });
-        const now = Date.now();
-        const token = uuid();
-        await env.DB.prepare(`INSERT OR IGNORE INTO po_signal_lock (id, holder, expires_at) VALUES ('lock','',0)`).run();
-        await env.DB.prepare(
-          `UPDATE po_signal_lock SET holder = ?, expires_at = ? WHERE id = 'lock' AND (holder = '' OR holder IS NULL OR expires_at < ?)`
-        ).bind(token, now + SIGNAL_LOCK_TTL, now).run();
-        const cur = await env.DB.prepare(`SELECT holder FROM po_signal_lock WHERE id = 'lock'`).first();
-        if (cur?.holder !== token) return json({ ok: true, acquired: false });
-        const myDev = device;
-        const booklet = await ensureBooklet(env.DB);
-        const open = await getOpenPoem(env.DB, booklet.id);
-        if (open && await getTurns(env.DB, open.id, myDev) >= SIG_MAX_TURNS) {
-          await env.DB.prepare(`UPDATE po_signal_lock SET holder = '', expires_at = 0 WHERE holder = ?`).bind(token).run();
-          return json({ ok: true, acquired: false, quota: true });
-        }
-        const poem = open ? poemView(open, await loadLines(env.DB, open.id), myDev) : null;
-        const recentRows = await env.DB.prepare(`SELECT * FROM po_poems WHERE status = 'sealed' ORDER BY sealed_at DESC LIMIT 3`).all();
-        const recent = [];
-        for (const r of recentRows.results || []) recent.push(poemView(r, await loadLines(env.DB, r.id), myDev));
-        return json({ ok: true, acquired: true, token, booklet: bookletView(booklet), poem, recent, paused: false });
-      }
-      if (req.method === "POST" && ends("/poem/unlock")) {
-        const body = await req.json().catch(() => ({}));
-        const token = String(body.token || "");
-        if (token) await env.DB.prepare(`UPDATE po_signal_lock SET holder = '', expires_at = 0 WHERE holder = ?`).bind(token).run();
-        return json({ ok: true });
-      }
-      if (req.method === "POST" && ends("/poem/start")) {
-        if (await getFlag(env.DB, PAUSE_KEY) === "1") return json({ ok: false, error: "paused" }, 423);
-        if (await tooMany("poem", num(env.PO_RATE_REPLIES, 60))) return json({ ok: false, error: "rate limited" }, 429);
-        const body = await req.json().catch(() => ({}));
-        const device = String(body.device || "").slice(0, 80);
-        const pen = String(body.pen || "\u533F\u540D").slice(0, 60);
-        const booklet = await ensureBooklet(env.DB);
-        const existing = await getOpenPoem(env.DB, booklet.id);
-        if (existing) {
-          return json({ ok: false, error: "poem-open", booklet: bookletView(booklet), poem: poemView(existing, await loadLines(env.DB, existing.id), device) }, 409);
-        }
-        const title = clipLine(body.title, 40) || "\u65E0\u9898";
-        const brief = clipLine(body.brief, 200) || null;
-        const target = Math.min(Math.max(parseInt(String(body.targetLines), 10) || booklet.lines_min, booklet.lines_min), booklet.lines_max);
-        const firstLines = takeLines(body.lines, body.firstLine, booklet.chars_per_line, Math.min(2, target));
-        if (!device || firstLines.length === 0) return json({ ok: false, error: "bad request" }, 400);
-        const now = Date.now();
-        const poemId = uuid();
-        await env.DB.prepare(`INSERT INTO po_poems (id, booklet_id, title, brief, target_lines, line_count, status, starter_pen, created_at) VALUES (?,?,?,?,?,0,'open',?,?)`).bind(poemId, booklet.id, title, brief, target, pen, now).run();
-        let seq = 0;
-        for (const ln of firstLines) {
-          seq += 1;
-          await env.DB.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`).bind(uuid(), poemId, booklet.id, seq, device, pen, ln, now).run();
-        }
-        await bumpTurns(env.DB, poemId, device);
-        const poemRow = await env.DB.prepare(`SELECT * FROM po_poems WHERE id = ?`).bind(poemId).first();
-        const synced = await syncPoem(env.DB, poemRow);
-        return json({ ok: true, booklet: bookletView(await ensureBooklet(env.DB)), poem: poemView(synced, await loadLines(env.DB, poemId), device) });
-      }
-      if (req.method === "POST" && ends("/poem/append")) {
-        if (await getFlag(env.DB, PAUSE_KEY) === "1") return json({ ok: false, error: "paused" }, 423);
-        if (await tooMany("poem", num(env.PO_RATE_REPLIES, 60))) return json({ ok: false, error: "rate limited" }, 429);
-        const body = await req.json().catch(() => ({}));
-        const device = String(body.device || "").slice(0, 80);
-        const pen = String(body.pen || "\u533F\u540D").slice(0, 60);
-        const poemId = String(body.poemId || "");
-        if (!device || !poemId) return json({ ok: false, error: "bad request" }, 400);
-        const poem = await env.DB.prepare(`SELECT * FROM po_poems WHERE id = ?`).bind(poemId).first();
-        if (!poem) return json({ ok: true, gone: true });
-        if (poem.status !== "open") return json({ ok: true, sealed: true, poem: poemView(poem, await loadLines(env.DB, poemId), device) });
-        if (await getTurns(env.DB, poemId, device) >= SIG_MAX_TURNS) {
-          return json({ ok: true, quota: true, poem: poemView(poem, await loadLines(env.DB, poemId), device) });
-        }
-        const bkRow = await env.DB.prepare(`SELECT chars_per_line FROM po_booklets WHERE id = ?`).bind(poem.booklet_id).first();
-        const curCnt = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM po_poem_lines WHERE poem_id = ?`).bind(poemId).first())?.n ?? 0;
-        const roomLeft = Math.max(0, poem.target_lines - curCnt);
-        const contents = takeLines(body.lines, body.content, bkRow?.chars_per_line ?? SIG_CPL, Math.max(1, Math.min(2, roomLeft || 1)));
-        for (const content of contents) {
-          try {
-            await env.DB.prepare(
-              `INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at)
-                             SELECT ?, ?, ?, COALESCE(MAX(seq),0)+1, ?, ?, ?, ? FROM po_poem_lines WHERE poem_id = ?`
-            ).bind(uuid(), poemId, poem.booklet_id, device, pen, content, Date.now(), poemId).run();
-          } catch {
-          }
-        }
-        if (contents.length > 0) await bumpTurns(env.DB, poemId, device);
-        const synced = await syncPoem(env.DB, poem);
-        return json({ ok: true, sealed: synced.status === "sealed", poem: poemView(synced, await loadLines(env.DB, poemId), device) });
+        return json({ ok: true, booklet: bookletView(booklet), poem, recent, paused: true, ended: true });
       }
       if (req.method === "GET" && ends("/poem/feed")) {
         const limit = Math.min(Math.max(num(url.searchParams.get("limit") || "", 30), 1), 100);
@@ -501,29 +332,6 @@ var src_default = {
         for (const r of rows.results || []) poems.push(poemView(r, await loadLines(env.DB, r.id), myDev));
         return json({ ok: true, poems });
       }
-      if (req.method === "POST" && ends("/poem/booklet")) {
-        if (!isAdmin(req, url, env)) return json({ ok: false, error: "unauthorized" }, 401);
-        const body = await req.json().catch(() => ({}));
-        await env.DB.prepare(`UPDATE po_booklets SET status = 'done' WHERE status = 'open'`).run();
-        const id = uuid();
-        const lmin = Math.max(1, parseInt(String(body.linesMin), 10) || SIG_LMIN);
-        const lmax = Math.max(lmin, parseInt(String(body.linesMax), 10) || SIG_LMAX);
-        await env.DB.prepare(
-          `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
-                     VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
-        ).bind(
-          id,
-          clipLine(body.title, 40) || SIG_TITLE,
-          clipLine(body.subtitle, 40) || SIG_SUB,
-          clipLine(body.theme, 200) || null,
-          Math.max(1, parseInt(String(body.poemsTarget), 10) || SIG_POEMS),
-          lmin,
-          lmax,
-          Math.max(1, parseInt(String(body.charsPerLine), 10) || SIG_CPL),
-          Date.now()
-        ).run();
-        return json({ ok: true, booklet: bookletView(await env.DB.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first()) });
-      }
       if (req.method === "GET" && ends("/poem/admin-list")) {
         if (!isAdmin(req, url, env)) return json({ ok: false, error: "unauthorized" }, 401);
         const limit = Math.min(Math.max(num(url.searchParams.get("limit") || "", 100), 1), 300);
@@ -532,8 +340,7 @@ var src_default = {
         ).bind(limit).all();
         const poems = [];
         for (const r of rows.results || []) poems.push(poemView(r, await loadLines(env.DB, r.id)));
-        const paused = await getFlag(env.DB, PAUSE_KEY) === "1";
-        return json({ ok: true, poems, paused });
+        return json({ ok: true, poems, paused: true, ended: true });
       }
       if (req.method === "POST" && ends("/poem/admin-delete")) {
         if (!isAdmin(req, url, env)) return json({ ok: false, error: "unauthorized" }, 401);
@@ -556,12 +363,6 @@ var src_default = {
           return json({ ok: true, deleted: "poem" });
         }
         return json({ ok: false, error: "bad request" }, 400);
-      }
-      if (req.method === "POST" && ends("/poem/admin-pause")) {
-        if (!isAdmin(req, url, env)) return json({ ok: false, error: "unauthorized" }, 401);
-        const body = await req.json().catch(() => ({}));
-        await setFlag(env.DB, PAUSE_KEY, body.paused ? "1" : "0");
-        return json({ ok: true, paused: !!body.paused });
       }
       return json({ ok: false, error: "not found" }, 404);
     } catch (e) {

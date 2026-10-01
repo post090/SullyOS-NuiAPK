@@ -32,23 +32,37 @@
   ```jsonc
   {
     "statePayload": "<加密信封：即 PUT /client-state 的完整 body>",
-    "taskPayload": "<加密信封：即 POST /schedule-message 的完整 body>"
+    "taskPayload": "<加密信封：即 POST /schedule-message 的完整 body>",
+    "credPayload": "<可选，加密信封：即 PUT /llm-credentials 的完整 body>"
   }
   ```
+
+  credPayload 装的是这一轮任务引用的凭据行（`char:<id>/instant`，评估时再加
+  `char:<id>/emotion`）。任务走 credRefs 时客户端**每一轮都带**，不看本地指纹底账：
+  底账只代表这一个入口传过什么，云端那行可能已被别的入口（iOS 上 Safari 与主屏 App
+  各存各的）或别的 Worker 改过。任务走内联凭据时不带。
 
   taskPayload（信封内）固定带 `immediate: true`（amsg-server 2.6.0-next.15 起：
   落库即到期，不带 `firstSendTime`）；顶替上一条时带 `supersedesUuid`（上游在
   建新任务的同一事务里取消旧的，原子）。外壳不再有明文 supersedesUuid。
 
-- 处理步骤（严格顺序，两个 await 失败即向客户端返回明确错误，不落任务）：
+- 处理步骤（严格顺序，任一步失败即向客户端返回明确错误，不落任务）：
   1. 内部 `upstream.fetch` 转发 `PUT /client-state`（statePayload）→ 必须成功。
      HTTP ok 还不够：上游按 updatedAt 条件写（旧不盖新），成功体 `data.skippedEntries`
-     里点名了 `fire_pack` 条目（典型成因：设备时钟被回拨过）时同样打回——
-     `409 INSTANT_CHAT_STATE_STALE`，绝不落任务（否则 fire 拿旧 chat 段答话）。
-  2. 内部转发 `POST /schedule-message`（taskPayload）→ 必须成功，拿到 uuid
+     里点名了 `fire_pack` 条目时同样打回——`409 INSTANT_CHAT_STATE_STALE`，绝不落任务
+     （否则 fire 拿旧 chat 段答话）。
+     客户端拿到这个码会自愈一次：读回云端那几行的 `updatedAt`、把本地水位抬过去
+     （`utils/amsgStateClock.ts`）、重新盖戳再发一次。设备时钟只要领先过真实时间，云端
+     那一行就带着一个还没到的时刻，本地墙钟从此跨不过去，那个角色发一句挂一句，把系统
+     时间调回来也没用；水位是这条路的唯一出路。对齐不动才是真被别人写了新的，那时不重发。
+  2. 带了 credPayload 时，内部转发 `PUT /llm-credentials` → 必须成功（5xx 与第 1 步
+     同一把重试梯子；200 包 `success:false` 也算失败），失败回
+     `INSTANT_CHAT_CREDENTIALS_FAILED`（step `llm-credentials`），不落任务。
+  3. 内部转发 `POST /schedule-message`（taskPayload）→ 必须成功，拿到 uuid
      （顶替在上游事务内完成）。
-  3. 返回 `202 { status: 'accepted', uuid }`。
-  4. `ctx.waitUntil(upstream.scheduled(合成 event, env))` 立即触发一次 tick，
+  4. 返回 `202 { status: 'accepted', uuid }`；覆盖过凭据行时多带
+     `credentialsSynced: true`，客户端见到它才把本地底账对齐。
+  5. `ctx.waitUntil(upstream.scheduled(合成 event, env))` 立即触发一次 tick，
      捡起刚落的行（与真 cron 并发时由 claim/lease 天然互斥）。
 - `export default` 的 `fetch` / `scheduled` 签名补上第三个参数 `ctx`
   （上游签名只收两个参数，多传无害；`index.ts:1509-1510` 的注释要同步改）。
@@ -113,7 +127,57 @@
   一笔 pending，收到末条推送时回填 Token）。它是**最后一次**模型调用的用量——带工具的
   一轮会连着调好几次模型，中间几次的数云端没留，所以跑过工具时那笔记录会标「只算末轮」。
 - 超限旁路：`amsgEmotionRef` / `amsgReasoningRef`（值挪进 client_state，键
-  `emotion_update:<clientTaskId>` / `reasoning:<clientTaskId>`）。
+  `emotion_update:<clientTaskId>` / `reasoning:<clientTaskId>`）；SAR 的三个引用键见下一小节。
+
+### SAR 临时模块（信封）
+
+角色或用户身上有 SAR 临时模块时，模型回复是一个 `<SAR_MODULE_OUTPUT>` 信封：
+`<CHAR_TRUE>` 是真意，`<CHAR_SURFACE>` 是角色台词被模块扭曲后的外显，`<USER_SURFACE>`
+是用户本轮输入的外显。信封的解析和逐泡对齐用的是前后端共用的
+`utils/vrWorld/sarEnvelopeCore.ts`，worker 侧的拆分与对齐在 `worker/amsg/src/sarEnvelope.ts`。
+
+- 发侧 `amsgSar`（任务 metadata，形状 `AmsgSarModuleSnapshot`，`v: 1`）：请求发出那一刻冻结
+  的模块快照。只在角色或用户身上有模块（active 或 afterglow）时存在。形状不对（不是对象 /
+  `v` 不是 1）时 worker 当它不存在。
+- 回程 `amsgSar`：发侧那份原样挂回，**只挂末条 push**，其余各条都不带。只要发侧带了合法快照
+  就挂回，不看模型守没守信封、也不看是不是只剩余韵的轮次——客户端靠它写模块事件、推进回合。
+- 回程 `amsgSarSurface`（形状 `SARModuleSurfaceMeta`，`surface` 只放这一条对应的那段外显）：
+  角色模块 active、模型给了 CHAR_SURFACE 时，按 push 分段逐段对齐，对上的那条挂，对不上的不挂。
+  挂了的那条 `notification.body` 用这段外显的横幅文本（界面默认显示外显，锁屏也一样）；
+  `message` 仍是真意，落库为 content。
+  横幅截到 100 个字符（超出时末尾是「…」）；metadata 里的外显不截。普通回合的横幅不受影响。
+- 回程 `amsgSarUserSurface`：用户模块 active、模型给了 USER_SURFACE 时挂在末条 push，
+  值是 USER_SURFACE 原文，worker 不做任何解析。
+
+一条 push 装不下时，这三样和别的大块数据一起旁路进 client_state，push 里只留引用键
+（客户端按引用键取回，用法同 `amsgReasoningRef`）：
+
+| 字段 | 引用键 | client_state 键 | 存的值 |
+|---|---|---|---|
+| `amsgSar` | `amsgSarRef` | `sar_snapshot:<clientTaskId>` | 快照 JSON |
+| `amsgSarUserSurface` | `amsgSarUserSurfaceRef` | `sar_user_surface:<clientTaskId>` | USER_SURFACE 原文 |
+| `amsgSarSurface` | `amsgSarSurfaceRef` | `sar_surface:<clientTaskId>:<段序号>` | 这一条的外显 meta JSON |
+
+段序号是这条 push 在本轮里的下标（0 起），同一轮几条 push 各存各的。挪的顺序：思考链 →
+情绪评估 → `amsgSar` → `amsgSarUserSurface` → 本条 `amsgSarSurface` → XHS 会话数据，
+每挪一样就重新量一次，装得下就停。
+
+fire 时的处理规则：
+
+- 需要信封（有模块 active）时，worker 在 finish、分段之前拆信封。分段、
+  directives、self_log 只认 CHAR_TRUE（情绪评估与主生成并行、读的是请求消息，不读这一轮的
+  回复）；CHAR_SURFACE / USER_SURFACE 不参与标签识别，里面写的标签（工具、排程、副作用）
+  一律不执行。
+- 逐轮拆：工具循环跑了几轮，就把每一轮的输出（补上没写完的闭合标签后）分别交给
+  `parseSARModuleReply`，每一轮自己决定降级：
+  - 这一轮守了信封 → 真意取它的 CHAR_TRUE，外显取它的 CHAR_SURFACE，只对齐这一轮的真意段；
+  - 这一轮没守（拆不出非空的 CHAR_TRUE）→ 这一轮原文照发、不带外显，只剥掉散落的信封标签；
+  - 各轮真意按顺序拼接；USER_SURFACE 取最后一个给了它的那一轮。
+  没写外层 `<SAR_MODULE_OUTPUT>`、或 CHAR_SURFACE 写在 CHAR_TRUE 前面，都照样认。
+- 只剩余韵（afterglow，不要求信封）时不拆，原文照旧分段。
+- 对齐口径与客户端落库一致：只有台词占外显槽位。表情段（`[[SEND_EMOJI:…]]`）、`[html]` 段
+  不占；纯括号动作段按共用的 `consumeSARChatSurfaceChunk` 处理；内置翻译 `<翻译>` 块、
+  `<语音>` + `<字幕>` 块各占一格。外显那一侧先剔掉 `[[...]]` 指令和 `[html]` 块再分段。
 
 ## outbox（push 丢失的拉取兜底）
 
@@ -127,7 +191,8 @@
     的本地状态——只在等回复时才拉的话，这类消息的推送丢了就永远没人去捞。
   - **等回复时的点名**（`runInstantChatStatusCheck`）：每 60s 一跳，下结论前必拉一次
     最新的，不受节流管（拿旧账本去判「回复取不回」会误杀还在路上的回复）。
-- 补收只上屏 24 小时内的条目，更老的只销账（那个岁数的推送推送服务早就不投了）。
+- 补收只上屏两天内的条目，更老的只销账（那个岁数的推送推送服务早就不投了）。超窗销掉
+  几条会数出来交给界面说一句——这一销消息就永久拿不回来了，不能一声不响。
 - 头一趟拉账本走「存量整批销账、一条不上屏」（`adoptOutboxBacklog`）：worker 先更新
   建了表、前端还是老版本那段时间，账本会攒下一批「其实收到了、只是不会销账」的行，
   当补收倒出来就是重放。用户在设置页手点的那次补收例外（`treatBacklogAsMissed`）——

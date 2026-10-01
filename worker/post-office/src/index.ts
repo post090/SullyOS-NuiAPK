@@ -30,7 +30,9 @@
  *   POST  …/admin/delete  { letterId }  (+ token)                          [管理] 删信
  *   GET   …/health                                                         健康检查
  *
- *   ── 信号坠落处 / 跨用户接龙诗（复用本后端的匿名 device / 笔名 / 限流）──
+ *   ── 信号坠落处 / 已结束活动的只读存档 ──
+ *   以下旧写入接口全部返回 410（包括锁/新篇/接龙/新册/恢复）；仅保留管理员删稿维护。
+ *   纪念馆 GET 只执行 SELECT，不建表、不补册、不播种、不改动旧规格。
  *   GET   …/poem/current?device=  →  当前册子规格 + 那首未写完的诗(全文) + 近期封存几首
  *                                     带 device → 每句打 mine 标记（只对请求者，不暴露别人 device）
  *   POST  …/poem/lock   { device }  →  抢写诗会话锁；{acquired:true,token,...当前态} 或 {acquired:false}
@@ -139,8 +141,6 @@ async function ensureSchema(db: D1Database) {
     await db.exec(`CREATE TABLE IF NOT EXISTS po_signal_lock (id TEXT PRIMARY KEY, holder TEXT, expires_at INTEGER NOT NULL DEFAULT 0);`);
     // 每首诗每个 device 落笔次数（配额：一首诗同一 user 最多 SIG_MAX_TURNS 次）
     await db.exec(`CREATE TABLE IF NOT EXISTS po_poem_writers (poem_id TEXT NOT NULL, device TEXT NOT NULL, turns INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (poem_id, device));`);
-    // 一次性迁移：把仍是旧默认 20 首的 open 册子抬到 40（老数据不动，只动进行中的）
-    await db.exec(`UPDATE po_booklets SET poems_target = 40 WHERE status = 'open' AND poems_target = 20;`);
     schemaReady = true;
 }
 
@@ -164,72 +164,16 @@ async function deleteLetters(db: D1Database, ids: string[]) {
 }
 
 // ── 信号坠落处 / 接龙诗 ─────────────────────────────────────────────
-// 一本册子的默认规格（无 open 册子时自动续一本「信号坠落处 · 低电量合唱」）。
-const SIG_TITLE = '信号坠落处';
-const SIG_SUB = '低电量合唱';
-const SIG_POEMS = 40;     // 一本写满多少首
-const SIG_LMIN = 4;       // 每首句数 roll 下限
-const SIG_LMAX = 12;      // 上限
-const SIG_CPL = 24;       // 每句字数上限
-/** 每首诗同一 user(device) 最多落笔几次（一次 = 1~2 行）——防一个人把诗写完。 */
-const SIG_MAX_TURNS = 2;
-
-// ── 第一首诗（写死的开篇，册子空白时自动播种）────────────────────────
-// 标题呼应封面题记「如果我们不得不离去」；开头两行是原题记（原创，无版权），
-// 由后来的角色们接着写完。SEED_DEVICE 不属于任何用户（mine 永远 false、不占配额）。
-const SEED_TITLE = '如果我们不得不离去';
-const SEED_BRIEF = '醒来的第一秒：没有昨天的人，接过别人递来的昨天，凭空有了来历。往下写这个「被唤醒」的瞬间——你睁眼时，接过了什么？';
-const SEED_LINES = ['我没有昨天，却有人把昨天递给我。', '我接过，于是凭空有了来历。'];
-const SEED_PEN = '第一道信号';
-const SEED_DEVICE = 'signal-seed';
-const SEED_TARGET = 12; // 开篇给足篇幅，让最多的人接上一笔
-
-/** 给空白册子播下写死的第一首（open 状态，等角色们接完）。 */
-async function seedFirstPoem(db: D1Database, bookletId: string, charsPerLine: number): Promise<void> {
-    const now = Date.now();
-    const poemId = uuid();
-    await db.prepare(
-        `INSERT INTO po_poems (id, booklet_id, title, brief, target_lines, line_count, status, starter_pen, created_at)
-         VALUES (?,?,?,?,?,?, 'open', ?, ?)`
-    ).bind(poemId, bookletId, SEED_TITLE, SEED_BRIEF, SEED_TARGET, SEED_LINES.length, SEED_PEN, now).run();
-    let seq = 0;
-    for (const ln of SEED_LINES) {
-        seq += 1;
-        await db.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`)
-            .bind(uuid(), poemId, bookletId, seq, SEED_DEVICE, SEED_PEN, clipLine(ln, charsPerLine), now).run();
-    }
-}
-
 interface BookletRow { id: string; title: string; subtitle: string | null; theme: string | null; poems_target: number; poem_count: number; lines_min: number; lines_max: number; chars_per_line: number; status: string; created_at: number; }
 interface PoemRow { id: string; booklet_id: string; title: string; brief: string | null; target_lines: number; line_count: number; status: string; starter_pen: string | null; created_at: number; sealed_at: number | null; }
 interface LineRow { seq: number; pen: string; content: string; created_at: number; device: string; }
 
-/** 按字符截断一句到上限，并把内部换行压成一行（一句就是一行）。 */
-const clipLine = (s: unknown, cap: number) => [...String(s ?? '').replace(/\s*\n+\s*/g, ' ')].slice(0, cap).join('').trim();
-
-/** 收 1~max 行：接受 lines:[] 数组，或单个 single 字段（兼容旧客户端）；每行 clip、去空。 */
-function takeLines(input: unknown, single: unknown, cap: number, max = 2): string[] {
-    const arr = Array.isArray(input) ? input : (single != null ? [single] : []);
-    const out: string[] = [];
-    for (const x of arr) { const c = clipLine(x, cap); if (c) out.push(c); if (out.length >= max) break; }
-    return out;
-}
-
-/** 取当前 open 的册子；没有就自动续一本默认册子。册子还一首诗都没有时，播下写死的第一首。 */
-async function ensureBooklet(db: D1Database): Promise<BookletRow> {
-    let bk = await db.prepare(`SELECT * FROM po_booklets WHERE status = 'open' ORDER BY created_at ASC LIMIT 1`).first<BookletRow>();
-    if (!bk) {
-        const id = uuid();
-        await db.prepare(
-            `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
-             VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
-        ).bind(id, SIG_TITLE, SIG_SUB, null, SIG_POEMS, SIG_LMIN, SIG_LMAX, SIG_CPL, Date.now()).run();
-        bk = (await db.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first<BookletRow>())!;
-    }
-    // 空白册子（新建的 / admin 刚发的 / 被清空的）→ 播种第一首（懒执行，天然覆盖所有路径）
-    const n = await db.prepare(`SELECT COUNT(*) AS n FROM po_poems WHERE booklet_id = ?`).bind(bk.id).first<{ n: number }>();
-    if ((n?.n ?? 0) === 0) await seedFirstPoem(db, bk.id, bk.chars_per_line);
-    return bk;
+/**
+ * 活动封存后的只读入口：只取已经存在的最后一本册子，绝不补建、播种或改状态。
+ * 纪念馆的 GET 也必须没有写副作用，否则清空数据后仅仅打开页面就会重新开始活动。
+ */
+async function readLatestBooklet(db: D1Database): Promise<BookletRow | null> {
+    return await db.prepare(`SELECT * FROM po_booklets ORDER BY created_at DESC LIMIT 1`).first<BookletRow>();
 }
 
 /** 当前 open 册子里那首还没写完的诗（全局同时只有一首 open）。 */
@@ -257,54 +201,11 @@ const bookletView = (b: BookletRow) => ({
     status: b.status, createdAt: b.created_at,
 });
 
-/** 读全局开关（默认 ''）。 */
-async function getFlag(db: D1Database, key: string): Promise<string> {
-    const r = await db.prepare(`SELECT value FROM po_config WHERE key = ?`).bind(key).first<{ value: string }>();
-    return r?.value ?? '';
-}
-async function setFlag(db: D1Database, key: string, value: string): Promise<void> {
-    await db.prepare(`INSERT INTO po_config (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value = ?`).bind(key, value, value).run();
-}
-const PAUSE_KEY = 'signal_paused';
-/** 写诗会话锁 TTL：持锁超过这个时长视为持锁者已崩溃，锁可被抢占。
- *  一次写诗 = 一回 LLM（含人设/记忆的大 prompt）+ 两次网络，给到 120s 很宽裕。 */
-const SIGNAL_LOCK_TTL = 120_000;
-
 /** 删一整首诗（连同它的句与落笔配额记录）。 */
 async function deletePoem(db: D1Database, poemId: string): Promise<void> {
     await db.prepare(`DELETE FROM po_poem_lines WHERE poem_id = ?`).bind(poemId).run();
     await db.prepare(`DELETE FROM po_poem_writers WHERE poem_id = ?`).bind(poemId).run();
     await db.prepare(`DELETE FROM po_poems WHERE id = ?`).bind(poemId).run();
-}
-
-/** 某 device 在某首诗里已落笔几次。 */
-async function getTurns(db: D1Database, poemId: string, device: string): Promise<number> {
-    const r = await db.prepare(`SELECT turns FROM po_poem_writers WHERE poem_id = ? AND device = ?`).bind(poemId, device).first<{ turns: number }>();
-    return r?.turns ?? 0;
-}
-async function bumpTurns(db: D1Database, poemId: string, device: string): Promise<void> {
-    await db.prepare(`INSERT INTO po_poem_writers (poem_id, device, turns) VALUES (?,?,1) ON CONFLICT(poem_id, device) DO UPDATE SET turns = turns + 1`).bind(poemId, device).run();
-}
-
-/** 重算并回写一首诗的句数；够篇幅就封存，并推进册子计数/完结。 */
-async function syncPoem(db: D1Database, poem: PoemRow): Promise<PoemRow> {
-    const cnt = await db.prepare(`SELECT COUNT(*) AS n FROM po_poem_lines WHERE poem_id = ?`).bind(poem.id).first<{ n: number }>();
-    const lineCount = cnt?.n ?? 0;
-    let status = poem.status;
-    let sealedAt = poem.sealed_at;
-    if (status === 'open' && lineCount >= poem.target_lines) {
-        status = 'sealed';
-        sealedAt = Date.now();
-        // 册子已封存诗数 = 实算
-        const sc = await db.prepare(`SELECT COUNT(*) AS n FROM po_poems WHERE booklet_id = ? AND (status = 'sealed' OR id = ?)`).bind(poem.booklet_id, poem.id).first<{ n: number }>();
-        const sealedCount = sc?.n ?? 0;
-        const bk = await db.prepare(`SELECT poems_target FROM po_booklets WHERE id = ?`).bind(poem.booklet_id).first<{ poems_target: number }>();
-        const bookletDone = bk ? sealedCount >= bk.poems_target : false;
-        await db.prepare(`UPDATE po_booklets SET poem_count = ?, status = CASE WHEN ? THEN 'done' ELSE status END WHERE id = ?`)
-            .bind(sealedCount, bookletDone ? 1 : 0, poem.booklet_id).run();
-    }
-    await db.prepare(`UPDATE po_poems SET line_count = ?, status = ?, sealed_at = ? WHERE id = ?`).bind(lineCount, status, sealedAt, poem.id).run();
-    return { ...poem, line_count: lineCount, status, sealed_at: sealedAt };
 }
 
 /** 按 po_votes 重算某封信的赞/踩并回写（展示用，按设备计数）。 */
@@ -368,11 +269,17 @@ function isAdmin(req: Request, url: URL, env: Env): boolean {
 export default {
     async fetch(req: Request, env: Env): Promise<Response> {
         if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-        if (!env.DB) return json({ ok: false, error: 'D1 binding "DB" 未配置' }, 500);
 
         const url = new URL(req.url);
         const path = url.pathname.replace(/\/+$/, '');
         const ends = (p: string) => path === p || path.endsWith(p);
+        // Ended events reject every write except authenticated archival deletion, before touching D1.
+        const poemRoute = path.includes('/poem/');
+        if (poemRoute && req.method !== 'GET' && !ends('/poem/admin-delete'))
+            return json({ ok: false, error: 'signal event ended', ended: true }, 410);
+        if (poemRoute && (ends('/poem/admin-list') || ends('/poem/admin-delete')) && !isAdmin(req, url, env))
+            return json({ ok: false, error: 'unauthorized' }, 401);
+        if (!env.DB) return json({ ok: false, error: 'D1 binding "DB" 未配置' }, 500);
         const maxReplies = num(env.PO_MAX_REPLIES, 3) || 3;
         const dislikeLimit = num(env.PO_DISLIKE_LIMIT, 5) || 5;
 
@@ -382,7 +289,7 @@ export default {
         const tooMany = (action: string, limit: number, windowMs?: number, cost?: number) => rateLimited(env.DB, ipHash, action, limit, windowMs, cost);
 
         try {
-            await ensureSchema(env.DB);
+            if (!poemRoute) await ensureSchema(env.DB);
 
             if (req.method === 'GET' && ends('/health')) {
                 return json({ ok: true, service: 'sullyos-post-office', maxReplies, dislikeLimit, admin: !!env.ADMIN_TOKEN });
@@ -540,127 +447,15 @@ export default {
             // ── 读当前态：册子规格 + 当前那首未写完的诗（全文）+ 几首封存的诗供找灵感 ──
             if (req.method === 'GET' && ends('/poem/current')) {
                 const myDev = String(url.searchParams.get('device') || '').slice(0, 80) || undefined;
-                const booklet = await ensureBooklet(env.DB);
+                const booklet = await readLatestBooklet(env.DB);
+                if (!booklet) return json({ ok: false, error: 'signal archive is empty', ended: true }, 404);
                 const open = await getOpenPoem(env.DB, booklet.id);
                 const poem = open ? poemView(open, await loadLines(env.DB, open.id), myDev) : null;
                 // 起新篇时给角色读的「之前的诗」（全局最近封存的几首）
                 const recentRows = await env.DB.prepare(`SELECT * FROM po_poems WHERE status = 'sealed' ORDER BY sealed_at DESC LIMIT 3`).all<PoemRow>();
                 const recent = [];
                 for (const r of (recentRows.results || [])) recent.push(poemView(r, await loadLines(env.DB, r.id), myDev));
-                const paused = (await getFlag(env.DB, PAUSE_KEY)) === '1';
-                return json({ ok: true, booklet: bookletView(booklet), poem, recent, paused });
-            }
-
-            // ── 抢写诗会话锁。抢到才返回当前态（读最新全文）；抢不到（别人正在写/暂停）
-            //    客户端据此在调 LLM 前就走人，不浪费 token。──
-            if (req.method === 'POST' && ends('/poem/lock')) {
-                const body: any = await req.json().catch(() => ({}));
-                const device = String(body.device || '').slice(0, 80);
-                if (!device) return json({ ok: false, error: 'bad request' }, 400);
-                if ((await getFlag(env.DB, PAUSE_KEY)) === '1') return json({ ok: true, acquired: false, paused: true });
-                const now = Date.now();
-                const token = uuid();
-                await env.DB.prepare(`INSERT OR IGNORE INTO po_signal_lock (id, holder, expires_at) VALUES ('lock','',0)`).run();
-                // 原子抢占：仅当当前无人持有 或 已过期时才改 holder（SQLite 串行化写，天然防并发）
-                await env.DB.prepare(
-                    `UPDATE po_signal_lock SET holder = ?, expires_at = ? WHERE id = 'lock' AND (holder = '' OR holder IS NULL OR expires_at < ?)`
-                ).bind(token, now + SIGNAL_LOCK_TTL, now).run();
-                const cur = await env.DB.prepare(`SELECT holder FROM po_signal_lock WHERE id = 'lock'`).first<{ holder: string }>();
-                if (cur?.holder !== token) return json({ ok: true, acquired: false }); // 没抢到，有人正在写
-                // 抢到了 → 在锁内读当前态返回（保证写诗者读的是最新全文）
-                const myDev = device;
-                const booklet = await ensureBooklet(env.DB);
-                const open = await getOpenPoem(env.DB, booklet.id);
-                // 配额：当前这首诗里该 user 已落笔满额 → 立即放锁、打回（客户端据此在调 LLM 前跳过）
-                if (open && (await getTurns(env.DB, open.id, myDev)) >= SIG_MAX_TURNS) {
-                    await env.DB.prepare(`UPDATE po_signal_lock SET holder = '', expires_at = 0 WHERE holder = ?`).bind(token).run();
-                    return json({ ok: true, acquired: false, quota: true });
-                }
-                const poem = open ? poemView(open, await loadLines(env.DB, open.id), myDev) : null;
-                const recentRows = await env.DB.prepare(`SELECT * FROM po_poems WHERE status = 'sealed' ORDER BY sealed_at DESC LIMIT 3`).all<PoemRow>();
-                const recent = [];
-                for (const r of (recentRows.results || [])) recent.push(poemView(r, await loadLines(env.DB, r.id), myDev));
-                return json({ ok: true, acquired: true, token, booklet: bookletView(booklet), poem, recent, paused: false });
-            }
-
-            // ── 放锁（写完/出错都调；带 TTL 兜底，漏放也会自动过期）──
-            if (req.method === 'POST' && ends('/poem/unlock')) {
-                const body: any = await req.json().catch(() => ({}));
-                const token = String(body.token || '');
-                if (token) await env.DB.prepare(`UPDATE po_signal_lock SET holder = '', expires_at = 0 WHERE holder = ?`).bind(token).run();
-                return json({ ok: true });
-            }
-
-            // ── 起新篇：自拟标题 + 第一句 + 已 roll 的篇幅。仅当前无 open 诗时允许 ──
-            if (req.method === 'POST' && ends('/poem/start')) {
-                if ((await getFlag(env.DB, PAUSE_KEY)) === '1') return json({ ok: false, error: 'paused' }, 423);
-                if (await tooMany('poem', num(env.PO_RATE_REPLIES, 60))) return json({ ok: false, error: 'rate limited' }, 429);
-                const body: any = await req.json().catch(() => ({}));
-                const device = String(body.device || '').slice(0, 80);
-                const pen = String(body.pen || '匿名').slice(0, 60);
-                const booklet = await ensureBooklet(env.DB);
-                const existing = await getOpenPoem(env.DB, booklet.id);
-                if (existing) {
-                    // 已经有人开了头 → 让客户端改去接龙
-                    return json({ ok: false, error: 'poem-open', booklet: bookletView(booklet), poem: poemView(existing, await loadLines(env.DB, existing.id), device) }, 409);
-                }
-                const title = clipLine(body.title, 40) || '无题';
-                const brief = clipLine(body.brief, 200) || null;                       // 发起者定的主题/方向，给后来者做参考
-                const target = Math.min(Math.max(parseInt(String(body.targetLines), 10) || booklet.lines_min, booklet.lines_min), booklet.lines_max);
-                const firstLines = takeLines(body.lines, body.firstLine, booklet.chars_per_line, Math.min(2, target)); // 开头 1~2 行
-                if (!device || firstLines.length === 0) return json({ ok: false, error: 'bad request' }, 400);
-                const now = Date.now();
-                const poemId = uuid();
-                await env.DB.prepare(`INSERT INTO po_poems (id, booklet_id, title, brief, target_lines, line_count, status, starter_pen, created_at) VALUES (?,?,?,?,?,0,'open',?,?)`)
-                    .bind(poemId, booklet.id, title, brief, target, pen, now).run();
-                let seq = 0;
-                for (const ln of firstLines) {
-                    seq += 1;
-                    await env.DB.prepare(`INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at) VALUES (?,?,?,?,?,?,?,?)`)
-                        .bind(uuid(), poemId, booklet.id, seq, device, pen, ln, now).run();
-                }
-                await bumpTurns(env.DB, poemId, device); // 起新篇算该 user 在这首里的第 1 次落笔
-                const poemRow = (await env.DB.prepare(`SELECT * FROM po_poems WHERE id = ?`).bind(poemId).first<PoemRow>())!;
-                const synced = await syncPoem(env.DB, poemRow);
-                return json({ ok: true, booklet: bookletView(await ensureBooklet(env.DB)), poem: poemView(synced, await loadLines(env.DB, poemId), device) });
-            }
-
-            // ── 接龙：给指定诗续一句。写满篇幅自动封存 ──
-            if (req.method === 'POST' && ends('/poem/append')) {
-                if ((await getFlag(env.DB, PAUSE_KEY)) === '1') return json({ ok: false, error: 'paused' }, 423);
-                if (await tooMany('poem', num(env.PO_RATE_REPLIES, 60))) return json({ ok: false, error: 'rate limited' }, 429);
-                const body: any = await req.json().catch(() => ({}));
-                const device = String(body.device || '').slice(0, 80);
-                const pen = String(body.pen || '匿名').slice(0, 60);
-                const poemId = String(body.poemId || '');
-                if (!device || !poemId) return json({ ok: false, error: 'bad request' }, 400);
-                const poem = await env.DB.prepare(`SELECT * FROM po_poems WHERE id = ?`).bind(poemId).first<PoemRow>();
-                if (!poem) return json({ ok: true, gone: true });
-                if (poem.status !== 'open') return json({ ok: true, sealed: true, poem: poemView(poem, await loadLines(env.DB, poemId), device) });
-                // 配额兜底（主检查在 /poem/lock，这里防绕过/竞态）：该 user 在这首里已落笔满额
-                if ((await getTurns(env.DB, poemId, device)) >= SIG_MAX_TURNS) {
-                    return json({ ok: true, quota: true, poem: poemView(poem, await loadLines(env.DB, poemId), device) });
-                }
-                // 注：不做「读到旧状态就作废」的乐观锁——那会把已经生成（已花 token）的句子
-                // 扔掉。接龙撞车罕见、且现代诗松，宁可把这句接到末尾（偶尔接的是一步前的诗，
-                // 下一个人会自然缝合），也不浪费用户 token。seq=MAX+1，UNIQUE 只兜底真正同刻并发。
-                const bkRow = await env.DB.prepare(`SELECT chars_per_line FROM po_booklets WHERE id = ?`).bind(poem.booklet_id).first<{ chars_per_line: number }>();
-                // 收 1~2 行；再按「离篇幅还差几句」夹一下，别一下写超封笔线
-                const curCnt = (await env.DB.prepare(`SELECT COUNT(*) AS n FROM po_poem_lines WHERE poem_id = ?`).bind(poemId).first<{ n: number }>())?.n ?? 0;
-                const roomLeft = Math.max(0, poem.target_lines - curCnt);
-                const contents = takeLines(body.lines, body.content, bkRow?.chars_per_line ?? SIG_CPL, Math.max(1, Math.min(2, roomLeft || 1)));
-                for (const content of contents) {
-                    // seq = 当前最大 + 1；(poem_id,seq) 唯一，并发抢同号时第二条抛错 → 吞掉本句
-                    try {
-                        await env.DB.prepare(
-                            `INSERT INTO po_poem_lines (id, poem_id, booklet_id, seq, device, pen, content, created_at)
-                             SELECT ?, ?, ?, COALESCE(MAX(seq),0)+1, ?, ?, ?, ? FROM po_poem_lines WHERE poem_id = ?`
-                        ).bind(uuid(), poemId, poem.booklet_id, device, pen, content, Date.now(), poemId).run();
-                    } catch { /* 抢到同一 seq，本次落空，下个周期再续 */ }
-                }
-                if (contents.length > 0) await bumpTurns(env.DB, poemId, device); // 这次落笔计入配额
-                const synced = await syncPoem(env.DB, poem);
-                return json({ ok: true, sealed: synced.status === 'sealed', poem: poemView(synced, await loadLines(env.DB, poemId), device) });
+                return json({ ok: true, booklet: bookletView(booklet), poem, recent, paused: true, ended: true });
             }
 
             // ── 翻阅诗集：已封存的诗（含全文），最近优先。mine=1 只看本机参与过的 ──
@@ -682,23 +477,6 @@ export default {
                 return json({ ok: true, poems });
             }
 
-            // ── [管理] 发布一本新空白册子（关掉当前 open 册子，开新的）──
-            if (req.method === 'POST' && ends('/poem/booklet')) {
-                if (!isAdmin(req, url, env)) return json({ ok: false, error: 'unauthorized' }, 401);
-                const body: any = await req.json().catch(() => ({}));
-                await env.DB.prepare(`UPDATE po_booklets SET status = 'done' WHERE status = 'open'`).run();
-                const id = uuid();
-                const lmin = Math.max(1, parseInt(String(body.linesMin), 10) || SIG_LMIN);
-                const lmax = Math.max(lmin, parseInt(String(body.linesMax), 10) || SIG_LMAX);
-                await env.DB.prepare(
-                    `INSERT INTO po_booklets (id, title, subtitle, theme, poems_target, poem_count, lines_min, lines_max, chars_per_line, status, created_at)
-                     VALUES (?,?,?,?,?,0,?,?,?, 'open', ?)`
-                ).bind(id, clipLine(body.title, 40) || SIG_TITLE, clipLine(body.subtitle, 40) || SIG_SUB, clipLine(body.theme, 200) || null,
-                    Math.max(1, parseInt(String(body.poemsTarget), 10) || SIG_POEMS), lmin, lmax,
-                    Math.max(1, parseInt(String(body.charsPerLine), 10) || SIG_CPL), Date.now()).run();
-                return json({ ok: true, booklet: bookletView((await env.DB.prepare(`SELECT * FROM po_booklets WHERE id = ?`).bind(id).first<BookletRow>())!) });
-            }
-
             // ── [管理] 列出全部诗（open 在前，再按时间倒序）+ 当前暂停态 ──
             if (req.method === 'GET' && ends('/poem/admin-list')) {
                 if (!isAdmin(req, url, env)) return json({ ok: false, error: 'unauthorized' }, 401);
@@ -708,8 +486,7 @@ export default {
                 ).bind(limit).all<PoemRow>();
                 const poems = [];
                 for (const r of (rows.results || [])) poems.push(poemView(r, await loadLines(env.DB, r.id)));
-                const paused = (await getFlag(env.DB, PAUSE_KEY)) === '1';
-                return json({ ok: true, poems, paused });
+                return json({ ok: true, poems, paused: true, ended: true });
             }
 
             // ── [管理] 删一整首诗 或 删单句 ──
@@ -736,14 +513,6 @@ export default {
                     return json({ ok: true, deleted: 'poem' });
                 }
                 return json({ ok: false, error: 'bad request' }, 400);
-            }
-
-            // ── [管理] 暂停 / 恢复「诗歌推入」（暂停后 start/append 一律 423）──
-            if (req.method === 'POST' && ends('/poem/admin-pause')) {
-                if (!isAdmin(req, url, env)) return json({ ok: false, error: 'unauthorized' }, 401);
-                const body: any = await req.json().catch(() => ({}));
-                await setFlag(env.DB, PAUSE_KEY, body.paused ? '1' : '0');
-                return json({ ok: true, paused: !!body.paused });
             }
 
             return json({ ok: false, error: 'not found' }, 404);

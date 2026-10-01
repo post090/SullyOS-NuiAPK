@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { APIConfig, ApiPreset } from '../types';
-import { configFromPreset, findActivePresetId, presetMatchesConfig } from './apiPresetSwitch';
+import { configFromPreset, findActivePresetId, presetDiffersFromConfig, presetMatchesConfig } from './apiPresetSwitch';
 
 const preset = (id: string, config: Partial<APIConfig>): ApiPreset => ({
   id,
@@ -82,5 +82,28 @@ describe('presetMatchesConfig', () => {
     const p = preset('a', { baseUrl: 'https://x', apiKey: 'k', model: 'm', temperature: 0.85 });
 
     expect(presetMatchesConfig(p, { baseUrl: 'https://x', apiKey: 'k', model: 'm' })).toBe(true);
+  });
+});
+
+describe('presetDiffersFromConfig', () => {
+  const base = { baseUrl: 'https://x', apiKey: 'k', model: 'm' };
+
+  it('换了模型就算对不上', () => {
+    expect(presetDiffersFromConfig(preset('a', base), { ...base, model: 'm2' })).toBe(true);
+  });
+
+  it('三件套没变、只调了温度或流式，也算对不上', () => {
+    const p = preset('a', { ...base, stream: false, temperature: 0.85 });
+    expect(presetDiffersFromConfig(p, { ...base, stream: false, temperature: 1.2 })).toBe(true);
+    expect(presetDiffersFromConfig(p, { ...base, stream: true, temperature: 0.85 })).toBe(true);
+    expect(presetDiffersFromConfig(p, { ...base, stream: false, temperature: 0.85 })).toBe(false);
+  });
+
+  it('老预设没存温度 / 流式，那两项怎么调都不算差异', () => {
+    expect(presetDiffersFromConfig(preset('a', base), { ...base, stream: true, temperature: 1.5 })).toBe(false);
+  });
+
+  it('只是末尾斜杠、空格不同不算差异', () => {
+    expect(presetDiffersFromConfig(preset('a', base), { ...base, baseUrl: 'https://x/', model: ' m ' })).toBe(false);
   });
 });

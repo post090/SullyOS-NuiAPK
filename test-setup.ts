@@ -2,8 +2,8 @@
  * vitest 全局 setup — 为 Node 环境补齐浏览器 API.
  *  - fake-indexeddb/auto: 把 indexedDB / IDBKeyRange 等挂到 globalThis,
  *    让 activeMsgStore.ts 在 Node 里能直接跑.
- *  - localStorage stub: instantPushClient.ts 在模块加载时不读 localStorage,
- *    但运行时调 loadInstantConfig() 会读, 给最简易 in-memory 实现.
+ *  - localStorage stub: 不少模块在模块加载时不读 localStorage, 但运行时会读
+ *    (pushVapid / activeMsgClient 等), 给最简易 in-memory 实现.
  *  - 构建注入常量: vite.config.ts 的 define 在 Node 里没人替换, 而 utils/buildInfo.ts
  *    模块顶层就要读它们, 不补的话 import 到它的测试直接 ReferenceError.
  */

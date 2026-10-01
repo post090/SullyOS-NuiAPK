@@ -50,6 +50,7 @@ import {
 } from './amsgFirePack';
 import { clearInstantChatPending, setInstantChatPending } from './amsgInstantChat';
 import { AMSG_TOOL_CONFIG_KEY, AMSG_TOOL_PACK_KEY } from './amsgToolPack';
+import { AMSG_LIMITS_KEY } from './amsgLimits';
 import * as dailySchedule from './dailySchedule';
 import { ChatPrompts } from './chatPrompts';
 import { DB } from './db';
@@ -535,6 +536,33 @@ describe('连接前的 worker 配置自检', () => {
   // 的话，「重新连接并验证」拿回来的还是握着旧密钥的老 client：init-tenant 成功、界面报
   // 「连接成功」，此后每一次加密调用 worker 都解不开（即时对话每发一条挂一条、任务到点
   // 全失败），只有整页刷新能恢复。
+  // 回归守卫：connect() 握手后把配置整份写回，而那份是握手**之前**读的快照。握手顺手发起的
+  // 能力探测可能已经抢先落了新结论（用户刚更新完 Worker 点「重新连接」正是这种时候），
+  // 整份写回会把 instantChatSupported / workerBundleVersion 盖回旧值——SAR 信封回合的版本
+  // 闸门就会拿着过期的「旧版」一直把人挡在本地。
+  it('写回配置时不带两样探测结论（不拿握手前的旧值盖掉刚探到的新结论）', async () => {
+    routeFetch({});
+    reiClient.init.mockReset().mockResolvedValue(undefined);
+    storeConfigExtra.value = { instantChatSupported: false, workerBundleVersion: '2000-01-01', instantChatEnabled: true };
+    const { ActiveMsgStore } = await import('./activeMsgStore');
+    (ActiveMsgStore.saveGlobalConfig as any).mockClear();
+    try {
+      await ActiveMsgClient.connect();
+    } finally {
+      storeConfigExtra.value = {};
+    }
+    const writeBack = (ActiveMsgStore.saveGlobalConfig as any).mock.calls
+      .map((call: any[]) => call[0])
+      .find((update: Record<string, unknown>) => 'initializedAt' in update);
+    expect(writeBack).toBeDefined();
+    // 用户自己的配置照常写回……
+    expect(writeBack.workerUrl).toBe('https://amsg.example.workers.dev');
+    expect(writeBack.instantChatEnabled).toBe(true);
+    // ……探测结论一个都不带。
+    expect(writeBack).not.toHaveProperty('instantChatSupported');
+    expect(writeBack).not.toHaveProperty('workerBundleVersion');
+  });
+
   it('「重新连接并验证」每按一次都真的重新握手（换过 master key 后旧密钥必须被丢掉）', async () => {
     routeFetch({});
     reiClient.init.mockReset().mockResolvedValue(undefined);
@@ -698,6 +726,13 @@ describe('scheduleCharacterTask 与欠着的即时对话 chat 段', () => {
   it('没欠着回复 → fire_pack 照常整份覆盖上去', async () => {
     await schedule();
     expect(writtenKeys()).toContain(AMSG_FIRE_PACK_KEY);
+  });
+
+  // 上限单独一份、每次传上下文都顺手带上（欠着回复时也照带：它跟 chat 段无关）。
+  it('排任务时顺手把「频率与额度」那份一起传上去', async () => {
+    setInstantChatPending(CHAR_ID, 'uuid-waiting');
+    await schedule();
+    expect(writtenKeys()).toContain(AMSG_LIMITS_KEY);
   });
 
   it('欠着回复 → 这一批把 fire_pack 抽掉，tool_pack / tool_config 照写、任务照建', async () => {
@@ -964,13 +999,11 @@ describe('buildFirePack 的时区参照系与模板（①）', () => {
     expect(out.template).toContain(`现在是 ${AMSG_SLOT_CURRENT_TIME}`);
   });
 
-  it('随包带上用户设的连发上限；没设就不带（worker 侧用默认值）', async () => {
+  // 上限不再跟着 fire_pack 走：那一份要等「有待发任务、聊完一轮」才重传，改了上限会迟迟
+  // 不生效。上限单独住在 limits 那份记录里（见 amsgLimits），包里不该再有它。
+  it('fire_pack 不带连发上限（上限单独同步，见 amsgLimits）', async () => {
     const withLimit = await pack(baseChar({ activeMsg2Config: { enabled: true, maxUnansweredSends: 5 } }));
-    expect(withLimit.maxUnansweredSends).toBe(5);
-    const unlimited = await pack(baseChar({ activeMsg2Config: { enabled: true, maxUnansweredSends: 0 } }));
-    expect(unlimited.maxUnansweredSends).toBe(0);
-    const unset = await pack(baseChar());
-    expect(unset.maxUnansweredSends).toBeUndefined();
+    expect(withLimit).not.toHaveProperty('maxUnansweredSends');
   });
 
   // 回归守卫：用户设备的时区以前一个字都没上云。角色只看得到自己那边的钟，

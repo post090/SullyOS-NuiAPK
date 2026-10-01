@@ -24,6 +24,7 @@ import {
 import { unpackStateValue } from '../../../utils/amsgFirePack';
 import { PLATE_LLM_TIMEOUT_MS, parsePlateLlmReply } from '../../../utils/memoryPalace/roomPlateCore';
 import type { FireKindHandler, KindFireCtx, KindSessionCtx, KindWriteState } from './fireKinds';
+import { logSkipDiagnostic } from './skipDiagnostics';
 
 /** 跨到 onLLMOutput 的上下文。 */
 export interface PlateFireState {
@@ -120,6 +121,13 @@ export const plateConsolidateHandler: FireKindHandler = {
       // 按「LLM 决定清空」处理，把整块门牌抹掉。什么都不送，门牌保持不动，
       // 下一轮消化会重新提交一份新的 job 再整理。
       console.warn('[amsg:plate] LLM 没返回有效条目，门牌保持不动', jobId);
+      logSkipDiagnostic({
+        sessionId: ctx.sessionId,
+        reason: 'plate-empty-generation',
+        iteration: ctx.iteration,
+        llmResponse: ctx.llmResponse,
+        llmOutputText: ctx.llmOutputText,
+      });
       await discardJob(ctx.writeState, jobId);
       return { decision: 'skip-push', reason: 'plate-empty-generation' };
     }

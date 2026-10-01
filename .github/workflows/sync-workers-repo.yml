@@ -91,7 +91,7 @@ jobs:
           #
           # 每行是「目录:入口文件」——mcp-proxy 的入口是手写的 worker.js，不是
           # build:workers 打出来的 bundle，所以入口名要跟着 wrangler.toml 的 main 走。
-          for entry in amsg:worker.bundle.js instant-push:worker.bundle.js mcp-proxy:worker.js; do
+          for entry in amsg:worker.bundle.js mcp-proxy:worker.js; do
             name="${entry%%:*}"
             file="${entry##*:}"
             src="worker/$name"
@@ -101,7 +101,7 @@ jobs:
             cp "$src/$file"         "staging/$name/$file"
             cp "$src/wrangler.toml" "staging/$name/wrangler.toml"
             # 部署仓库里只有打好的入口文件、没有 src/，所以把 main 改写成它。
-            # 本仓库那份 wrangler.toml 不动（instant-push 本地开发仍从 src 构建）。
+            # 本仓库那份 wrangler.toml 不动。
             sed -i "s|^main = .*|main = \"$file\"|" "staging/$name/wrangler.toml"
             grep -q "^main = \"$file\"$" "staging/$name/wrangler.toml" \
               || { echo "$name 的 wrangler.toml 没有 main 行，改写失败"; exit 1; }

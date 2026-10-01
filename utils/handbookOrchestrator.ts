@@ -25,10 +25,12 @@ import {
     LayoutTemplate, SlotDef, SlotRole, SlotPayload,
 } from '../types';
 import { DB } from './db';
+import { loadCharacterContextMessages } from './chatContextRange';
 import { safeResponseJson, extractJson } from './safeApi';
-import { ContextBuilder } from './context';
+import { ContextBuilder, type CharacterContextInput } from './context';
 import { LAYOUT_TEMPLATES, pickTemplate } from './handbookLayouts';
 import { getLocalDayRange } from './localDate';
+import { normalizeMessageContent } from './messageFormat';
 
 interface ApiConfig {
     baseUrl: string;
@@ -48,7 +50,8 @@ function dayOfWeekZh(date: string): string {
 }
 
 // ─── 工具: user 当日跟某角色对话片段 ─────────────────────
-async function todayChatLines(
+// （export 仅为了回归测试能直接验这段文本，见 handbookOrchestratorContent.test.ts）
+export async function todayChatLines(
     char: CharacterProfile,
     date: string,
     userName: string,
@@ -65,7 +68,14 @@ async function todayChatLines(
         if (m.role === 'system') continue;
         if (typeof m.content !== 'string' || !m.content.trim()) continue;
         const speaker = m.role === 'user' ? userName : char.name;
-        const text = m.content.length > 200 ? m.content.slice(0, 200) + '…' : m.content;
+        // 不能直接截 m.content：卡片类消息（score_card / html_card / 小红书…）的 content
+        // 是一整段 JSON，头像这种图片字段就排在开头几十字里；图片消息的 content
+        // 本身就是一张图。图片现在存的是 `blobref:<id>` 短令牌（~28 字），长度截断拦不住，
+        // 到网络出口（utils/apiBlobRefs.ts）会被还原成整张 base64。这里统一走
+        // normalizeMessageContent：卡片压成一行摘要，图片/表情一律换成占位符。
+        const normalized = normalizeMessageContent(m as any, char.name, userName);
+        if (!normalized.trim()) continue;
+        const text = normalized.length > 200 ? normalized.slice(0, 200) + '…' : normalized;
         lines.push(`${speaker}: ${text}`);
         if (m.role === 'user') userMsgCount++;
     }
@@ -112,7 +122,7 @@ const TODAY_ONLY_RULE = `
 
 // ─── LLM call ────────────────────────────────────────────
 async function callLLM(
-    apiConfig: ApiConfig, prompt: string, temperature: number, maxTokens: number = 4000,
+    apiConfig: ApiConfig, prompt: string, temperature: number, maxTokens: number = 4000, characterContext?: CharacterContextInput,
 ): Promise<string | null> {
     try {
         const t0 = Date.now();
@@ -121,7 +131,7 @@ async function callLLM(
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: [{ role: 'user', content: prompt }],
+                messages: characterContext ? ContextBuilder.buildCharacterRequest(characterContext, [{ role: 'user', content: prompt }]) : [{ role: 'user', content: prompt }],
                 temperature,
                 max_tokens: maxTokens,
             }),
@@ -374,12 +384,12 @@ async function fillCharTurn(
 
     const userName = userProfile.name || 'user';
     const dow = dayOfWeekZh(date);
-    const coreContext = ContextBuilder.buildCoreContext(char, userProfile, true);
+
 
     // 抽 ta 平时怎么说话的样本
     let speechSamples: string[] = [];
     try {
-        const all = await DB.getMessagesByCharId(char.id, true);
+        const all = await loadCharacterContextMessages(char);
         const charMsgs = all.filter((m: any) =>
             m.role === 'assistant'
             && typeof m.content === 'string'
@@ -429,7 +439,7 @@ async function fillCharTurn(
     const prompt = `今天是 ${date} (星期${dow})。这是一本 *大家共写* 的手账, 你 (角色「${char.name}」) 在这一页留下你今天的笔迹。
 
 【你的人格档案】
-${coreContext}
+
 ${speechBlock}${todayChatBlock}
 
 ${filledBlock}
@@ -475,7 +485,7 @@ ${exampleSchemas}
             ? prompt + `\n\n【⚠️ 重试】上一次响应没产出有效内容 (slotId 错 / 数组空 / sticky 没 refersTo)。再试一次, 必须返回 ${targetMin}~${targetMax} 个有效对象的数组。`
             : prompt;
         if (isRetry) console.warn(`[Handbook v2] ⟳ char "${char.name}" — 重试 (第 ${attempt + 1} 次)`);
-        const raw = await callLLM(apiConfig, finalPrompt, 0.85, 6000);
+        const raw = await callLLM(apiConfig, finalPrompt, 0.85, 6000, { char, user: userProfile });
         attempt++;
         if (!raw) {
             console.error(`[Handbook v2] ✗ char "${char.name}" — LLM 返回空`);

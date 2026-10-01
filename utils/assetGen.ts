@@ -17,9 +17,8 @@ import {
 import { safeResponseJson } from './safeApi';
 import { resilientFetch } from './resilientFetch';
 import { DB } from './db';
-import { resolveWorldbookEntries } from './worldbook';
+import { ContextBuilder, ContextMessage } from './context';
 import { injectMemoryPalace } from './memoryPalace';
-
 // ---------- 通用 ----------
 
 const genId = (prefix: string, i: number) => `${prefix}-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`;
@@ -109,15 +108,30 @@ async function buildGenContext(char: CharacterProfile, theme: 'wallet' | 'home')
         ? '钱 收入 工资 存款 消费 买东西 贷款 房租 转账 随身物品 手机 包'
         : '家 房子 房间 住处 搬家 做饭 冰箱 家具 日用品 补给 打扫';
 
-    // 1. 世界书：常驻条目照常激活；关键词条目用「角色名 + 主题词」探针触发
+    // 1. 世界书：常驻条目照常激活；关键词条目用「角色名 + 主题词」探针触发。
+    //    走 ContextBuilder 的公共世界书管线（触发判定/宏替换/分区格式化），不私自
+    //    import worldbook 底层解析函数（约定见 docs/worldbook-management.md）。
     try {
         const userName = (await DB.getUserProfile())?.name || '';
-        const probe = [{ role: 'user', content: `${char.name} ${themeWords}` }];
-        const entries = resolveWorldbookEntries(char.mountedWorldbooks || [], probe, char.name, userName);
-        if (entries.length > 0) {
-            const text = entries.map(e => e.content.trim()).join('\n').slice(0, 1500);
-            parts.push(`【世界书设定（必须遵守）】\n${text}`);
-        }
+        const probe: ContextMessage[] = [{ role: 'user', content: `${char.name} ${themeWords}` }];
+        let sectionText = '';
+        const rendered = ContextBuilder.buildWorldbookRequest({
+            books: char.mountedWorldbooks || [],
+            charName: char.name,
+            userName,
+            history: probe,
+            render: (slots) => {
+                sectionText = `${slots.before}${slots.after}`.trim();
+                return probe;
+            },
+        });
+        // 分区条目在 slots 文本里；深度条目由管线插进返回的消息数组，这里一并收成文本。
+        const depthTexts = rendered
+            .filter((message) => message !== probe[0] && typeof message.content === 'string')
+            .map((message) => String(message.content).trim())
+            .filter(Boolean);
+        const text = [sectionText, ...depthTexts].filter(Boolean).join('\n').slice(0, 1500);
+        if (text) parts.push(`【世界书设定（必须遵守）】\n${text}`);
     } catch { /* 世界书失败不阻塞 */ }
 
     // 2. 记忆宫殿：按主题检索相关记忆（在浅拷贝上注入，不污染原角色对象）

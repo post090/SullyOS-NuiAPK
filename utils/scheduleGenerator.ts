@@ -299,8 +299,8 @@ export async function generateDailyScheduleForChar(
     const historyMessages: Message[] = await loadCharacterContextRange(char)
         .then(snapshot => snapshot.messages)
         .catch(async e => {
-            console.warn('[Schedule] load private-chat context range failed, falling back to recent history:', e);
-            return DB.getRecentMessagesByCharId(char.id, char.contextLimit || 500, true).catch(() => [] as Message[]);
+            console.warn('[Schedule] load private-chat context range failed, omitting dialogue history:', e);
+            return [] as Message[];
         });
     const emojis = await DB.getEmojis().catch(() => [] as Emoji[]);
 
@@ -313,14 +313,8 @@ export async function generateDailyScheduleForChar(
     }
 
     // 含详细记忆，并让关键词世界书使用与私聊相同的消息窗口激活。
-    const baseContext = ContextBuilder.buildCoreContext(
-        char,
-        userProfile,
-        true,
-        undefined,
-        undefined,
-        { worldbookMessages: historyMessages },
-    );
+    const characterContextInput = { char, user: userProfile, includeDetailedMemories: true, timeOptions: { worldbookMessages: historyMessages } };
+
 
     const chatHistoryBlock = formatChatHistoryForSchedule(historyMessages, char, userProfile, emojis);
 
@@ -328,8 +322,8 @@ export async function generateDailyScheduleForChar(
 
     const style = char.scheduleStyle || 'lifestyle';
     const prompt = style === 'mindful'
-        ? buildMindfulPrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt(baseContext, char, userProfile, today, dayOfWeek, chatHistoryBlock);
+        ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
+        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock);
 
     try {
         const response = await resilientFetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -337,7 +331,7 @@ export async function generateDailyScheduleForChar(
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: [{ role: 'user', content: prompt }],
+                messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
                 temperature: 0.85,
                 max_tokens: 8000
             }),

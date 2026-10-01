@@ -25,6 +25,7 @@ import {
   type WeatherData,
 } from '../../../utils/realtimeWorldCore';
 import type { AmsgToolConfig } from '../../../utils/amsgToolPack';
+import { getUserHolidayReminder } from '../../../utils/userHolidays';
 
 /** 两份快照都放全局命名空间：天气按城市、热榜按时段，本来就是所有角色共用一份。 */
 export const AMSG_WEATHER_SNAPSHOT_KEY = 'world_weather';
@@ -191,7 +192,8 @@ const loadHotNews = async (
  * 注意这里不给「当前时间」那一行：时间由 fire_pack 自己的 AMSG_SLOT_CURRENT_TIME 填，
  * 两边都出就是一份提示词两个钟。
  */
-export const buildRealtimeWorldBlock = async (args: {
+type RealtimeWorldArgs = {
+  userName?: string;
   toolConfig: AmsgToolConfig;
   /** 角色的时间感知开关（tool_pack 带上来的）：关掉就连今日节日一起不给。 */
   timeAwarenessEnabled: boolean;
@@ -202,7 +204,20 @@ export const buildRealtimeWorldBlock = async (args: {
   globalRows: StateRow[];
   globalNamespace: string;
   writeState?: WriteState;
-}): Promise<string> => {
+};
+
+export const buildUserHolidayBlock = async (args: RealtimeWorldArgs): Promise<string> => {
+  const { toolConfig: cfg, nowMs, globalRows } = args;
+  if (!args.timeAwarenessEnabled || !cfg.userHolidays?.timeZone) return '';
+  return getUserHolidayReminder(cfg.userHolidays, {
+    async read(key) {
+      try { return JSON.parse(globalRows.find(row => row.key === key)?.value || 'null'); } catch { return null; }
+    },
+    async write(key, data) { await args.writeState?.(args.globalNamespace, [{ key, value: JSON.stringify(data) }]); },
+  }, nowMs, args.userName);
+};
+
+export const buildRealtimeWorldBlock = async (args: RealtimeWorldArgs): Promise<string> => {
   const { toolConfig: cfg, nowMs, globalRows } = args;
 
   const specialDates = args.timeAwarenessEnabled ? checkSpecialDates(args.tzId, nowMs) : [];

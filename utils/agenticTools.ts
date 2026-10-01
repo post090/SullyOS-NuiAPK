@@ -1,17 +1,14 @@
 /**
  * agenticTools — 二轮 LLM 数据工具的纯函数封装
  *
- * Phase 2 Round 1 (2d) 抽出: 把 applyAssistantPostProcessing.ts 1810 行里的 9 个
- * "read 类" 工具的 data-fetch 部分集中起来, 作为单一 dispatch 入口。
+ * 把 "read 类" 工具的 data-fetch 部分集中起来: 本地聊天的 applyAssistantPostProcessing
+ * 直接 import 具体 run* 函数, 主动消息 2.0 的 worker 工具循环走 dispatchAgenticTool。
  *
  * - 每个 run* 返回 `{ ok: true, ... } | { ok: false, reason, message? }`
- * - 不调 2nd-pass LLM (这是 applyAssistantPostProcessing / instantToolRunner 的事)
+ * - 不调 2nd-pass LLM (这是 applyAssistantPostProcessing / worker 工具循环的事)
  * - 不修改 aiContent (调用方负责)
  * - 不 toast / setStatus (调用方负责)
  * - XHS 工具会修改 ctx.xhsCaches + ctx.lastXhsNotesRef (跨 tool 共享状态)
- *
- * Phase 2 Round 2 会在 `utils/instantToolRunner.ts` 里复用同一组函数, 接收 worker 发来的
- * tool-request, 把 `detailText` / `resultsText` 等 JSON.stringify 后 POST /continue。
  */
 
 // 值 import 只允许环境无关叶子（realtimeFetchCore / xhsMcpClient / localDate）——这份文件会被
@@ -934,11 +931,11 @@ export function parseDiaryDate(dateInput: string): string {
     return '';
 }
 
-// ─── Dispatch (Round 2 instantToolRunner 用) ───────────────────────────────
+// ─── Dispatch (worker 工具循环用) ───────────────────────────────────────────
 
 /**
- * Round 2 instantToolRunner 通过 tool name 调度. Round 1 客户端不使用此入口,
- * 直接 import 具体 run* 函数; 留在这里是为了 Round 2 即插即用。
+ * 按 tool name 调度。主动消息 2.0 的 worker 工具循环（worker/amsg/src/index.ts）走这里；
+ * 本地聊天不经过此入口, 直接 import 具体 run* 函数。
  */
 export async function dispatchAgenticTool(
     toolName: string,

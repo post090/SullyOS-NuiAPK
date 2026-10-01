@@ -1,65 +1,36 @@
+import FirstUseGuide from './FirstUseGuide';
+import FeedbackInvitation from './FeedbackInvitation';
+import BeautyRepoInvitation from './share/BeautyRepoInvitation';
+import { useFirstUseGuideStep } from '../utils/firstUseGuide';
+import AnniversaryGiftPopup from './os/AnniversaryGiftPopup';
+import { shouldShowAnniversaryGift, markAnniversaryGiftSeen } from '../utils/anniversaryGifts';
 
 
 
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { IMPORT_IN_PROGRESS_KEY, useOS } from '../context/OSContext';
 import StatusBar from './os/StatusBar';
+import { SARModuleMonitor } from './sar/SARModuleMonitor';
 import Launcher from '../apps/Launcher';
 import CompanionLockChrome from './os/CompanionLockChrome';
 import { loadCompanionFrameStyle } from './os/companionFrameStyles';
+import { createPreloadableLazy, type PreloadableLazy } from './os/preloadableLazy';
 
 // 按需懒加载各 App —— 切到对应 App 时才下载/解析其代码块，首屏只加载 Launcher 与外壳，
 // 大体积 App（MemoryPalace / VRWorld / Songwriting 等）不再压在主包里。
 // 默认导出直接 lazy；命名导出（SpecialMomentsApp）用 .then 适配成 { default }。
 // Launcher 保持静态导入：桌面常驻、需要秒开，不走懒加载。
 //
-// lazyApp：在 lazy 之外把 import 工厂挂到 .preload 上，使各 chunk 可被「预取」。
-// 桌面就绪后空闲时按优先级后台预热（见下方 useEffect），真正打开 App 时代码已在内存，
-// React.lazy 几乎同步解析 —— 过场层几乎不再出现，从根本上消除「每次进 App 都要加载」。
-type PreloadableLazy = React.LazyExoticComponent<React.ComponentType<any>> & { preload: () => Promise<unknown> };
-const lazyApp = (factory: () => Promise<{ default: React.ComponentType<any> }>): PreloadableLazy => {
-  const Comp = lazy(factory) as PreloadableLazy;
-  Comp.preload = factory;
-  return Comp;
-};
-
-// 预热 React.lazy 的「负载」本身：不仅下载模块，还把 lazy 内部状态推进到 resolved，
-// 使首次渲染该 App 时不再 suspend —— 杜绝切换瞬间露出外壳粉紫底色（深色 App 上尤其扎眼）的那一帧闪烁。
-// _payload / _init 为 React.lazy 内部结构（本项目锁定 React 18，形态稳定）；带防御，取不到则退化为仅预热 Vite 模块。
-// 注意：仅解析负载、不挂载组件，因此不会触发各 App 的副作用/数据读取。
-const LAZY_UNINITIALIZED = -1;
-const LAZY_PENDING = 0;
-const LAZY_REJECTED = 2;
-const warmLazy = (Comp: PreloadableLazy): void => {
-  try {
-    const payload: any = (Comp as any)?._payload;
-    const init: any = (Comp as any)?._init;
-    if (!payload || typeof init !== 'function' || payload._status !== LAZY_UNINITIALIZED) {
-      Comp.preload(); // 已在加载/已加载，或拿不到内部结构 → 仅预热 Vite 模块
-      return;
-    }
-    init(payload); // 触发下载 + 解析负载
-    // 关键防护：若空闲预取阶段加载失败，把负载复位为「未初始化」，避免该 App 被永久钉死为错误态；
-    // 真正打开时按 React 正常流程重试（再失败才交给错误边界），与预取前行为一致。
-    const thenable = payload._result;
-    if (payload._status === LAZY_PENDING && thenable && typeof thenable.then === 'function') {
-      thenable.then(undefined, () => {
-        if (payload._status === LAZY_REJECTED) {
-          payload._status = LAZY_UNINITIALIZED;
-          payload._result = Comp.preload; // 还原工厂，供 React 重新调用
-        }
-      });
-    }
-  } catch {
-    try { Comp.preload(); } catch { /* ignore */ }
-  }
-};
+// App 在用户打开/按下图标时立即加载；性能与网络条件合适时，桌面稳定后也会低优先级串行预热。
+// 绝不能在冷启动阶段并发扫完整个列表：低端设备会同时下载、解压和解析几十个 chunk，
+// 反而拖死用户此刻真正要打开的那个 App。
+const lazyApp = createPreloadableLazy;
 
 const Settings = lazyApp(() => import('../apps/Settings'));
 const Character = lazyApp(() => import('../apps/Character'));
 const Chat = lazyApp(() => import('../apps/Chat'));
 const GroupChat = lazyApp(() => import('../apps/GroupChat'));
-const ThemeMaker = lazyApp(() => import('../apps/ThemeMaker'));
+const ThemeMaker = lazyApp(() => import('./chat/LegacyBubbleMakerEntry'));
 const Appearance = lazyApp(() => import('../apps/Appearance'));
 const Gallery = lazyApp(() => import('../apps/Gallery'));
 const DateApp = lazyApp(() => import('../apps/DateApp'));
@@ -97,23 +68,22 @@ const WorldHomeApp = lazyApp(() => import('../apps/WorldHomeApp'));
 const CharCreatorDevApp = lazyApp(() => import('../apps/CharCreatorDevApp'));
 const SpecialMomentsApp = lazyApp(() => import('./ValentineEvent').then(m => ({ default: m.SpecialMomentsApp })));
 
-// 预取优先级：高频/常驻 App 先预热，其余随后；逐个在空闲时触发，避免与交互抢主线程/带宽。
-const APP_PRELOAD_ORDER: PreloadableLazy[] = [
-  Chat, Character, GroupChat, SocialApp, RoomApp, Settings, Appearance,
-  CheckPhone, JournalApp, ScheduleApp, MusicApp, CallApp, Gallery, DateApp, UserApp,
+// 仅供「桌面稳定后的空闲串行预热」。严格 await 前一个再取下一个，且任何用户操作都会停止队列。
+// 高频 App 在前；低端设备/省流量/2G 由 shouldUseIdleAppPreload 整体跳过。
+const APP_IDLE_PRELOAD_ORDER: PreloadableLazy[] = [
+  Chat, Character, Settings, Appearance, GroupChat, RoomApp, CheckPhone,
+  JournalApp, ScheduleApp, SocialApp, MusicApp, CallApp, Gallery, DateApp, UserApp,
   StudyApp, GameApp, NovelApp, BankApp, WorldbookApp, MemoryPalaceApp, HandbookApp,
   VRWorldApp, WorldHomeApp, LifeSimApp, SongwritingApp, GuidebookApp, FAQApp, HotNewsApp,
   XhsStockApp, XhsFreeRoamApp, BrowserApp, VoiceDesignerApp, ThemeMaker, QQBridge,
   SpecialMomentsApp, CharCreatorDevApp, MemoApp, WalletApp, SmartHomeApp, JobHuntApp,
 ];
 
-const ROLE_ENTRY_PRELOAD_ORDER: PreloadableLazy[] = [
-  Character,
-  CallApp,
-  RoomApp,
-];
+const IDLE_PRELOAD_START_MS = 600;
+const IDLE_PRELOAD_GAP_MS = 250;
+let idlePreloadCursor = 0;
 
-// AppID → 懒加载组件，供「按下即预取」连 React.lazy 负载一起解析（消除切换瞬间露底色的闪烁）。
+// AppID → 懒加载组件，供「按下即预取」复用同一个模块 Promise。
 // AppID 由下方 import 引入，ES 模块提升后全模块可用。
 const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.Settings]: Settings, [AppID.Character]: Character, [AppID.Chat]: Chat,
@@ -131,14 +101,13 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.WorldHome]: WorldHomeApp, [AppID.Memo]: MemoApp,
   [AppID.Wallet]: WalletApp, [AppID.SmartHome]: SmartHomeApp, [AppID.JobHunt]: JobHuntApp,
 };
-// 注入负载预热器：AppIcon 的 pointerdown → preloadApp(id) → 这里 warmLazy，连 React.lazy 负载一起解析。
-setAppPayloadWarmer((id: AppID) => { const c = APP_BY_ID[id]; if (c) warmLazy(c); });
+// AppIcon 的 pointerdown 只预取用户正在点的 App；失败时由 preloadableLazy 清缓存，点击可正常重试。
+setAppPayloadWarmer((id: AppID) => APP_BY_ID[id]?.preload());
 
 import { Like520Controller, shouldShowLike520Popup } from './Like520Event';
+import { QixiLaunchPopup } from './QixiLaunchPopup';
+import { shouldShowQixiLaunchPopup } from '../utils/qixiLaunchPopup';
 import { UpdateNotificationController, shouldShowUpdateNotification } from './UpdateNotificationEvent';
-import { WorkerUpdateReminderController, shouldShowWorkerUpdateReminder, rearmWorkerUpdateReminder } from './WorkerUpdateReminderEvent';
-import { InstantPushSunsetController, shouldShowInstantPushSunsetNotice } from './InstantPushSunsetEvent';
-import { loadInstantConfig, probeInstantWorkerVersion } from '../utils/instantPushClient';
 import { BackupReminderController } from './BackupReminderEvent';
 import { shouldShowBackupReminder, markBackupReminderShown, daysSinceLastBackup } from '../utils/backupReminder';
 import { formatBytes } from '../utils/format';
@@ -157,7 +126,8 @@ import PersonaSimIndicator from './os/PersonaSimIndicator';
 import DreamSimIndicator from './os/DreamSimIndicator';
 import ErrorDialog from './os/ErrorDialog';
 import BootSequence from './os/BootSequence';
-import { setAppPayloadWarmer } from './os/appPreload';
+import { setAppPayloadWarmer, shouldUseIdleAppPreload } from './os/appPreload';
+import { isBrowserBackGuardState, makeBrowserBackGuardState } from '../utils/browserBackGuard';
 
 /*
 // Internal Error Boundary Component
@@ -314,13 +284,13 @@ const DisclaimerPopup: React.FC<{ onAccept: () => void }> = ({ onAccept }) => (
       <div className="pt-7 pb-3 px-6 text-center">
         <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4e2.png" alt="announcement" className="w-8 h-8 mb-2" />
         <h2 className="text-lg font-extrabold text-slate-800">免责声明</h2>
-        <p className="text-[11px] text-slate-400 mt-1">Disclaimer · 手抓糯米机 (SullyOS)</p>
+        <p className="text-[11px] text-slate-400 mt-1">Disclaimer · SullyOS·糯米机</p>
       </div>
 
       {/* Content */}
       <div className="px-6 pb-4 max-h-[55vh] overflow-y-auto no-scrollbar space-y-3">
         <p className="text-[13px] text-slate-600 leading-relaxed">
-          本项目「手抓糯米机 (SullyOS)」是一个<strong className="text-slate-800">完全开源、免费</strong>的软件，仅供个人学习、研究与技术交流使用。
+          本项目「SullyOS·糯米机」是一个<strong className="text-slate-800">完全开源、免费</strong>的软件，仅供个人学习、研究与技术交流使用。
         </p>
         <ul className="text-[12px] text-slate-500 leading-relaxed space-y-1.5 list-none">
           <li className="flex gap-2"><span className="shrink-0">•</span><span>本软件不提供任何明示或暗示的担保，作者不对使用本软件产生的任何后果承担责任。</span></li>
@@ -430,7 +400,8 @@ const ImportRecoveryPopup: React.FC<{
 // （loading spinner 闪烁反模式）。所以前 ~220ms 一律渲染空（无感），只有真的慢才浮现。
 // 刻意「零动画开销」：之前那套呼吸/涟漪/上升微尘的持续动画在 iOS 上会引起卡顿，且预热命中后
 // 这屏几乎不出现 —— 收益小、代价大。现在只一次性淡入一个静态柔光点（无 infinite 动画），
-// 透明底让外壳虚化壁纸透出来。真卡住（>7s）才换成可点的刷新/返回兜底。
+// 透明底让外壳虚化壁纸透出来。真卡住（>15s）才换成可点的刷新/返回兜底，避免低端设备
+// 仍在正常解析单个大模块时被 7 秒阈值过早判死。
 const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: boolean }> = ({ onReturn, animationEnabled = true }) => {
   const [show, setShow] = useState(false);
   const [stalled, setStalled] = useState(false);
@@ -440,7 +411,7 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
     // Suspense 会永远停在这一屏（不报错 → 错误边界不触发 → 不会自动刷新），用户狂点中心光点却毫无反应。
     // 超过 STALL_MS 仍未加载完 → 把「看着像按钮其实不是」的光点换成真正可点的「刷新/返回」按钮，
     // 既明确告诉用户该点哪里，又把静默卡死变成一键可恢复。只动占位 UI，不碰 import 逻辑。
-    const stall = setTimeout(() => { setStalled(true); trackEvent('App 加载卡死超时'); }, 7000);
+    const stall = setTimeout(() => { setStalled(true); trackEvent('App 加载卡死超时'); }, 15_000);
     return () => { if (t) clearTimeout(t); clearTimeout(stall); };
   }, [animationEnabled]);
   if (stalled) {
@@ -449,7 +420,7 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
         <style>{`@keyframes appLoadIn{from{opacity:0}to{opacity:1}}`}</style>
         <h2 className="text-base font-bold">加载有点慢…</h2>
         <p className="text-xs text-slate-300 max-w-xs leading-relaxed">
-          这个发光的圆点是加载动画，不是按钮——点它不会有反应。常见于刚更新版本或网络瞬断，刷新一次即可恢复。
+          首次打开会下载并解析功能代码；网络波动或设备性能较低都可能变慢。页面仍在继续加载，若长时间没有恢复再刷新。
         </p>
         <div className="flex flex-col gap-3 w-full max-w-xs">
           <button
@@ -488,7 +459,7 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
 };
 
 const PhoneShell: React.FC = () => {
-  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError } = useOS();
+  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation } = useOS();
   const useIOSStandaloneLayout = isIOSStandaloneWebApp();
 
   // 三档顶部状态栏：安全显示 / 紧凑显示 / 隐藏。旧存档仍由 hideStatusBar 兼容解析。
@@ -507,31 +478,82 @@ const PhoneShell: React.FC = () => {
     if (!bootAnimationEnabled) setBootDone(true);
   }, [bootAnimationEnabled]);
 
-  // 从根本上消除「每次进 App 都要加载」：数据一就绪就在后台按优先级逐个预热各 App 的代码块。
-  // 关键：不等开机动画（bootDone）结束就开始 —— 否则用户在开机那 ~2 秒内点开 Chat 时 chunk 还没热，
-  // 会现下载+解析 300KB+，首次进聊天卡好几秒。预热与开机动画并行（只下载/解析负载、不挂载、无副作用）。
-  // 逐个、空闲触发（requestIdleCallback），不与首屏交互抢主线程/带宽。
+  // 折中预热策略：首屏/开机完全让路；桌面稳定约 600ms 后，能力足够的设备就逐个预热。
+  // 每次严格等待当前 chunk 下载 + 解析完成，再空一拍取下一个。用户一按屏幕或进入 App，
+  // 立刻取消所有尚未开始的任务；已经在飞的一个 import 无法中止，但最多只会与目标 App 并行一个。
   useEffect(() => {
-    if (!isDataLoaded) return;
-    ROLE_ENTRY_PRELOAD_ORDER.forEach(warmLazy);
-  }, [isDataLoaded]);
+    if (!bootDone || !isDataLoaded || activeApp !== AppID.Launcher) return;
+    if (!shouldUseIdleAppPreload() || idlePreloadCursor >= APP_IDLE_PRELOAD_ORDER.length) return;
 
-  useEffect(() => {
-    if (!isDataLoaded) return;
-    if (useIOSStandaloneLayout) return;
-    let cancelled = false;
-    let idx = 0;
-    const ric: (cb: () => void) => number = (window as any).requestIdleCallback
-      ? (cb) => (window as any).requestIdleCallback(cb, { timeout: 1500 })
-      : (cb) => window.setTimeout(cb, 200);
-    const step = () => {
-      if (cancelled || idx >= APP_PRELOAD_ORDER.length) return;
-      warmLazy(APP_PRELOAD_ORDER[idx++]); // 下载 chunk + 解析 React.lazy 负载 → 首次打开不再 suspend、无底色闪烁
-      if (!cancelled) ric(step);
+    let stoppedByInteraction = false;
+    let startTimer: number | null = null;
+    let gapTimer: number | null = null;
+    let idleHandle: number | null = null;
+    const requestIdle = (callback: () => void): number => {
+      if (typeof (window as any).requestIdleCallback === 'function') {
+        return (window as any).requestIdleCallback(callback, { timeout: 2_000 });
+      }
+      return window.setTimeout(callback, 250);
     };
-    const startId = window.setTimeout(() => ric(step), 150); // 让首帧先绘制一拍，随即开始（含开机动画期间）
-    return () => { cancelled = true; window.clearTimeout(startId); };
-  }, [isDataLoaded, useIOSStandaloneLayout]);
+    const cancelScheduled = () => {
+      if (startTimer !== null) window.clearTimeout(startTimer);
+      if (gapTimer !== null) window.clearTimeout(gapTimer);
+      if (idleHandle !== null) {
+        if (typeof (window as any).cancelIdleCallback === 'function') {
+          (window as any).cancelIdleCallback(idleHandle);
+        } else {
+          window.clearTimeout(idleHandle);
+        }
+      }
+      startTimer = null;
+      gapTimer = null;
+      idleHandle = null;
+    };
+    const scheduleStep = (delay: number) => {
+      if (stoppedByInteraction || document.visibilityState !== 'visible') return;
+      gapTimer = window.setTimeout(() => {
+        gapTimer = null;
+        idleHandle = requestIdle(() => {
+          idleHandle = null;
+          void runStep();
+        });
+      }, delay);
+    };
+    const runStep = async () => {
+      if (stoppedByInteraction || document.visibilityState !== 'visible') return;
+      const next = APP_IDLE_PRELOAD_ORDER[idlePreloadCursor++];
+      if (!next) return;
+      try {
+        await next.preload();
+      } catch {
+        // 空闲预热失败不打扰用户；真正点开时由 retryable preload 再试。
+      }
+      if (!stoppedByInteraction && idlePreloadCursor < APP_IDLE_PRELOAD_ORDER.length) {
+        scheduleStep(IDLE_PRELOAD_GAP_MS);
+      }
+    };
+    const stopForInteraction = () => {
+      stoppedByInteraction = true;
+      cancelScheduled();
+    };
+    const handleVisibilityChange = () => {
+      cancelScheduled();
+      if (document.visibilityState === 'visible' && !stoppedByInteraction) {
+        startTimer = window.setTimeout(() => scheduleStep(0), IDLE_PRELOAD_START_MS);
+      }
+    };
+
+    window.addEventListener('pointerdown', stopForInteraction, { capture: true, once: true });
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    startTimer = window.setTimeout(() => scheduleStep(0), IDLE_PRELOAD_START_MS);
+
+    return () => {
+      stoppedByInteraction = true;
+      cancelScheduled();
+      window.removeEventListener('pointerdown', stopForInteraction, { capture: true });
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeApp, bootDone, isDataLoaded]);
 
   // Disclaimer popup for first-time users
   const [showDisclaimer, setShowDisclaimer] = useState(() => {
@@ -593,6 +615,22 @@ const PhoneShell: React.FC = () => {
   // 「致用户的一封信」已下线：常量置 false，保留变量让下面弹窗链的条件继续成立（恒真/恒不显示）。
   const showAuthorLetter = false;
 
+  // Ta-da 周年赠礼先于更新公告，等基础启动提示、开机动画与解锁完成。
+  const [showAnniversaryGift, setShowAnniversaryGift] = useState(false);
+  const anniversaryAsked = useRef(false);
+  const firstUseGuideActive = useFirstUseGuideStep() !== null;
+  const anniversaryBlocked = firstUseGuideActive || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter;
+  // 待展示也占住顺序，避免同一轮 effects 同时开启赠礼和更新公告。
+  // Complete setup before promotional/release popups; disclaimer/recovery still have priority.
+  const anniversaryHasPriority = firstUseGuideActive || showAnniversaryGift || (!anniversaryAsked.current && shouldShowAnniversaryGift());
+  useEffect(() => {
+    if (anniversaryAsked.current || anniversaryBlocked || !isDataLoaded || isLocked || (!bootDone && bootAnimationEnabled)) return;
+    if (shouldShowAnniversaryGift()) {
+      anniversaryAsked.current = true;
+      setShowAnniversaryGift(true);
+    }
+  }, [anniversaryBlocked, isDataLoaded, isLocked, bootDone, bootAnimationEnabled]);
+
   // 本次版本首映：数据就绪且解锁后出现一次，避免按钮打开的 App 被锁屏挡在背后。
   const [showUpdateNotification, setShowUpdateNotification] = useState(false);
   /**
@@ -606,76 +644,49 @@ const PhoneShell: React.FC = () => {
 
   useEffect(() => {
     if (updateNoticeAsked.current) return;
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
+    if (anniversaryHasPriority || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
     if (!isDataLoaded || isLocked) return;
     if (shouldShowUpdateNotification()) {
       updateNoticeAsked.current = true;
       setShowUpdateNotification(true);
     }
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded, isLocked]);
+  }, [anniversaryHasPriority, showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded, isLocked]);
+
+  // 七夕特别活动推送：严格按北京时间 2026-08-19 判断，用户处理后永久不再弹。
+  // 排在版本更新之后、日常维护提醒之前；按钮只带到「特别时光」，不替用户选择角色。
+  const [showQixiLaunchPopup, setShowQixiLaunchPopup] = useState(false);
+  const qixiLaunchAsked = useRef(false);
+  useEffect(() => {
+    if (qixiLaunchAsked.current) return;
+    if (anniversaryHasPriority || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
+    if (!isDataLoaded || isLocked) return;
+    if (shouldShowQixiLaunchPopup()) {
+      qixiLaunchAsked.current = true;
+      setShowQixiLaunchPopup(true);
+    }
+  }, [anniversaryHasPriority, showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded, isLocked]);
 
   // 520 特别活动弹窗（2026-05-20 当天，且没被 dismiss / completed）
   // 一次性：用户点过任何按钮就标记 dismissed，下次刷新不再出现；
   // API 配置改成弹窗内嵌，配完直接进活动，不再需要把弹窗暂存让位给 Settings。
   const [showLike520Popup, setShowLike520Popup] = useState(false);
   useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification) return;
+    if (anniversaryHasPriority || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup) return;
     if (!isDataLoaded) return;
     if (shouldShowLike520Popup()) setShowLike520Popup(true);
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, isDataLoaded]);
-
-  // Instant Push 下线通知 — 只对现在开着它的人弹，每天最多一次。
-  // 排在 Worker 更新提醒前面：这两条都只找同一批人，而「这功能要没了」比
-  // 「去把它更新到最新版」重要，同一天里先说前者。
-  const [showInstantPushSunset, setShowInstantPushSunset] = useState(false);
-  useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup) return;
-    if (!isDataLoaded) return;
-    if (shouldShowInstantPushSunsetNotice()) setShowInstantPushSunset(true);
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, isDataLoaded]);
-
-  // Worker 后端更新提醒 — 只对启用了 Instant Push 的用户弹，且当前 worker 版本未确认过
-  const [showWorkerUpdateReminder, setShowWorkerUpdateReminder] = useState(false);
-  useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup || showInstantPushSunset) return;
-    if (!isDataLoaded) return;
-    if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, showInstantPushSunset, isDataLoaded]);
-
-  // 部署漂移自检：启动后异步 GET {workerUrl}/version（每 24h 最多一次）。
-  // 常量比对只能发现「前端更新了」，发现不了「用户 seen 过但实际没部署 / 部署的是更老的包」——
-  // 前端托管自动更新、worker 停在用户上次贴代码那天，这种漂移正是 instant 各类
-  // 「时灵时不灵」反馈的温床。确认 worker 有应答且版本不对（reachable && !ok）才重新
-  // 武装提醒；网络不通/没配不算数，贪睡窗口照常生效，不会轰炸。
-  useEffect(() => {
-    if (!isDataLoaded) return;
-    const cfg = loadInstantConfig();
-    if (!cfg.enabled || !cfg.workerUrl) return;
-    const PROBE_AT_KEY = 'sullyos_worker_version_probe_at';
-    try {
-      const last = Number(localStorage.getItem(PROBE_AT_KEY) || 0);
-      if (Date.now() - last < 86_400_000) return;
-    } catch { /* ignore */ }
-    void probeInstantWorkerVersion(cfg).then((r) => {
-      try { localStorage.setItem(PROBE_AT_KEY, String(Date.now())); } catch { /* ignore */ }
-      if (!r.ok && r.reachable) {
-        rearmWorkerUpdateReminder();
-        if (shouldShowWorkerUpdateReminder()) setShowWorkerUpdateReminder(true);
-      }
-    }).catch(() => { /* 探测失败不打扰 */ });
-  }, [isDataLoaded]);
+  }, [anniversaryHasPriority, showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, isDataLoaded]);
 
   // 「该备份啦」提醒 — local-first 数据只在本机，隔 N 天（默认 7，可在设置里改）没导出就弹一次
   const [showBackupReminder, setShowBackupReminder] = useState(false);
   useEffect(() => {
-    if (showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showLike520Popup || showInstantPushSunset || showWorkerUpdateReminder) return;
+    if (anniversaryHasPriority || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || showQixiLaunchPopup || showLike520Popup) return;
     if (!isDataLoaded || isLocked) return;
     if (shouldShowBackupReminder()) {
       setShowBackupReminder(true);
       // 只报「从未备份 / 已过期」这一个二选一，不报具体天数、也不报用户设的提醒间隔。
       trackEvent('弹出该备份啦提醒', { state: daysSinceLastBackup() == null ? '从未备份' : '已过期' });
     }
-  }, [showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showLike520Popup, showInstantPushSunset, showWorkerUpdateReminder, isDataLoaded, isLocked]);
+  }, [anniversaryHasPriority, showDisclaimer, showImportRecoveryPrompt, showAuthorLetter, showUpdateNotification, showQixiLaunchPopup, showLike520Popup, isDataLoaded, isLocked]);
 
   const dismissBackupReminder = () => {
     markBackupReminderShown();
@@ -688,6 +699,61 @@ const PhoneShell: React.FC = () => {
     openApp(AppID.Settings);
     trackEvent('点立即备份');
   };
+
+  // Web browsers normally interpret an edge-swipe/back shortcut as leaving SullyOS.
+  // While an app is open, keep one same-page history entry and translate that pop
+  // into the same layered back action used by the native Android button. Nested
+  // views may push their own entries above this one; landing back on our guard must
+  // therefore not consume a second in-app layer.
+  useEffect(() => {
+    if (typeof window === 'undefined' || Capacitor.isNativePlatform()) return;
+
+    const guardIsCurrent = isBrowserBackGuardState(window.history.state);
+    if (activeApp === AppID.Launcher) {
+      if (!guardIsCurrent) return;
+
+      // A nested view can inherit our marker. Unwind every marked same-page entry
+      // and stop as soon as the original browser entry is current again.
+      let disposed = false;
+      const releaseGuardEntries = () => {
+        if (disposed || !isBrowserBackGuardState(window.history.state)) return;
+        try { window.history.back(); } catch { /* leave browser history untouched */ }
+      };
+      window.addEventListener('popstate', releaseGuardEntries);
+      releaseGuardEntries();
+      return () => {
+        disposed = true;
+        window.removeEventListener('popstate', releaseGuardEntries);
+      };
+    }
+
+    const armGuard = () => {
+      try {
+        window.history.pushState(
+          makeBrowserBackGuardState(window.history.state),
+          '',
+          window.location.href,
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    if (!guardIsCurrent && !armGuard()) return;
+
+    const onPopState = (event: PopStateEvent) => {
+      // A nested panel was above the SullyOS guard and handled this back itself.
+      if (isBrowserBackGuardState(event.state)) return;
+
+      // Re-arm before navigating inside the OS so another quick swipe is safe too.
+      armGuard();
+      handleBack();
+    };
+
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [activeApp, handleBack]);
 
   // Capacitor Native Handling
   useEffect(() => {
@@ -745,7 +811,7 @@ const PhoneShell: React.FC = () => {
     const wallpaper = theme.wallpaper;
     const backgroundValue = !wallpaper
       ? '#0f1115'
-      : (wallpaper.startsWith('http') || wallpaper.startsWith('data:') || wallpaper.startsWith('blob:'))
+      : (wallpaper.startsWith('http') || wallpaper.startsWith('data:') || wallpaper.startsWith('blob:') || wallpaper.startsWith('./') || wallpaper.startsWith('/'))
         ? `url(${wallpaper})`
         : wallpaper;
 
@@ -760,7 +826,7 @@ const PhoneShell: React.FC = () => {
   // 冷启动：先放「世界入场」cinematic（数据没就绪时它持续呼吸等待，绝不出现 spinner）。
   // BootSequence 在「数据就绪 + 停留够时长」后推进退场，再交还控制权给下方的锁屏/桌面。
   if (!bootDone && bootAnimationEnabled) {
-    return <BootSequence dataReady={isDataLoaded} wallpaper={theme.wallpaper} onDone={() => setBootDone(true)} />;
+    return <BootSequence dataReady={isDataLoaded} wallpaper={theme.wallpaper} style={theme.bootAnimationStyle} onDone={() => setBootDone(true)} />;
   }
 
   // 兜底：理论上 bootDone 时数据已就绪；万一未就绪（极端慢）退化为最简静态深色屏，不闪 spinner。
@@ -769,7 +835,7 @@ const PhoneShell: React.FC = () => {
   }
 
   const getBgStyle = (wp: string) => {
-      const isUrl = wp.startsWith('http') || wp.startsWith('data:') || wp.startsWith('blob:');
+      const isUrl = wp.startsWith('http') || wp.startsWith('data:') || wp.startsWith('blob:') || wp.startsWith('./') || wp.startsWith('/');
       return isUrl ? `url(${wp})` : wp;
   };
 
@@ -837,7 +903,7 @@ const PhoneShell: React.FC = () => {
                    <span>🍃</span><span>无人岛生活</span><span>🍃</span>
                </div>
            ) : (
-               <div className="text-lg tracking-widest opacity-90 mt-2 uppercase text-xs font-bold">SullyOS Simulation</div>
+               <div className="text-lg tracking-widest opacity-90 mt-2 uppercase text-xs font-bold">SullyOS·糯米机 Simulation</div>
            )}
         </div>}
 
@@ -953,6 +1019,7 @@ const PhoneShell: React.FC = () => {
             : { bottom: 'var(--standalone-safe-area-bottom, 0px)' }
         }
       >
+          <FirstUseGuide />
           {/* App Container */}
           <div className="flex-1 relative overflow-hidden" style={{ contain: useIOSStandaloneLayout ? undefined : 'layout style paint' }}>
             {/* Launcher 永远保留在底层：进 App 时只隐藏（visibility）不卸载，回桌面瞬间到位，
@@ -987,11 +1054,12 @@ const PhoneShell: React.FC = () => {
               错误指示器、系统调试终端与开关无关、始终在。 */}
           <StatusBar />
           
-          {/* Overlays: Suspended Call Bar */}
+          {/* 通话条跟随安全区和状态栏高度，避免被灵动岛遮挡；无安全区时保留原来的顶部间距。 */}
           {suspendedCall && activeApp !== AppID.Call && (
             <button
               onClick={resumeCall}
-              className="absolute top-7 left-0 w-full z-[55] flex items-center justify-center gap-2 bg-emerald-500 text-white text-xs font-bold py-1.5 animate-pulse cursor-pointer active:bg-emerald-600 transition-colors"
+              className="absolute left-0 w-full z-[55] flex items-center justify-center gap-2 bg-emerald-500 text-white text-xs font-bold py-1.5 animate-pulse cursor-pointer active:bg-emerald-600 transition-colors"
+              style={{ top: 'max(1.75rem, calc(var(--chrome-top, 1.5rem) + 0.25rem))' }}
             >
               <span className="w-2 h-2 rounded-full bg-white animate-ping" />
               <span>通话中 · {suspendedCall.charName}</span>
@@ -1001,6 +1069,7 @@ const PhoneShell: React.FC = () => {
 
           {/* Overlays: Global Mini Player (when music is playing in background) */}
           <GlobalMiniPlayer />
+          {!isLocked && <SARModuleMonitor />}
 
           {/* Overlays: API 切换悬浮球（设置里可开关，默认关） */}
           <ApiFloatBall />
@@ -1033,6 +1102,12 @@ const PhoneShell: React.FC = () => {
        />
 
        {/* First-time disclaimer popup */}
+       {!anniversaryBlocked && !isLocked && showAnniversaryGift && (
+         <AnniversaryGiftPopup onClose={() => {
+           markAnniversaryGiftSeen();
+           setShowAnniversaryGift(false);
+         }} />
+       )}
        {showDisclaimer && <DisclaimerPopup onAccept={handleAcceptDisclaimer} />}
 
        {/* Interrupted import recovery reminder */}
@@ -1050,33 +1125,33 @@ const PhoneShell: React.FC = () => {
        )}
 
        {/* 见面 · 剧情首映：解锁后一次性出现 */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && showUpdateNotification && (
+       {!anniversaryHasPriority && !showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && showUpdateNotification && (
          <UpdateNotificationController onClose={() => setShowUpdateNotification(false)} />
        )}
 
+       {/* 七夕特别活动推送（北京时间 2026-08-19，当天至多出现一次） */}
+       {!anniversaryHasPriority && !showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && showQixiLaunchPopup && (
+         <QixiLaunchPopup onClose={() => setShowQixiLaunchPopup(false)} />
+       )}
+
        {/* 520 特别活动弹窗（2026-05-20 当天，一次性） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && showLike520Popup && (
+       {!anniversaryHasPriority && !showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showQixiLaunchPopup && showLike520Popup && (
          <Like520Controller
            onClose={() => setShowLike520Popup(false)}
          />
        )}
 
-       {/* Instant Push 下线通知（仅现在开着它的用户，每天最多一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && showInstantPushSunset && (
-         <InstantPushSunsetController
-           onClose={() => setShowInstantPushSunset(false)}
-         />
-       )}
+       <FeedbackInvitation
+         ready={isDataLoaded && !isLocked && (bootDone || !bootAnimationEnabled)}
+         blocked={activeApp !== AppID.Launcher || !!suspendedCall || !!errorDialog || sysOperation.status !== 'idle' || anniversaryHasPriority || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || shouldShowUpdateNotification() || showQixiLaunchPopup || showLike520Popup || showBackupReminder}
+       />
 
-       {/* Worker 后端更新提醒（仅启用 Instant Push 的用户，每个 worker 版本一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && !showInstantPushSunset && showWorkerUpdateReminder && (
-         <WorkerUpdateReminderController
-           onClose={() => setShowWorkerUpdateReminder(false)}
-         />
-       )}
-
+       <BeautyRepoInvitation
+         ready={isDataLoaded && !isLocked && (bootDone || !bootAnimationEnabled)}
+         blocked={activeApp !== AppID.Launcher || !!suspendedCall || !!errorDialog || sysOperation.status !== 'idle' || anniversaryHasPriority || showDisclaimer || showImportRecoveryPrompt || showAuthorLetter || showUpdateNotification || shouldShowUpdateNotification() || showQixiLaunchPopup || showLike520Popup || showBackupReminder}
+       />
        {/* 「该备份啦」提醒（local-first 数据只在本机，隔 N 天没导出弹一次） */}
-       {!showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showLike520Popup && !showInstantPushSunset && !showWorkerUpdateReminder && showBackupReminder && (
+       {!anniversaryHasPriority && !showDisclaimer && !showImportRecoveryPrompt && !showAuthorLetter && !showUpdateNotification && !showQixiLaunchPopup && !showLike520Popup && showBackupReminder && (
          <BackupReminderController
            onDismiss={dismissBackupReminder}
            onGoBackup={goBackupFromReminder}

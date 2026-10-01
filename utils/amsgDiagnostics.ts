@@ -7,7 +7,16 @@
 //   2. activeMsgClient 要用它，设置面板也要用它，放在任何一边都会让另一边反向依赖。
 //
 // worker 那侧的对应实现见 worker/amsg/src/index.ts 的 inspectWorkerEnv / inspectStorage /
-// judgeTick，改动那三处的输出形状时这份要跟着走。
+// judgeTick，改动那三处的输出形状时这份要跟着走。「定时任务」那一行另外读 GET /tick-report
+// 的逐条细账，形状和判定在 utils/amsgTickReport.ts。
+
+import type {
+  AmsgTickFailureRecord,
+  AmsgTickReport,
+  AmsgTickReportFailure,
+  AmsgTickReportTask,
+} from './amsgTickReport';
+import { describeTaskFailureCause } from './amsg2Tasks';
 
 // ─── 失败归类（给使用统计分档用）───
 //
@@ -31,6 +40,7 @@ export type AmsgFailKind =
   | 'worker没配VAPID'
   | '订阅失败'
   | '推送通道不通'
+  | '没拿到订阅'
   | '端点僵尸'
   | '其他';
 
@@ -160,8 +170,12 @@ export interface AmsgDebugReport {
     oldestOverdueMinutes?: number | null;
     error?: string;
   };
-  /** cron 在不在按时处理任务。unknown = 手上没有待发任务，无从判断。 */
-  tick: 'unknown' | 'idle' | 'healthy' | 'stalled';
+  /**
+   * cron 在不在按时处理任务。unknown = 手上没有待发任务，无从判断。
+   * stalled = 有任务真卡住了（没人来领，或者领了没下文）；failing = 没卡住，但有任务在
+   * 失败重试、或者这次开跑晚得不正常；healthy = 都在正常处理。
+   */
+  tick: 'unknown' | 'idle' | 'healthy' | 'failing' | 'stalled';
   server: { version: string | null; featureCount: number } | null;
   vapidPublicKey: string | null;
 }
@@ -191,7 +205,7 @@ export const parseAmsgDebugReport = (body: unknown): AmsgDebugReport | null => {
         : [],
     },
     storage: { ...storage, pushDelivery: normalizePushDeliveryProbe(storage.pushDelivery) },
-    tick: ['idle', 'healthy', 'stalled'].includes(data.tick) ? data.tick : 'unknown',
+    tick: ['idle', 'healthy', 'failing', 'stalled'].includes(data.tick) ? data.tick : 'unknown',
     server: data.server && typeof data.server === 'object'
       ? { version: data.server.version ?? null, featureCount: Number(data.server.featureCount) || 0 }
       : null,
@@ -247,12 +261,22 @@ const normalizePushDeliveryProbe = (raw: unknown): AmsgPushDeliveryProbe => {
 /** 一行体检结论的严重程度。bad = 现在就是坏的，warn = 能跑但有一块是哑的。 */
 export type AmsgDiagnosticLevel = 'ok' | 'warn' | 'bad' | 'unknown';
 
+/** 一行结论底下的一条细目（比如「定时任务」那一行里的每一条任务）。 */
+export interface AmsgDiagnosticItem {
+  /** 一句或一小段人话。 */
+  text: string;
+  /** 报错原文。界面上默认收着，点「原文」才展开——截图发给别人排查时用得上。 */
+  raw?: string;
+}
+
 export interface AmsgDiagnosticRow {
   key: string;
   label: string;
   level: AmsgDiagnosticLevel;
   /** 一句话：坏在哪、去哪儿改。ok 的行写现状即可。 */
   detail: string;
+  /** 逐条细目，按「先看哪条」排好。没有就不带这个字段。 */
+  items?: AmsgDiagnosticItem[];
 }
 
 /** 拉体检的结果。连不上时带上已经翻成人话的原因，那本身就是第一行结论。 */
@@ -260,12 +284,27 @@ export type AmsgDiagnosticsProbe =
   | { reachable: true; report: AmsgDebugReport }
   | { reachable: false; reason: string; /** 旧 worker 没有这个端点，不是坏了 */ unsupported?: boolean };
 
+/** 拉定时任务细账（GET /tick-report）的结果。拿不到时带一句已经翻成人话的原因。 */
+export type AmsgTickReportResult =
+  | { ok: true; report: AmsgTickReport }
+  | { ok: false; reason: string };
+
 export interface AmsgDiagnosticsInput {
   probe: AmsgDiagnosticsProbe;
   /** 这台设备的浏览器有没有推送订阅（本地事实，worker 那侧看不到）。 */
   localPushSubscribed?: boolean;
   /** 把 epoch 毫秒写成给人看的时间；不传按本机习惯格式化（单测注入固定格式用）。 */
   formatTime?: (atMs: number) => string;
+  /** 定时任务的逐条细账。没拉（null / 不传）时「定时任务」那一行只按 /debug 的两个数说话。 */
+  tickReport?: AmsgTickReportResult | null;
+  /** 用户在面板上把后台任务暂停了。这时任务到点不发是意料之中，不能报成触发器坏了。 */
+  cronPaused?: boolean;
+  /**
+   * 判定用的「现在」（epoch 毫秒，单测注入用）。不传时用细账回执里 Worker 的时钟，
+   * 没有细账才用本机时钟：任务上的时刻全是 Worker 写的，拿设备时钟去减，设备钟一跑偏
+   * 「晚了几分钟」就跟着歪。
+   */
+  nowMs?: number;
 }
 
 const defaultFormatTime = (atMs: number): string => new Date(atMs).toLocaleString();
@@ -352,6 +391,303 @@ const SCHEMA_PROBE_HINTS: Record<AmsgSchemaProbeError, string> = {
   other: '这台 Worker 查不了自己的表结构，齐没齐不知道。要是主动消息到点不响，先点一次上面的「重新连接并验证」把表补齐。',
 };
 
+// ─── 「定时任务」那一行：/debug 的两个数 + /tick-report 的逐条细账 ───
+//
+// 光靠 /debug 只知道「几条到点没发、最老的晚了多久」，只够说一句笼统的「定时触发器
+// 可能没在跑」。可同样是晚了四十分钟，可能是在等第三次重试（原因明明白白
+// 记在任务上）、可能是一开跑就被 Cloudflare 掐掉、也可能是用户自己把后台任务暂停了——
+// 照那一句去 Cloudflare 翻触发器，三种里有两种翻不出任何东西。
+// 所以这一行先给一句总的结论，再逐条说每条任务现在算哪种情况，报错原文收在底下。
+
+const MINUTE_MS = 60_000;
+
+/** 失败记录在这个时间以内算「刚出的事」，够把这一行提成 warn。 */
+const RECENT_FAILURE_MS = 60 * MINUTE_MS;
+
+/**
+ * 再早的失败记录一律不提。Worker 那边本来也只留一天，列太老的账只会让人以为现在还坏着；
+ * 一小时到一天之间的，只在这一行本来就不正常时陪着列出来，帮着看是不是同一个毛病。
+ */
+const FAILURE_LOOKBACK_MS = 24 * 60 * MINUTE_MS;
+
+/** 没有细账可看时的那句笼统说法。两种坏法都点到，让人至少知道去哪儿看日志。 */
+const TICK_STALLED_GENERIC_HINT = '定时触发器可能没在跑，或者每分钟那一跳在报错——去 Cloudflare 的 Workers → 你的 Worker → Observability 看日志。';
+
+/** 任务一直没人来领、Worker 又什么报错都没留下时，最可能的原因和该去哪儿看。 */
+const TICK_TRIGGER_MISSING_HINT = '多半是定时触发器没在跑：去 Cloudflare 的 Workers → 你的 Worker → Settings → Trigger events 看看有没有 * * * * *，再到 Observability 看日志。';
+
+const parseIsoMs = (iso: string | null | undefined): number | null => {
+  if (!iso) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
+};
+
+/** 两个时刻隔了几整分钟。时钟有点偏时可能算出负数，一律按 0 算。 */
+const minutesBetween = (fromMs: number, toMs: number): number =>
+  Math.max(0, Math.floor((toMs - fromMs) / MINUTE_MS));
+
+/** 补上句号；原话自己已经带了句末标点的（英文报错常见）不再叠一个。 */
+const endSentence = (text: string): string => {
+  const trimmed = text.trim();
+  return /[。！？.!?…]$/.test(trimmed) ? trimmed : `${trimmed}。`;
+};
+
+/**
+ * 这条任务在列表里怎么称呼。
+ *
+ * 解不开任务内容时（主密钥换过之类）连名字都拿不到，也得有个主语，不然一句话开头就是冒号。
+ * 名字是英文的话跟后面的中文之间空一格，中文名直接连着写。
+ */
+const describeTaskOwner = (task: { contactName: string | null; kind: string | null; messageType: string | null }): string => {
+  const name = task.contactName || '某个角色';
+  const gap = /[\x21-\x7e]$/.test(name) ? ' ' : '';
+  if (task.kind) return `${name}${gap}的后台任务`;
+  if (task.messageType === 'instant') return `${name}${gap}的即时回复`;
+  return name;
+};
+
+interface TickTaskContext {
+  nowMs: number;
+  formatIso: (iso: string) => string;
+  /** 每分钟那一跳自己此刻正在报错。卡住的任务就不必再猜触发器了，原因在那条报错里。 */
+  tickFailureOngoing: boolean;
+  cronPaused: boolean;
+}
+
+/** 一条到点还没发出去的任务，现在是什么情况。判定是 Worker 做的，这里只负责说成人话。 */
+const describeTickTask = (task: AmsgTickReportTask, ctx: TickTaskContext): AmsgDiagnosticItem => {
+  const { nowMs, formatIso } = ctx;
+  const owner = describeTaskOwner(task);
+  const nextSendMs = parseIsoMs(task.nextSendAt);
+  const lateMinutes = nextSendMs === null ? null : minutesBetween(nextSendMs, nowMs);
+  const parts: string[] = [
+    lateMinutes === null
+      ? `${owner}：${task.nextSendAt} 该发。`
+      : `${owner}：${formatIso(task.nextSendAt)} 该发，${lateMinutes < 1 ? '刚到点' : `已经晚了 ${lateMinutes} 分钟`}。`,
+  ];
+
+  const lastErrorLine = task.lastError
+    ? `上一次失败：${endSentence(describeTaskFailureCause(task.lastError))}`
+    : '';
+  const startedMs = parseIsoMs(task.lastStartedAt);
+
+  if (task.state === 'retry-wait') {
+    const failed = task.retryCount > 0 ? `已经失败 ${task.retryCount} 次` : '失败过';
+    const retryAt = task.retryAfter ? `${formatIso(task.retryAfter)} 再试` : '等一会儿再试';
+    parts.push(`${failed}，${retryAt}。`, lastErrorLine);
+  } else if (task.state === 'sending') {
+    if (task.lateStart && startedMs !== null) {
+      // 「可以开跑」取到点时刻和重试时刻里更晚的那个：重试期间到点时刻是不往后推的。
+      const readySinceMs = Math.max(nextSendMs ?? -Infinity, parseIsoMs(task.retryAfter) ?? -Infinity);
+      const gap = Number.isFinite(readySinceMs) ? `到点 ${minutesBetween(readySinceMs, startedMs)} 分钟后` : '到点好一阵之后';
+      parts.push(`正在发，但这次是${gap}才开始的，前面那段时间没留下任何记录：可能之前开跑过、半路被 Cloudflare 掐掉了，也可能那几分钟定时触发器没在跑。`);
+    } else {
+      const agoMinutes = startedMs === null ? null : minutesBetween(startedMs, nowMs);
+      parts.push(agoMinutes === null ? '正在发。' : agoMinutes < 1 ? '正在发（刚开始）。' : `正在发（${agoMinutes} 分钟前开始的）。`);
+    }
+    parts.push(lastErrorLine);
+  } else if (task.unfinishedAttempt) {
+    const when = task.lastStartedAt ? `${formatIso(task.lastStartedAt)} ` : '';
+    parts.push(`${when}开始发过，但没发完，也没留下失败原因。多半是跑到一半被 Cloudflare 掐掉了（比如 CPU 时间或运行时长超限），原话只在 Cloudflare 的 Workers → 你的 Worker → Observability 日志里。`);
+    // 行上的失败记录早于这次开跑，说的是再往前那一次。
+    if (task.lastError) parts.push(`再往前那次失败：${endSentence(describeTaskFailureCause(task.lastError))}`);
+  } else if (task.queuedBehind) {
+    parts.push('同一个角色的另一条任务正在发，这条在排队。', lastErrorLine);
+  } else if (task.stuck) {
+    parts.push(lastErrorLine ? `${lastErrorLine}之后到了重试时间，也一直没开始发。` : '到点后一直没开始发。');
+    parts.push(ctx.cronPaused
+      ? '后台任务暂停着，恢复后会一起补发。'
+      : ctx.tickFailureOngoing
+        ? '原因见下面那条整轮报错。'
+        : `Worker ${lastErrorLine ? '那之后' : ''}没留下任何报错，${TICK_TRIGGER_MISSING_HINT}`);
+  } else {
+    parts.push(lastErrorLine ? `${lastErrorLine}马上会再试一次。` : '马上就会发。');
+  }
+
+  const raw = task.lastError && task.lastError.reason !== 'stale' ? task.lastError.reason : undefined;
+  return { text: parts.filter(Boolean).join(''), ...(raw ? { raw } : {}) };
+};
+
+/** 整轮报错挂在哪一步。键是 Worker 记下的阶段代号（见 amsgTickReport 的 AmsgTickFailureRecord.stage）。 */
+const TICK_STAGE_TEXT: Record<string, string> = {
+  config: '读配置那一步',
+  tick: '整轮处理任务那一步',
+  claim_failed: '给任务占位写库那一步',
+  retry_update_failed: '记失败原因写库那一步',
+  stale_update_failed: '处理过期任务写库那一步',
+};
+
+const describeTickStage = (stage: string): string => {
+  // 发完之后的收尾有好几种（删行、推进排期……），代号都是这个前缀加后缀。
+  if (stage.startsWith('post_send_cleanup_failed')) return '发完之后写库那一步';
+  return TICK_STAGE_TEXT[stage] || `「${stage}」那一步`;
+};
+
+/** 认得出来的整轮报错，顺带说一句该怎么办。认不出来的只给原文，不瞎猜。 */
+const describeTickFailureRemedy = (failure: AmsgTickFailureRecord): string => {
+  if (/no such (column|table)/i.test(failure.message)) {
+    return '表结构跟现在的代码对不上，点上面的「重新连接并验证」补一次。';
+  }
+  if (failure.name === 'VapidNotConfigured') {
+    return 'Worker 上没配推送凭据（VAPID），去 Settings → Variables and secrets 补上。';
+  }
+  if (/timed? ?out/i.test(`${failure.name} ${failure.message}`)) {
+    return '数据库这一下没响应，偶尔一次没关系，一直这样再来看。';
+  }
+  return '';
+};
+
+const describeTickFailure = (failure: AmsgTickFailureRecord, formatIso: (iso: string) => string): AmsgDiagnosticItem => {
+  const stage = describeTickStage(failure.stage);
+  const head = failure.count > 1
+    ? `Worker 每分钟那一跳${failure.ongoing ? '一直在' : '之前'}报错：${formatIso(failure.firstAt)} 到 ${formatIso(failure.lastAt)} 连着 ${failure.count} 次，卡在${stage}。`
+    : `Worker 每分钟那一跳${failure.ongoing ? '刚刚' : '之前'}报了一次错（${formatIso(failure.lastAt)}），卡在${stage}。`;
+  return {
+    text: `${head}${describeTickFailureRemedy(failure)}`,
+    raw: `${failure.name}: ${failure.message}${failure.code ? ` (${failure.code})` : ''}`,
+  };
+};
+
+/** 最近彻底没发出去的一次。 */
+const describeRecentFailure = (failure: AmsgTickReportFailure, formatIso: (iso: string) => string): AmsgDiagnosticItem => {
+  const owner = describeTaskOwner(failure);
+  // 「哪一次」比「什么时候记的」更贴用户想知道的事，跟任务卡片那行同一个取法。
+  const when = failure.error.occurrence || failure.error.at;
+  const outcome = failure.outcome === 'skipped'
+    ? '没发出去，这次跳过了，下次到点照常'
+    : '没发出去，不会再补发了';
+  const head = when ? `${owner}：${formatIso(when)} 那次${outcome}。` : `${owner}：最近有一次${outcome}。`;
+  const raw = failure.error.reason !== 'stale' ? failure.error.reason : undefined;
+  return {
+    text: `${head}原因：${endSentence(describeTaskFailureCause(failure.error))}`,
+    ...(raw ? { raw } : {}),
+  };
+};
+
+/** 失败重试 / 开跑晚了的那几条，合起来一句话。 */
+const summarizeFailingTasks = (tasks: AmsgTickReportTask[], truncatedNote: string): string => {
+  const retrying = tasks.filter((task) => task.state === 'retry-wait' || task.lastError).length;
+  const late = tasks.filter((task) => task.lateStart).length;
+  const what = retrying && late
+    ? `有 ${retrying} 条任务在失败重试，${late} 条这次开始发得比平时晚`
+    : retrying
+      ? `有 ${retrying} 条任务在失败重试`
+      : late
+        ? `有 ${late} 条任务这次开始发得比平时晚`
+        : '有任务到点没按时发出去';
+  return `${what}，逐条情况在下面${truncatedNote}。`;
+};
+
+/**
+ * 「定时任务」这一行。
+ *
+ * 严重程度只看证据：真卡住了、或者每分钟那一跳此刻正在报错，才报红；在失败重试、
+ * 刚报过错、最近一小时有没发出去的，报 warn；用户自己暂停了后台任务，任务攒着是
+ * 意料之中，同样只报 warn，而且不许说成触发器坏了。
+ */
+const buildTickRow = (debugReport: AmsgDebugReport, input: AmsgDiagnosticsInput): AmsgDiagnosticRow => {
+  const { storage, tick } = debugReport;
+  const formatTime = input.formatTime || defaultFormatTime;
+  const formatIso = (iso: string) => {
+    const ms = parseIsoMs(iso);
+    return ms === null ? iso : formatTime(ms);
+  };
+  const tickReport = input.tickReport?.ok ? input.tickReport.report : null;
+  const reportFailedReason = input.tickReport && !input.tickReport.ok ? input.tickReport.reason : null;
+  const nowMs = input.nowMs ?? parseIsoMs(tickReport?.now) ?? Date.now();
+
+  const storageOverdue = storage.overdueTasks || 0;
+  const stalledMinutes = storage.oldestOverdueMinutes ?? null;
+  const listedTasks = tickReport?.tasks ?? [];
+  // 有细账就按细账数，跟下面列出来的条数对得上；没列全时取两边大的那个。
+  const overdue = listedTasks.length
+    ? (tickReport?.truncated ? Math.max(storageOverdue, listedTasks.length) : listedTasks.length)
+    : storageOverdue;
+  const truncatedNote = tickReport?.truncated && listedTasks.length
+    ? `（太多了，只列了前 ${listedTasks.length} 条）`
+    : '';
+  const cronPaused = Boolean(input.cronPaused);
+  const pausedWithTasks = cronPaused && ((storage.pendingTasks ?? 0) > 0 || storageOverdue > 0 || listedTasks.length > 0);
+
+  const tickFailure = tickReport?.tickFailure ?? null;
+  const tickFailureAtMs = parseIsoMs(tickFailure?.lastAt);
+  const tickFailureRecent = Boolean(
+    tickFailure && !tickFailure.ongoing && tickFailureAtMs !== null && nowMs - tickFailureAtMs <= RECENT_FAILURE_MS,
+  );
+  const tickFailureWithinDay = Boolean(
+    tickFailure && (tickFailure.ongoing || tickFailureAtMs === null || nowMs - tickFailureAtMs <= FAILURE_LOOKBACK_MS),
+  );
+
+  // 时刻读不出来的失败记录还是列（Worker 那边已经只给最近一天的），只是不拿它提级。
+  const dayFailures = (tickReport?.recentFailures ?? []).filter((failure) => {
+    const atMs = parseIsoMs(failure.error.at) ?? parseIsoMs(failure.error.occurrence);
+    return atMs === null || nowMs - atMs <= FAILURE_LOOKBACK_MS;
+  });
+  const hourFailures = new Set(dayFailures.filter((failure) => {
+    const atMs = parseIsoMs(failure.error.at);
+    return atMs !== null && nowMs - atMs <= RECENT_FAILURE_MS;
+  }));
+
+  const level: AmsgDiagnosticLevel = tickFailure?.ongoing || (tick === 'stalled' && !cronPaused)
+    ? 'bad'
+    : pausedWithTasks || tick === 'stalled' || tick === 'failing' || tickFailureRecent || hourFailures.size > 0
+      ? 'warn'
+      : tick === 'unknown'
+        ? 'unknown'
+        : 'ok';
+
+  const lateText = stalledMinutes === null ? '' : ` ${stalledMinutes} 分钟`;
+  const detail = pausedWithTasks
+    ? (storageOverdue || listedTasks.length
+      ? `后台任务暂停中，有 ${overdue} 条到点的任务等恢复后一起补发。`
+      : `后台任务暂停中，${storage.pendingTasks ?? 0} 条待发任务到点了也先攒着，恢复后一起补发。`)
+    : tickFailure?.ongoing
+      ? (overdue
+        ? `Worker 每分钟那一跳在报错，有 ${overdue} 条任务到点还没发出去。报错原话和逐条情况在下面。`
+        : 'Worker 每分钟那一跳在报错，原话在下面。')
+      : tick === 'stalled'
+        ? (listedTasks.length
+          ? `有 ${overdue} 条任务到点还没发出去，逐条情况在下面${truncatedNote}。`
+          : `有 ${storageOverdue} 条任务到点${lateText}还没发出去。${TICK_STALLED_GENERIC_HINT}`)
+        : tick === 'failing'
+          ? (listedTasks.length
+            ? summarizeFailingTasks(listedTasks, truncatedNote)
+            : `有 ${storageOverdue} 条任务到点${lateText}还没发出去。Worker 在处理，但中间失败过，或者开始得比平时晚。`)
+          : tickFailureRecent
+            ? 'Worker 每分钟那一跳前一阵报过错，现在没再报。'
+            : hourFailures.size > 0
+              ? `最近一小时有 ${hourFailures.size} 次到点没发出去，原因在下面。`
+              : tick === 'healthy'
+                ? `${storage.pendingTasks ?? 0} 条待发任务，都在按时处理。`
+                : tick === 'idle'
+                  ? '现在没有待发任务。'
+                  : '手上没有待发任务，暂时看不出定时器在不在跑。';
+
+  const items: AmsgDiagnosticItem[] = [];
+  if (reportFailedReason && (level === 'bad' || level === 'warn')) {
+    // 没拿到细账时上面那句只能说得笼统，至少让人知道为什么没有逐条的。
+    items.push({ text: reportFailedReason });
+  }
+  if (tickReport) {
+    const ctx: TickTaskContext = { nowMs, formatIso, tickFailureOngoing: Boolean(tickFailure?.ongoing), cronPaused };
+    items.push(...listedTasks.map((task) => describeTickTask(task, ctx)));
+    if (tickFailure && (tickFailure.ongoing || tickFailureRecent || (level !== 'ok' && tickFailureWithinDay))) {
+      items.push(describeTickFailure(tickFailure, formatIso));
+    }
+    items.push(...dayFailures
+      .filter((failure) => hourFailures.has(failure) || level !== 'ok')
+      .map((failure) => describeRecentFailure(failure, formatIso)));
+  }
+
+  return {
+    key: 'tick',
+    label: '定时任务',
+    level,
+    detail,
+    ...(items.length ? { items } : {}),
+  };
+};
+
 /**
  * 把体检结果排成一列，顺序就是「该先修哪个」。
  *
@@ -382,7 +718,7 @@ export const buildAmsgDiagnosticRows = (input: AmsgDiagnosticsInput): AmsgDiagno
     ];
   }
 
-  const { config, storage, tick } = probe.report;
+  const { config, storage } = probe.report;
   const rows: AmsgDiagnosticRow[] = [];
 
   rows.push({
@@ -479,20 +815,7 @@ export const buildAmsgDiagnosticRows = (input: AmsgDiagnosticsInput): AmsgDiagno
           || '浏览器已订阅，Worker 上也登记了收件设备，最近一次推送也没被退回来。换设备或换浏览器之后要在新的那台上再点一次「开启通知与推送」。',
   });
 
-  const overdue = storage.overdueTasks || 0;
-  const stalledMinutes = storage.oldestOverdueMinutes ?? null;
-  rows.push({
-    key: 'tick',
-    label: '定时任务',
-    level: tick === 'stalled' ? 'bad' : tick === 'unknown' ? 'unknown' : 'ok',
-    detail: tick === 'stalled'
-      ? `有 ${overdue} 条任务到点${stalledMinutes === null ? '' : ` ${stalledMinutes} 分钟`}还没发出去。定时触发器可能没在跑，或者每分钟那一跳在报错——去 Cloudflare 的 Workers → 你的 Worker → Observability 看日志。`
-      : tick === 'healthy'
-        ? `${storage.pendingTasks ?? 0} 条待发任务，都在按时处理。`
-        : tick === 'idle'
-          ? '现在没有待发任务。'
-          : '手上没有待发任务，暂时看不出定时器在不在跑。',
-  });
+  rows.push(buildTickRow(probe.report, input));
 
   return rows;
 };
@@ -508,13 +831,13 @@ export const summarizeAmsgDiagnostics = (rows: AmsgDiagnosticRow[]): AmsgDiagnos
 // ─── 即时对话：开不了的话卡在哪一道 ───
 
 /**
- * 即时对话四道门里最先没过的那一道。
+ * 即时对话三道门里最先没过的那一道。
  *
  * 代号写死在这儿，设置页拿它选提示文案、使用统计拿它当属性——**两处共用同一个判定**。
  * 各算各的话，黄字说的和上报里的早晚各说各话，而这条路上的每一次分歧都只能靠用户
  * 自己来报（他看到的是「开关点不动」，我们看到的是「没人开」）。
  */
-export type InstantChatBlocker = '没连上Worker' | '没开推送' | 'Worker太旧' | '与InstantPush冲突';
+export type InstantChatBlocker = '没连上Worker' | '没开推送' | 'Worker太旧';
 
 export interface InstantChatGateInput {
   /** 连接并验证成功过（全局配置的 initializedAt）。 */
@@ -523,21 +846,18 @@ export interface InstantChatGateInput {
   pushSubscribed: boolean;
   /** 这台 Worker 认 `POST /instant-chat`（GET /config-check 的 instantChat 标志）。 */
   workerSupportsInstantChat: boolean;
-  /** Instant Push 那条路也配齐开着。 */
-  instantPushOn: boolean;
 }
 
 /**
- * 按「先补哪个」的顺序返回第一道没过的门，四道全过返回 null。
+ * 按「先补哪个」的顺序返回第一道没过的门，三道全过返回 null。
  *
  * 顺序不是随便排的：没连上就谈不上推送，没推送权限就算发得出去也收不回来，
- * Worker 太旧则端点根本不存在，最后才是两条发送路只能留一条。
+ * 最后才是 Worker 太旧、端点根本不存在。
  */
 export const resolveInstantChatBlocker = (input: InstantChatGateInput): InstantChatBlocker | null => {
   if (!input.connected) return '没连上Worker';
   if (!input.pushSubscribed) return '没开推送';
   if (!input.workerSupportsInstantChat) return 'Worker太旧';
-  if (input.instantPushOn) return '与InstantPush冲突';
   return null;
 };
 
@@ -546,5 +866,4 @@ export const INSTANT_CHAT_BLOCKER_HINTS: Record<InstantChatBlocker, string> = {
   '没连上Worker': '先在上面把 Worker 连上。',
   '没开推送': '先开启通知与推送：回复是靠推送送回来的，没有权限就变成发得出、收不到。',
   'Worker太旧': 'Worker 上跑的代码还起不了这条路（缺起跳器，或者还是旧版）。点上面的「更新 Worker」，更新完这里会自己恢复。开着也不会走云端——那台 Worker 上是发一条挂一条，这段时间聊天先在本地生成。',
-  '与InstantPush冲突': 'Instant Push 也开着，两条发送路只能留一条。上面那张黄色卡片里可以把它关掉。',
 };

@@ -6,7 +6,6 @@ export interface UserCameraSnapshotSize {
 export interface CameraChatMessage {
   role: string;
   content: unknown;
-  [key: string]: unknown;
 }
 
 export const fitUserCameraSnapshot = (
@@ -70,6 +69,20 @@ export const attachSnapshotToLatestUserMessage = <T extends CameraChatMessage>(
       ],
     } as T;
   });
+};
+
+/** 先给真实用户消息贴图，再装配世界书；降级只还原原消息，不重新构建上下文或抽概率。 */
+export const prepareUserCameraSnapshot = <T extends CameraChatMessage>(
+  originalMessages: readonly T[],
+  snapshotDataUrl: string,
+) => {
+  const messages = attachSnapshotToLatestUserMessage(originalMessages, snapshotDataUrl);
+  const originals = new Map<CameraChatMessage, T>(messages.map((message, index) => [message, originalMessages[index]]));
+  return {
+    messages,
+    restoreTextMessages: <M extends CameraChatMessage>(prepared: readonly M[]): Array<M | T> =>
+      prepared.map(message => originals.get(message) ?? message),
+  };
 };
 
 /** Only retry without the image when the provider explicitly rejects vision input. */

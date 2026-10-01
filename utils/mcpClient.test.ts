@@ -14,12 +14,41 @@ import {
     setMcpUseNativeTools,
     collectMcpFireServers,
     callMcpTool,
+    discoverMcpTools,
     normalizeMcpToolArguments,
     MCP_REQUEST_TIMEOUT_MS,
     type McpServerConfig,
 } from './mcpClient';
-import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFallbackBody, formatMcpToolResult, MCP_RESULT_MAX_CHARS, sanitizeMcpLeadInText, shouldRetryMcpWithoutTools, stripTextFakedMcpCalls } from './mcpToolBridge';
+import {
+    buildMcpOpenAITools,
+    buildMcpRejectedToolsFallbackBody,
+    buildMcpSystemBlock,
+    buildMcpTextFallbackBody,
+    formatMcpToolResult,
+    MCP_CHAT_MAX_STALLED_ROUNDS,
+    MCP_CHAT_MAX_TOOL_LOOPS,
+    MCP_RESULT_MAX_CHARS,
+    MCP_TAIL_REMINDER,
+    sanitizeMcpLeadInText,
+    shouldRetryMcpWithoutTools,
+    stripTextFakedMcpCalls,
+} from './mcpToolBridge';
 import { completeGroupChatWithMcp } from './groupChat/mcp';
+
+// 原生传输（CapacitorHttp）回归测试用的可切换 mock：默认关闭（等价 web 平台，
+// 其余测试不受影响），单个测试里翻成 true 验证原生路径。
+const { capacitorNative, capacitorHttpMock } = vi.hoisted(() => ({
+    capacitorNative: { value: false },
+    capacitorHttpMock: vi.fn(),
+}));
+vi.mock('@capacitor/core', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('@capacitor/core')>();
+    return {
+        ...actual,
+        Capacitor: { ...actual.Capacitor, isNativePlatform: () => capacitorNative.value },
+        CapacitorHttp: { ...actual.CapacitorHttp, request: capacitorHttpMock },
+    };
+});
 
 const mkServer = (over: Partial<McpServerConfig>): McpServerConfig => ({
     ...createMcpServer('测试', 'https://mcp.example.com/mcp'),
@@ -35,6 +64,7 @@ beforeEach(() => {
 
 afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
 });
 
@@ -79,10 +109,11 @@ describe('buildMcpRequestHeaders', () => {
                 { name: 'XBY-APIKEY', value: 'secret-xby' },
                 { name: 'Authorization', value: 'Custom auth' },
             ],
-        }, 'session-1');
+        }, 'session-1', '2025-11-25');
         expect(headers.get('XBY-APIKEY')).toBe('secret-xby');
         expect(headers.get('Authorization')).toBe('Bearer bearer-token');
         expect(headers.get('Mcp-Session-Id')).toBe('session-1');
+        expect(headers.get('MCP-Protocol-Version')).toBe('2025-11-25');
         expect(headers.get('X-Proxy-Key')).toBe('proxy-secret');
         expect(headers.get('X-MCP-Forward-Headers')).toBe('XBY-APIKEY,Authorization');
     });
@@ -216,6 +247,171 @@ describe('buildMcpOpenAITools', () => {
         // 单服务器可见时描述不带 [来源] 前缀（multi 按角色可见数算）
         expect(buildMcpOpenAITools('char_b').tools[0].function.description).not.toContain('[通用]');
         expect(buildMcpOpenAITools('char_a').tools[0].function.description).toContain('[通用]');
+    });
+});
+
+describe('MCP 高风险工具保护', () => {
+    it('服务端明确标注为 destructive 的工具会自动确认，用户拒绝后不发请求', async () => {
+        const server = mkServer({
+            tools: [{
+                name: 'delete_note',
+                title: '删除笔记',
+                inputSchema: { type: 'object', properties: {} },
+                annotations: { destructiveHint: true },
+            }],
+        });
+        vi.stubGlobal('window', { confirm: vi.fn().mockReturnValue(false) });
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+        const result = await callMcpTool(server, 'delete_note', { id: 'n1' });
+        expect(result.success).toBe(false);
+        expect(fetchSpy).not.toHaveBeenCalled();
+    });
+});
+
+describe('原生平台 CapacitorHttp 传输', () => {
+    // merge 守卫：原生平台（Android/iOS WebView）的 MCP 必须走 CapacitorHttp 绕过
+    // WebView 的 CORS，且 session / 协议版本头要完整往返。这条路径曾在 upstream
+    // 合并时差点被整段冲掉，这里锁死行为。
+    afterEach(() => {
+        capacitorNative.value = false;
+    });
+
+    it('握手与 tools/call 走 CapacitorHttp，session 与协议版本头完整往返', async () => {
+        const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+        capacitorNative.value = true;
+        capacitorHttpMock.mockReset();
+        const server = mkServer({
+            id: 'native-server',
+            name: '原生MCP',
+            tools: [{ name: 'search', description: '搜', inputSchema: { type: 'object', properties: {} } }],
+        });
+
+        const calls: Array<{ url: string; headers: Record<string, string>; data: any }> = [];
+        capacitorHttpMock.mockImplementation(async ({ url, headers, data }: any) => {
+            calls.push({ url, headers: { ...headers }, data });
+            if (data.method === 'initialize') {
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json', 'Mcp-Session-Id': 'native-sess-1' },
+                    data: {
+                        jsonrpc: '2.0', id: data.id,
+                        result: { protocolVersion: '2025-06-18', serverInfo: { name: 'native-srv', version: '1.0' } },
+                    },
+                };
+            }
+            if (data.method === 'tools/list') {
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { jsonrpc: '2.0', id: data.id, result: { tools: [{ name: 'search', description: '搜' }] } },
+                };
+            }
+            if (data.method === 'tools/call') {
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { jsonrpc: '2.0', id: data.id, result: { content: [{ type: 'text', text: '原生结果' }] } },
+                };
+            }
+            // notifications/initialized 等通知：202 空响应
+            return { status: 202, headers: {}, data: '' };
+        });
+
+        // 发现工具：initialize → tools/list 全部经 CapacitorHttp，不走全局 fetch
+        const fetchSpy = vi.spyOn(globalThis, 'fetch');
+        const tools = await discoverMcpTools(server);
+        expect(tools.map(t => t.name)).toEqual(['search']);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(calls[0].url).toBe('https://mcp.example.com/mcp');
+        expect(calls[0].data.method).toBe('initialize');
+        expect(calls[0].data.params.protocolVersion).toBe('2025-11-25');
+
+        const result = await callMcpTool(server, 'search', { q: 'hello' });
+        expect(result).toMatchObject({ success: true, data: '原生结果' });
+
+        // tools/call 请求带上了握手拿到的 session id 和协商出的协议版本。
+        // Headers.forEach 迭代出的键是小写（HTTP 头大小写不敏感），查找也要不区分大小写。
+        const getHeader = (headers: Record<string, string>, name: string): string | undefined => {
+            const lower = name.toLowerCase();
+            for (const k of Object.keys(headers)) {
+                if (k.toLowerCase() === lower) return headers[k];
+            }
+            return undefined;
+        };
+        const toolsCall = calls.find(c => c.data?.method === 'tools/call')!;
+        expect(getHeader(toolsCall.headers, 'Mcp-Session-Id')).toBe('native-sess-1');
+        expect(getHeader(toolsCall.headers, 'MCP-Protocol-Version')).toBe('2025-06-18');
+        expect(toolsCall.data.params.name).toBe('search');
+        expect(toolsCall.data.params.arguments).toEqual({ q: 'hello' });
+    });
+
+    it('CapacitorHttp 返回的 JSON 已被自动解析成对象时也能正常读出结果', async () => {
+        const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+        capacitorNative.value = true;
+        capacitorHttpMock.mockReset();
+        const server = mkServer({ id: 'native-json-server', name: '原生JSON' });
+
+        capacitorHttpMock.mockImplementation(async ({ data }: any) => {
+            if (data.method === 'initialize') {
+                // 模拟 CapacitorHttp 把 JSON 响应自动解析成对象（data 不是字符串）
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { jsonrpc: '2.0', id: data.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 's' } } },
+                };
+            }
+            if (data.method === 'tools/list') {
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { jsonrpc: '2.0', id: data.id, result: { tools: [] } },
+                };
+            }
+            if (data.method === 'tools/call') {
+                return {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                    data: { jsonrpc: '2.0', id: data.id, result: { content: [{ type: 'text', text: '{"ok":true}' }] } },
+                };
+            }
+            return { status: 202, headers: {}, data: '' };
+        });
+
+        const result = await callMcpTool(server, 'search', {});
+        expect(result).toMatchObject({ success: true, data: { ok: true } });
+    });
+});
+
+describe('MCP 多步任务策略', () => {
+    it('工具轮次使用 12 轮硬上限，并在连续两轮没有新结果时提前收口', () => {
+        expect(MCP_CHAT_MAX_TOOL_LOOPS).toBe(12);
+        expect(MCP_CHAT_MAX_STALLED_ROUNDS).toBe(2);
+    });
+
+    it('提示模型从检查推进到动作，并把用户本轮明确要求视为已确认', () => {
+        saveMcpServers([mkServer({ name: '游戏盒' })]);
+        const block = buildMcpSystemBlock('条条');
+        expect(block).toContain('随后立刻调用能推进目标的动作工具');
+        expect(block).toContain('不要反复读取同一份说明或状态');
+        expect(block).toContain('本轮已经明确要求执行，即视为已经确认');
+        expect(MCP_TAIL_REMINDER).toContain('本轮已明确要求的操作视为已确认');
+    });
+
+    it('文字兼容提示允许按结果继续下一步，但要求每次只输出一个调用', () => {
+        const body = buildMcpRejectedToolsFallbackBody({
+            messages: [{ role: 'user', content: '继续玩游戏' }],
+            tools: [{ type: 'function', function: {
+                name: 'play_game',
+                description: '执行游戏动作',
+                parameters: { type: 'object', properties: { action: { type: 'string' } } },
+            } }],
+            tool_choice: 'auto',
+        });
+        const prompt = body.messages.at(-1).content;
+        expect(prompt).toContain('每一步如果需要工具，只输出一行');
+        expect(prompt).toContain('选择下一步真正能推进目标的工具');
+        expect(prompt).toContain('不要反复读取同一份说明或状态');
     });
 });
 
@@ -536,6 +732,22 @@ describe('collectMcpFireServers', () => {
         expect(isMcpChatAvailable('char_a')).toBe(true);
         expect(collectMcpFireServers()).toEqual([]);
         expect(hasWorkerUnreachableMcpServer('char_a')).toBe(true);
+    });
+
+    it('无人值守后台不带 destructive 工具', () => {
+        saveMcpServers([
+            mkServer({
+                id: 'guarded',
+                tools: [
+                    { name: 'read_note', annotations: { readOnlyHint: true } },
+                    { name: 'delete_note', annotations: { destructiveHint: true } },
+                ],
+            }),
+        ]);
+
+        const out = collectMcpFireServers();
+        expect(out.map(server => server.id)).toEqual(['guarded']);
+        expect(out[0].tools?.map(tool => tool.name)).toEqual(['read_note']);
     });
 
     it('其余 worker 够不着的地址一并挡掉（链路本地 / 占位地址 / 局域网域名 / IPv6 ULA）', () => {

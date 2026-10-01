@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseDirectorActions, parseSummaryYaml, parseGroupTopicBox } from './parse';
+import { parseDirectorActions, parseSummaryYaml, parseGroupTopicBox, stripSkipMarker } from './parse';
 
 describe('parseDirectorActions', () => {
     it('标准 JSON 数组直接解析', () => {
@@ -37,6 +37,28 @@ describe('parseDirectorActions', () => {
     it('完全无法解析时返回空数组而不是抛错', () => {
         expect(parseDirectorActions('今天大家聊得很开心。')).toEqual([]);
         expect(parseDirectorActions('')).toEqual([]);
+    });
+
+    it('思考块里打的草稿不会被当成正式发言', () => {
+        const raw = '<thinking>先写个草稿 [{"charId": "c2", "content": "草稿"}] 不行，重写</thinking>\n[{"charId": "c1", "content": "正式"}]';
+        expect(parseDirectorActions(raw)).toEqual([{ charId: 'c1', content: '正式' }]);
+    });
+});
+
+describe('stripSkipMarker（轮流发言模式的输出）', () => {
+    it('剥掉思考块，只留要发的话', () => {
+        expect(stripSkipMarker('<think>该怎么接话呢</think>\n哈哈哈')).toEqual({ skipped: false, content: '哈哈哈' });
+        expect(stripSkipMarker('<thought>想想</thought>好')).toEqual({ skipped: false, content: '好' });
+    });
+
+    it('思考块后面跟着的「名字：」前缀也剥掉；只剩前缀算不说话', () => {
+        expect(stripSkipMarker('<think>嗯</think>\n阿澈：早', '阿澈')).toEqual({ skipped: false, content: '早' });
+        expect(stripSkipMarker('阿澈: [[SKIP]]', '阿澈')).toEqual({ skipped: true, content: '' });
+    });
+
+    it('只有思考块和 [[SKIP]]、或思考块没写完就断了，都算本轮不说话', () => {
+        expect(stripSkipMarker('<thinking>还是算了</thinking>[[SKIP]]')).toEqual({ skipped: true, content: '' });
+        expect(stripSkipMarker('<thinking>想到一半被截断')).toEqual({ skipped: true, content: '' });
     });
 });
 

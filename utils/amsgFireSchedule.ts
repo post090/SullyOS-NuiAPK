@@ -67,43 +67,73 @@ export interface FireScheduleTimeOpts {
   tz: AmsgTzRef;
 }
 
-const buildParameters = (example: string) => ({
+/**
+ * 用户放没放开的两项能力（见 amsgLimits）。没放开的参数干脆不出现在工具签名里：
+ * 摆在那儿等于邀请模型去选，选了再被打回白费一轮。代码那头照样拦（checkSelfScheduleRules）。
+ */
+export interface SelfScheduleAbilities {
+  allowRecurring: boolean;
+  allowForce: boolean;
+}
+
+/** 前台工具桥和 fire 侧共用的参数表（描述里的示例与说法两边各给）。 */
+export const buildScheduleParameters = (opts: {
+  sendAtDescription: string;
+  modeDescription: string;
+  promptHintDescription: string;
+  recurrenceDescription: string;
+  abilities: SelfScheduleAbilities;
+}) => ({
   type: 'object',
   properties: {
-    send_at: {
-      type: 'string',
-      description: `开始生成的时间，写你本地的墙钟时间、不带时区后缀（如 ${example}），系统按你所在的时区理解。至少比当前时间晚 1 分钟。排之前先想想对方那边是几点——你们之间可能有时差，别把消息排到对方的深夜。`,
-    },
+    send_at: { type: 'string', description: opts.sendAtDescription },
     mode: {
       type: 'string',
       enum: ['auto', 'prompted'],
-      description: '生成模式。auto=到点根据那时的上下文自由发挥；prompted=围绕 prompt_hint 的方向说。默认 auto。',
+      description: opts.modeDescription,
     },
-    prompt_hint: {
-      type: 'string',
-      description: '给未来那条消息的方向，如"接着刚才那只猫的话往下说""告诉他汤炖好了"。mode=prompted 时必填。',
-    },
-    recurrence: {
-      type: 'string',
-      enum: ['none', 'daily', 'weekly'],
-      description: '重复类型。none=一次性（默认）；daily/weekly=每天/每周同一时间。',
-    },
-    expire_policy: {
-      type: 'string',
-      enum: ['expire', 'force'],
-      description: EXPIRE_POLICY_DESCRIPTION,
-    },
+    prompt_hint: { type: 'string', description: opts.promptHintDescription },
+    ...(opts.abilities.allowRecurring
+      ? {
+        recurrence: {
+          type: 'string',
+          enum: ['none', 'daily', 'weekly'],
+          description: opts.recurrenceDescription,
+        },
+      }
+      : {}),
+    ...(opts.abilities.allowForce
+      ? {
+        expire_policy: {
+          type: 'string',
+          enum: ['expire', 'force'],
+          // 与前台共用一份：同一个策略在两个入口说两套话，角色的选择会跟着入口漂。
+          description: EXPIRE_POLICY_DESCRIPTION,
+        },
+      }
+      : {}),
   },
   required: ['send_at'],
 });
 
-export const buildFireScheduleTool = (opts: FireScheduleTimeOpts): FireScheduleToolDef => ({
+const buildParameters = (example: string, abilities: SelfScheduleAbilities) => buildScheduleParameters({
+  sendAtDescription: `开始生成的时间，写你本地的墙钟时间、不带时区后缀（如 ${example}），系统按你所在的时区理解。至少比当前时间晚 1 分钟。排之前先想想对方那边是几点——你们之间可能有时差，别把消息排到对方的深夜。`,
+  modeDescription: '生成模式。auto=到点根据那时的上下文自由发挥；prompted=围绕 prompt_hint 的方向说。默认 auto。',
+  promptHintDescription: '给未来那条消息的方向，如"接着刚才那只猫的话往下说""告诉他汤炖好了"。mode=prompted 时必填。',
+  recurrenceDescription: '重复类型。none=一次性（默认）；daily/weekly=每天/每周同一时间。',
+  abilities,
+});
+
+export const buildFireScheduleTool = (
+  opts: FireScheduleTimeOpts & { abilities: SelfScheduleAbilities },
+): FireScheduleToolDef => ({
   type: 'function',
   function: {
     name: AMSG_FIRE_SCHEDULE_TOOL,
     description: FIRE_TOOL_DESCRIPTION,
     parameters: buildParameters(
       buildSendAtExample(opts.nowMs, opts.tz),
+      opts.abilities,
     ) as unknown as Record<string, unknown>,
   },
 });
@@ -158,7 +188,13 @@ export const buildFireRenewTool = (opts: FireScheduleTimeOpts): FireScheduleTool
  * 反而勾引模型往正文里写（与 buildMcpFireBlock 同一个判断）。text 模式（用户的中转拒
  * tools）才教语法。
  */
-export const buildFireScheduleBlock = (mode: 'native' | 'text', opts: FireScheduleTimeOpts): string => {
+export const buildFireScheduleBlock = (
+  mode: 'native' | 'text',
+  opts: FireScheduleTimeOpts & {
+    /** 「用户给你定的规矩」那一段（amsgLimits.buildLimitsBrief），接在块尾。 */
+    limitsBrief?: string;
+  },
+): string => {
   const howTo = mode === 'native'
     ? `需要时通过系统的工具调用接口发起 ${AMSG_FIRE_SCHEDULE_TOOL}，不要把工具名和参数写进正文。`
     : `需要时单独输出一行 ${AMSG_FIRE_SCHEDULE_TOOL}({"send_at":"${
@@ -175,6 +211,7 @@ export const buildFireScheduleBlock = (mode: 'native' | 'text', opts: FireSchedu
     // 对方那边此刻几点写在【当前时刻补充】里（有时差时才有那一行）。
     '定时间之前先想想对方那边是几点：你们之间可能有时差，别把消息排到对方的深夜。',
     '没必要就别排。为了排而排出来的后续，读起来就是没话找话。',
+    ...(opts.limitsBrief ? [opts.limitsBrief] : []),
   ].join('\n');
 };
 

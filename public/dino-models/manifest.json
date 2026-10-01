@@ -1,0 +1,80 @@
+[
+  {
+    "id": "tyrannosaurus",
+    "triangles": 6876,
+    "drawCalls": 1,
+    "bytes": 195444
+  },
+  {
+    "id": "triceratops",
+    "triangles": 6676,
+    "drawCalls": 1,
+    "bytes": 202952
+  },
+  {
+    "id": "stegosaurus",
+    "triangles": 8180,
+    "drawCalls": 1,
+    "bytes": 322812
+  },
+  {
+    "id": "brachiosaurus",
+    "triangles": 7230,
+    "drawCalls": 1,
+    "bytes": 206012
+  },
+  {
+    "id": "ankylosaurus",
+    "triangles": 8722,
+    "drawCalls": 1,
+    "bytes": 254652
+  },
+  {
+    "id": "velociraptor",
+    "triangles": 4094,
+    "drawCalls": 1,
+    "bytes": 117104
+  },
+  {
+    "id": "spinosaurus",
+    "triangles": 4920,
+    "drawCalls": 1,
+    "bytes": 191760
+  },
+  {
+    "id": "parasaurolophus",
+    "triangles": 4766,
+    "drawCalls": 1,
+    "bytes": 134384
+  },
+  {
+    "id": "pteranodon",
+    "triangles": 2856,
+    "drawCalls": 1,
+    "bytes": 105756
+  },
+  {
+    "id": "plesiosaur",
+    "triangles": 4416,
+    "drawCalls": 1,
+    "bytes": 125984
+  },
+  {
+    "id": "dinosaur-egg",
+    "triangles": 2736,
+    "drawCalls": 1,
+    "bytes": 78872
+  },
+  {
+    "id": "dinosaur-fossil",
+    "triangles": 2908,
+    "drawCalls": 1,
+    "bytes": 84660
+  },
+  {
+    "id": "aiven-chimera",
+    "triangles": 8236,
+    "drawCalls": 1,
+    "bytes": 307840
+  }
+]

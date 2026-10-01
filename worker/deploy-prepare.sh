@@ -14,9 +14,9 @@ set -eu
 
 PLACEHOLDER='REPLACE_WITH_YOUR_D1_ID'
 
-# 只认「生效中」的占位符：注释行不算。instant-push 的 D1 是可选增强，它那份
-# wrangler.toml 里整个 [[d1_databases]] 块是注释掉的、占位符也在注释里——按字面
-# 匹配就会逼着不需要 D1 的用户去建库。
+# 只认「生效中」的占位符：注释行不算。D1 是可选项的 worker 会把整个
+# [[d1_databases]] 块连同占位符一起注释掉——按字面匹配就会逼着不需要 D1 的
+# 用户去建库。
 if ! grep -v '^[[:space:]]*#' wrangler.toml 2>/dev/null | grep -q "$PLACEHOLDER"; then
   # 这个 worker 不需要 D1（或用户已经把 id 直接提交进 fork 了），无事可做。
   echo "[deploy-prepare] 没有待填的 D1 占位符，跳过。"

@@ -49,6 +49,7 @@ function sameMemories(a: MemoryFragment[] | undefined, b: MemoryFragment[]): boo
         && item.date === b[index].date
         && item.mood === b[index].mood
         && item.summary === b[index].summary
+        && item.palaceMemoryId === b[index].palaceMemoryId
     ));
 }
 

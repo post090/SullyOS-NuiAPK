@@ -34,3 +34,76 @@ export function shouldAutoPlayGeneratedVoice(opts: {
   if (!opts.autoTriggered) return true;
   return !!opts.autoPlayEnabled;
 }
+
+const SILENT_AUDIO = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQQAAACAgICA';
+const audioOperations = new WeakMap<HTMLAudioElement, { priming: boolean; source?: string }>();
+
+export const isVoiceAudioPriming = (audio: HTMLAudioElement): boolean => {
+  const operation = audioOperations.get(audio);
+  return operation?.priming === true && audio.src === operation.source;
+};
+
+/** Must run inside the click handler, before waiting for synthesis/network. */
+export function primeVoiceAudio(audio: HTMLAudioElement, silence = SILENT_AUDIO): void {
+  if (!audio.paused && audio.src) return;
+  const operation = { priming: true, source: silence };
+  audioOperations.set(audio, operation);
+  audio.src = silence;
+  try {
+    void Promise.resolve(audio.play()).then(() => {
+      if (audioOperations.get(audio) !== operation || audio.src !== silence) return;
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      operation.priming = false;
+    }, () => { operation.priming = false; });
+  } catch { operation.priming = false; }
+}
+
+export function stopVoiceAudio(audio: HTMLAudioElement): void {
+  audioOperations.delete(audio);
+  audio.onended = null;
+  audio.onerror = null;
+  audio.onpause = null;
+  audio.pause();
+}
+
+export function voicePlaybackErrorMessage(error: unknown, replayLabel = '语音条'): string {
+  if ((error as { name?: string })?.name === 'NotAllowedError') {
+    return `浏览器未允许播放，请点“${replayLabel}”继续；无需重新生成语音。`;
+  }
+  return `音频加载或播放失败，请点“${replayLabel}”重试播放；若是旧音频链接，可能已过期。`;
+}
+
+/** Report playback only after play() succeeds; stale attempts cannot reset a newer voice. */
+export async function playVoiceAudio(audio: HTMLAudioElement, url: string, callbacks: {
+  onPlaying: () => void; onStopped: () => void; onError: (error: unknown) => void;
+}): Promise<void> {
+  const operation = { priming: false };
+  audioOperations.set(audio, operation);
+  let failed = false;
+  const isCurrent = () => audioOperations.get(audio) === operation;
+  const fail = (error: unknown) => {
+    if (!isCurrent() || failed) return;
+    failed = true;
+    callbacks.onStopped();
+    callbacks.onError(error);
+  };
+  audio.onended = () => { if (isCurrent()) callbacks.onStopped(); };
+  audio.onpause = () => { if (isCurrent() && audio.paused) callbacks.onStopped(); };
+  audio.onerror = () => fail(audio.error);
+  try {
+    audio.src = url;
+    await audio.play();
+    if (isCurrent() && !failed && !audio.paused) callbacks.onPlaying();
+  } catch (error) { fail(error); }
+}
+
+/** Remote fallbacks must stay out of WebAudio: cross-origin media sources output silence. */
+export function canAnalyzeVoiceSource(url: string, pageOrigin?: string): boolean {
+  if (/^(blob:|data:audio\/)/i.test(url)) return true;
+  try {
+    const origin = pageOrigin ?? (typeof location !== 'undefined' ? location.origin : undefined);
+    return !!origin && new URL(url, origin).origin === origin;
+  } catch { return false; }
+}

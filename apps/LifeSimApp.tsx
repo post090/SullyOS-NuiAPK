@@ -1,3 +1,5 @@
+import { ContextBuilder, type CharacterContextInput } from '../utils/context';
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 /**
  * LifeSimApp — 都市模拟人生 · 2026现代版
  * 核心体验：看角色操控都市居民，制造都市Drama，离线回来发现整栋楼翻天覆地
@@ -27,6 +29,7 @@ import { getLifeSimToneEmoji } from '../utils/lifeSimTone';
 // Offline simulation removed — random events didn't match the theme
 import { extractJson, safeFetchJson } from '../utils/safeApi';
 import { trackEvent } from '../utils/analytics';
+import TokenImg from '../components/os/TokenImg';
 import { DB } from '../utils/db';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import {
@@ -74,7 +77,8 @@ const AI_MAX_RETRIES = 2;
 
 async function callCharAI(
     apiConfig: { baseUrl: string; apiKey: string; model: string },
-    systemPrompt: string
+    systemPrompt: string,
+    characterContext?: CharacterContextInput,
 ): Promise<string> {
     let lastError: Error | null = null;
 
@@ -87,7 +91,9 @@ async function callCharAI(
                     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                     body: JSON.stringify({
                         model: apiConfig.model,
-                        messages: [{ role: 'user', content: systemPrompt }],
+                        messages: characterContext
+                            ? ContextBuilder.buildCharacterRequest(characterContext, [{ role: 'user', content: systemPrompt }])
+                            : [{ role: 'user', content: systemPrompt }],
                         temperature: 0.85, max_tokens: 8192, stream: false,
                         response_format: { type: 'json_object' },
                     }),
@@ -445,15 +451,15 @@ const LifeSimApp: React.FC = () => {
                 let decision: CharDecision;
 
                 if (canUseApi) {
-                    const rawMessages = await DB.getRecentMessagesByCharId(charId, 20);
+                    const rawMessages = await loadCharacterContextMessages(char);
                     const chatHistory = formatRecentChatForSim(
-                        rawMessages as any, char.name, userProfile.name || '你', 20
+                        rawMessages as any, char.name, userProfile.name || '你', rawMessages.length
                     );
                     await injectMemoryPalace(char, undefined, chatHistory || undefined);
                     const systemPrompt = buildCharTurnSystemPrompt(char, userProfile, chatHistory, s, s.actionLog);
                     const raw = await callCharAI(
                         { baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
-                        systemPrompt
+                        systemPrompt, { char, user: userProfile }
                     );
 
                     rawJson = extractJson(raw);
@@ -1150,8 +1156,8 @@ const LifeSimApp: React.FC = () => {
                                         flexShrink: 0,
                                         transition: 'all 0.18s ease',
                                     }}>
-                                    <img
-                                        src={char.avatar}
+                                    <TokenImg
+                                        value={char.avatar}
                                         alt={char.name}
                                         style={{
                                             width: 20,

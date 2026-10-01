@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import {
   buildDurableObjectPlan,
+  bundleFetchUrl,
+  resolveBundleUrl,
   resolveObservability,
   handleSelfUpdate,
   rebuildBindings,
@@ -212,5 +214,40 @@ describe('handleSelfUpdate 上传时带的 metadata', () => {
     const { calls } = await runSelfUpdate({ enabled: false });
 
     expect(uploadMetadata(calls)?.observability).toEqual({ enabled: false });
+  });
+});
+
+describe('resolveBundleUrl', () => {
+  const official = 'https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js';
+
+  it('不配就是官方成品包', () => {
+    expect(resolveBundleUrl({})).toBe(official);
+    expect(resolveBundleUrl({ AMSG_BUNDLE_URL: '   ' })).toBe(official);
+  });
+
+  it('配了 https 地址就取那儿（fork / 测试 Worker 用）', () => {
+    expect(resolveBundleUrl({ AMSG_BUNDLE_URL: 'https://example.com/x/worker.bundle.js' })).toBe('https://example.com/x/worker.bundle.js');
+  });
+
+  it('不是 https 一律回落到官方，别把明文 http 或乱填的东西当成品包源', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(resolveBundleUrl({ AMSG_BUNDLE_URL: 'http://example.com/w.js' })).toBe(official);
+    expect(resolveBundleUrl({ AMSG_BUNDLE_URL: 'not a url' })).toBe(official);
+  });
+});
+
+describe('bundleFetchUrl', () => {
+  /**
+   * 回归守卫：取包地址必须带随时间变的参数。GitHub raw 前面的 CDN 按完整 URL 缓存，
+   * 不带的话推新包后几分钟内还会吐旧包——自动更新按指纹比，吃到旧包就把新代码换回去。
+   */
+  it('地址挂上时间参数，同一份地址两次取不一样', () => {
+    const base = 'https://raw.githubusercontent.com/x/y/main/amsg/worker.bundle.js';
+    expect(bundleFetchUrl(base, 1000)).toBe(`${base}?t=1000`);
+    expect(bundleFetchUrl(base, 1000)).not.toBe(bundleFetchUrl(base, 2000));
+  });
+
+  it('原地址本来就带参数也不冲掉', () => {
+    expect(bundleFetchUrl('https://example.com/w.js?token=abc', 5)).toBe('https://example.com/w.js?token=abc&t=5');
   });
 });

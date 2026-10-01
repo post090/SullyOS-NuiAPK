@@ -1,17 +1,16 @@
 /**
  * amsg worker 满血 v2 — 服务端工具循环的纯逻辑（不碰网络 / 存储，方便单测）。
  *
- * 复用 instant push 的业务标签 classifier（../../instant-push/src/classifier）：
+ * 业务标签的识别交给同目录的 classifier（./classifier）：
  *   - 数据标签（RECALL / SEARCH / READ_DIARY / XHS_* …）→ tool-request，
- *     由 index.ts 的 executeToolCalls 在 worker 里就地执行（客户端离线，
- *     没有 instant 那条「推回客户端跑」的路）。
+ *     由 index.ts 的 executeToolCalls 在 worker 里就地执行（客户端可能离线，
+ *     工具只能在服务端跑）。
  *   - 副作用标签（POKE / TRANSFER / MUSIC_ACTION / 写日记 …）→ 结构化成
  *     directives 挂在最后一条 push 的 metadata 上，客户端收到时重放
- *     （收侧与 instant 共用，activeMsgRuntime 的 isLastChunk 守卫已就位）。
+ *     （activeMsgRuntime 的 isLastChunk 守卫保证只重放一次）。
  *
- * 与 instant 的关键差异：instant 每轮的旁白立刻推给用户；这里推送只在 finish
- * 时发生，所以中间轮的旁白和副作用要跨轮累积（FireSessionState），finish 时
- * 一起出——用户看到的内容与 instant 模式下逐轮看到的一致，只是一次到齐。
+ * 推送只在 finish 时发生，所以中间轮的旁白和副作用要跨轮累积（FireSessionState），
+ * finish 时一起出——用户一次收到整段回复，内容与逐轮说出来的一致。
  */
 
 import {
@@ -19,7 +18,7 @@ import {
   type Directive,
   type MusicActionSong,
   type ToolCall,
-} from '../../instant-push/src/classifier';
+} from './classifier';
 import type { ToolCallRecord } from '../../../utils/agenticToolFeedback';
 import {
   extractTextFakedMcpCalls,
@@ -35,6 +34,20 @@ import {
 } from '../../../utils/amsgFireSchedule';
 // type-only：编译期擦除，不会把 realtimeContext 的浏览器依赖打进 worker bundle。
 import type { XhsNote } from '../../../utils/realtimeContext';
+import {
+  createSARModuleSurfaceMeta,
+  planFromSARModuleSnapshot,
+  type AmsgSarModuleSnapshot,
+} from '../../../utils/vrWorld/sarEnvelopeCore';
+import {
+  AMSG_SAR_META_KEY,
+  buildSarSurfaceSlots,
+  clipSarSurfaceBanner,
+  maskSarSurfaceBlocks,
+  parseSarEnvelopeRounds,
+  stripSarSnapshot,
+  type SarEnvelopeParse,
+} from './sarEnvelope';
 
 /** 一次 fire 的跨轮累积状态（index.ts 按 sessionId 持有，finish/skip 后丢弃）。 */
 export interface FireSessionState {
@@ -92,15 +105,26 @@ export const createFireSessionState = (): FireSessionState => ({
 export const MAX_DUPLICATE_TOOL_CALLS = 2;
 
 /**
- * 一次 fire 最多几轮 LLM。onBeforeFire 把这个数显式回传给上游（amsg-server 自己的
- * 默认值也是 5，但它没导出常量，各写各的迟早对不上），worker 这边据此判断「这是最后
- * 一轮了」。
+ * 普通内置工具最多几轮 LLM。搜索 / 记忆 / 排程通常 1~3 轮就能结束，继续保留原来的
+ * 5 轮预算，避免一次普通主动消息因为模型打转而烧太多请求。
  *
  * 为什么要自己判：上游在最后一轮遇到 tool-request 会直接抛 AGENTIC_LOOP_EXCEEDED，
  * 这次攒下的旁白全丢、任务不出清、下一分钟整条从头重跑再烧一遍 LLM。到最后一轮就不再
  * 放行工具请求、用手上的内容收尾，用户至少收得到角色已经写出来的那部分。
  */
-export const MAX_TOOL_ITERATIONS = 5;
+export const DEFAULT_TOOL_ITERATIONS = 5;
+
+/**
+ * 通用 MCP 的硬上限。游戏 / 论坛类 MCP 常见「读规则 → 查状态 → 执行动作 → 再查状态」；
+ * 5 轮会稳定地卡在真正动作之前。这里给到 12，但不是固定跑 12 次：模型一旦返回正文就
+ * 当场结束，连续重复调用也会由 MAX_DUPLICATE_TOOL_CALLS 提前收束，所以实际轮数仍是
+ * 1~12 自适应。
+ */
+export const MCP_MAX_TOOL_ITERATIONS = 12;
+
+/** 当前 fire 的工具预算：接了 MCP 才使用长预算，普通内置工具维持原成本。 */
+export const resolveToolIterationBudget = (hasMcp: boolean): number =>
+  hasMcp ? MCP_MAX_TOOL_ITERATIONS : DEFAULT_TOOL_ITERATIONS;
 
 /** 判本轮旁白里有没有 [[XHS_SHARE: n]]（与 classifier 的模式同口径，非全局免得带 lastIndex）。 */
 const XHS_SHARE_TAG_RE = /\[\[XHS_SHARE:\s*\d+\]\]/;
@@ -118,8 +142,8 @@ export interface PushBuildInput {
   occurrenceMs: number;
   /**
    * round 1 XHS 工具抓到的笔记快照（stash.toolCtx.lastXhsNotesRef.current）。
-   * amsg2 的 round 1 在 worker 里跑，客户端没有 instantToolRunner 那次
-   * saveXhsSessionNotes 落库——不带回去 [[XHS_SHARE: n]] 重放必然 available:0。
+   * amsg2 的 round 1 在 worker 里跑，客户端本地没有这份笔记列表——不带回去
+   * [[XHS_SHARE: n]] 重放必然 available:0。
    * finish 时只挑 directive 引用到的几张随最后一条 push 带回（web push 单条
    * payload ~4KB，全量 8 张会撑爆整条 push，那就不是掉卡片而是掉消息了）。
    */
@@ -131,6 +155,12 @@ export interface PushBuildInput {
    * 角色写了 MUSIC_ACTION 就把它冻进 directive，见 attachSceneSong。
    */
   sceneSong?: MusicActionSong | null;
+  /**
+   * 本轮的 SAR 临时模块快照（任务 metadata.amsgSar，index.ts 读出并校验过形状）。
+   * 调用方要先把它从 `metadata` 里摘掉：它只随最后一条 push 原样回去一次。
+   * 需要信封时 finish 在分段之前拆信封，只有真意进分段与 directives，外显逐段挂回。
+   */
+  sar?: AmsgSarModuleSnapshot | null;
 }
 
 /** 挂在最后一条 push metadata.xhsSession 的形状；idx 1-based，与 [[XHS_SHARE: n]] 同基。 */
@@ -202,7 +232,15 @@ export type RoundDecision =
   | { decision: 'tool-request'; toolCalls: ToolCall[] }
   | { decision: 'finish'; pushPayloads: Array<Record<string, unknown>> }
   /** reason 直接进 last_skip，面板照实告诉用户那次为什么没响。 */
-  | { decision: 'skip-push'; reason: 'empty-generation' | 'side-effects-only' };
+  | {
+      decision: 'skip-push';
+      reason: 'empty-generation' | 'side-effects-only';
+      /**
+       * 这一轮被整条丢掉、但仍要送到客户端的日程改动（没有就没有这个字段）。
+       * 别的副作用丢了就丢了，日程不行——理由见下面 skip-push 那处的注释。
+       */
+      scheduleChanges?: Array<{ startTime: string; activity: string }>;
+    };
 
 /** 本轮的通用 MCP 识别输入（没配 MCP 的角色不传，行为与改动前完全一致）。 */
 export interface McpRoundInput {
@@ -293,8 +331,8 @@ export const classifyNativeToolCalls = (
  *   - 有数据标签（或本轮有 MCP 调用）→ 原始旁白（prefix）暂存，返回 tool-request；
  *   - 无数据标签 → finish：把全部中间轮旁白 + 本轮正文**拼回一份全文**统一
  *     classify（跨轮被劈开的副作用标签块在这里合体），干净正文经
- *     sanitizeIntoSegments 分段（与 instant push / 客户端 chatParser.chunkText
- *     同一份：按换行切、[[...]] / [html] / <翻译> / <语音> 等标签块保持原子），
+ *     sanitizeIntoSegments 分段（与客户端 chatParser.chunkText 同一份：
+ *     按换行切、[[...]] / [html] / <翻译> / <语音> 等标签块保持原子），
  *     每段一条 push；全部 directives 挂最后一条的 metadata；
  *     全程无正文 → skip-push（这轮有没有副作用都不发，理由见分支处注释）。
  *
@@ -302,6 +340,10 @@ export const classifyNativeToolCalls = (
  * 不再放行，直接拿之前几轮的内容收尾；这一轮那句「等我查查」会被丢掉（它永远没有下文）。
  *
  * 通用 MCP 的调用识别是两层（native tool_calls + 正文协议），与前台同构，见函数体开头。
+ *
+ * SAR 临时模块生效（build.sar 要求信封）时，finish 在分段之前拆信封：只有 CHAR_TRUE
+ * 进 classify / 分段；CHAR_SURFACE 逐段对齐挂 metadata.amsgSarSurface 并顶替横幅；
+ * 快照与 USER_SURFACE 挂最后一条。线协议见 plans/amsg2-instant-chat-contract.md。
  */
 export function processLLMRound(
   state: FireSessionState,
@@ -311,8 +353,17 @@ export function processLLMRound(
   schedule?: ScheduleRoundInput | null,
   /** 本轮序号（上游 sessionCtx.iteration，0-based）。到最后一轮就不再放行工具请求。 */
   iteration?: number,
+  /** 与 onBeforeFire 回给上游的 maxToolIterations 必须是同一个值。 */
+  maxToolIterations: number = DEFAULT_TOOL_ITERATIONS,
 ): RoundDecision {
-  const isFinalRound = typeof iteration === 'number' && iteration >= MAX_TOOL_ITERATIONS - 1;
+  const isFinalRound = typeof iteration === 'number' && iteration >= maxToolIterations - 1;
+  // SAR 临时模块生效时，回复是一个信封（见 ./sarEnvelope）。外显块先整块藏成占位符：
+  // 下面所有识别（数据标签、MCP / 排程的正文调用、副作用）都只看得见真意那部分，
+  // 攒旁白、拼全文时再原样换回。只剩余韵（不要求信封）时什么都不动。
+  const sarPlan = planFromSARModuleSnapshot(build.sar ?? null);
+  const sarMask = sarPlan?.requiresEnvelope ? maskSarSurfaceBlocks(llmOutputText) : null;
+  const roundText = sarMask ? sarMask.masked : llmOutputText;
+  const restoreSurfaces = (text: string): string => (sarMask ? sarMask.restore(text) : text);
   // 通用 MCP 两层识别（与前台同构）：native tool_calls 优先；没有 native 时
   // 用前台「兼容模式」同一个解析器从正文抠 tool_name({...})。两种来源都可能
   // 与数据标签同轮出现，最终合并成同一个 tool-request，executeToolCalls 按
@@ -321,7 +372,7 @@ export function processLLMRound(
   // 掉格式写进正文时写的也是它）——core 的 alsoMatchPrefix 选项负责，exposedName 回裸名。
   const nativeToolCalls = mcp?.nativeToolCalls ?? [];
   const textCalls = mcp?.resolve.size
-    ? extractTextFakedMcpCalls(llmOutputText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX })
+    ? extractTextFakedMcpCalls(roundText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX })
     : [];
   // 排程工具同样两层，语法提取与入列拆开管：正文里的排程语法**始终**抠出来剥掉
   // （跟 MCP 同一条红线：调用语法不能进旁白/推送），要不要当调用入列另说——
@@ -333,7 +384,7 @@ export function processLLMRound(
   const hasNativeSchedule = nativeScheduleCalls.some(
     (tc) => tc?.function?.name === AMSG_FIRE_SCHEDULE_TOOL,
   );
-  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(llmOutputText) : [];
+  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(roundText) : [];
   const scheduleCalls: ToolCall[] = [
     ...nativeScheduleCalls,
     ...(hasNativeSchedule ? [] : scheduleTextCalls).map((c) => ({
@@ -344,8 +395,8 @@ export function processLLMRound(
   ];
 
   const strippedText = scheduleTextCalls.length
-    ? stripTextFakedMcpCalls(llmOutputText, scheduleTextCalls)
-    : llmOutputText;
+    ? stripTextFakedMcpCalls(roundText, scheduleTextCalls)
+    : roundText;
   const scanText = textCalls.length ? stripTextFakedMcpCalls(strippedText, textCalls) : strippedText;
   // native 在场时正文抠出来的不再入列（同一意图大概率两处都写了；库只给 assistant
   // 消息合并 decision 里的 toolCalls，native 已含语义）。两份都入列会把同一个工具跑
@@ -375,7 +426,8 @@ export function processLLMRound(
     // 再返回 tool-request 则会被上游抛 AGENTIC_LOOP_EXCEEDED。两种情况都不再给下一轮，
     // 直接用手上的内容收尾——整条任务失败重跑的话，用户一个字都收不到。
     if (state.duplicateToolCalls < MAX_DUPLICATE_TOOL_CALLS && !isFinalRound) {
-      if (narration.trim()) state.narrations.push(narration);
+      // 旁白里存的是换回外显之后的原样，finish 拆信封时每一段都还是完整的。
+      if (narration.trim()) state.narrations.push(restoreSurfaces(narration));
       // 这一轮说了「我分享给你」，那 n 指的就是此刻手上这份列表。定格下来，别让后面几轮
       // 的搜索把它换掉（详见 FireSessionState.xhsShareNotes）。只定格第一次：一次 fire 里
       // 跨两份列表各分享一张的情况极少，定格第一份至少让先说的那张对得上。
@@ -399,14 +451,20 @@ export function processLLMRound(
   // 没有旁白（一轮直出，最常见）时全文就是本轮正文，同样的输入不必再扫一遍。
   // 从上面 tool-request 分支穿透下来收尾时，本轮的正文已经进过 narrations 了，
   // 这里再拼一次 llmOutputText 就会重复一段（而且它还带着那个转不出来的数据标签）。
-  const thisRound = isToolRound ? '' : scanText;
-  const fullText = [...state.narrations, thisRound]
-    .filter((part) => part.trim().length > 0)
-    .join('\n');
+  const thisRound = isToolRound ? '' : restoreSurfaces(scanText);
+  const rounds = [...state.narrations, thisRound].filter((part) => part.trim().length > 0);
+  const fullText = rounds.join('\n');
+  // SAR 信封在这里拆：旁白本来就一轮一份，逐轮拆、逐轮降级（某一轮没守信封就原文照发），
+  // 各轮真意再按顺序拼。之后的 classify / 分段 / directives 全部只认真意；外显绝不 classify。
+  const sarParse: SarEnvelopeParse | null = sarPlan?.requiresEnvelope
+    ? parseSarEnvelopeRounds(rounds, sarPlan)
+    : null;
   // result 是在 scanText（剥掉 MCP 调用语法之后的文本）上算的，比对基准必须跟着换，
   // 否则 MCP 轮穿透到收尾时会拿错缓存。没有 MCP 参与时 scanText === llmOutputText，
-  // 这里与改动前完全一致。
-  const finalScan = fullText === scanText ? result : classifyLLMOutput(fullText);
+  // 这里与改动前完全一致。信封轮不能复用：那份是在整个信封上算的，得对真意重扫。
+  const finalScan = sarParse
+    ? classifyLLMOutput(sarParse.canonical)
+    : (fullText === scanText ? result : classifyLLMOutput(fullText));
   const cleanedText = finalScan.kind === 'finish' ? finalScan.cleanedText : finalScan.prefix;
   // 角色写了 MUSIC_ACTION 的话，把 prompt 里那句「你此刻在听」的那首歌冻进去（见 attachSceneSong）。
   const directives = attachSceneSong(
@@ -435,15 +493,57 @@ export function processLLMRound(
     // 只有副作用标签、没有正文时同样放弃：角色一个字没说却在小红书点了赞、写了日记，
     // 用户看到的是「ta 什么都没说但做了事」，本身就穿帮。后台产生的副作用该等客户端
     // 上线时主动拉，不塞进一条没内容的推送里（amsg-sw README 里也是这个结论）。
-    return { decision: 'skip-push', reason: finishMeta ? 'side-effects-only' : 'empty-generation' };
+    //
+    // 日程改动是这条规矩里唯一的例外，单拎出来交给调用方走 emitResult。它不是做给用户
+    // 看的动作，是角色在纠正自己的表：一起丢掉的话，下一次 fire 读到的还是那条旧安排，
+    // 角色会反复想改又反复改不掉，用户那边则永远看到表和角色说的话对不上。emitResult
+    // 落的是服务端收件箱，不占聊天正文，也不用为它硬发一条空推送。
+    const scheduleChanges = directives
+      .filter((d): d is Extract<Directive, { type: 'change_schedule' }> => d.type === 'change_schedule')
+      .map((d) => ({ startTime: d.time, activity: d.activity }));
+    return {
+      decision: 'skip-push',
+      reason: finishMeta ? 'side-effects-only' : 'empty-generation',
+      ...(scheduleChanges.length > 0 ? { scheduleChanges } : {}),
+    };
   }
+
+  // SAR 外显：角色模块 active 且模型给了 CHAR_SURFACE 时逐段对齐。对上的那条 push 挂
+  // amsgSarSurface，横幅也换成外显——界面默认显示外显，锁屏不能把真意漏出去。
+  const sarCharacter = build.sar?.character;
+  const surfaceSlots = sarParse && sarCharacter?.phase === 'active'
+    ? buildSarSurfaceSlots(sarParse, segments)
+    : [];
+  // 快照原样随最后一条回去（客户端靠它写事件、推进回合，余韵轮 / 没守信封也一样）；
+  // 用户外显同样只挂最后一条，原文不解析。
+  const sarLastMeta: Record<string, unknown> = {
+    ...(build.sar ? { [AMSG_SAR_META_KEY]: build.sar } : {}),
+    ...(sarParse?.userSurface ? { amsgSarUserSurface: sarParse.userSurface } : {}),
+  };
+  const lastMeta = finishMeta || Object.keys(sarLastMeta).length > 0
+    ? { ...(finishMeta ?? {}), ...sarLastMeta }
+    : undefined;
 
   const lastIdx = segments.length - 1;
   return {
     decision: 'finish',
-    pushPayloads: segments.map((seg, i) =>
-      buildScheduledPush(seg.raw, build, i === lastIdx ? finishMeta : undefined, seg.sanitized),
-    ),
+    pushPayloads: segments.map((seg, i) => {
+      const slot = surfaceSlots[i];
+      const surfaceMeta = slot && sarCharacter
+        ? createSARModuleSurfaceMeta(sarCharacter, slot.surface)
+        : undefined;
+      const extra: Record<string, unknown> = {
+        ...(surfaceMeta ? { amsgSarSurface: surfaceMeta } : {}),
+        ...(i === lastIdx ? (lastMeta ?? {}) : {}),
+      };
+      return buildScheduledPush(
+        seg.raw,
+        build,
+        Object.keys(extra).length > 0 ? extra : undefined,
+        // 外显横幅截短：这条 push 还要装外显 meta，别把单段正文的字节预算吃掉一半。
+        surfaceMeta && slot ? clipSarSurfaceBanner(slot.banner) : seg.sanitized,
+      );
+    }),
   };
 }
 
@@ -475,7 +575,8 @@ function buildScheduledPush(
     messageSubtype: 'chat',
     taskId: build.taskId,
     metadata: {
-      ...build.metadata,
+      // SAR 快照不许摊进每一条（它只随最后一条经 extraMeta 回去）；调用方已摘过，这里兜一道。
+      ...stripSarSnapshot(build.metadata),
       amsgOccurrenceMs: build.occurrenceMs,
       ...(extraMeta ?? {}),
     },

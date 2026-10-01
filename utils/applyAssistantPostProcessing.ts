@@ -1,9 +1,8 @@
 /**
  * applyAssistantPostProcessing — 抽自 hooks/useChatAI.ts 的 sendMessage 后处理管线
  *
- * Phase 0 重构目标: 把"API 拿到原始 aiContent → 13 步处理 → 逐条落库到 IndexedDB"
- * 这段约 1500 行的流水线抽成可复用函数, 让本地 fetch 和 instant push (Phase 1) 两条
- * 路径都调它, 保证行为字节级一致。
+ * 把"API 拿到原始 aiContent → 13 步处理 → 逐条落库到 IndexedDB"这段流水线抽成可复用函数,
+ * 本地 fetch 路径 (useChatAI) 和云端回复的冲刷 (activeMsgRuntime) 都调它, 保证行为一致。
  *
  * 13 步 (与计划编号对应):
  *  1. normalizeAiContent — 剥 <think>/时间戳/[聊天][通话][约会] 等
@@ -20,12 +19,12 @@
  * 12. hasDisplayContent + per-chunk sanitize
  * 13. 拟人打字延迟 (setTimeout)
  *
- * Phase 0 保证: 本地 fetch 路径 directives=[] / skipSecondPassLLM=false 行为字节级不变。
- * Phase 1 会让 instant push 路径 directives=[] / skipSecondPassLLM=true (worker 已跑过).
- * Phase 2 会让 worker 端把识别出的副作用 (RECALL/SEARCH/...) 结构化传 directives, 这里只重放。
+ * 本地 fetch 路径: directives=[] / skipSecondPassLLM=false, 跑完整管线。
+ * 云端回复: skipSecondPassLLM=true (worker 已跑过工具循环), worker 把识别出的副作用结构化成
+ * directives 传过来, 这里只重放。
  */
 
-import { APIConfig, CharacterProfile, UserProfile, Message, Emoji, RealtimeConfig, GroupProfile } from '../types';
+import { APIConfig, CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, RealtimeConfig, GroupProfile } from '../types';
 import { DB } from './db';
 import { ChatParser, type FrozenMusicSong } from './chatParser';
 import { resolveCharTimeZone } from './timezone';
@@ -56,8 +55,30 @@ import { getLocalDateKey } from './localDate';
 import { normalizeAssistantActionFormatting } from './assistantActionFormat';
 import { markAmsgStateDirty } from './amsgStateSync';
 import { announceScheduleChanges, applyAssistantScheduleChanges } from './scheduleChange';
+import { isBlobRef } from './blobRef';
+import { consumeSARChatSurfaceChunk, type SARModuleSurfaceMeta } from './vrWorld/sarModuleRuntime';
+import { stripLeakedSourceTags } from './sanitize';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
+
+/**
+ * 引用回复的内容快照 —— 写进 `replyTo.content`，界面上就是引用气泡里那一小行。
+ *
+ * 被引用的那条是图片 / 表情时给占位符，不能截原值：图片存的是 `blobref:<id>` 令牌，
+ * 截前 10 个字刚好是 `blobref:b_`。messages 表是 Blob 孤儿清理的引用面（utils/blobGc.ts
+ * 把每条消息 JSON.stringify 后交给 SDK 扫），SDK 从这半截前缀提取出来的 id 是它生成的
+ * 每一个 id 的公共前缀，于是判定「引用面像是被截断过，不安全」→ 整库豁免，一个 Blob 都不删，
+ * 而且不报任何错（唯一能察觉的信号是 runGc 返回值里的 keptBoundary）。
+ */
+export function buildReplySnapshotContent(msg: { type?: string; content: string }): string {
+    const content = msg.content || '';
+    const trimmed = content.trim();
+    // 值形态判断跟 chatPrompts 的 isMediaValue 同义：data: / http(s) / blobref 令牌都是"一张图"
+    const looksLikeMedia = /^(data:|https?:\/\/)/i.test(trimmed) || isBlobRef(trimmed);
+    if (msg.type === 'emoji') return '[表情包]';
+    if (msg.type === 'image' || looksLikeMedia) return '[图片]';
+    return content.length > 10 ? content.slice(0, 10) + '...' : content;
+}
 
 /** 第一遍粗洗 — 剥 <think> / 时间戳 / 历史里漏出的 [聊天]/[通话]/[约会] / 表情包反向 tag */
 const normalizeAiContent = (raw: string): string => {
@@ -67,10 +88,115 @@ const normalizeAiContent = (raw: string): string => {
     cleaned = cleaned.replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, '');
     cleaned = cleaned.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, '');
     cleaned = cleaned.replace(/^[\w一-龥]+:\s*/, '');
-    // Strip source tags [聊天]/[通话]/[约会] leaked from history context — replace with newline to preserve intended splits
-    cleaned = cleaned.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n');
-    cleaned = cleaned.replace(/\[(?:你|User|用户|System)\s*发送了表情包[:：]\s*(.*?)\]/g, '[[SEND_EMOJI: $1]]');
+    // Strip source tags leaked from history context, including model-mutated forms such as [聊chat].
+    cleaned = stripLeakedSourceTags(cleaned);
     return cleaned;
+};
+
+/**
+ * 把 SAR 的 CHAR_SURFACE 按“最终会落库的 Chat 气泡”拆开。
+ *
+ * 这里不能只按换行切：内置翻译模式的一组 <原文>/<译文> 最终会合并成一条
+ * `原文\n%%BILINGUAL%%\n译文` 消息；语音块 + 字幕也必须保持一个原子气泡。
+ * 这份拆法刻意和 renderAndPersist 保持一致，surface 才不会在特殊模式里串到下一泡。
+ */
+export const splitSARChatSurfaceBubbles = (raw: string): string[] => {
+    // Match canonical preprocessing before splitting. History-style stickers must
+    // become emoji tokens, not text chunks that consume the next speech's slot.
+    // This only normalizes display text; surface commands are never executed.
+    const withoutShares = extractMimickedXhsShares(normalizeAiContent(raw)).cleanedContent;
+    const withoutCards = extractHtmlBlocks(withoutShares).cleanedContent;
+    let content = ChatParser.sanitize(withoutCards, { keepCitations: true });
+    // Only speech takes a surface slot. Card/action directives belong to canonical;
+    // keep emoji tokens just long enough for splitResponse to exclude them too.
+    content = content.replace(/\[\[(?!SEND_EMOJI:)[\s\S]*?\]\]/g, '').trim();
+    if (!content) return [];
+
+    const chunks: string[] = [];
+    const appendPlain = (segment: string) => {
+        for (const part of ChatParser.splitResponse(segment)) {
+            if (part.type !== 'text') continue;
+            const rawBlocks = part.content.split(/^\s*---\s*$/m).filter(block => block.trim());
+            const blocks = rawBlocks.length > 0 ? rawBlocks : [part.content];
+            for (const block of blocks) {
+                for (const chunk of ChatParser.chunkText(block.trim())) {
+                    const clean = ChatParser.sanitize(chunk);
+                    if (clean && ChatParser.hasDisplayContent(clean)) chunks.push(clean);
+                }
+            }
+        }
+    };
+
+    const tagPattern = /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>([\s\S]*?)<\/译文>\s*<\/翻译>/g;
+    if (!tagPattern.test(content)) {
+        appendPlain(content);
+        return chunks;
+    }
+
+    tagPattern.lastIndex = 0;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    while ((match = tagPattern.exec(content)) !== null) {
+        const textBefore = content.slice(lastIndex, match.index).trim();
+        if (textBefore) appendPlain(textBefore);
+
+        // 表情是独立消息，不参与文字 surface 的序号；与真正落库分支保持一致。
+        const stripEmoji = (value: string) => value.replace(/\[\[SEND_EMOJI:\s*.*?\]\]/g, '').trim();
+        const original = ChatParser.sanitize(stripEmoji(match[1]));
+        const translated = ChatParser.sanitize(stripEmoji(match[2]));
+        if (original || translated) {
+            chunks.push(original && translated
+                ? `${original}\n%%BILINGUAL%%\n${translated}`
+                : (original || translated));
+        }
+        lastIndex = match.index + match[0].length;
+    }
+
+    const textAfter = content.slice(lastIndex).trim();
+    if (textAfter) appendPlain(textAfter.replace(/<\/?翻译>|<\/?原文>|<\/?译文>/g, '').trim());
+    return chunks;
+};
+
+/**
+ * 模型偶尔会把按分类展示的清单 `呆猫: [亲亲额头]` 抄成
+ * `[[SEND_EMOJI: 呆猫: 亲亲额头]]`。先保留既有的纯名称精确匹配；只有失败后，
+ * 才把前缀当作“当前角色可见分类名”解析，并且仅在候选唯一时接受。
+ * 这样不会误伤本来就含冒号的表情名，也不会在同名分类/同名表情间猜 URL。
+ */
+const resolveEmojiForSend = (
+    rawName: string,
+    emojis: Emoji[],
+    categories: EmojiCategory[] = [],
+): Emoji | undefined => {
+    const name = rawName.trim();
+    const exact = emojis.find(emoji => emoji.name === name);
+    if (exact) return exact;
+
+    const separator = name.match(/^(.+?)\s*[:：]\s*(.+)$/u);
+    if (!separator) return undefined;
+    const categoryName = separator[1].trim();
+    const emojiName = separator[2].trim();
+    if (!categoryName || !emojiName) return undefined;
+
+    const categoryIds = new Set(categories.map(category => category.id));
+    const candidates: Emoji[] = [];
+    for (const category of categories) {
+        if (category.name !== categoryName) continue;
+        candidates.push(...emojis.filter(emoji => (
+            emoji.categoryId === category.id && emoji.name === emojiName
+        )));
+    }
+    // buildEmojiContext 给无分类表情使用“通用”，给找不到分类定义的残留使用“其他”。
+    if (categoryName === '通用') {
+        candidates.push(...emojis.filter(emoji => !emoji.categoryId && emoji.name === emojiName));
+    } else if (categoryName === '其他') {
+        candidates.push(...emojis.filter(emoji => (
+            !!emoji.categoryId && !categoryIds.has(emoji.categoryId) && emoji.name === emojiName
+        )));
+    }
+
+    const unique = candidates.filter((candidate, index) => candidates.indexOf(candidate) === index);
+    return unique.length === 1 ? unique[0] : undefined;
 };
 
 interface MimickedXhsShareBlock {
@@ -119,7 +245,7 @@ const parseMimickedXhsCount = (interactionText: string, label: string): number =
     const match = interactionText.match(new RegExp(`([\\d.,+万千亿kKmMwW]+)\\s*${label}`));
     return parseXhsCount(match?.[1] || 0);
 };
-// XHS side-effect helpers (POKE-style: 不抽到 agenticTools, 留给 Phase 2 Round 2 的 directive 重放)
+// XHS side-effect helpers (POKE-style: 不抽到 agenticTools, 云端回复靠 directive 重放触发)
 
 async function xhsPublish(
     conf: { mcpUrl: string },
@@ -193,7 +319,7 @@ async function xhsReplyComment(conf: { mcpUrl: string }, feedId: string, xsecTok
  * worker `onLLMOutput` hook 把识别到的副作用标签结构化传回, 客户端 applyAssistantPostProcessing
  * 反向重建标签后让下游 chatParser / 内联 XHS handler 复用同一份执行逻辑 (避免在客户端再写一遍).
  *
- * 字段形状跟 worker/instant-push/src/classifier.ts:Directive 必须保持一致 — 用 type 做
+ * 字段形状跟 worker/amsg/src/classifier.ts:Directive 必须保持一致 — 用 type 做
  * discriminator, 其他字段是 flat 而不是 nested payload (减少 push body 嵌套).
  */
 export type PostProcessDirective =
@@ -361,15 +487,35 @@ export interface PostProcessHooks {
     updateTokenUsage?: (data: any, msgCount: number, pass: string) => void;
     /** 给 ChatParser.parseAndExecuteActions 用的音乐钩子 */
     musicHooks?: PostProcessMusicHooks;
+    /**
+     * 日程改动没能落地时的告知出口。不传就走 addToast（本地聊天：用户正看着屏幕，
+     * 一条 toast 就够）。
+     *
+     * 主动消息路径必须传：那条路上的 addToast 是 console.log（推送随时到达，用户多半
+     * 不在看这个角色，狂弹 toast 反而更糟），于是「角色说今晚不睡了、日程卡还写着睡觉」
+     * 这件事对用户是完全无声的。那边把它接到 active-msg-process-failed 上——已有的
+     * 可见通道，自带每角色 60 秒节流。
+     */
+    notifyScheduleChangeFailed?: (note: string) => void;
 }
 
 export interface PostProcessCtx {
     char: CharacterProfile;
     userProfile: UserProfile;
     emojis: Emoji[];
+    /** 已按当前角色可见性过滤的分类；用于容错解析“分类名: 表情名”。 */
+    categories?: EmojiCategory[];
     realtimeConfig?: RealtimeConfig;
     /** 日程被角色改写后刷新主动消息 fire_pack；旧调用方可不传。 */
     groups?: GroupProfile[];
+    /**
+     * 这段话**说出口**的时刻（ms）。只有日程改动用得上：它要按角色说这句话的那一刻
+     * 判「哪条时段还能改」，而不是按处理它的这一刻。本地聊天两者差几秒、不用传；
+     * 主动消息路径必须传 push 的 sentAt——用户隔夜才打开 App 时，昨晚那句
+     * 「22:00 改成陪你聊天」不该落到今天的 22:00 上（scheduleChange 那边还有一道
+     * 日历日门槛兜底，隔天的整批丢弃）。
+     */
+    spokenAt?: number;
     /** 上下文消息窗 — 用来匹配 quote 目标 */
     contextMsgs: Message[];
     /** 发给 API 的完整 messages 数组 — 2nd-pass LLM 调用要带上 */
@@ -388,9 +534,9 @@ export interface PostProcessCtx {
      * 本地 fetch 路径 caller 不传 — 函数内自动创建 fresh, 单次 send 内同 round runXhsBrowse/Search 填充
      * 后立刻被同 round XHS_SHARE replay 读到 (跟历史行为字节级一致).
      *
-     * Instant push 路径 caller (utils/activeMsgRuntime.ts) **必传** module-level 单例:
-     * runXhsBrowse 在 instantToolRunner round 1 填充 → /continue → worker round 2 LLM 输出 XHS_SHARE
-     * → push 落库 → applyAssistantPostProcessing replay 读同一份 ref. 跨 round 共享 = 跟本地路径同 UX.
+     * 云端回复的 caller (utils/activeMsgRuntime.ts) **必传** module-level 单例: worker 跑 XHS 工具时
+     * 把引用到的笔记随 push 带回来, activeMsgRuntime 先重建进这个单例, 再由这里 replay XHS_SHARE
+     * 读同一份 ref. 跨 push 共享 = 跟本地路径同 UX.
      */
     lastXhsNotesRef?: { current: XhsNote[] };
     /** API 调用配置 */
@@ -408,21 +554,21 @@ export interface PostProcessCtx {
      */
     instantRender?: boolean;
     /**
-     * Phase 1+: 当 worker 已在自己内部跑过 2nd-pass LLM 时, 主线程不该再调一次。
-     * Phase 0 始终为 false / undefined。
+     * worker 已在自己内部跑过 2nd-pass LLM (云端回复) 时置 true, 主线程不该再调一次。
+     * 本地 fetch 路径不传。
      */
     skipSecondPassLLM?: boolean;
     /**
-     * Phase 2+: worker 端把识别到的副作用结构化传过来; 非空时只重放, 不再扫原文。
-     * Phase 0 始终为 [] / undefined。
+     * worker 端把识别到的副作用结构化传过来; 非空时只重放, 不再扫原文。
+     * 本地 fetch 路径不传。
      */
     directives?: PostProcessDirective[];
     /** Native recovery has the complete raw response and may replay local action tags. */
     recoveryReplay?: boolean;
     /**
-     * Phase 2 Round 2: push 路径 reasoning chain 来源. SW 把 ReasoningPush 写到
-     * reasoning_buffer, flushInboxToChat 在处理 sessionId 的第一条 content 时 claim
-     * 出来塞到这里. 本地 fetch 路径不传 (Step 4 仍从 initialData.choices[0].message.reasoning_content 读).
+     * 云端回复的 reasoning chain 来源: flushInboxToChat 从第一条 content push 的
+     * metadata.amsgReasoning (或挪进 client_state 的那份) 取出来塞到这里.
+     * 本地 fetch 路径不传 (Step 4 从 initialData.choices[0].message.reasoning_content 读).
      */
     reasoningContent?: string;
     /**
@@ -434,13 +580,14 @@ export interface PostProcessCtx {
      * 在线送达 vs 离线补收的判定见 activeMsgRuntime.resolveInboxPersistTimestamp。
      */
     messageTimestamp?: number;
+    /** SAR 模块的纯展示层。canonical 正文仍走 rawAiContent 的完整后处理与落库。 */
+    sarModuleSurface?: SARModuleSurfaceMeta;
 }
 
 // ─── 主入口 ─────────────────────────────────────────────────────────────────
 
 /**
- * 与 useChatAI 旧版 inline 实现行为字节级对齐。
- * skipSecondPassLLM=false + directives=[] 时是 Phase 0 默认形态。
+ * skipSecondPassLLM=false + directives=[] 时是本地 fetch 路径的默认形态。
  */
 export async function applyAssistantPostProcessing(
     rawAiContent: string,
@@ -452,6 +599,7 @@ export async function applyAssistantPostProcessing(
         emojis,
         realtimeConfig,
         groups,
+        spokenAt,
         contextMsgs,
         fullMessages,
         initialData,
@@ -466,6 +614,7 @@ export async function applyAssistantPostProcessing(
         recoveryReplay = false,
         reasoningContent: pushReasoningContent,
         messageTimestamp,
+        sarModuleSurface,
     } = ctx;
     const { baseUrl, headers, effectiveApi } = api;
     // 拟人打字延迟：流式预览已实时展示过气泡时（instantRender）跳过，避免二次慢放
@@ -479,6 +628,7 @@ export async function applyAssistantPostProcessing(
     const {
         setMessages,
         addToast,
+        notifyScheduleChangeFailed,
         setRecallStatus = () => {},
         setSearchStatus = () => {},
         setDiaryStatus = () => {},
@@ -496,26 +646,27 @@ export async function applyAssistantPostProcessing(
     // API 调用记录用 meta：二轮重生 / 调阅 / 日记 / 小红书等都归在「消息」App 下，purpose 见各分支。
     const apiLogMeta = { appName: '消息', charId: char.id, charName: char.name };
 
-    // Phase 1: skipSecondPassLLM=true (instant push 路径) 时, 跳过所有需要回连 LLM 的
+    // skipSecondPassLLM=true (云端回复) 时, 跳过所有需要回连 LLM 的
     // 二轮分支 (RECALL / SEARCH / READ_DIARY / FS_READ_DIARY / READ_NOTE / XHS_*)。
     // 这些 tag 留在原文里, 由后面 Step 6 的 ChatParser.sanitize 兜底剥掉 (chatParser.ts:225
     // 的正则覆盖 ACTION/RECALL/SEARCH/DIARY/READ_DIARY/FS_DIARY/FS_READ_DIARY/...),
     // XHS_* / READ_NOTE 兜底用 Step 12 的 hasDisplayContent + per-chunk sanitize 再清一遍。
     // 写日记类 (DIARY / FS_DIARY) 不走 LLM, 属于纯副作用 (像 POKE), 客户端可以直接执行。
-    // Phase 2 Round 2: directives 非空时, worker 已经把副作用标签结构化传过来 (并从 push body
+    // directives 非空时, worker 已经把副作用标签结构化传过来 (并从 push body
     // 里剥光了). 我们重建原 tag 字符串塞回 rawAiContent 头部, 让下游 chatParser.parseAndExecuteActions
     // + 后置 XHS_* 内联 handler 用同一份代码执行 — 零重复实现, 跟本地 fetch 路径同一份 source of truth.
     // tag 末尾 +\n\n 保证不跟正文粘连导致 regex 漏匹配; chatParser.sanitize 会把它们清干净.
     const replayedTagPrefix = reconstructDirectiveTags(directives);
     const hasReplayDirectives = !!directives && directives.length > 0;
 
-    // Phase 1 把 XHS 副作用 (LIKE/FAV/COMMENT/REPLY/POST/SHARE) 跟 2nd-pass LLM tools (SEARCH/BROWSE/
-    // DETAIL/MY_PROFILE) 一起用 skipSecondPassLLM 关掉了. Round 2 拆开: 副作用类只需要 MCP 调用,
-    // 不需要 LLM round-trip, 当 worker 给了 directives 时 (xhs_* in classifier) 这些 tag 已重建回正文,
-    // 必须执行. 用 disabledXhsSideEffects = (skipSecondPassLLM && !hasReplayDirectives) 区分:
-    //   - 本地 fetch 路径: skipSecondPassLLM=false → false → 不禁用, 跟历史行为一致
-    //   - Phase 1 push 路径 (老 worker, 无 directives): true && true → 禁用 (旧 trade-off 不变)
-    //   - Phase 2 push 路径 (Round 2 worker, 有 directives): true && false → 不禁用, 副作用照常跑
+    // XHS 副作用 (LIKE/FAV/COMMENT/REPLY/POST/SHARE) 跟 2nd-pass LLM tools (SEARCH/BROWSE/
+    // DETAIL/MY_PROFILE) 分开对待: 副作用类只需要 MCP 调用, 不需要 LLM round-trip, 当 worker 给了
+    // directives 时 (xhs_* in classifier) 这些 tag 已重建回正文, 必须执行.
+    // 用 disabledXhsSideEffects = (skipSecondPassLLM && !hasReplayDirectives) 区分:
+    //   - 本地 fetch 路径: skipSecondPassLLM=false → false → 不禁用
+    //   - 云端回复但没带 directives: true && true → 禁用 (原文里的 tag 没经 worker 识别, 不执行)
+    //   - 云端回复带 directives: true && false → 不禁用, 副作用照常跑
+    //   - 原生恢复重放 (recoveryReplay): 拿到的是完整原文, 本地可重放动作标签 → 不禁用
     const disabledXhsSideEffects = skipSecondPassLLM && !hasReplayDirectives && !recoveryReplay;
 
     /** 从缓存或 notesPool 中查找 xsecToken — 仅副作用 XHS handler (COMMENT/REPLY/LIKE/FAV) 使用 */
@@ -527,7 +678,7 @@ export async function applyAssistantPostProcessing(
 
     /**
      * XHS 跨 tool 共享笔记缓冲 — 取代旧版 `let lastXhsNotesRef.current`.
-     * Caller (instant push 路径) 传了 module-level 单例就用它 (跨 round 共享让 XHS_SHARE 找到上轮笔记);
+     * Caller (云端回复) 传了 module-level 单例就用它 (跨 push 共享让 XHS_SHARE 找到 worker 带回的笔记);
      * 没传 (本地 fetch 路径) 自动创建 fresh (单次 send 内 runXhsBrowse → XHS_SHARE 同一函数闭包内共享, 跟历史一致).
      */
     const lastXhsNotesRef = ctx.lastXhsNotesRef ?? { current: [] as XhsNote[] };
@@ -552,22 +703,49 @@ export async function applyAssistantPostProcessing(
     let data: any = initialData;
 
     let scheduleFailureNotified = false;
-    const consumeScheduleChanges = async (content: string): Promise<string> => {
-        const result = await applyAssistantScheduleChanges(content, char);
+    // 这句话**说出口**的时刻。本地聊天没传就是「现在」；主动消息传 push 的 sentAt。
+    const utteranceAt = typeof spokenAt === 'number' && Number.isFinite(spokenAt)
+        ? new Date(spokenAt)
+        : new Date();
+    /**
+     * `at` 是这段文字说出口的时刻，由调用处按来源给：首轮正文用 utteranceAt，二轮
+     * LLM 产出的那段用「现在」——它是刚刚生成的，跟原始那句话隔着几次工具往返，
+     * 拿旧钟去判会把新写的日程改动当成隔夜的整批丢掉。
+     */
+    const consumeScheduleChanges = async (content: string, at: Date): Promise<string> => {
+        const result = await applyAssistantScheduleChanges(content, char, at);
         if (result.changes.length > 0 && result.schedule) {
-            if (realtimeConfig) {
-                // 本地聊天直接复用 caller 的 groups；主动消息路径只在真的改了日程时读一次，
-                // 不给每一条普通 push 平添 IndexedDB 查询和新的失败点。
-                const syncGroups = groups ?? await DB.getGroups().catch(() => undefined);
-                if (syncGroups) markAmsgStateDirty({ char, userProfile, groups: syncGroups, realtimeConfig });
-            }
+            // 本地聊天直接复用 caller 的 groups；主动消息路径只在真的改了日程时读一次，
+            // 不给每一条普通 push 平添 IndexedDB 查询和新的失败点。
+            const syncGroups = groups ?? await DB.getGroups().catch(() => undefined);
+            // realtimeConfig 缺席也照打脏：快照里它本来就是可选的，而「没开过实时设置」
+            // 就是默认状态（localStorage 里压根没这个键）。少打这一次脏，云端 fire_pack
+            // 会一直留着旧日程，下一次主动消息还在念角色刚说过不做的那件事。
+            if (syncGroups) markAmsgStateDirty({ char, userProfile, groups: syncGroups, realtimeConfig });
             announceScheduleChanges(char.id, result.schedule, result.changes);
         }
         if (!scheduleFailureNotified
             && result.changes.length === 0
             && (result.malformedCount > 0 || result.rejectedCount > 0)) {
             scheduleFailureNotified = true;
-            addToast('日程修改没有匹配到未来时段，已安全跳过', 'info');
+            if (result.rejectedReason === 'cross-day') {
+                // 隔夜补收：角色昨晚说的话，今天这张表本来就不该跟着动。这是日历日门槛
+                // 按设计工作，不是失败——弹提示会让用户以为出了错，接到送达失败那条通道
+                // 上还会把「主动消息送达失败」的指标撑起来（送达其实成功了）。留一行日志
+                // 就够，界面上什么都不用说：用户看到的消息和今天的日程表本来就不矛盾。
+                console.info('[schedule-change] 这批改动是之前说的，今天的表不动', {
+                    charId: char.id,
+                    count: result.rejectedCount,
+                });
+            } else {
+                // 剩下两种才是真没落地。两种原因分开讲：一种是标签认出来了但今天的表里
+                // 没有对得上的时段，一种是标签本身就没写对，用户能做的事不一样。
+                const failureNote = result.rejectedCount > 0
+                    ? '日程修改没有找到对得上的时段，已安全跳过'
+                    : '日程修改的格式没认出来，已安全跳过';
+                if (notifyScheduleChangeFailed) notifyScheduleChangeFailed(failureNote);
+                else addToast(failureNote, 'info');
+            }
         }
         return result.cleanedText;
     };
@@ -576,7 +754,7 @@ export async function applyAssistantPostProcessing(
     let aiContent = replayedTagPrefix ? `${replayedTagPrefix}${rawAiContent}` : rawAiContent;
     aiContent = normalizeAiContent(aiContent);
     // 先于 lead-in / 二轮渲染消费：否则控制标签会作为普通气泡短暂闪给用户看。
-    aiContent = await consumeScheduleChanges(aiContent);
+    aiContent = await consumeScheduleChanges(aiContent, utteranceAt);
     // 在任何 lead-in/二轮渲染之前先剥掉仿卡片文本，防止它被 chunkText 拆成灰色普通气泡。
     const mimickedXhsShares = extractMimickedXhsShares(aiContent);
     aiContent = mimickedXhsShares.cleanedContent;
@@ -622,10 +800,27 @@ export async function applyAssistantPostProcessing(
 
     // 把一段文本 (parseAndExecuteActions / HTML 之外的部分) 渲染成气泡并落库 —— 双语 / 表情 / 引用 / 分段
     // 与原 inline 末尾逻辑一致。抽出来是为了让"执行功能前的本轮正文 A"能在二轮前先展示, 二轮结果 B 复用同一套。
+    let sarSurfaceClaimed = false;
     const renderAndPersist = async (rawContent: string, firstThinkingChain: string | null): Promise<void> => {
         let firstMeta: any = firstThinkingChain ? { thinkingChain: firstThinkingChain } : null;
-        const takeMeta = (base: any): any => {
-            const merged = firstMeta ? { ...(base || {}), ...firstMeta } : base;
+        const surfaceChunks = !sarSurfaceClaimed && sarModuleSurface?.surface
+            ? splitSARChatSurfaceBubbles(sarModuleSurface.surface)
+            : [];
+        if (surfaceChunks.length > 0) sarSurfaceClaimed = true;
+        let surfaceIndex = 0;
+        const takeMeta = (base: any, canonicalChunk?: string): any => {
+            let surfaceChunk: string | undefined;
+            if (canonicalChunk !== undefined) {
+                const aligned = consumeSARChatSurfaceChunk(canonicalChunk, surfaceChunks, surfaceIndex);
+                surfaceChunk = aligned.surface;
+                surfaceIndex = aligned.nextIndex;
+            }
+            const sarMeta = surfaceChunk && sarModuleSurface
+                ? { sarModuleSurface: { ...sarModuleSurface, surface: surfaceChunk } }
+                : undefined;
+            const merged = firstMeta || sarMeta
+                ? { ...(base || {}), ...(sarMeta || {}), ...(firstMeta || {}) }
+                : base;
             firstMeta = null;
             return merged;
         };
@@ -637,7 +832,7 @@ export async function applyAssistantPostProcessing(
         // 降级文案跟横幅那边（sanitizeIntoSegments 的 [表情：x]）对齐，锁屏看到什么点进去就是什么。
         const sendEmojiBubble = async (name: string): Promise<void> => {
             await typingPause(Math.random() * 500 + 300);
-            const foundEmoji = emojis.find(e => e.name === name);
+            const foundEmoji = resolveEmojiForSend(name, emojis, ctx.categories);
             if (foundEmoji) {
                 await persistMessage({ charId: char.id, role: 'assistant', type: 'emoji', content: foundEmoji.url, metadata: takeMeta(mcdInheritMeta) } as any);
             } else {
@@ -674,8 +869,7 @@ export async function applyAssistantPostProcessing(
             // 兜底：精确匹配失败但角色明确想引用 → 取最近一条用户文字消息，避免空引用
             if (!targetMsg) targetMsg = users.filter((m: Message) => m.type === 'text' || !m.type).slice(-1)[0] || users.slice(-1)[0];
             if (!targetMsg) return undefined;
-            const truncated = targetMsg.content.length > 10 ? targetMsg.content.slice(0, 10) + '...' : targetMsg.content;
-            return { id: targetMsg.id, content: truncated, name: userProfile.name };
+            return { id: targetMsg.id, content: buildReplySnapshotContent(targetMsg), name: userProfile.name };
         };
 
         // Quote/Reply 目标 (双语路径用)
@@ -709,7 +903,7 @@ export async function applyAssistantPostProcessing(
                         if (!chunk) continue;
                         const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                         await typingPause(Math.min(Math.max(chunk.length * 50, 500), 2000));
-                        await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                        await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: chunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta, chunk) } as any);
                         setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                         globalMsgIndex++;
                     }
@@ -735,7 +929,7 @@ export async function applyAssistantPostProcessing(
                         : (originalText || translatedText);
                     const replyData = globalMsgIndex === 0 ? aiReplyTarget : undefined;
                     await typingPause(Math.min(Math.max(biContent.length * 30, 400), 2000));
-                    await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: biContent, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                    await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: biContent, replyTo: replyData, metadata: takeMeta(mcdInheritMeta, biContent) } as any);
                     setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                     globalMsgIndex++;
                 }
@@ -784,7 +978,7 @@ export async function applyAssistantPostProcessing(
                         if (ChatParser.hasDisplayContent(chunk)) {
                             const cleanChunk = ChatParser.sanitize(chunk);
                             if (cleanChunk) {
-                                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: cleanChunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta) } as any);
+                                await persistMessage({ charId: char.id, role: 'assistant', type: 'text', content: cleanChunk, replyTo: replyData, metadata: takeMeta(mcdInheritMeta, cleanChunk) } as any);
                                 setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
                                 globalMsgIndex++;
                                 chunkSaved = true;
@@ -1105,7 +1299,7 @@ ${lines.join(String.fromCharCode(10))}
         }
 
         // 预写日志: 发请求前先把内容落进待写队列 (localStorage 同步落盘), 这样即使后续 fetch 失败 /
-        // app 被杀, 内容也不丢. 前台可见才立即写 (本地路径 + 前台 instant, fetch 可靠); 后台时不发
+        // app 被杀, 内容也不丢. 前台可见才立即写 (本地路径 + 前台收到的云端回复, fetch 可靠); 后台时不发
         // 这个脆弱的请求 (易被冻结打断, 甚至服务端写成功但响应丢失 → 回前台重试会重复写), 直接留在
         // 队列, 等 drainPendingDiaries 在回前台时补打. 写成功就删掉这条.
         const pendingDiaryId = enqueuePendingDiary({ kind: 'notion', charId: char.id, charName: char.name, title, content, mood: mood || undefined });
@@ -1787,7 +1981,7 @@ ${lines.join(String.fromCharCode(10))}
             });
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } else {
-            // 笔记缓冲为空 / 越界 → 卡片发不出来. instant 路径靠 saveXhsSessionNotes 持久化恢复,
+            // 笔记缓冲为空 / 越界 → 卡片发不出来. 云端回复靠 saveXhsSessionNotes 持久化恢复,
             // 走到这里说明恢复也没命中 (TTL 过期 / 跨 session), 留日志便于排查, 不再静默吞掉.
             console.warn('📕 [XHS] XHS_SHARE 序号越界, 跳过卡片', { idx: idx + 1, available: lastXhsNotesRef.current.length });
         }
@@ -2340,7 +2534,10 @@ ${lines.join(String.fromCharCode(10))}
 
     // 二轮 LLM 可能新产生日程标签；在统一动作解析前再消费一次。首次那条已经从 aiContent
     // 剥掉且写入幂等（同活动不重复），因此普通单轮回复不会重放副作用。
-    aiContent = await consumeScheduleChanges(aiContent);
+    //
+    // 这一段是刚刚生成的，所以按「现在」判时段，不跟着首轮那句的 spokenAt 走：两者之间
+    // 隔着 RECALL / SEARCH / XHS 几趟往返，隔夜补收的 spokenAt 会把新写的改动整批作废。
+    aiContent = await consumeScheduleChanges(aiContent, new Date());
 
     // ─── Step 3: ChatParser.parseAndExecuteActions ───
     // 任务监督工具钩子：从 ctx 构造一份 APIConfig 给 taskSettlement 用
@@ -2410,7 +2607,7 @@ ${lines.join(String.fromCharCode(10))}
     // ─── Step 6: 展示本轮回复 (二轮结果 B / 无二轮时的单轮回复) ───
     // - 跑过二轮 (data !== initialData): aiContent 现在是 B; 一轮正文 A 已在 Step 2 开头先行展示, 这里只展示 B。
     // - 有重生指令但没真正发起二轮 (data 不变: 未配置/无结果/无日志/已激活/二轮异常 等): A 已展示, 跳过避免重复。
-    // - 没有重生 (普通回复 / instant push): leadInRendered 必为 false, 正常展示本轮唯一回复。
+    // - 没有重生 (普通回复 / 云端回复): leadInRendered 必为 false, 正常展示本轮唯一回复。
     if (leadInRendered && data === initialData) {
         setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
     } else {

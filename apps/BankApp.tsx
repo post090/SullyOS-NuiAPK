@@ -1,3 +1,4 @@
+import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import { extractLlmContent } from '../utils/llmContent';
 import React, { useState, useEffect, useRef } from 'react';
@@ -8,6 +9,8 @@ import { BankFullState, BankTransaction, SavingsGoal, ShopStaff, BankGuestbookIt
 import { safeResponseJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import Modal from '../components/os/Modal';
+import TokenImg from '../components/os/TokenImg';
+import { isBlobRef } from '../utils/blobRef';
 import BankShopScene from '../components/bank/BankShopScene';
 import BankDollhouse from '../components/bank/BankDollhouse';
 import BankGameMenu from '../components/bank/BankGameMenu';
@@ -17,6 +20,7 @@ import { processImage } from '../utils/file';
 import { ContextBuilder } from '../utils/context';
 import { Coffee, ClipboardText, ChartBar, Coin, Target, UserCircle, BookOpen, Lightning, Storefront } from '@phosphor-icons/react';
 import { addLocalDays, getLocalDateKey } from '../utils/localDate';
+import { roundMoney, sumMoney } from '../utils/format';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { trackEvent } from '../utils/analytics';
 
@@ -296,7 +300,7 @@ const BankApp: React.FC = () => {
         }
 
         const todayTx = txs.filter(t => t.dateStr === today);
-        const spent = todayTx.reduce((sum, t) => sum + t.amount, 0);
+        const spent = sumMoney(todayTx.map(t => t.amount));
         const appeal = calculateAppeal(currentState.shop.staff.length, currentState.shop.unlockedRecipes);
 
         const finalState = { ...currentState, todaySpent: spent, shop: { ...currentState.shop, appeal } };
@@ -336,7 +340,7 @@ const BankApp: React.FC = () => {
         trackEvent('记一笔账');
 
         const cur = stateRef.current;
-        const newSpent = cur.todaySpent + amount;
+        const newSpent = roundMoney(cur.todaySpent + amount);
         const newState = { ...cur, todaySpent: newSpent };
         stateRef.current = newState;
         setState(newState);
@@ -365,7 +369,7 @@ const BankApp: React.FC = () => {
         let newSpent = cur.todaySpent;
         const today = getLocalDateKey();
         if (tx.dateStr === today) {
-            newSpent = Math.max(0, cur.todaySpent - tx.amount);
+            newSpent = Math.max(0, roundMoney(cur.todaySpent - tx.amount));
         }
 
         const newState = { ...cur, todaySpent: newSpent };
@@ -534,14 +538,15 @@ const BankApp: React.FC = () => {
 
             // 2. Build Context
             await injectMemoryPalace(randomChar);
-            const charContext = ContextBuilder.buildCoreContext(randomChar, userProfile, true);
-            const recentMsgs = await DB.getMessagesByCharId(randomChar.id);
+            const characterContextInput = { char: randomChar, user: userProfile, includeDetailedMemories: true };
+
+            const recentMsgs = await loadCharacterContextMessages(randomChar);
             const chatSnippet = recentMsgs.slice(-10).map(m => m.content.substring(0, 50)).join(' | ');
 
             const previousGuestbook = (current.shop.guestbook || []).slice(0, 10).map(g => `${g.authorName}: ${g.content}`).join('\n');
 
             // 3. Prompt
-            const prompt = `${charContext}
+            const prompt = `
 ### Scenario: Visiting User's Savings App Café Guestbook
 ${userProfile.name} has a savings/budgeting app (记账App). Inside the app there's a virtual café mini-game, similar to how Alipay has "蚂蚁庄园" or how friends visit each other's farms in QQ Farm.
 You are visiting this virtual café as a friend/player.
@@ -570,7 +575,7 @@ ${previousGuestbook}
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({ model: apiConfig.model, messages: [{ role: 'user', content: prompt }] })
+                body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]) })
             });
 
             if (response.ok) {
@@ -1114,8 +1119,9 @@ ${previousGuestbook}
                                 className="w-24 h-24 rounded-2xl bg-gradient-to-br from-[#FFF8E1] to-[#FFE0B2] border-2 border-[#E8DCC8] flex items-center justify-center text-5xl relative overflow-hidden group cursor-pointer shadow-inner"
                                 onClick={() => staffImageInputRef.current?.click()}
                             >
-                                {editingStaff.avatar.startsWith('http') || editingStaff.avatar.startsWith('data')
-                                    ? <img src={editingStaff.avatar} className="w-full h-full object-cover" />
+                                {/* 店员头像可能是图床直链 / base64 / blobref 令牌，三种都算图；其余当 emoji 显示。 */}
+                                {editingStaff.avatar.startsWith('http') || editingStaff.avatar.startsWith('data') || isBlobRef(editingStaff.avatar)
+                                    ? <TokenImg value={editingStaff.avatar} className="w-full h-full object-cover" />
                                     : editingStaff.avatar
                                 }
                                 <div className="absolute inset-0 bg-black/30 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">

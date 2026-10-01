@@ -1,5 +1,5 @@
 /**
- * 全局 TTS 服务商选择（MiniMax ↔ 鱼声 Fish Audio ↔ ElevenLabs）。
+ * 全局 TTS 服务商选择（MiniMax / 鱼声 Fish Audio / ElevenLabs）。
  *
  * 大多数语音合成入口都能拿到 apiConfig，直接用 `resolveTtsProvider(apiConfig)` 即可。
  * 但少数地方（如 chatPrompts.buildSystemPrompt 拼语音格式指导时）拿不到 apiConfig，
@@ -22,6 +22,20 @@ export function getTtsProvider(): TtsProvider {
   return currentProvider;
 }
 
+const DEFAULT_ELEVENLABS_MODEL = 'eleven_flash_v2_5';
+let currentElevenLabsModel = DEFAULT_ELEVENLABS_MODEL;
+
+/** 同步当前 ElevenLabs 模型，供拿不到 apiConfig 的 prompt 构建器做模型感知。 */
+export function setElevenLabsModel(model: string | undefined | null): void {
+  currentElevenLabsModel = typeof model === 'string' && model.trim()
+    ? model.trim()
+    : DEFAULT_ELEVENLABS_MODEL;
+}
+
+export function getElevenLabsModel(): string {
+  return currentElevenLabsModel;
+}
+
 /** 从 apiConfig 解析当前 TTS 服务商（缺省 → minimax）。 */
 export const resolveTtsProvider = (apiConfig?: Pick<APIConfig, 'ttsProvider'> | null): TtsProvider =>
   normalizeTtsProvider(apiConfig?.ttsProvider);
@@ -32,8 +46,8 @@ export const resolveTtsProvider = (apiConfig?: Pick<APIConfig, 'ttsProvider'> | 
  * 所以 OSContext 在 apiConfig.voicePrompts 变化时调 setVoicePromptOverrides() 同步，
  * prompt 侧用 getVoicePromptOverride() 读最新值。某项留空 → 返回 undefined → 调用方回退内置默认。
  *
- * 四个键：
- *   - 'minimax' / 'fishaudio' / 'elevenlabs'：聊天 + 电话共用的语音表演指南，按 TTS 服务商三选一注入。
+ * 三个键：
+ *   - 'minimax' / 'fishaudio' / 'elevenlabs'：聊天 + 电话共用，按当前服务商注入。
  *   - 'dateVoice'：见面（DateApp）专用的 [v:xxx] 语音情绪规则，与服务商无关、单独一份。
  */
 export type VoicePromptKey = TtsProvider | 'dateVoice';

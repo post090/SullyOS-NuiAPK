@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
-  MAX_ACTIVE_TASKS_PER_CHAR,
   REPLACE_CANCEL_FAILED_NOTE,
   applyRemoteTaskDelta,
   applyScheduledTask,
@@ -12,6 +11,7 @@ import {
   currentOccurrenceMs,
   describeInstantChatFailure,
   describeRemoteLastError,
+  describeTaskFailureCause,
   describeTaskProgress,
   findTaskByShortId,
   getPendingTasks,
@@ -61,10 +61,6 @@ describe('amsg2Tasks helpers', () => {
     const daily = task({ taskUuid: 'daily000-0000-0000-0000-000000000000', firstSendTime: new Date(now - 100 * H).toISOString(), recurrenceType: 'daily' });
     expect(pruneStaleTasks([stale, recent, daily], now).map((t) => shortTaskId(t.taskUuid)))
       .toEqual(['recent00', 'daily000']);
-  });
-
-  it('封顶常量为 5', () => {
-    expect(MAX_ACTIVE_TASKS_PER_CHAR).toBe(5);
   });
 
   // 同步门（amsgStateSync）依赖 hasActiveAiTask：只要还有「待触发的非 fixed 任务」才同步 fire_pack。
@@ -414,6 +410,15 @@ describe('describeInstantChatFailure', () => {
     expect(text).not.toContain('生成失败');
   });
 
+  // 中转站把报错装在 HTTP 200 里（amsg-server 2.6.0-next.28 起按调用失败处理）：报错开头
+  // 换成了「HTTP 200 but …」，给用户看的仍得是破折号后面中转站的原话。
+  it('errorCode LLM_CALL_FAILED 且上游回的是 200 → 照样引中转站原话', () => {
+    const reason = 'AI API error: HTTP 200 but body is not a chat completion (no choices). '
+      + 'Request URL: https://relay.example.com/v1/chat/completions — 无效的令牌 (provider code: 401)';
+    expect(describeInstantChatFailure({ reason, errorCode: 'LLM_CALL_FAILED' }))
+      .toBe('模型接口拒了这次请求：无效的令牌 (provider code: 401)');
+  });
+
   it('errorCode PUSH_PAYLOAD_TOO_LARGE → 说这条太长，不套「生成失败」', () => {
     expect(describeInstantChatFailure({ reason: 'push payload 4200 bytes', errorCode: 'PUSH_PAYLOAD_TOO_LARGE' }))
       .toBe('这条回复太长，一条推送装不下');
@@ -430,6 +435,72 @@ describe('describeInstantChatFailure', () => {
   it('认不出来的 errorCode 走通用文案，不吞掉底层报错', () => {
     expect(describeInstantChatFailure({ reason: '上游 502', errorCode: 'SOMETHING_NEW' }))
       .toBe('生成失败：上游 502');
+  });
+
+  // 聊天里没有「原文」可以展开，这句就是用户能看到的全部，原话里的凭据 id 不能被一句概括替掉。
+  it('errorCode CREDENTIAL_MISSING → 照样显示原话（体检面板那套一句话概括不用在这里）', () => {
+    const text = describeInstantChatFailure({
+      reason: 'CREDENTIAL_MISSING: 凭据 cred-abc 不存在',
+      errorCode: 'CREDENTIAL_MISSING',
+    }, 2)!;
+    expect(text).toContain('cred-abc');
+  });
+});
+
+// 体检「定时任务」那一行逐条说「这次是哪一类失败」。原文全文另外收在「原文」底下，
+// 这里要守的是：类别说对、要紧的那半句不被吞掉、null 字段（体检回执给的就是 null）不炸。
+describe('describeTaskFailureCause', () => {
+  it('模型接口拒了：类别 + 上游原话的关键段（模型名不能截掉）', () => {
+    const reason = 'AI API error: 404 Not Found. Request URL: https://api.example.com/v1/chat/completions\n'
+      + '  — The model `gpt-4o-typo` does not exist. (provider code: model_not_found)';
+    const text = describeTaskFailureCause({ reason, errorCode: 'LLM_CALL_FAILED', pushStatus: null });
+    expect(text).toContain('模型接口拒了这次请求');
+    expect(text).toContain('gpt-4o-typo');
+    expect(text).not.toContain('Request URL');
+  });
+
+  it('推送服务拒收：类别 + 状态码（原话里状态码在破折号前面，会被切掉，从机读字段补回来）', () => {
+    const text = describeTaskFailureCause({
+      reason: 'Web Push delivery failed: 403 Forbidden — invalid JWT provided',
+      errorCode: 'PUSH_SEND_FAILED',
+      pushStatus: 403,
+    });
+    expect(text).toBe('推送服务没收下这条消息（403）：invalid JWT provided');
+  });
+
+  it('只要一句就说完的几种直接给那一句', () => {
+    expect(describeTaskFailureCause({ reason: 'CREDENTIAL_MISSING: 凭据 cred-1 不存在', errorCode: 'CREDENTIAL_MISSING' }))
+      .toBe('Worker 上找不到这个角色要用的 API 凭据');
+    expect(describeTaskFailureCause({ reason: 'PUSH_SUBSCRIPTION_MISSING: …', errorCode: 'PUSH_SUBSCRIPTION_MISSING' }))
+      .toBe('Worker 上没有登记收件设备');
+    expect(describeTaskFailureCause({ reason: 'AGENTIC_LOOP_EXCEEDED: no finish/skip-push decision within 6 LLM round(s)', errorCode: 'AGENTIC_LOOP_EXCEEDED' }))
+      .toBe('工具调用轮数用完了还没写出回复');
+    expect(describeTaskFailureCause({ reason: 'x', errorCode: 'AGENTIC_EMPTY_TOOL_REQUEST' })).toContain('工具');
+    expect(describeTaskFailureCause({ reason: 'push payload 4200 bytes', errorCode: 'PUSH_PAYLOAD_TOO_LARGE' }))
+      .toBe('这条回复太长，一条推送装不下');
+  });
+
+  it('订阅失效（410）照旧说去重置订阅', () => {
+    expect(describeTaskFailureCause({ reason: 'Web Push delivery failed: 410 Gone', errorCode: 'PUSH_SEND_FAILED', pushStatus: 410 }))
+      .toContain('重置订阅');
+  });
+
+  it("'stale' 说成过期太久，不把机器词原样透出去", () => {
+    expect(describeTaskFailureCause({ reason: 'stale', errorCode: null, pushStatus: null })).toBe('到点时已经过期太久');
+  });
+
+  it('SullyOS 自己的 Worker 抛的错没有 errorCode：原话截一段，代号留在开头', () => {
+    const text = describeTaskFailureCause({
+      reason: `AMSG2_FIRE_STATE_MISSING: ${'x'.repeat(400)}`,
+      errorCode: null,
+      pushStatus: null,
+    });
+    expect(text.startsWith('AMSG2_FIRE_STATE_MISSING')).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(REMOTE_ERROR_REASON_MAX);
+  });
+
+  it('什么都没留下时也给一句，不返回空串', () => {
+    expect(describeTaskFailureCause({ reason: '', errorCode: null, pushStatus: null })).toBe('没留下具体原因');
   });
 });
 
@@ -675,5 +746,20 @@ describe('设置面板的启用开关落盘', () => {
     // 就地写 enabled:false 的话，该角色在远端的任务没人取消，会变成面板看不见、
     // 却照样到点触发的幽灵任务。
     expect(toggleHandler).toMatch(/if \(turningOn\)[\s\S]*?onSave\(/);
+  });
+});
+
+// 任务卡片上那行原因只留得下关键半句，状态码和上游原话的其余部分都截掉了——
+// 用户截图来问的时候，唯一能看到全文的地方就是这个「原文」折叠块。
+// 跟上面一样是源码级断言（vitest 是纯 Node 环境，组件跑不起来）。
+describe('任务卡片的失败原文', () => {
+  const modal = readFileSync(
+    fileURLToPath(new URL('../components/chat/ActiveMsg2SettingsModal.tsx', import.meta.url)),
+    'utf8',
+  );
+
+  it('失败原因下面挂着「原文」折叠块，放的是没截断的 reason', () => {
+    expect(modal).toMatch(/<summary[^>]*>原文<\/summary>/);
+    expect(modal).toMatch(/<pre[^>]*>\s*\{remoteInfo\.lastError\.reason\}\s*<\/pre>/);
   });
 });

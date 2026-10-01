@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CaretLeft, Lightning, Stop } from '@phosphor-icons/react';
 import { CharacterBuff, CharacterProfile } from '../../types';
+import TokenImg from '../os/TokenImg';
 
 /** header 实际只用到这些字段——放宽类型让群聊传合成对象（群名/群头像）复用本组件 */
 type HeaderCharacter = Pick<CharacterProfile, 'id' | 'name' | 'avatar'> & { activeBuffs?: CharacterBuff[] };
@@ -27,8 +28,9 @@ interface ChatHeaderShellProps {
     extraAction?: { label: string; icon: React.ReactNode; onClick: () => void };
     /** 触发按钮图标：生成中想显示"停止"时传 'stop'。不传 = 原行为（闪电） */
     triggerIcon?: 'lightning' | 'stop';
+    /** 私聊启用底部生成入口时隐藏顶栏闪电。 */
+    hideTrigger?: boolean;
     isEmotionEvaluating?: boolean;
-    isInstantSending?: boolean;
     isMemoryPalaceProcessing?: boolean;
     memoryPalaceStatusText?: string;
     lastTokenUsage: number | null;
@@ -71,7 +73,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     onCancelSelection,
     activeCharacter,
     isEmotionEvaluating,
-    isInstantSending,
     isMemoryPalaceProcessing,
     memoryPalaceStatusText,
     lastTokenUsage,
@@ -83,6 +84,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     statusText,
     extraAction,
     triggerIcon = 'lightning',
+    hideTrigger = false,
     hideBuffs = false,
     headerStyle = 'default',
     avatarShape = 'circle',
@@ -251,9 +253,8 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
           ? 'text-[#fff7ed] hover:bg-[#f8f0e0]/20 rounded-[4px] border-2 border-[#8f674a] bg-[#f8f0e0]/10'
           : 'text-indigo-500 hover:bg-indigo-50 rounded-full';
 
-    const onlineStatusNode = headerStyle === 'telegram'
-        ? null
-        : statusStyle === 'pill' ? (
+    // 在线状态由独立的外观设置决定，头部风格不能覆盖它。
+    const onlineStatusNode = statusStyle === 'pill' ? (
             <div className={`text-[9px] px-1.5 py-0.5 rounded-full font-semibold border ${isDarkHeader ? 'bg-emerald-500/20 text-emerald-200 border-emerald-400/20' : isPixelHeader ? 'bg-[#fff7ed] text-[#8f674a] border-[#8f674a]/25' : 'bg-emerald-50 text-emerald-500 border-emerald-100'}`}>
                 {statusText ?? 'online'}
             </div>
@@ -326,16 +327,11 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
         );
     };
 
-    const floatingStatusNodes = (lastTokenUsage || isInstantSending || isEmotionEvaluating || isMemoryPalaceProcessing) ? (
+    const floatingStatusNodes = (lastTokenUsage || isEmotionEvaluating || isMemoryPalaceProcessing) ? (
         <div className={`absolute ${extraAction ? 'right-20' : 'right-12'} top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none`}>
             {lastTokenUsage && (
                 <div className={`sully-chat-token text-[9px] px-1.5 py-0.5 rounded-md font-mono border ${isDarkHeader ? 'bg-slate-800 text-slate-300 border-white/10' : isPixelHeader ? 'bg-[#fff7ed] text-[#8f674a] border-[#8f674a]/20' : 'bg-slate-100/95 text-slate-400 border-slate-200'}`}>
                     {lastTokenUsage}
-                </div>
-            )}
-            {isInstantSending && (
-                <div className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border animate-pulse ${isDarkHeader ? 'bg-sky-500/15 text-sky-200 border-sky-400/20' : isPixelHeader ? 'bg-[#eff6ff] text-[#1d4ed8] border-[#1d4ed8]/20' : 'bg-sky-50/95 text-sky-600 border-sky-200'}`}>
-                    发送中…
                 </div>
             )}
             {isEmotionEvaluating && (
@@ -353,8 +349,11 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
 
     const renderCenteredInfo = () => (
         <div className="flex w-full min-w-0 max-w-full flex-col items-center text-center">
-            <img src={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
+            <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
             <div className={`sully-chat-name mt-1 font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
+            <div className="sully-chat-status flex items-center justify-center gap-2 flex-wrap">
+                {onlineStatusNode}
+            </div>
             {buffs.length > 0 && (
                 <div className="mt-1 min-h-[18px] w-full">
                     {renderBuffRow(true)}
@@ -365,7 +364,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
 
     const renderStandardInfo = () => (
         <>
-            <img src={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
+            <TokenImg value={activeCharacter.avatar} className={`sully-chat-avatar w-10 h-10 object-cover shadow-sm ${avatarRadiusClass}`} alt="avatar" />
             <div className="sully-chat-info flex-1 min-w-0 flex flex-col items-start text-left">
                 <div className={`sully-chat-name font-bold ${primaryTextClass}`}>{activeCharacter.name}</div>
                 <div className="sully-chat-status flex items-center gap-2 flex-wrap">
@@ -373,11 +372,6 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                     {lastTokenUsage && (
                         <div className={`sully-chat-token text-[9px] px-1.5 py-0.5 rounded-md font-mono border ${isDarkHeader ? 'bg-slate-800 text-slate-300 border-white/10' : isPixelHeader ? 'bg-[#fff7ed] text-[#8f674a] border-[#8f674a]/20' : 'bg-slate-100 text-slate-400 border-slate-200'}`} title={tokenBreakdown ? `prompt: ${tokenBreakdown.prompt} | completion: ${tokenBreakdown.completion} | msgs: ${tokenBreakdown.msgCount} | pass: ${tokenBreakdown.pass}` : ''}>
                             {lastTokenUsage}
-                        </div>
-                    )}
-                    {isInstantSending && (
-                        <div className={`text-[9px] px-1.5 py-0.5 rounded-md font-semibold border animate-pulse ${isDarkHeader ? 'bg-sky-500/15 text-sky-200 border-sky-400/20' : isPixelHeader ? 'bg-[#eff6ff] text-[#1d4ed8] border-[#1d4ed8]/20' : 'bg-sky-50 text-sky-600 border-sky-200'}`}>
-                            发送中…
                         </div>
                     )}
                     {isEmotionEvaluating && (
@@ -428,9 +422,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                         {renderCenteredInfo()}
                     </div>
 
-                    <button onClick={onTriggerAI} className={`sully-chat-trigger absolute right-0 bottom-2 p-2 ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
+                    {!hideTrigger && <button data-guide="generate" onClick={onTriggerAI} className={`sully-chat-trigger absolute right-0 bottom-2 p-2 ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
                         {triggerIconNode}
-                    </button>
+                    </button>}
                     {extraAction && (
                         <button onClick={extraAction.onClick} className={`absolute right-10 bottom-2 p-2 ${iconButtonClass}`} title={extraAction.label} aria-label={extraAction.label}>
                             {extraAction.icon}
@@ -453,9 +447,9 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                             {extraAction.icon}
                         </button>
                     )}
-                    <button onClick={onTriggerAI} className={`sully-chat-trigger p-2 ${extraAction ? '' : 'ml-auto'} ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
+                    {!hideTrigger && <button data-guide="generate" onClick={onTriggerAI} className={`sully-chat-trigger p-2 ${extraAction ? '' : 'ml-auto'} ${actionButtonClass}`} title={triggerIcon === 'stop' ? '停止生成' : '触发 AI'}>
                         {triggerIconNode}
-                    </button>
+                    </button>}
                 </div>
             )}
 

@@ -158,7 +158,16 @@ export function realObserveTarget(world: WorldProfile, now: Date = worldNow(worl
     const cur = world.realClock;
     const nw = realNowSeg(now);
     if (!cur) return nw;
-    if (cur.dayKey < nw.dayKey) return { dayKey: nw.dayKey, seg: 0 }; // 过去的天丢掉，跳到今天最早一段
+    if (cur.dayKey < nw.dayKey) {
+        // 凌晨按剧情日归在昨天，但仍是今天的内容。天亮后先补今天凌晨，
+        // 再进入早上；更早的剧情日仍不追溯补演。
+        const previousDay = new Date(now);
+        previousDay.setDate(previousDay.getDate() - 1);
+        if (now.getHours() >= 5 && cur.dayKey === dayKeyOf(previousDay) && cur.seg < LATE_NIGHT_SEG) {
+            return { dayKey: cur.dayKey, seg: LATE_NIGHT_SEG };
+        }
+        return { dayKey: nw.dayKey, seg: 0 };
+    }
     if (cur.dayKey > nw.dayKey) return null; // 数据异常（时钟回拨），不补
     return cur.seg < nw.seg ? { dayKey: nw.dayKey, seg: cur.seg + 1 } : null; // 同一天：补下一段，或已追上
 }

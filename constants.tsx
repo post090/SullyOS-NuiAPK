@@ -119,7 +119,6 @@ export const INSTALLED_APPS: AppConfig[] = [
   { id: AppID.Gallery, name: '相册', icon: 'Gallery', color: 'orange' },
   { id: AppID.XhsFreeRoam, name: '自由活动', icon: 'XhsFreeRoam', color: 'rose' },
   { id: AppID.XhsStock, name: '小红书图库', icon: 'XhsStock', color: 'red' },
-  { id: AppID.ThemeMaker, name: '气泡工坊', icon: 'ThemeMaker', color: 'purple' },
   { id: AppID.Appearance, name: '外观', icon: 'Appearance', color: 'slate' },
   { id: AppID.Settings, name: '设置', icon: 'Settings', color: 'slate' },
   { id: AppID.Guidebook, name: '攻略本', icon: 'Guidebook', color: 'slate' },

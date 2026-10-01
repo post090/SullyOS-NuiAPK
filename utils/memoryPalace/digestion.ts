@@ -23,6 +23,7 @@
  * 这不是分区域轮流审查，而是一次 LLM 调用，角色作为一个整体去"回想"。
  */
 
+import { readMaintenanceSettings } from './maintenanceMode';
 import type { MemoryNode, Anticipation, PersonalityStyle, EmbeddingConfig, RemoteVectorConfig, PlateRoom, DigestReport, DigestReportSection } from './types';
 import { PLATE_TITLES } from './types';
 import type { LightLLMConfig } from './pipeline';
@@ -850,6 +851,7 @@ export async function runCognitiveDigestion(
     /** 阶段回调：LLM 调用链较长（审视→回填→整理），让前端能实时告诉用户别走开 */
     onProgress?: (stage: string) => void,
 ): Promise<DigestResult | null> {
+    if (!manualTrigger && readMaintenanceSettings().enabled) return null;
     const trigger: 'auto' | 'manual' = manualTrigger ? 'manual' : 'auto';
 
     // 并发锁：同一角色同时只跑一个消化。链路长（审视→回填→整理），没有锁时

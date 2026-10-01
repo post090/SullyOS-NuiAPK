@@ -1,8 +1,8 @@
 // fake-slow-llm — OpenAI-compatible 慢速假 LLM，纯测试用。
 //
 // 干什么的: 假装是一个 chat completions 端点, 收到请求后干等一段时间
-// (默认 120 秒) 再吐回复。用来测 instant-push worker 在「LLM 很慢 +
-// 客户端断开/杀 App」场景下的存活窗口与推送兜底, 不消耗任何真实 token。
+// (默认 120 秒) 再吐回复。用来测 worker 在「LLM 很慢 + 客户端断开/杀 App」
+// 场景下的存活窗口、超时与推送兜底, 不消耗任何真实 token。
 //
 // 跑法 (二选一):
 //   - 本地:      deno run --allow-net --allow-env scripts/fake-slow-llm.ts
@@ -30,7 +30,7 @@ declare const Deno: {
 const DEFAULT_DELAY_MS = 120_000;
 const MODEL_ID = 'fake-slow-llm';
 
-// 多句回复, 让 instant-push 的分句器能切出多条推送来测 multipart 链路。
+// 多句回复, 让分句器能切出多条推送来测多段消息链路。
 const REPLY_SENTENCES = [
   '这是一条来自假 LLM 的慢速测试回复。',
   '如果你看到这条消息, 说明 worker 熬过了漫长的等待。',
@@ -167,7 +167,7 @@ Deno.serve(async (request: Request) => {
     });
   }
 
-  // 任意前缀的 /chat/completions — amsg-instant 会按 apiUrl 形态自动拼路径
+  // 任意前缀的 /chat/completions — 调用方会按 apiUrl 形态自动拼路径
   if (request.method === 'POST' && /\/chat\/completions\/?$/.test(pathname)) {
     const delayMs = resolveDelayMs(request);
     let wantsStream = false;
