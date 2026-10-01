@@ -44,5 +44,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Persistent AI companion always-on runtime for scheduled role events, calls and music playback." />
         </service>
+        <service
+            android:name="com.sullyos.nativeruntime.AmsgUnifiedPushService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="org.unifiedpush.android.connector.PUSH_EVENT" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

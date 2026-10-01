@@ -210,6 +210,17 @@ export interface BrowserPushState {
   iosNeedsPwa: boolean;
   capacitorNative: boolean;
   /**
+   * 推送走哪条通道。缺省是浏览器 Web Push；安卓 App 走 UnifiedPush（ntfy 之类的分发器），
+   * 那时 SW / 浏览器订阅这些行没有意义，面板据此换一套读数。
+   */
+  transport?: 'web-push' | 'unified-push';
+  /** UnifiedPush 分发器包名，没选是 null。只在 transport 为 unified-push 时有意义。 */
+  distributor?: string | null;
+  /** 手机上装了几个 UnifiedPush 分发器。 */
+  distributorCount?: number;
+  /** 原生插件最近一次注册失败的说明。 */
+  nativeError?: string | null;
+  /**
    * 最近一次订阅失败的记录，没失败过是 null。
    *
    * 这是判断「接口都在但这台设备实际推不了」的**唯一**可靠依据：能力检测查的是

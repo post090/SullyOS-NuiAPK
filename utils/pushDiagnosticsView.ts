@@ -21,9 +21,16 @@ export const hasLiveFailure = (state: BrowserPushState): boolean =>
 export const liveFailureKind = (state: BrowserPushState): SubscribeFailureKind | null =>
   hasLiveFailure(state) ? state.lastSubscribeFailure!.kind : null;
 
-export const describePermission = (permission: BrowserPushState['permission']): string => {
+export const describePermission = (
+  permission: BrowserPushState['permission'],
+  transport: BrowserPushState['transport'] = 'web-push',
+): string => {
   if (permission === 'granted') return '已授权';
-  if (permission === 'denied') return '已拒绝（要去浏览器的站点设置里手动打开）';
+  if (permission === 'denied') {
+    return transport === 'unified-push'
+      ? '已拒绝（要去系统设置 → 应用 → 通知里手动打开）'
+      : '已拒绝（要去浏览器的站点设置里手动打开）';
+  }
   if (permission === 'default') return '还没决定';
   return '不可用';
 };
@@ -35,6 +42,10 @@ export const describeServiceWorker = (state: BrowserPushState): string => {
 };
 
 export const describeSubscription = (state: BrowserPushState): string => {
+  if (state.transport === 'unified-push') {
+    if (state.endpoint) return '已建立';
+    return state.nativeError ? `不存在（${state.nativeError}）` : '不存在';
+  }
   if (!state.endpoint) return '不存在';
   return state.endpointDead ? '已被浏览器吊销' : '已建立';
 };
@@ -49,6 +60,11 @@ export const describeSubscription = (state: BrowserPushState): string => {
  * 也算进来。
  */
 export const describeSupport = (state: BrowserPushState): string => {
+  if (state.transport === 'unified-push') {
+    if (state.distributor) return `是（UnifiedPush：${state.distributor}）`;
+    if (state.distributorCount) return '已装推送服务，还没选用（点下面「重置订阅」）';
+    return '否（还没装 ntfy 等 UnifiedPush 服务）';
+  }
   if (state.capacitorNative) return '否（现在跑在 App 里）';
   if (!state.supported) return '否（浏览器缺少推送相关接口）';
   const failure = liveFailureKind(state);
@@ -60,6 +76,7 @@ export const describeSupport = (state: BrowserPushState): string => {
 
 /** 「浏览器支持」这行要不要标红。 */
 export const isSupportBad = (state: BrowserPushState): boolean => {
+  if (state.transport === 'unified-push') return !state.distributor && !state.distributorCount;
   if (!state.supported || state.capacitorNative) return true;
   const failure = liveFailureKind(state);
   return failure !== null && DEVICE_LEVEL_FAILURES.includes(failure);

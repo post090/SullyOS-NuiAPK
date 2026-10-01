@@ -465,6 +465,18 @@ describe('buildAmsgDiagnosticRows — 红绿判定', () => {
     expect(rowOf(rows, 'pushDevice').level).toBe('bad');
   });
 
+  it('安卓 App 走 UnifiedPush 时，「这台设备」指向 ntfy 而不是浏览器', () => {
+    const rows = buildAmsgDiagnosticRows({
+      probe: { reachable: true, report: healthyReport() },
+      localPushSubscribed: false,
+      pushTransport: 'unified-push',
+    });
+    const device = rowOf(rows, 'pushDevice');
+    expect(device.level).toBe('bad');
+    expect(device.detail).toContain('ntfy');
+    expect(device.detail).not.toContain('浏览器');
+  });
+
   // ─── 假绿灯回归守卫 ───
   // 真实事故：登记状态两边一致（浏览器有订阅、Worker 上也有同一条 endpoint），
   // 但那条订阅在推送服务那侧早就作废，每次投递换回一个 410。体检当时七项里六项

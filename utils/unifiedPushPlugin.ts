@@ -1,5 +1,6 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
+import type { BrowserPushState } from './pushSubscribeShared';
 
 export interface UnifiedPushSubscription {
   endpoint: string;
@@ -106,6 +107,43 @@ export const ensureUnifiedPushSubscription = async (
   }
 
   throw new Error('UnifiedPush 注册超时。请确认 ntfy 已打开并允许它在后台运行。');
+};
+
+/** 把 UnifiedPush 现状翻成「推送订阅状态」面板吃的那份读数。只读，不弹权限框。 */
+export const readUnifiedPushPanelState = async (): Promise<BrowserPushState> => {
+  const base: BrowserPushState = {
+    supported: false,
+    capabilityGap: null,
+    permission: 'unavailable',
+    swScope: null,
+    swState: 'none',
+    endpoint: null,
+    endpointDead: false,
+    channel: 'UnifiedPush',
+    iosNeedsPwa: false,
+    capacitorNative: true,
+    transport: 'unified-push',
+    distributor: null,
+    distributorCount: 0,
+    nativeError: null,
+    lastSubscribeFailure: null,
+  };
+  try {
+    const status = await getUnifiedPushStatus();
+    const distributor = status.distributor || status.subscription?.distributor || null;
+    return {
+      ...base,
+      supported: Boolean(distributor) || status.distributors.length > 0,
+      permission: status.permission === 'prompt' ? 'default' : status.permission,
+      endpoint: status.subscription?.endpoint || null,
+      channel: distributor ? `UnifiedPush（${distributor}）` : 'UnifiedPush（未选推送服务）',
+      distributor,
+      distributorCount: status.distributors.length,
+      nativeError: status.lastError,
+    };
+  } catch (error) {
+    return { ...base, nativeError: `原生推送桥不可用：${(error as Error)?.message || error}` };
+  }
 };
 
 export const readUnifiedPushSubscription = async () =>

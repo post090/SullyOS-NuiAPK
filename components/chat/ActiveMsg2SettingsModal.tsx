@@ -203,9 +203,10 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
       const globalConfig = await ActiveMsgClient.getGlobalConfig();
       const pushStatus = await ActiveMsgClient.getPushStatus();
       setGlobalReady(Boolean(globalConfig.workerUrl));
+      const channelLabel = pushStatus.transport === 'unified-push' ? 'UnifiedPush（ntfy）' : 'Web Push';
       setPushSummary(pushStatus.supported
-        ? `权限：${pushStatus.permission} / 订阅：${pushStatus.hasSubscription ? '已就绪' : '未创建'}`
-        : '当前环境不支持 Web Push');
+        ? `${channelLabel} · 权限：${pushStatus.permission} / 订阅：${pushStatus.hasSubscription ? '已就绪' : '未创建'}${pushStatus.detail && pushStatus.transport === 'unified-push' && !pushStatus.hasSubscription ? `（${pushStatus.detail}）` : ''}`
+        : pushStatus.detail || (pushStatus.transport === 'unified-push' ? '还没有可用的 UnifiedPush 服务，请先安装 ntfy' : '当前环境不支持 Web Push'));
     })();
 
     // 防穿帮闸最近拦下了哪次触发、今天主动找了几次。闸是静默的，不说一声的话「让路了」

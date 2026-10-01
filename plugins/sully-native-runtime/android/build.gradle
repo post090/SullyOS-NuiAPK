@@ -27,6 +27,10 @@ android {
         versionName "0.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
 }
 
 repositories {
@@ -34,7 +38,22 @@ repositories {
     mavenCentral()
 }
 
+// The UnifiedPush connector pulls the JVM build of Tink; Android apps must use tink-android
+// instead, otherwise the app module hits duplicate-class errors.
+rootProject.allprojects {
+    configurations.configureEach {
+        def tinkAndroid = "com.google.crypto.tink:tink-android:1.23.0"
+        resolutionStrategy {
+            force tinkAndroid
+            dependencySubstitution {
+                substitute module('com.google.crypto.tink:tink') using module(tinkAndroid)
+            }
+        }
+    }
+}
+
 dependencies {
     implementation project(':capacitor-android')
+    implementation 'org.unifiedpush.android:connector:3.3.5'
     testImplementation "junit:junit:$junitVersion"
 }

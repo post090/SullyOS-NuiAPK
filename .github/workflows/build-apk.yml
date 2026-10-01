@@ -49,6 +49,7 @@ jobs:
         run: pnpm run build
         env:
           VITE_HIDE_BUILD_BADGE: '1'
+          VITE_AMSG_NATIVE_PUSH: 'true'
 
       - name: Add Android platform
         run: npx cap add android || true

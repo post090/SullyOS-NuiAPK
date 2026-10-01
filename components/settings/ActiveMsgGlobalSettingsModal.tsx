@@ -930,6 +930,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     ? buildAmsgDiagnosticRows({
       probe: diagnosticsProbe,
       localPushSubscribed: Boolean(pushStatus?.hasSubscription),
+      pushTransport: pushStatus?.transport,
       // 跟任务卡片同一种写法：cron 一分钟一跳，秒位没有意义。
       formatTime: (atMs) => formatTaskTime(atMs),
       tickReport: tickReportResult,
@@ -944,7 +945,11 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     pushSubscribed: Boolean(pushStatus?.hasSubscription),
     workerSupportsInstantChat: instantChatSupported,
   });
-  const instantChatBlockedReason = instantChatBlocker ? INSTANT_CHAT_BLOCKER_HINTS[instantChatBlocker] : '';
+  const instantChatBlockedReason = instantChatBlocker
+    ? (instantChatBlocker === '没开推送' && pushStatus?.transport === 'unified-push'
+      ? '先连接 ntfy 并开启通知：回复是靠推送送回来的，没有订阅就变成发得出、收不到。'
+      : INSTANT_CHAT_BLOCKER_HINTS[instantChatBlocker])
+    : '';
 
   return (
     <>

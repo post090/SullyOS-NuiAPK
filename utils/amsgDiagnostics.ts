@@ -293,6 +293,8 @@ export interface AmsgDiagnosticsInput {
   probe: AmsgDiagnosticsProbe;
   /** 这台设备的浏览器有没有推送订阅（本地事实，worker 那侧看不到）。 */
   localPushSubscribed?: boolean;
+  /** 这台设备走哪条推送通道。安卓 App 是 unified-push（ntfy），文案不能再说「浏览器」。 */
+  pushTransport?: 'web-push' | 'unified-push';
   /** 把 epoch 毫秒写成给人看的时间；不传按本机习惯格式化（单测注入固定格式用）。 */
   formatTime?: (atMs: number) => string;
   /** 定时任务的逐条细账。没拉（null / 不传）时「定时任务」那一行只按 /debug 的两个数说话。 */
@@ -803,16 +805,24 @@ export const buildAmsgDiagnosticRows = (input: AmsgDiagnosticsInput): AmsgDiagno
   const deliveryVerdict = remoteRegistered
     ? judgePushDeliveryFailure(storage.pushDelivery, input.formatTime)
     : null;
+  const unifiedPush = input.pushTransport === 'unified-push';
   rows.push({
     key: 'pushDevice',
     label: '这台设备',
     level: !localPushSubscribed ? 'bad' : !remoteRegistered ? 'bad' : deliveryVerdict?.level || 'ok',
-    detail: !localPushSubscribed
-      ? '这台设备还没订阅推送，点下面的「开启通知与推送」。'
-      : !remoteRegistered
-        ? '浏览器订阅好了，但 Worker 上没有登记收件设备——到点的消息发不出去。点下面的「开启通知与推送」补登记一次。'
-        : deliveryVerdict?.detail
-          || '浏览器已订阅，Worker 上也登记了收件设备，最近一次推送也没被退回来。换设备或换浏览器之后要在新的那台上再点一次「开启通知与推送」。',
+    detail: unifiedPush
+      ? (!localPushSubscribed
+        ? '这台手机还没通过 ntfy（UnifiedPush）订阅推送。先装好 ntfy 并打开一次，再点下面的「连接 ntfy 并开启通知」。'
+        : !remoteRegistered
+          ? 'ntfy 订阅好了，但 Worker 上没有登记收件设备——到点的消息发不出去。点下面的「连接 ntfy 并开启通知」补登记一次。'
+          : deliveryVerdict?.detail
+            || 'ntfy 已订阅，Worker 上也登记了收件设备，最近一次推送也没被退回来。注意一个 Worker 只存一份订阅，在别的设备上登记过之后要回这台再点一次。')
+      : (!localPushSubscribed
+        ? '这台设备还没订阅推送，点下面的「开启通知与推送」。'
+        : !remoteRegistered
+          ? '浏览器订阅好了，但 Worker 上没有登记收件设备——到点的消息发不出去。点下面的「开启通知与推送」补登记一次。'
+          : deliveryVerdict?.detail
+            || '浏览器已订阅，Worker 上也登记了收件设备，最近一次推送也没被退回来。换设备或换浏览器之后要在新的那台上再点一次「开启通知与推送」。'),
   });
 
   rows.push(buildTickRow(probe.report, input));

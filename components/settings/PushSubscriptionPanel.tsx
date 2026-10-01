@@ -24,6 +24,7 @@ import {
 } from '../../utils/amsgDiagnostics';
 import { catchUpMissedPushesManually } from '../../utils/activeMsgRuntime';
 import { readBrowserPushState, type BrowserPushState } from '../../utils/pushSubscribeShared';
+import { isUnifiedPushPlatform, readUnifiedPushPanelState } from '../../utils/unifiedPushPlugin';
 import {
   describeElapsed,
   describePermission,
@@ -75,7 +76,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
   const refresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      const browserState = await readBrowserPushState();
+      const browserState = isUnifiedPushPlatform()
+        ? await readUnifiedPushPanelState()
+        : await readBrowserPushState();
       setBrowser(browserState);
       // 没填 Worker 地址就别去问了——问也是白问，还会在控制台留一串没用的报错。
       const config = await ActiveMsgClient.getGlobalConfig().catch(() => null);
@@ -181,6 +184,10 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
         // 有旧账但已经不算数了：说清楚「那是上一条订阅的事」，别让人以为从来没坏过。
         : { value: delivery.gone ? '这条订阅登记之后没被退回过' : '没有被退回的记录', bad: false };
 
+  // 安卓 App 走 UnifiedPush（ntfy），那条链路没有 SW 和浏览器订阅，面板换一套读数和说法。
+  const unified = browser?.transport === 'unified-push';
+  const nativeWithoutChannel = Boolean(browser?.capacitorNative) && !unified;
+
   const resetLabel = resetting
     ? (deepMode ? '深度重置中…' : '重置中…')
     : (deepMode ? '深度重置' : '重置订阅');
@@ -188,7 +195,10 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
   return (
     <div>
       <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-        主动消息到点靠网页推送送到你手上。这条链路上任意一环断了，表现都是「任务建得成、到点没消息」，
+        {unified
+          ? '主动消息到点由 Worker 推给手机上的 ntfy（UnifiedPush），再转交给 App。'
+          : '主动消息到点靠网页推送送到你手上。'}
+        这条链路上任意一环断了，表现都是「任务建得成、到点没消息」，
         界面上不会有任何异常。这里把每一环摊开给你看。
       </p>
 
@@ -224,11 +234,13 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
 
         {browser ? (
           <div className="space-y-1.5 text-[11px]">
-            <Row label="浏览器支持" value={describeSupport(browser)} bad={isSupportBad(browser)} />
-            <Row label="通知权限" value={describePermission(browser.permission)} bad={browser.permission !== 'granted'} />
-            <Row label="Service Worker" value={describeServiceWorker(browser)} bad={browser.swState !== 'activated'} />
+            <Row label={unified ? '推送服务' : '浏览器支持'} value={describeSupport(browser)} bad={isSupportBad(browser)} />
+            <Row label="通知权限" value={describePermission(browser.permission, browser.transport)} bad={browser.permission !== 'granted'} />
+            {!unified && (
+              <Row label="Service Worker" value={describeServiceWorker(browser)} bad={browser.swState !== 'activated'} />
+            )}
             <Row
-              label="浏览器订阅"
+              label={unified ? 'App 订阅' : '浏览器订阅'}
               value={describeSubscription(browser)}
               bad={!browser.endpoint || browser.endpointDead}
             />
@@ -316,10 +328,24 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
                 iOS 的网页推送必须先「添加到主屏幕」、再从主屏图标打开才能用。
               </div>
             )}
-            {browser.capacitorNative && (
+            {nativeWithoutChannel && (
               <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 leading-relaxed">
                 你现在用的是<b>打包好的 App</b>，不是浏览器网页。网页推送这条通道在 App 里不存在，
                 这个面板可以直接忽略——不影响正常使用。
+              </div>
+            )}
+            {unified && !browser.distributor && (
+              <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-700 leading-relaxed">
+                App 收主动消息要借手机上的 UnifiedPush 服务。
+                {browser.distributorCount
+                  ? <>已经检测到推送服务，点下面的「重置订阅」选用它并登记到 Worker。</>
+                  : <>先装一个 <b>ntfy</b>（F-Droid 或 GitHub 版均可），打开一次并允许它后台运行，再回来点「重置订阅」。</>}
+              </div>
+            )}
+            {unified && browser.nativeError && (
+              <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
+                <p className="font-semibold mb-1">上次注册推送服务失败</p>
+                <p>{browser.nativeError}</p>
               </div>
             )}
           </div>
@@ -328,10 +354,10 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
         )}
 
         <button
-          disabled={resetting || refreshing || browser?.capacitorNative}
+          disabled={resetting || refreshing || nativeWithoutChannel}
           onClick={() => void handleReset()}
           className={`mt-4 w-full py-2 rounded-xl text-xs font-bold border ${
-            resetting || refreshing || browser?.capacitorNative
+            resetting || refreshing || nativeWithoutChannel
               ? 'bg-slate-100 text-slate-400 border-slate-200'
               : deepMode || browser?.endpointDead || registrationText.bad || deliveryText.bad
                 ? 'bg-rose-500 text-white border-rose-500 hover:bg-rose-600'
@@ -341,8 +367,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
           {resetLabel}
         </button>
         <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-          「重置订阅」会清掉现在这条、重建一条，再登记到 Worker 上。换了浏览器、换了 Worker、
-          或者订阅被吊销之后点它。
+          {unified
+            ? '「重置订阅」会让 ntfy 重新发一条订阅地址，再登记到 Worker 上。换了 Worker、重装过 ntfy、或者在别的设备上登记过之后点它。'
+            : '「重置订阅」会清掉现在这条、重建一条，再登记到 Worker 上。换了浏览器、换了 Worker、或者订阅被吊销之后点它。'}
           {deepMode && <><br/>连着几次都没成，已经切到「深度重置」——它会把 Service Worker 整个装一遍，更彻底。</>}
         </p>
 
@@ -350,7 +377,7 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
             平时冷启动和回到前台会自动捞一次，这个按钮是给「我确实少收了东西」的时候用的：
             它连头一趟的账本存量也当补收处理，而自动那条路会把存量整批销掉（分不清哪些是
             真丢的、哪些是当时收到了只是老版本不会销账，倒出来就是重放）。 */}
-        {workerConfigured && !browser?.capacitorNative && (
+        {workerConfigured && !nativeWithoutChannel && (
           <>
             <button
               disabled={catchingUp || resetting || refreshing}

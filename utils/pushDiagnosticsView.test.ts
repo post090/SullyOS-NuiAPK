@@ -82,6 +82,31 @@ describe('「浏览器支持」这一行', () => {
   });
 });
 
+describe('安卓 App 的 UnifiedPush 通道', () => {
+  const unified = (patch: Partial<BrowserPushState> = {}) => baseState({
+    capacitorNative: true,
+    transport: 'unified-push',
+    distributor: null,
+    distributorCount: 0,
+    ...patch,
+  });
+
+  it('没装推送服务时标红并指向 ntfy', () => {
+    expect(describeSupport(unified())).toContain('ntfy');
+    expect(isSupportBad(unified())).toBe(true);
+  });
+
+  it('装了但还没选用时不标红', () => {
+    expect(isSupportBad(unified({ distributorCount: 1 }))).toBe(false);
+  });
+
+  it('选好分发器后显示包名，不再说「跑在 App 里」', () => {
+    const state = unified({ distributor: 'io.heckel.ntfy', distributorCount: 1 });
+    expect(describeSupport(state)).toContain('io.heckel.ntfy');
+    expect(isSupportBad(state)).toBe(false);
+  });
+});
+
 describe('失败记录的时效', () => {
   it('已经有活订阅了就当没失败过', () => {
     // 换了浏览器 / SW 自愈重订之后，旧记录还在盘上但显然过期了，再显示就是误导。
