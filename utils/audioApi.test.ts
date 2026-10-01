@@ -6,7 +6,9 @@ import * as blobRef from './blobRef';
 import { normalizeApiConfig } from './apiConfigNormalize';
 import {
   audioFormatFromMime,
+  audioMimeFromName,
   buildTestToneWav,
+  ensureAudioBlob,
   isAudioApiReady,
   lrcToPlainLyrics,
   materializeAudioDescriptions,
@@ -54,6 +56,24 @@ describe('audio API config', () => {
     expect(audioFormatFromMime('audio/x-wav')).toBe('wav');
     expect(audioFormatFromMime('', 'song.flac?x=1')).toBe('flac');
     expect(audioFormatFromMime('application/octet-stream', 'weird.bin')).toBe('mp3');
+  });
+
+  it('infers audio mime from file names with punctuation', () => {
+    expect(audioMimeFromName('【现场】 歌名 - 歌手 (Live)，版本！.mp3')).toBe('audio/mpeg');
+    expect(audioMimeFromName('a.b c.FLAC')).toBe('audio/flac');
+    expect(audioMimeFromName('无后缀')).toBeNull();
+    expect(audioMimeFromName('doc.pdf')).toBeNull();
+  });
+
+  it('rewraps octet-stream picks as audio blobs', () => {
+    const raw = new File([new Uint8Array([1, 2, 3])], '【Demo】 歌.m4a', { type: 'application/octet-stream' });
+    const wrapped = ensureAudioBlob(raw);
+    expect(wrapped.type).toBe('audio/mp4');
+    expect(wrapped.size).toBe(3);
+    const ok = new File([new Uint8Array([1])], 'x.mp3', { type: 'audio/mpeg' });
+    expect(ensureAudioBlob(ok)).toBe(ok);
+    const unknown = new File([new Uint8Array([1])], 'x.bin', { type: '' });
+    expect(ensureAudioBlob(unknown)).toBe(unknown);
   });
 
   it('builds a valid wav test tone', async () => {

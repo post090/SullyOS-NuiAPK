@@ -49,6 +49,42 @@ export const audioFormatFromMime = (mime: string, fallbackName = ''): string => 
   return ext && Object.values(AUDIO_FORMAT_BY_MIME).includes(ext) ? ext : 'mp3';
 };
 
+const AUDIO_MIME_BY_EXT: Record<string, string> = {
+  mp3: 'audio/mpeg', wav: 'audio/x-wav', m4a: 'audio/mp4', aac: 'audio/aac',
+  flac: 'audio/flac', ogg: 'audio/ogg', opus: 'audio/ogg', webm: 'audio/webm',
+};
+
+/**
+ * 由文件名后缀推断音频 MIME，认不出返回 null。
+ * 名字里的空格、中文、【】等标点都不影响判断（只看最后一个 `.` 之后的部分）。
+ */
+export const audioMimeFromName = (name: string): string | null => {
+  const ext = (name || '').split('?')[0].split('.').pop()?.toLowerCase() || '';
+  return AUDIO_MIME_BY_EXT[ext] ?? null;
+};
+
+/**
+ * 归一化选中的音频文件。部分安卓 ROM 从文件名推 MIME 时对空格/【】等字符解析失败，
+ * JS 拿到的 File 是 application/octet-stream；这类文件按扩展名重包装成正确音频 MIME
+ * 的 Blob，保证 <audio> 能播、时长能读、识别 API 能拿到正确格式。
+ * 本来就有音频 MIME 的原样返回，不做复制。
+ */
+export const ensureAudioBlob = (blob: Blob, nameHint = ''): Blob => {
+  if ((blob.type || '').startsWith('audio/')) return blob;
+  const name = blob instanceof File ? blob.name : nameHint;
+  const mime = audioMimeFromName(name || '');
+  return mime ? new Blob([blob], { type: mime }) : blob;
+};
+
+/**
+ * 音频选择器的 accept 值。网页端用 audio/*（系统对话框按 MIME 过滤，工作正常）；
+ * 原生 APK 里，部分安卓 ROM 从文件名推 MIME 时对空格/【】等字符会解析失败，把明明
+ * 是音频的文件当未知类型，按 audio/* 过滤的选择器会把这些文件静默丢掉（选完毫无
+ * 反应）。所以原生端不设 accept，可选任何文件，由 JS 按 MIME / 扩展名校验并给出
+ * 明确提示兜底。
+ */
+export const AUDIO_PICKER_ACCEPT: string | undefined = isNative() ? undefined : 'audio/*';
+
 const blobToBase64 = async (blob: Blob): Promise<string> => {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const CHUNK = 0x8000;

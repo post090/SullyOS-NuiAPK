@@ -10,6 +10,7 @@ import NetImg from '../os/NetImg';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
 import { trackEvent } from '../../utils/analytics';
 import { findEmojiSuggestions } from '../../utils/emojiSuggestions';
+import { AUDIO_PICKER_ACCEPT } from '../../utils/audioApi';
 
 const EMOJI_PAGE_SIZE = 40;
 const ACTION_PAGE_SIZE = 8;
@@ -1007,7 +1008,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         >
                           <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
                           {onAudioSelect && (
-                            <input type="file" ref={chatAudioInputRef} className="hidden" accept="audio/*" aria-label="选择本地音频" onChange={(e) => {
+                            <input type="file" ref={chatAudioInputRef} className="hidden" accept={AUDIO_PICKER_ACCEPT} aria-label="选择本地音频" onChange={(e) => {
                               const file = e.target.files?.[0];
                               if (file) onAudioSelect(file);
                               e.target.value = '';

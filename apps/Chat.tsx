@@ -29,7 +29,7 @@ import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsSha
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
-import { isAudioApiReady, MAX_AUDIO_BYTES, readAudioDuration } from '../utils/audioApi';
+import { audioMimeFromName, ensureAudioBlob, isAudioApiReady, MAX_AUDIO_BYTES, readAudioDuration } from '../utils/audioApi';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { createTask } from '../utils/taskSettlement';
@@ -1885,8 +1885,10 @@ const Chat: React.FC = () => {
     };
 
     const handleAudioSelect = async (file: File) => {
-        if (!file.type.startsWith('audio/') && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/i.test(file.name)) {
-            addToast('请选择音频文件', 'error');
+        // 双重校验：MIME 或扩展名任一命中即可。安卓部分 ROM 对名字带空格/【】等字符的
+        // 音频推不出 MIME（拿到的是 application/octet-stream），靠扩展名兜底放行。
+        if (!file.type.startsWith('audio/') && !audioMimeFromName(file.name)) {
+            addToast('请选择音频文件（mp3 / wav / m4a / aac / flac / ogg / opus / webm）', 'error');
             return;
         }
         if (file.size > MAX_AUDIO_BYTES) {
@@ -1897,11 +1899,14 @@ const Chat: React.FC = () => {
             addToast('还没接入音频识别 API，角色暂时听不到声音（设置 → 音频识别 API）', 'info');
         }
         try {
-            const [ref, duration] = await Promise.all([putImageBlob(file), readAudioDuration(file)]);
+            // 推不出 MIME 的文件按扩展名补上正确音频类型，保证气泡里能播、时长能读、
+            // 识别 API 能拿到正确格式；已是音频 MIME 的原样通过，不复制。
+            const audioBlob = ensureAudioBlob(file);
+            const [ref, duration] = await Promise.all([putImageBlob(audioBlob), readAudioDuration(audioBlob)]);
             if (!inputPreferences.autoReply) setShowPanel('none');
             await handleSendText(ref, 'audio', {
                 fileName: file.name,
-                mimeType: file.type || 'audio/mpeg',
+                mimeType: audioBlob.type || 'audio/mpeg',
                 fileSize: file.size,
                 ...(duration ? { duration } : {}),
             });

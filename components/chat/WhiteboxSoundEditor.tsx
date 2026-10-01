@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { readShareText } from '../../utils/pngShare';
 import { shareOrDownloadFile } from '../../utils/shareExport';
+import { AUDIO_PICKER_ACCEPT, audioMimeFromName, ensureAudioBlob } from '../../utils/audioApi';
 import {
     BUILTIN_SOUNDS,
     WhiteboxSound,
@@ -24,7 +25,7 @@ import {
 // 上传音频转 data URI 的体积上限：绑定分享时会进分享码，太大会爆；提示音本就该短，200KB 足够。
 const MAX_UPLOAD_BYTES = 200 * 1024;
 
-const readFileAsDataUrl = (file: File): Promise<string> =>
+const readFileAsDataUrl = (file: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result || ''));
@@ -80,14 +81,14 @@ const WhiteboxSoundEditor: React.FC<Props> = ({ sound, onChangeSound, showBind =
         const file = e.target.files?.[0];
         e.target.value = '';
         if (!file) return;
-        if (!file.type.startsWith('audio/')) { window.alert('请选择音频文件（mp3 / wav / ogg 等）。'); return; }
+        if (!file.type.startsWith('audio/') && !audioMimeFromName(file.name)) { window.alert('请选择音频文件（mp3 / wav / ogg 等）。'); return; }
         if (file.size > MAX_UPLOAD_BYTES) {
             window.alert(`音频太大（${Math.round(file.size / 1024)}KB）。绑定到进阶样式分享时会进分享码，请用 ≤ ${MAX_UPLOAD_BYTES / 1024}KB 的短提示音，或改用「音频 URL」。`);
             return;
         }
         setBusy(true);
         try {
-            const dataUrl = await readFileAsDataUrl(file);
+            const dataUrl = await readFileAsDataUrl(ensureAudioBlob(file));
             unlockWhiteboxAudio();
             const next = { src: dataUrl, volume };
             onChangeSound(next);
@@ -156,7 +157,7 @@ const WhiteboxSoundEditor: React.FC<Props> = ({ sound, onChangeSound, showBind =
             <div>
                 <div className="mb-2 text-[11px] font-bold text-slate-500">自定义 <span className="font-normal text-slate-400">· 上传音频（≤200KB）或填直链</span></div>
                 <div className="flex flex-wrap items-center gap-2">
-                    <input ref={fileRef} type="file" accept="audio/*" className="hidden" onChange={handleUpload} />
+                    <input ref={fileRef} type="file" accept={AUDIO_PICKER_ACCEPT} className="hidden" onChange={handleUpload} />
                     <button
                         onClick={() => fileRef.current?.click()}
                         disabled={busy}
