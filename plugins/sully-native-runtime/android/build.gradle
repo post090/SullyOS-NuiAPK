@@ -1,5 +1,6 @@
 ext {
     junitVersion = project.hasProperty('junitVersion') ? rootProject.ext.junitVersion : '4.13.2'
+    androidxAppCompatVersion = project.hasProperty('androidxAppCompatVersion') ? rootProject.ext.androidxAppCompatVersion : '1.6.1'
 }
 
 buildscript {
@@ -54,6 +55,7 @@ rootProject.allprojects {
 
 dependencies {
     implementation project(':capacitor-android')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation 'org.unifiedpush.android:connector:3.3.5'
     testImplementation "junit:junit:$junitVersion"
 }
