@@ -29,6 +29,7 @@
 - 点通知能**精准跳转**——日程跳日程、彼方跳彼方、来电跳通话、听歌跳音乐，冷启动热启动都认得路，不用自己满 App 翻。
 - 通话时通知栏挂一张系统原生通话卡片（角色头像、秒数自己跳、挂断按钮），用的是 Android `CallStyle`——不依赖 WebView，App 被杀了卡片还在。通话也做了保活优化：只要你不主动挂断，通话状态会复原，哪怕中途 App 被系统杀掉、重启回来也能接上。
 - 锁屏和通知栏能直接控制音乐：歌名、封面、喜欢/上一首/暂停/下一首全在通知栏，现在你真的可以把 SullyOS 当顺手点歌的音乐播放器了。
+- 治了一轮 APK 频繁"无响应（ANR）"：把卡主线程的活挪开，点着点着突然弹"SullyOS 没有响应"的情况少多了。
 
 ### 🔋 关掉 App，角色也不会"人间蒸发"
 
@@ -41,6 +42,17 @@
 - 角色也会"睡觉"（睡眠时段不打扰），但太久没找你了会有个"想你了"的保底机制把它叫起来。
 - 设置 → 持续运行里有个**自检面板**：一键查通知权限、电池优化白名单这些"为什么它又不干活了"的元凶，哪个没开点哪个去开。
 - 后台联网的活（记忆向量化、备份、诗歌邮局、新闻抓取、日程、资产结算等 11 处）都接了统一的重试 + 瞬断补枪 + 幂等感知——网络抖一下不会丢活，切 App/锁屏的瞬断也能自己接上。
+
+### 📨 主动消息 2.0：APK 上多了两条"免浏览器"的收消息路
+
+原版的主动消息 2.0（角色自己在 Worker 上生成回复、再推回手机）在 APK 上原本只能靠浏览器那套 Web Push。Nui 给 APK 补了原生收消息能力，你可以二选一：
+
+- **即时推送（装 ntfy）**：APK 接了原生 UnifiedPush，订阅端点直接用一个 [ntfy](https://ntfy.sh) 地址。消息一到就弹，和手机原生推送一个体验。装一次 ntfy、填个 topic 就行。
+- **内置定时拉取（不装任何东西）**：不想装 ntfy 的话，APK 会用系统的 WorkManager 每隔约 15 分钟自己去你的 Worker `GET /outbox` 把消息拉回来，AES-GCM 本地解密后照常落库、弹通知。代价是不即时（最长等一个拉取间隔），但胜在零依赖。
+  - 这条路要的每用户解密密钥是 App 自动向 Worker 的 `/get-user-key` 取的，你不用手动抄密钥。
+- 两条路都在 **设置 → 主动消息 2.0 → 推送订阅** 面板里切换，面板会按你当前的状态给出对应的引导文案（没装 ntfy 就直接按内置拉取展示，不再逼你去装 ntfy）。
+
+> ⚠️ 这两条路都依赖你那台 amsg Worker 跑的是 **Nui 这份 bundle**（内置拉取的 `poll:` 端点、每用户密钥接口只有 fork 版 bundle 才有）。Worker 自更新默认会拉上游官方 bundle，会把这些能力换掉——怎么锁定见下面的部署差异小节。
 
 ### 📞 通话不怕被系统掐断
 
@@ -73,7 +85,8 @@
 - 每个角色多了个私人备忘录 App（最多 10 条）。
 - 角色可以用上岸计划陪你找工作，你可以指定一个角色分析你的优势和改进点，整理 JD，还能帮你练习面试——简历/岗位/面试三条线打通，敏感信息会本地自动脱敏后才喂给模型。
 - 角色聊天里花钱/挣钱会**真扣真进账**，工资、房租、月供按日期自动结算，钱包随身物品和栖居住所物品双向对账防打架；转账真扣钱，买东西也会自动同步钱包余额和家里库存——钱少了，东西多了，逻辑闭环。
-- 做了一套和原版模型配置并存的 API 设置方案：**多站点、各自多个模型的切换都变得方便**，覆盖了所有模型配置界面，想回退到原版配置也方便。还配了个悬浮球，任何 App 里都能快捷切换主 API 的站点+模型，不用专门跑去设置页。
+- 做了一套和原版模型配置并存的 API 设置方案：**多站点、各自多个模型的切换都变得方便**，覆盖了所有模型配置界面，想回退到原版配置也方便。还配了个悬浮球，任何 App 里都能快捷切换主 API 的站点+模型，不用专门跑去设置页。识图 API 也并进了这套方案——站点、模型两级下拉各自独立选。
+- 表情包外链图床（catbox 之类）裂图时自动走公共镜像代理兜底，不至于一堆红叉。
 
 ## 🚀 NuiAPK 部署指南（只讲 Nui 的）
 
@@ -99,11 +112,30 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 
 | 功能 | 部署位置 | 要配什么 | 说明 |
 |---|---|---|---|
+| **主动消息 2.0**（角色自己找你 + 即时对话） | `worker/amsg/` | VAPID 密钥对 + D1 + 部署 | 每个用户自己部署一台 CF Worker，完整步骤见 `docs/amsg2-setup-walkthrough.md`。**Nui 的部署和原版有差异，见下方「主动消息 2.0 Worker：Nui 和原版的差异」** |
 | **Instant Push**（即时推送，锁屏收角色回复） | `worker/instant-push/` | VAPID 密钥对 + 部署 | 设置 → Instant Push → 配置里生成密钥对；App 里有「复制 Deno Loader」，贴到 app.deno.com 的 Playground 部署即可，后续自动追新 |
-| **主动消息推送**（角色自己找你说事） | `worker/proactive-push/` | VAPID + 建 D1 表 | 完整步骤见 `worker/proactive-push/README.md` |
 | 网易云（可选覆盖） | — | — | 播放器设置里可单独填，不填跟随主代理 |
 
 > Instant Push 可选的 D1 BlobStore：部署时给 worker 加 `DB` binding 即启用（`worker/instant-push/wrangler.toml` 有注释好的配置），不配也能跑。
+
+#### 主动消息 2.0 Worker：Nui 和原版的差异
+
+原版 amsg Worker 的部署流程（装 Token / 一键部署 / Dashboard 粘贴 / fork 后端仓库那六步）Nui 全都保留，**只有下面这几点要额外注意**——因为 APK 的"免浏览器收消息"能力（原生 UnifiedPush + 内置定时拉取）需要 Worker 跑 Nui 版 bundle：
+
+- **自更新务必锁定成 Nui 的成品包**。amsg Worker 支持自更新，但默认拉的是上游官方成品包（`Tosd0/sullyos-workers`）。那份**没有内置拉取的 `poll:` 端点，也没有 `/get-user-key` 每用户密钥接口**——一旦 Worker 自更新成上游版，APK 的内置拉取就收不到消息了。要锁定，给 Worker 加一条环境变量：
+
+  ```
+  AMSG_BUNDLE_URL = https://raw.githubusercontent.com/post090/SullyOS-NuiAPK/main/worker/amsg/worker.bundle.js
+  ```
+
+  （Cloudflare 后台：Worker → Settings → Variables and secrets → + Add，Type 选 Text，名字 `AMSG_BUNDLE_URL`，值填上面那串，Deploy。）配了之后自更新就只会追 Nui 这份 bundle。
+
+- **VAPID 还是必须配**，和原版一样。哪怕你只用内置拉取（不走浏览器推送），Worker 在生成消息时缺 VAPID 仍会报错。VAPID 公私钥必须和 App「推送凭据 (VAPID)」面板里的那一对完全一致。
+
+- **当前 Nui bundle 版本：`2026-10-01.1`**（`utils/amsgBundleVersion.ts`）。App 设置页会拿这个版本号和你 Worker 报回来的比，不一致就提示"有更新"。顺带修过 bundle 传不上 Cloudflare 的 10021 报错。
+
+- **应用内「一键部署 / 装钥匙」依赖主代理 Worker 的 `/cf-api` 路由**。如果你点一键部署时提示"当前的网络代理 Worker 不支持这个操作（缺 /cf-api）"，是因为你那台**主代理 Worker（`worker/index.js`）是旧版本**，重新 `wrangler deploy` 一遍最新的 `worker/index.js` 就有了。实在不想折腾，照 `docs/amsg2-setup-walkthrough.md` 手动部署一样能用，一键部署只是省事的可选项。
+  - Worker 自更新按钮要能用，还需要给 amsg Worker 配一个 `CF_API_TOKEN`（只需 Workers Scripts → Edit 权限）；不配就手动重贴 bundle。
 
 ### ③ 不用管 · 已经/默认走作者或本地的
 
@@ -114,7 +146,7 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 
 ## 🎤 收束
 
-以下是**原版 README**（已跟随上游同步到 2026-07-23，功能概览 / 数据存储 / 后端代理 / 鸣谢等都更到最新）。往下就是 Sully 的地盘了，我 Kaka 先撤：
+以下是**原版 README**（已跟随上游同步到 2026-10-01，功能概览 / 数据存储 / 后端代理 / 鸣谢等都更到最新）。往下就是 Sully 的地盘了，我 Kaka 先撤：
 
 ---
 
@@ -394,7 +426,6 @@ VITE_HIDE_BUILD_BADGE=1 npm run build
 **① 主代理 Worker**（默认作者公共实例 `sullymeow.ccwu.cc`，源码单文件 [`worker/index.js`](./worker/index.js)）
 覆盖：联网搜索 / 热榜（Brave）、WebDAV 云备份、GitHub 云备份、Notion、飞书多维表格、麦当劳 / 瑞幸点单 MCP、网页抓取、Fish Audio / ElevenLabs TTS、音乐生成、网易云音乐（默认）。
 👉 二改只要在 **「设置 → 网络代理 (Worker)」** 填上你自己部署的地址，以上能力**一键全切走，不用改任何代码**。（`wrangler deploy` 把 `worker/index.js` 丢自己 CF 账号，拿到地址填进去即可。）
-**Nui 额外支持**：`VITE_PROXY_WORKER` 环境变量覆盖默认地址，`VITE_PROXY_WORKER=https://your.workers.dev npm run build` 即可固化自己的 Worker，适合自用版本分发。
 
 **② 还是独立、要各自部署 / 配置的 Worker**：
 
