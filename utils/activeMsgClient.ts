@@ -139,7 +139,7 @@ export interface ActiveMsg2PushStatus {
   hasSubscription: boolean;
   vapidConfigured: boolean;
   detail?: string;
-  transport?: 'web-push' | 'unified-push';
+  transport?: 'web-push' | 'unified-push' | 'native-poll';
   distributor?: string | null;
   needsDistributor?: boolean;
 }
@@ -1797,26 +1797,46 @@ export const ActiveMsgClient = {
     const workerConfigured = Boolean(config.workerUrl.trim());
     if (isUnifiedPushPlatform()) {
       try {
-        const { getUnifiedPushStatus } = await import('./unifiedPushPlugin');
-        const status = await getUnifiedPushStatus();
-        const needsDistributor = !status.distributor && status.distributors.length === 0;
-        return {
-          supported: !needsDistributor,
-          permission: status.permission === 'prompt' ? 'default' : status.permission,
-          hasSubscription: Boolean(status.subscription),
-          vapidConfigured: workerConfigured,
-          transport: 'unified-push',
-          distributor: status.distributor,
-          needsDistributor,
-          detail: needsDistributor
-            ? '尚未检测到 UnifiedPush 服务。请先安装并打开 ntfy 的无 Firebase 版本。'
-            : status.lastError
-              ? `UnifiedPush：${status.lastError}`
-              : !workerConfigured
-                ? '请先填写 Worker 地址。'
+        const { getUnifiedPushStatus, getNativePollStatus } = await import('./unifiedPushPlugin');
+        const [status, poll] = await Promise.all([
+          getUnifiedPushStatus(),
+          getNativePollStatus().catch(() => null),
+        ]);
+        const unified = Boolean(status.subscription);
+        const usingPoll = !unified && Boolean(poll?.enabled);
+        // 没装 ntfy 不再是「不支持」：App 内置的定时拉取兜底（需要 Worker 已连上）。
+        if (unified || usingPoll) {
+          return {
+            supported: true,
+            permission: status.permission === 'prompt' ? 'default' : status.permission,
+            hasSubscription: unified || Boolean(poll?.adopted),
+            vapidConfigured: workerConfigured,
+            transport: unified ? 'unified-push' as const : 'native-poll' as const,
+            distributor: status.distributor,
+            detail: unified
+              ? (status.lastError
+                ? `UnifiedPush：${status.lastError}`
                 : status.distributor
                   ? `UnifiedPush 服务：${status.distributor}`
-                  : undefined,
+                  : undefined)
+              : (poll?.lastError
+                ? `内置拉取：${poll.lastError}`
+                : '没装 ntfy，App 每隔约 15 分钟自己去 Worker 取一次主动消息（可能晚到十几分钟）。装 ntfy 可以做到即时。'),
+          };
+        }
+        return {
+          supported: workerConfigured,
+          permission: status.permission === 'prompt' ? 'default' : status.permission,
+          hasSubscription: false,
+          vapidConfigured: workerConfigured,
+          transport: 'native-poll' as const,
+          distributor: status.distributor,
+          needsDistributor: !status.distributor && status.distributors.length === 0,
+          detail: !workerConfigured
+            ? '请先填写 Worker 地址。'
+            : status.lastError
+              ? `UnifiedPush：${status.lastError}`
+              : '还没开启通知：点下面的「开启通知与推送」，没装 ntfy 会自动走内置定时拉取。',
         };
       } catch (error) {
         return {
@@ -1824,8 +1844,8 @@ export const ActiveMsgClient = {
           permission: 'unsupported',
           hasSubscription: false,
           vapidConfigured: workerConfigured,
-          transport: 'unified-push',
-          detail: `UnifiedPush 原生桥不可用：${(error as Error)?.message || error}`,
+          transport: 'native-poll',
+          detail: `原生推送桥不可用：${(error as Error)?.message || error}`,
         };
       }
     }
@@ -1858,11 +1878,19 @@ export const ActiveMsgClient = {
 
   async ensurePushSubscription() {
     if (isUnifiedPushPlatform()) {
-      const config = await ensureWorkerReady();
-      const client = createClient(config);
-      const vapidPublicKey = await fetchWorkerVapidKey(client);
-      const { ensureUnifiedPushSubscription } = await import('./unifiedPushPlugin');
-      return ensureUnifiedPushSubscription(vapidPublicKey);
+      const { getUnifiedPushStatus, ensureUnifiedPushSubscription, enableNativePollPull } =
+        await import('./unifiedPushPlugin');
+      const status = await getUnifiedPushStatus();
+      // 手机上有 ntfy（或至少装了候选）→ 走 UnifiedPush，要拉 VAPID 公钥注册。
+      if (status.distributor || status.distributors.length > 0) {
+        const config = await ensureWorkerReady();
+        const client = createClient(config);
+        const vapidPublicKey = await fetchWorkerVapidKey(client);
+        return ensureUnifiedPushSubscription(vapidPublicKey);
+      }
+      // 没有 ntfy → 内置拉取：凭据交给原生 WorkManager，占位订阅登记回 Worker。
+      await ensureWorkerReady();
+      return enableNativePollPull();
     }
 
     // 只需要「支不支持」这一个判断，不走 getPushStatus——那会把 KeepAlive.init /
@@ -2065,15 +2093,18 @@ export const ActiveMsgClient = {
   async reconcilePushSubscription(): Promise<'registered' | 'skipped' | 'failed'> {
     if (isUnifiedPushPlatform()) {
       try {
-        const { readUnifiedPushSubscription } = await import('./unifiedPushPlugin');
+        const { readUnifiedPushSubscription, enableNativePollPull } = await import('./unifiedPushPlugin');
         const subscription = await readUnifiedPushSubscription();
-        if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) return 'skipped';
+        // ntfy 有活订阅就用它；没有就退到内置拉取的占位订阅——两种都能过 Worker 的闸门。
+        const effective = subscription?.endpoint && subscription.keys?.p256dh && subscription.keys?.auth
+          ? { endpoint: subscription.endpoint, keys: subscription.keys }
+          : await enableNativePollPull();
         const config = await ensureWorkerReady();
         const client = await initializeClient(config);
-        await client.putPushSubscription({ endpoint: subscription.endpoint, keys: subscription.keys });
+        await client.putPushSubscription(effective);
         return 'registered';
       } catch (error) {
-        console.warn('[ActiveMsg] 连接后补登记 UnifiedPush 订阅失败', error);
+        console.warn('[ActiveMsg] 连接后补登记原生推送订阅失败', error);
         return 'failed';
       }
     }

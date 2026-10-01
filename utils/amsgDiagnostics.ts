@@ -293,8 +293,8 @@ export interface AmsgDiagnosticsInput {
   probe: AmsgDiagnosticsProbe;
   /** 这台设备的浏览器有没有推送订阅（本地事实，worker 那侧看不到）。 */
   localPushSubscribed?: boolean;
-  /** 这台设备走哪条推送通道。安卓 App 是 unified-push（ntfy），文案不能再说「浏览器」。 */
-  pushTransport?: 'web-push' | 'unified-push';
+  /** 这台设备走哪条推送通道。安卓 App 是 unified-push（ntfy）或 native-poll（内置定时拉取），文案不能再说「浏览器」。 */
+  pushTransport?: 'web-push' | 'unified-push' | 'native-poll';
   /** 把 epoch 毫秒写成给人看的时间；不传按本机习惯格式化（单测注入固定格式用）。 */
   formatTime?: (atMs: number) => string;
   /** 定时任务的逐条细账。没拉（null / 不传）时「定时任务」那一行只按 /debug 的两个数说话。 */
@@ -806,6 +806,7 @@ export const buildAmsgDiagnosticRows = (input: AmsgDiagnosticsInput): AmsgDiagno
     ? judgePushDeliveryFailure(storage.pushDelivery, input.formatTime)
     : null;
   const unifiedPush = input.pushTransport === 'unified-push';
+  const nativePoll = input.pushTransport === 'native-poll';
   rows.push({
     key: 'pushDevice',
     label: '这台设备',
@@ -817,6 +818,13 @@ export const buildAmsgDiagnosticRows = (input: AmsgDiagnosticsInput): AmsgDiagno
           ? 'ntfy 订阅好了，但 Worker 上没有登记收件设备——到点的消息发不出去。点下面的「连接 ntfy 并开启通知」补登记一次。'
           : deliveryVerdict?.detail
             || 'ntfy 已订阅，Worker 上也登记了收件设备，最近一次推送也没被退回来。注意一个 Worker 只存一份订阅，在别的设备上登记过之后要回这台再点一次。')
+      : nativePoll
+        ? (!localPushSubscribed
+          ? '这台手机还没开启推送。没装 ntfy 也没关系，点下面的「开启通知与推送」会走内置定时拉取，每 15 分钟左右自己去 Worker 取一次。'
+          : !remoteRegistered
+            ? '内置拉取已开启，但 Worker 上没有登记收件设备——到点的消息发不出去。点下面的「开启通知与推送」补登记一次。'
+            : deliveryVerdict?.detail
+              || 'App 没装 ntfy，走的是内置定时拉取，每隔约 15 分钟自己去 Worker 取一次主动消息（可能晚到十几分钟，系统省电时更久）。装 ntfy 可以做到即时。')
       : (!localPushSubscribed
         ? '这台设备还没订阅推送，点下面的「开启通知与推送」。'
         : !remoteRegistered

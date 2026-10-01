@@ -184,9 +184,12 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
         // 有旧账但已经不算数了：说清楚「那是上一条订阅的事」，别让人以为从来没坏过。
         : { value: delivery.gone ? '这条订阅登记之后没被退回过' : '没有被退回的记录', bad: false };
 
-  // 安卓 App 走 UnifiedPush（ntfy），那条链路没有 SW 和浏览器订阅，面板换一套读数和说法。
+  // 安卓 App 的两条原生通道：ntfy（unified-push）或没装 ntfy 时的内置定时拉取
+  // （native-poll）。都没有 SW 和浏览器订阅，面板换一套读数和说法。
   const unified = browser?.transport === 'unified-push';
-  const nativeWithoutChannel = Boolean(browser?.capacitorNative) && !unified;
+  const poll = browser?.transport === 'native-poll';
+  const nativeChannel = unified || poll;
+  const nativeWithoutChannel = Boolean(browser?.capacitorNative) && !nativeChannel;
 
   const resetLabel = resetting
     ? (deepMode ? '深度重置中…' : '重置中…')
@@ -197,7 +200,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
       <p className="text-xs text-slate-500 mb-3 leading-relaxed">
         {unified
           ? '主动消息到点由 Worker 推给手机上的 ntfy（UnifiedPush），再转交给 App。'
-          : '主动消息到点靠网页推送送到你手上。'}
+          : poll
+            ? '没装 ntfy，App 每隔约 15 分钟自己去 Worker 取一次主动消息——消息可能晚到十几分钟，系统省电时还会更久。'
+            : '主动消息到点靠网页推送送到你手上。'}
         这条链路上任意一环断了，表现都是「任务建得成、到点没消息」，
         界面上不会有任何异常。这里把每一环摊开给你看。
       </p>
@@ -234,13 +239,13 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
 
         {browser ? (
           <div className="space-y-1.5 text-[11px]">
-            <Row label={unified ? '推送服务' : '浏览器支持'} value={describeSupport(browser)} bad={isSupportBad(browser)} />
+            <Row label={nativeChannel ? '推送服务' : '浏览器支持'} value={describeSupport(browser)} bad={isSupportBad(browser)} />
             <Row label="通知权限" value={describePermission(browser.permission, browser.transport)} bad={browser.permission !== 'granted'} />
-            {!unified && (
+            {!nativeChannel && (
               <Row label="Service Worker" value={describeServiceWorker(browser)} bad={browser.swState !== 'activated'} />
             )}
             <Row
-              label={unified ? 'App 订阅' : '浏览器订阅'}
+              label={nativeChannel ? 'App 订阅' : '浏览器订阅'}
               value={describeSubscription(browser)}
               bad={!browser.endpoint || browser.endpointDead}
             />
@@ -342,9 +347,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
                   : <>先装一个 <b>ntfy</b>（F-Droid 或 GitHub 版均可），打开一次并允许它后台运行，再回来点「重置订阅」。</>}
               </div>
             )}
-            {unified && browser.nativeError && (
+            {nativeChannel && browser.nativeError && (
               <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded-lg text-[10px] text-rose-700 leading-relaxed">
-                <p className="font-semibold mb-1">上次注册推送服务失败</p>
+                <p className="font-semibold mb-1">上次注册推送失败</p>
                 <p>{browser.nativeError}</p>
               </div>
             )}
@@ -369,7 +374,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast 
         <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
           {unified
             ? '「重置订阅」会让 ntfy 重新发一条订阅地址，再登记到 Worker 上。换了 Worker、重装过 ntfy、或者在别的设备上登记过之后点它。'
-            : '「重置订阅」会清掉现在这条、重建一条，再登记到 Worker 上。换了浏览器、换了 Worker、或者订阅被吊销之后点它。'}
+            : poll
+              ? '「重置订阅」会让 App 重新排一次内置拉取的班，并把这台设备登记回 Worker。换了 Worker、清过 App 数据、或者在别的设备上登记过之后点它。'
+              : '「重置订阅」会清掉现在这条、重建一条，再登记到 Worker 上。换了浏览器、换了 Worker、或者订阅被吊销之后点它。'}
           {deepMode && <><br/>连着几次都没成，已经切到「深度重置」——它会把 Service Worker 整个装一遍，更彻底。</>}
         </p>
 

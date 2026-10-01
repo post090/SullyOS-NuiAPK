@@ -203,4 +203,41 @@ public class AmsgUnifiedPushPlugin extends Plugin {
         if (launchPayload != null) ret.put("launchPayload", launchPayload);
         call.resolve(ret);
     }
+
+    /**
+     * 内置拉取通道的开关（没装 ntfy 的兜底）：带 workerUrl 即启用并排班，
+     * 不带（或空）即停班清状态。凭据由 JS 侧在连接/回连时推过来，Worker 每 15 分钟
+     * 被 WorkManager 唤醒一次去 GET /outbox。
+     */
+    @PluginMethod
+    public void configurePoll(PluginCall call) {
+        Context ctx = getContext();
+        String workerUrl = call.getString("workerUrl", "");
+        if (workerUrl == null || workerUrl.trim().isEmpty()) {
+            AmsgUnifiedPushStore.clearPollConfig(ctx);
+            AmsgPollWorker.cancel(ctx);
+            call.resolve();
+            return;
+        }
+        String userId = call.getString("userId", "");
+        String masterKey = call.getString("masterKey", "");
+        if (userId == null || userId.trim().isEmpty() || masterKey == null || masterKey.trim().isEmpty()) {
+            call.reject("userId and masterKey are required");
+            return;
+        }
+        AmsgUnifiedPushStore.savePollConfig(
+            ctx,
+            workerUrl.trim(),
+            userId.trim(),
+            masterKey.trim(),
+            call.getString("serverToken", "")
+        );
+        AmsgPollWorker.schedule(ctx, true);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getPollStatus(PluginCall call) {
+        call.resolve(AmsgUnifiedPushStore.readPollStatus(getContext()));
+    }
 }

@@ -1638,7 +1638,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <span className="font-bold text-slate-700">
-              {pushStatus?.transport === 'unified-push' ? 'UnifiedPush 通知' : '通知权限'}
+              {pushStatus?.transport === 'unified-push' ? 'UnifiedPush 通知' : pushStatus?.transport === 'native-poll' ? '内置拉取通知' : '通知权限'}
             </span>
             <span className={`text-xs font-bold ${pushStatus?.hasSubscription ? 'text-emerald-600' : 'text-amber-600'}`}>
               {pushStatus?.hasSubscription ? '已开启' : '未开启'}
@@ -1651,6 +1651,12 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
             <p className="text-xs leading-relaxed text-slate-500">
               Android App 通过开放的 UnifiedPush 收消息，不依赖 Firebase 或 Google 服务。
               ntfy 只负责在后台唤醒本 App，AMSG Worker 仍是你自己部署的那一台。
+            </p>
+          ) : pushStatus?.transport === 'native-poll' ? (
+            <p className="text-xs leading-relaxed text-slate-500">
+              App 没检测到 ntfy，走的是内置定时拉取：每隔约 15 分钟自己去 Worker 取一次主动消息，
+              消息可能晚到十几分钟（系统省电时更久）。推送跟着「排程时所在的设备」走，换了设备要重新保存排程。
+              想即时收到，装一个 ntfy 再点下面的按钮就能切过去。
             </p>
           ) : (
             <p className="text-xs leading-relaxed text-slate-500">
@@ -1665,7 +1671,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
               rel="noreferrer"
               className="block text-xs font-bold text-violet-600 underline"
             >
-              安装并打开 ntfy（选择无 Firebase 版本）
+              想即时收到？安装并打开 ntfy（选择无 Firebase 版本）
             </a>
           ) : null}
           {pushStatus?.detail ? (

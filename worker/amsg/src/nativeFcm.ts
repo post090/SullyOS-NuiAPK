@@ -88,6 +88,20 @@ export const fcmTokenFromEndpoint = (endpoint: unknown): string | null => {
   return endpoint.slice(4).trim() || null;
 };
 
+/**
+ * 内置拉取通道的订阅端点前缀（Android App 没装 ntfy 时的兜底）。
+ *
+ * App 侧不带任何推送服务，靠 WorkManager 每隔约 15 分钟 `GET /outbox` 把消息拉回来。
+ * 订阅只用来过 `schedule-message` 的 PUSH_SUBSCRIPTION_MISSING 闸门 + fire 时的
+ * resolvePushSubscription；真正的送达保证是 outbox 那行（写入在解析订阅之前，见
+ * processSingleMessage）。所以撞到这个前缀时推送这一步直接视为成功，省得去 POST 一个
+ * 不存在的地址、把任务打进失败重试。
+ */
+export const POLL_ENDPOINT_PREFIX = 'poll:';
+
+export const isPollEndpoint = (endpoint: unknown): boolean =>
+  typeof endpoint === 'string' && endpoint.trim().startsWith(POLL_ENDPOINT_PREFIX);
+
 /** notification 承载正文、data 承载其余 AMSG2 结构，避免正文重复两份顶穿 4KB。 */
 export const buildFcmMessage = (token: string, rawPayload: string) => {
   const payload = JSON.parse(rawPayload) as Record<string, any>;
@@ -149,6 +163,7 @@ export const createHybridPushTransport = (
   async sendNotification(subscription: any, payload: string) {
     const token = fcmTokenFromEndpoint(subscription?.endpoint);
     if (token) return sendFcmNotification(env, token, payload);
+    if (isPollEndpoint(subscription?.endpoint)) return { statusCode: 200, poll: true };
     return webPush.sendNotification(subscription, payload);
   },
 });

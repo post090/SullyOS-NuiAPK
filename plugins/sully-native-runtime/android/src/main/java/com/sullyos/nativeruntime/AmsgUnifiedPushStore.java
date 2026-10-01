@@ -28,6 +28,17 @@ final class AmsgUnifiedPushStore {
     private static final String KEY_PENDING = "pending";
     private static final String KEY_LAUNCH_PAYLOAD = "launch_payload";
     private static final String KEY_MULTIPART = "multipart";
+    private static final String KEY_POLL_CONFIG = "poll_config";
+    private static final String KEY_POLL_CURSOR = "poll_cursor";
+    private static final String KEY_POLL_ADOPTED = "poll_adopted";
+    private static final String KEY_POLL_LAST_RUN = "poll_last_run";
+    private static final String KEY_POLL_LAST_ERROR = "poll_last_error";
+    private static final String KEY_POLL_SEEN = "poll_seen";
+
+    /** 内置拉取（没装 ntfy 的兜底）显示一条消息的时效窗，与前端 OUTBOX_BACKFILL_MAX_AGE_MS 一致。 */
+    static final long POLL_MAX_AGE_MS = 48L * 60 * 60 * 1000;
+    /** 已见 messageId 名单上限，与待收队列同量级。 */
+    private static final int POLL_MAX_SEEN = 200;
 
     /** Keep at most this many undelivered payloads; older ones are recoverable from the Worker outbox. */
     private static final int MAX_PENDING = 200;
@@ -208,5 +219,98 @@ final class AmsgUnifiedPushStore {
         } catch (Exception e) {
             return new JSONObject();
         }
+    }
+
+    // ─── 内置拉取（poll）：没装 ntfy 时 WorkManager 定时 GET /outbox ────────────
+
+    static synchronized void savePollConfig(Context context, String workerUrl, String userId, String masterKey, String serverToken) {
+        try {
+            JSONObject config = new JSONObject();
+            config.put("workerUrl", workerUrl);
+            config.put("userId", userId);
+            config.put("masterKey", masterKey);
+            config.put("serverToken", serverToken == null ? "" : serverToken);
+            prefs(context).edit().putString(KEY_POLL_CONFIG, config.toString()).apply();
+        } catch (Exception ignored) {}
+    }
+
+    static synchronized JSONObject readPollConfig(Context context) {
+        String raw = prefs(context).getString(KEY_POLL_CONFIG, null);
+        if (raw == null) return null;
+        try {
+            JSONObject config = new JSONObject(raw);
+            if (!config.optString("workerUrl", "").isEmpty()
+                && !config.optString("userId", "").isEmpty()
+                && !config.optString("masterKey", "").isEmpty()) return config;
+            return null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    static synchronized void clearPollConfig(Context context) {
+        prefs(context).edit()
+            .remove(KEY_POLL_CONFIG)
+            .remove(KEY_POLL_CURSOR)
+            .remove(KEY_POLL_ADOPTED)
+            .remove(KEY_POLL_LAST_RUN)
+            .remove(KEY_POLL_LAST_ERROR)
+            .remove(KEY_POLL_SEEN)
+            .apply();
+    }
+
+    static synchronized long readPollCursor(Context context) {
+        return prefs(context).getLong(KEY_POLL_CURSOR, 0L);
+    }
+
+    static synchronized void savePollCursor(Context context, long cursor) {
+        prefs(context).edit().putLong(KEY_POLL_CURSOR, cursor).apply();
+    }
+
+    /** 首趟只对齐游标不上屏（对齐前端的 outbox 接管语义），跑完整一趟才算接管完成。 */
+    static synchronized boolean isPollAdopted(Context context) {
+        return prefs(context).getBoolean(KEY_POLL_ADOPTED, false);
+    }
+
+    static synchronized void markPollAdopted(Context context) {
+        prefs(context).edit().putBoolean(KEY_POLL_ADOPTED, true).apply();
+    }
+
+    static synchronized void savePollRun(Context context, long at, String error) {
+        prefs(context).edit()
+            .putLong(KEY_POLL_LAST_RUN, at)
+            .putString(KEY_POLL_LAST_ERROR, error)
+            .apply();
+    }
+
+    static synchronized JSONObject readPollStatus(Context context) {
+        JSONObject status = new JSONObject();
+        try {
+            status.put("enabled", readPollConfig(context) != null);
+            status.put("cursor", readPollCursor(context));
+            status.put("adopted", isPollAdopted(context));
+            status.put("lastRunAt", prefs(context).getLong(KEY_POLL_LAST_RUN, 0L));
+            String error = prefs(context).getString(KEY_POLL_LAST_ERROR, null);
+            status.put("lastError", error == null ? JSONObject.NULL : error);
+        } catch (Exception ignored) {}
+        return status;
+    }
+
+    /** 记一条已上过通知的 messageId。返回 false = 以前见过（该跳过，防部分失败后重拉重弹）。 */
+    static synchronized boolean rememberPollSeen(Context context, String messageId) {
+        if (messageId == null || messageId.trim().isEmpty()) return false;
+        JSONArray seen = readArray(prefs(context).getString(KEY_POLL_SEEN, null));
+        for (int i = 0; i < seen.length(); i++) {
+            if (messageId.equals(seen.optString(i, null))) return false;
+        }
+        JSONArray next = new JSONArray();
+        next.put(messageId);
+        int start = Math.max(0, seen.length() - (POLL_MAX_SEEN - 1));
+        for (int i = start; i < seen.length(); i++) {
+            Object item = seen.opt(i);
+            if (item != null) next.put(item);
+        }
+        prefs(context).edit().putString(KEY_POLL_SEEN, next.toString()).apply();
+        return true;
     }
 }

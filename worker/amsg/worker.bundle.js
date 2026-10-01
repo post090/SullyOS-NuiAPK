@@ -14251,7 +14251,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-09-27.2";
+var AMSG_BUNDLE_VERSION = "2026-10-01.1";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -20875,6 +20875,8 @@ var fcmTokenFromEndpoint = (endpoint) => {
   if (typeof endpoint !== "string" || !endpoint.startsWith("fcm:")) return null;
   return endpoint.slice(4).trim() || null;
 };
+var POLL_ENDPOINT_PREFIX = "poll:";
+var isPollEndpoint = (endpoint) => typeof endpoint === "string" && endpoint.trim().startsWith(POLL_ENDPOINT_PREFIX);
 var buildFcmMessage = (token, rawPayload) => {
   const payload = JSON.parse(rawPayload);
   const actualBody = String(payload.message ?? payload.body ?? "");
@@ -20929,6 +20931,7 @@ var createHybridPushTransport = (env, webPush) => ({
   async sendNotification(subscription, payload) {
     const token = fcmTokenFromEndpoint(subscription?.endpoint);
     if (token) return sendFcmNotification(env, token, payload);
+    if (isPollEndpoint(subscription?.endpoint)) return { statusCode: 200, poll: true };
     return webPush.sendNotification(subscription, payload);
   }
 });

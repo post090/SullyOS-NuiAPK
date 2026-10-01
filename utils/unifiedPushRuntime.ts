@@ -1,6 +1,11 @@
 import { ActiveMsgClient } from './activeMsgClient';
 import { parseNativeAmsgPayload, routeNativeAmsgPayload } from './nativeAmsgInbox';
-import { addUnifiedPushListener, drainUnifiedPushMessages, isUnifiedPushPlatform } from './unifiedPushPlugin';
+import {
+  addUnifiedPushListener,
+  drainUnifiedPushMessages,
+  isUnifiedPushPlatform,
+  syncNativePollMode,
+} from './unifiedPushPlugin';
 
 let initialized = false;
 
@@ -37,7 +42,8 @@ export const initUnifiedPushRuntime = async (): Promise<void> => {
     void ingest(event?.payload, true);
   });
   await addUnifiedPushListener('registrationChanged', () => {
-    void reconcile();
+    // ntfy 的订阅变了（新地址 / 退订）：重选通道（ntfy 有就停拉取，没有就排上）再补登记。
+    void syncNativePollMode().then(() => reconcile());
   });
 
   const pending = await drainUnifiedPushMessages();
@@ -49,5 +55,7 @@ export const initUnifiedPushRuntime = async (): Promise<void> => {
     await ingest(pending.launchPayload, true);
   }
 
+  // 没装 ntfy 的用户靠这行把内置拉取排上班；装了的会顺手把拉取停掉。
+  await syncNativePollMode();
   void reconcile();
 };

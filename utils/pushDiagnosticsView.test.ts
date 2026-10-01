@@ -107,6 +107,27 @@ describe('安卓 App 的 UnifiedPush 通道', () => {
   });
 });
 
+describe('安卓 App 没装 ntfy 时的内置拉取通道', () => {
+  const poll = (patch: Partial<BrowserPushState> = {}) => baseState({
+    capacitorNative: true,
+    transport: 'native-poll',
+    channel: '内置定时拉取（每 15 分钟左右）',
+    ...patch,
+  });
+
+  it('拉取就是它自己的通道：不算「不支持」，也不标红', () => {
+    expect(describeSupport(poll())).toBe('是（内置定时拉取，每 15 分钟左右一趟）');
+    expect(isSupportBad(poll())).toBe(false);
+  });
+
+  it('没建立订阅时照实说，但那不是设备能力问题，仍然不标红', () => {
+    const state = poll({ endpoint: null, nativeError: '上一次拉取失败了' });
+    expect(isSupportBad(state)).toBe(false);
+    // 「跑在 App 里」是给老判定（没接原生推送）准备的结论，拉取模式下不该再出现。
+    expect(describeSupport(state)).not.toContain('跑在 App 里');
+  });
+});
+
 describe('失败记录的时效', () => {
   it('已经有活订阅了就当没失败过', () => {
     // 换了浏览器 / SW 自愈重订之后，旧记录还在盘上但显然过期了，再显示就是误导。

@@ -477,6 +477,30 @@ describe('buildAmsgDiagnosticRows — 红绿判定', () => {
     expect(device.detail).not.toContain('浏览器');
   });
 
+  it('安卓 App 没装 ntfy 走内置拉取时，说清「定时拉取」，不再逼着装 ntfy', () => {
+    const rows = buildAmsgDiagnosticRows({
+      probe: { reachable: true, report: healthyReport() },
+      localPushSubscribed: true,
+      pushTransport: 'native-poll',
+    });
+    const device = rowOf(rows, 'pushDevice');
+    expect(device.level).toBe('ok');
+    expect(device.detail).toContain('内置定时拉取');
+    expect(device.detail).not.toContain('浏览器');
+  });
+
+  it('内置拉取还没开启时照样报红，指路「开启通知与推送」', () => {
+    const rows = buildAmsgDiagnosticRows({
+      probe: { reachable: true, report: healthyReport() },
+      localPushSubscribed: false,
+      pushTransport: 'native-poll',
+    });
+    const device = rowOf(rows, 'pushDevice');
+    expect(device.level).toBe('bad');
+    expect(device.detail).toContain('开启通知与推送');
+    expect(device.detail).not.toContain('浏览器');
+  });
+
   // ─── 假绿灯回归守卫 ───
   // 真实事故：登记状态两边一致（浏览器有订阅、Worker 上也有同一条 endpoint），
   // 但那条订阅在推送服务那侧早就作废，每次投递换回一个 410。体检当时七项里六项

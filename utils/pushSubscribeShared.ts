@@ -210,10 +210,10 @@ export interface BrowserPushState {
   iosNeedsPwa: boolean;
   capacitorNative: boolean;
   /**
-   * 推送走哪条通道。缺省是浏览器 Web Push；安卓 App 走 UnifiedPush（ntfy 之类的分发器），
-   * 那时 SW / 浏览器订阅这些行没有意义，面板据此换一套读数。
+   * 推送走哪条通道。缺省是浏览器 Web Push；安卓 App 走 UnifiedPush（ntfy 之类的分发器）
+   * 或没装 ntfy 时的内置定时拉取，那时 SW / 浏览器订阅这些行没有意义，面板据此换一套读数。
    */
-  transport?: 'web-push' | 'unified-push';
+  transport?: 'web-push' | 'unified-push' | 'native-poll';
   /** UnifiedPush 分发器包名，没选是 null。只在 transport 为 unified-push 时有意义。 */
   distributor?: string | null;
   /** 手机上装了几个 UnifiedPush 分发器。 */
