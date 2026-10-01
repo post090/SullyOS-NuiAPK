@@ -225,12 +225,12 @@ final class AmsgUnifiedPushStore {
 
     // ─── 内置拉取（poll）：没装 ntfy 时 WorkManager 定时 GET /outbox ────────────
 
-    static synchronized void savePollConfig(Context context, String workerUrl, String userId, String masterKey, String serverToken) {
+    static synchronized void savePollConfig(Context context, String workerUrl, String userId, String userKey, String serverToken) {
         try {
             JSONObject config = new JSONObject();
             config.put("workerUrl", workerUrl);
             config.put("userId", userId);
-            config.put("masterKey", masterKey);
+            config.put("userKey", userKey);
             config.put("serverToken", serverToken == null ? "" : serverToken);
             prefs(context).edit().putString(KEY_POLL_CONFIG, config.toString()).apply();
         } catch (Exception ignored) {}
@@ -243,7 +243,7 @@ final class AmsgUnifiedPushStore {
             JSONObject config = new JSONObject(raw);
             if (!config.optString("workerUrl", "").isEmpty()
                 && !config.optString("userId", "").isEmpty()
-                && !config.optString("masterKey", "").isEmpty()) return config;
+                && !config.optString("userKey", "").isEmpty()) return config;
             return null;
         } catch (Exception e) {
             return null;

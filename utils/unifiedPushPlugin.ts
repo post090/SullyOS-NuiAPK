@@ -34,7 +34,7 @@ interface UnifiedPushNativePlugin {
     workerUrl?: string;
     serverToken?: string;
     userId?: string;
-    masterKey?: string;
+    userKey?: string;
   }): Promise<void>;
   getPollStatus(): Promise<{ enabled: boolean; cursor: number; adopted: boolean; lastRunAt: number; lastError: string | null }>;
   addListener(
@@ -183,30 +183,47 @@ export const NATIVE_POLL_SUBSCRIPTION = {
 
 export const getNativePollStatus = () => NativeUnifiedPush.getPollStatus();
 
-/** 开启内置拉取（要通知权限，要已连上 Worker 且本地存有主密钥）。 */
+/**
+ * 解 outbox 用的是每用户密钥（Worker 用主密钥 + userId 推导），App 跟 Worker 要，跟
+ * ReiClient.init() 走的是同一个 `/get-user-key`。不在本地拿主密钥自己推导：手动部署的
+ * Worker 本地压根没存主密钥，那样就把这批用户全挡在门外了。
+ */
+const fetchPollUserKey = async (workerUrl: string, serverToken: string, userId: string): Promise<string> => {
+  const headers: Record<string, string> = { 'X-User-Id': userId };
+  if (serverToken) headers['X-Client-Token'] = serverToken;
+  const res = await fetch(`${workerUrl.replace(/\/+$/, '')}/get-user-key`, { headers });
+  const json = await res.json().catch(() => null);
+  const userKey = json?.data?.userKey;
+  if (!res.ok || !json?.success || typeof userKey !== 'string' || !/^[0-9a-f]{64}$/i.test(userKey)) {
+    throw new Error(`内置拉取取不到解密钥匙：${json?.error?.message || `HTTP ${res.status}`}`);
+  }
+  return userKey.toLowerCase();
+};
+
+const configurePollFromConfig = async (): Promise<boolean> => {
+  const config = await ActiveMsgStore.getGlobalConfig();
+  const workerUrl = config.workerUrl?.trim();
+  if (!workerUrl) return false;
+  const serverToken = config.serverToken?.trim() || '';
+  const userId = await ActiveMsgStore.ensureUserId();
+  const userKey = await fetchPollUserKey(workerUrl, serverToken, userId);
+  await NativeUnifiedPush.configurePoll({ workerUrl, serverToken, userId, userKey });
+  return true;
+};
+
+/** 开启内置拉取（要通知权限，要已连上 Worker）。 */
 export const enableNativePollPull = async (): Promise<
   { endpoint: string; keys: { p256dh: string; auth: string } }
 > => {
   if (!isUnifiedPushPlatform()) throw new Error('内置拉取仅用于 Android 原生 App。');
   await requireNotificationPermission();
-  const config = await ActiveMsgStore.getGlobalConfig();
-  const workerUrl = config.workerUrl?.trim();
-  const masterKey = config.masterKey?.trim();
-  if (!workerUrl) throw new Error('内置拉取需要先在主动消息 2.0 里连上 Worker。');
-  if (!masterKey) throw new Error('本地没有存主密钥（AMSG_MASTER_KEY）。手动部署 Worker 且没存过密钥的话，重新走一遍「连接」，或改用 ntfy。');
-  const userId = await ActiveMsgStore.ensureUserId();
-  await NativeUnifiedPush.configurePoll({
-    workerUrl,
-    serverToken: config.serverToken?.trim() || '',
-    userId,
-    masterKey,
-  });
+  if (!(await configurePollFromConfig())) throw new Error('内置拉取需要先在主动消息 2.0 里连上 Worker。');
   return { endpoint: NATIVE_POLL_SUBSCRIPTION.endpoint, keys: { ...NATIVE_POLL_SUBSCRIPTION.keys } };
 };
 
 /**
  * 内置拉取的总开关，跟着 ntfy 的有无走：ntfy 有活订阅就停掉拉取（免得双通道重复弹），
- * 没有 ntfy 且 Worker 已连上（含主密钥）就排上。返回「现在是否在用内置拉取」。
+ * 没有 ntfy 且 Worker 已连上就排上。返回「现在是否在用内置拉取」。
  */
 export const syncNativePollMode = async (): Promise<boolean> => {
   if (!isUnifiedPushPlatform()) return false;
@@ -216,19 +233,7 @@ export const syncNativePollMode = async (): Promise<boolean> => {
       await NativeUnifiedPush.configurePoll({});
       return false;
     }
-    const config = await ActiveMsgStore.getGlobalConfig();
-    const workerUrl = config.workerUrl?.trim();
-    const masterKey = config.masterKey?.trim();
-    if (workerUrl && masterKey) {
-      const userId = await ActiveMsgStore.ensureUserId();
-      await NativeUnifiedPush.configurePoll({
-        workerUrl,
-        serverToken: config.serverToken?.trim() || '',
-        userId,
-        masterKey,
-      });
-      return true;
-    }
+    if (await configurePollFromConfig()) return true;
     await NativeUnifiedPush.configurePoll({});
     return false;
   } catch (error) {

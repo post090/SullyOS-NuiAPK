@@ -220,16 +220,16 @@ public class AmsgUnifiedPushPlugin extends Plugin {
             return;
         }
         String userId = call.getString("userId", "");
-        String masterKey = call.getString("masterKey", "");
-        if (userId == null || userId.trim().isEmpty() || masterKey == null || masterKey.trim().isEmpty()) {
-            call.reject("userId and masterKey are required");
+        String userKey = call.getString("userKey", "");
+        if (userId == null || userId.trim().isEmpty() || userKey == null || !userKey.trim().matches("[0-9a-fA-F]{64}")) {
+            call.reject("userId and a 64-hex userKey are required");
             return;
         }
         AmsgUnifiedPushStore.savePollConfig(
             ctx,
             workerUrl.trim(),
             userId.trim(),
-            masterKey.trim(),
+            userKey.trim().toLowerCase(),
             call.getString("serverToken", "")
         );
         AmsgPollWorker.schedule(ctx, true);

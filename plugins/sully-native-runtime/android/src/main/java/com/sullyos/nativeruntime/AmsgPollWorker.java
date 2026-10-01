@@ -23,7 +23,6 @@ import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.util.concurrent.TimeUnit;
 
 import javax.crypto.Cipher;
@@ -72,7 +71,7 @@ public class AmsgPollWorker extends Worker {
         String base = config.getString("workerUrl").replaceAll("/+$", "");
         String userId = config.getString("userId");
         String serverToken = config.optString("serverToken", "");
-        String userKey = deriveUserKey(config.getString("masterKey"), userId);
+        String userKey = config.getString("userKey");
 
         boolean adopted = AmsgUnifiedPushStore.isPollAdopted(ctx);
         long cursor = AmsgUnifiedPushStore.readPollCursor(ctx);
@@ -147,15 +146,6 @@ public class AmsgPollWorker extends Worker {
         int read;
         while ((read = in.read(buffer)) > 0) out.write(buffer, 0, read);
         return new String(out.toByteArray(), StandardCharsets.UTF_8);
-    }
-
-    /** 与 Worker 端 deriveUserEncryptionKey 完全一致：SHA-256(masterKey + userId) 的 hex 前 64 位。 */
-    static String deriveUserKey(String masterKey, String userId) throws Exception {
-        MessageDigest digest = MessageDigest.getInstance("SHA-256");
-        byte[] hashed = digest.digest((masterKey + userId).getBytes(StandardCharsets.UTF_8));
-        StringBuilder hex = new StringBuilder();
-        for (byte b : hashed) hex.append(String.format("%02x", b));
-        return hex.substring(0, 64);
     }
 
     /** Worker 响应的 data 段是 AES-GCM（RFC 里面 iv/authTag/encryptedData 全是标准 base64）。 */
