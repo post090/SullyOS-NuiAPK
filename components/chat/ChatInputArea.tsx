@@ -1,7 +1,7 @@
 import EmojiExportDialog from './EmojiExportDialog';
 import ChatCamera from './ChatCamera';
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, Plugs, MagnifyingGlass, LinkSimple, Star, Briefcase } from '@phosphor-icons/react';
+import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, Plugs, MagnifyingGlass, LinkSimple, Star, Briefcase, MusicNotes } from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import TokenImg from '../os/TokenImg';
@@ -53,6 +53,8 @@ interface ChatInputAreaProps {
     actionsContent?: React.ReactNode;
     onPanelAction: (type: string, payload?: any) => void;
     onImageSelect: (file: File) => void;
+    /** 发本地音频；不传则不显示「音频」入口。 */
+    onAudioSelect?: (file: File) => void;
     isSummarizing: boolean;
     // Categories Support
     categories?: EmojiCategory[];
@@ -93,7 +95,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     customThemes = [], onUpdateTheme = () => {}, onRemoveTheme = () => {}, activeThemeId = '',
     actionsContent,
     previewActionsPage=0,
-    onPanelAction, onImageSelect, isSummarizing,
+    onPanelAction, onImageSelect, onAudioSelect, isSummarizing,
     categories = [], activeCategory = 'default',
     onReroll, canReroll,
     isProactiveActive,
@@ -110,6 +112,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     acnh = false,
 }) => {
     const chatImageInputRef = useRef<HTMLInputElement>(null);
+    const chatAudioInputRef = useRef<HTMLInputElement>(null);
     const [cameraOpen, setCameraOpen] = useState(false);
     useEffect(() => setCameraOpen(false), [activeCharacterId]);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -530,6 +533,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             </div>)}
             <span className="text-xs font-bold">相册</span>
         </button>,
+        ...(onAudioSelect ? [
+        <button key="audio" onClick={() => chatAudioInputRef.current?.click()} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4] text-[#d97a8c]' : isDiscordStyle ? 'bg-slate-800 text-rose-300 border-rose-400/20' : 'bg-rose-50 text-rose-400 border-rose-100'}`}>
+                <MusicNotes className="w-6 h-6" weight="bold" />
+            </div>
+            <span className="text-xs font-bold">音频</span>
+        </button>,
+        ] : []),
         <button key="settings" onClick={() => onPanelAction('settings')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
             {acnh ? <AcnhActionTile kind="settings" /> : (
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-slate-300 border-white/10' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
@@ -995,6 +1006,13 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             onClickCapture={handleActionsClickCapture}
                         >
                           <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
+                          {onAudioSelect && (
+                            <input type="file" ref={chatAudioInputRef} className="hidden" accept="audio/*" aria-label="选择本地音频" onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) onAudioSelect(file);
+                              e.target.value = '';
+                            }} />
+                          )}
                           {Array.from({length: actionPageCount}, (_, page) => (
                             <div key={page} role="group" aria-label={`聊天功能第 ${page + 1} 页`} className={`p-6 grid grid-cols-4 grid-rows-[repeat(2,96px)] gap-x-4 gap-y-8 ${actionsPage === page ? '' : 'hidden'}`}>
                               {actionTiles.slice(page * ACTION_PAGE_SIZE, (page + 1) * ACTION_PAGE_SIZE)}

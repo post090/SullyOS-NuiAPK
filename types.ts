@@ -302,11 +302,24 @@ export interface VisionApiConfig {
   model: string;
 }
 
+export type AudioApiSongQuality = 'standard' | 'exhigh' | 'lossless';
+
+export interface AudioApiConfig {
+  /** 开启后，角色一起听歌时真的听一遍，聊天里发的音频也先转成文字描述。 */
+  enabled: boolean;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  /** 听网易云歌曲时请求的音质；拿不到高音质时网易会自动给低一档。 */
+  songQuality?: AudioApiSongQuality;
+}
+
 export interface APIConfig {
   baseUrl: string;
   apiKey: string;
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
   visionApi?: VisionApiConfig;
+  audioApi?: AudioApiConfig;
   minimaxApiKey?: string;
   minimaxGroupId?: string;
   // 'domestic' → https://api.minimaxi.com (国内站)
@@ -4422,7 +4435,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'audio' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
 
 export interface Message {
     id: number;

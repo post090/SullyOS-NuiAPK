@@ -1,4 +1,4 @@
-import type { APIConfig, ApiPreset } from '../types';
+import type { APIConfig, ApiPreset, AudioApiSongQuality } from '../types';
 
 // Clipboard contents can carry zero-width characters that String.trim() does not
 // remove. They are never valid at the edges of an API URL, token, or model id.
@@ -16,8 +16,16 @@ export const normalizeApiCredential = (value: unknown): string =>
 export const normalizeApiModel = (value: unknown): string =>
   cleanEdgeCharacters(value);
 
+const AUDIO_SONG_QUALITIES = ['standard', 'exhigh', 'lossless'] as const;
+
+export const normalizeAudioSongQuality = (value: unknown): AudioApiSongQuality =>
+  (AUDIO_SONG_QUALITIES as readonly string[]).includes(String(value))
+    ? value as AudioApiSongQuality
+    : 'exhigh';
+
 export function normalizeApiConfig(config: APIConfig): APIConfig {
   const visionApi = config.visionApi;
+  const audioApi = config.audioApi;
   return {
     ...config,
     baseUrl: normalizeApiBaseUrl(config.baseUrl),
@@ -29,6 +37,15 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
         baseUrl: normalizeApiBaseUrl(visionApi.baseUrl),
         apiKey: normalizeApiCredential(visionApi.apiKey),
         model: normalizeApiModel(visionApi.model),
+      },
+    } : {}),
+    ...(audioApi ? {
+      audioApi: {
+        enabled: audioApi.enabled === true,
+        baseUrl: normalizeApiBaseUrl(audioApi.baseUrl),
+        apiKey: normalizeApiCredential(audioApi.apiKey),
+        model: normalizeApiModel(audioApi.model),
+        songQuality: normalizeAudioSongQuality(audioApi.songQuality),
       },
     } : {}),
   };

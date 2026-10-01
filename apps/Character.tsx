@@ -2239,9 +2239,9 @@ ${isInitialGeneration ? `
                                                elevenModel: e.target.value,
                                            })}
                                            className="w-full bg-white rounded-2xl px-3 py-2 text-xs border border-slate-200"
-                                           placeholder="留空 → 用设置里的全局默认（eleven_v3）"
+                                           placeholder="留空 → 用设置里的全局默认"
                                        />
-                                       <p className="text-[10px] text-slate-400 mt-1">留空走全局默认。填 eleven_v3 才支持 [laugh]/[sigh]/[whisper] 等方括号音频标签；其它模型不认标签会被原样念出来。</p>
+                                       <p className="text-[10px] text-slate-400 mt-1">留空走全局默认。填 eleven_v4 或 eleven_v3 才支持 [laughs]/[sighs]/[whispers] 等方括号音频标签，v4 还能写自由描述的标签；其它模型会把标签剥掉。</p>
                                    </div>
                                </div>
 

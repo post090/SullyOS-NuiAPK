@@ -29,6 +29,7 @@ import { extractWebpageContent, detectFirstUrl, detectXhsShortUrl, extractXhsSha
 import { isVideoShareUrl, parseVideoShareUrl } from '../utils/videoParser';
 import { isDevDebugAvailable } from '../utils/devDebug';
 import { isImageValue, migrateDataUrlToRef, putImageBlob, useBlobRefUrl } from '../utils/blobRef';
+import { isAudioApiReady, MAX_AUDIO_BYTES, readAudioDuration } from '../utils/audioApi';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import { resolveLifeRecordCard } from '../utils/lifeRecords';
 import { createTask } from '../utils/taskSettlement';
@@ -1880,6 +1881,32 @@ const Chat: React.FC = () => {
         } finally {
             // 是否真正发出由 handleSendText 标记；这里仅解除图片处理期间的暂停。
             finishImage(false);
+        }
+    };
+
+    const handleAudioSelect = async (file: File) => {
+        if (!file.type.startsWith('audio/') && !/\.(mp3|wav|m4a|aac|flac|ogg|opus|webm)$/i.test(file.name)) {
+            addToast('请选择音频文件', 'error');
+            return;
+        }
+        if (file.size > MAX_AUDIO_BYTES) {
+            addToast(`音频太大（${(file.size / 1024 / 1024).toFixed(1)}MB），上限 ${MAX_AUDIO_BYTES / 1024 / 1024}MB`, 'error');
+            return;
+        }
+        if (!isAudioApiReady(apiConfig.audioApi)) {
+            addToast('还没接入音频识别 API，角色暂时听不到声音（设置 → 音频识别 API）', 'info');
+        }
+        try {
+            const [ref, duration] = await Promise.all([putImageBlob(file), readAudioDuration(file)]);
+            if (!inputPreferences.autoReply) setShowPanel('none');
+            await handleSendText(ref, 'audio', {
+                fileName: file.name,
+                mimeType: file.type || 'audio/mpeg',
+                fileSize: file.size,
+                ...(duration ? { duration } : {}),
+            });
+        } catch (err: any) {
+            addToast(err?.message || '音频发送失败', 'error');
         }
     };
 
@@ -4533,6 +4560,7 @@ const Chat: React.FC = () => {
                     onRemoveTheme={removeCustomTheme} activeThemeId={currentThemeId}
                     onPanelAction={handlePanelAction}
                     onImageSelect={handleImageSelect}
+                    onAudioSelect={handleAudioSelect}
                     isSummarizing={isSummarizing}
                     categories={visibleCategories}
                     activeCategory={activeCategory}

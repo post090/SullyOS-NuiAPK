@@ -30,10 +30,11 @@ describe('Cantonese voice language', () => {
     expect(() => assertTtsLanguageSupported(character(), config({ ttsProvider: 'minimax' }), 'yue')).not.toThrow();
     expect(() => assertTtsLanguageSupported(character('s2.1-pro'), config({ ttsProvider: 'fishaudio' }), 'yue')).not.toThrow();
     expect(() => assertTtsLanguageSupported(character(), config({ ttsProvider: 'elevenlabs', elevenLabsModel: 'eleven_v3' }), 'yue')).not.toThrow();
+    expect(() => assertTtsLanguageSupported(character(), config({ ttsProvider: 'elevenlabs', elevenLabsModel: 'eleven_v4' }), 'yue')).not.toThrow();
   });
 
   it('rejects models whose official language list does not include Cantonese', () => {
     expect(() => assertTtsLanguageSupported(character('s1'), config({ ttsProvider: 'fishaudio' }), 'yue')).toThrow('S2');
-    expect(() => assertTtsLanguageSupported(character(), config({ ttsProvider: 'elevenlabs', elevenLabsModel: 'eleven_flash_v2_5' }), 'yue')).toThrow('Eleven v3');
+    expect(() => assertTtsLanguageSupported(character(), config({ ttsProvider: 'elevenlabs', elevenLabsModel: 'eleven_flash_v2_5' }), 'yue')).toThrow('Eleven v4 或 v3');
   });
 });

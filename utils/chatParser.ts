@@ -452,6 +452,33 @@ export const ChatParser = {
             content = content.replace(MUSIC_TAG_GLOBAL_RE, '').trim();
         }
 
+        // LISTEN_SONG — 角色从自己/用户的歌单里挑一首真的去听（音频识别 API），听完写日记，下一轮带上
+        const LISTEN_TAG_GLOBAL_RE = /\[\[LISTEN_SONG:\s*([^\]]+?)\s*\]\]/g;
+        const listenMatch = /\[\[LISTEN_SONG:\s*([^\]]+?)\s*\]\]/.exec(content);
+        if (listenMatch) {
+            content = content.replace(LISTEN_TAG_GLOBAL_RE, '').trim();
+            const query = listenMatch[1];
+            void (async () => {
+                const listening = await import('./songListening');
+                if (!listening.isSongListeningAvailable()) return;
+                const [listenChar, listenUser] = await Promise.all([DB.getCharacter(charId), DB.getUserProfile()]);
+                if (!listenChar) return;
+                const candidates = await listening.collectListenCandidates(listenChar, listenUser?.name || '用户');
+                const picked = listening.resolveListenCandidate(candidates, query);
+                if (!picked) {
+                    addToast(`${charName} 想听的《${query}》不在你们的歌单里`, 'info');
+                    return;
+                }
+                addToast(`${charName} 戴上耳机，开始听《${picked.song.name}》`, 'info');
+                const outcome = await listening.startSongListen(charId, picked.song, 'alone');
+                if (outcome.status === 'listened' || outcome.status === 'reused') {
+                    addToast(`${charName} 听完了《${picked.song.name}》，写进了听歌日记${outcome.isTrial ? '（只听到试听片段）' : ''}`, 'success');
+                } else if (outcome.status === 'failed') {
+                    addToast(`${charName} 没能听到《${picked.song.name}》：${outcome.error || '未知错误'}`, 'error');
+                }
+            })().catch(error => console.warn('[chatParser] LISTEN_SONG 失败', error));
+        }
+
         // NEWS_CARD — char 主动把某条热点当作新闻卡片分享（来源 + 标题）
         //   [[NEWS_CARD: 来源|标题]]    （来源可省略 → [[NEWS_CARD: 标题]]）
         const NEWS_CARD_RE = /\[\[NEWS_CARD:\s*([^\]]*?)\s*\]\]/;

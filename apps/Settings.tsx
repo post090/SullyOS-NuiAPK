@@ -60,8 +60,9 @@ import {
 } from '../utils/avatarModelBackup';
 import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
 import { configFromPreset, findActivePresetId, presetDiffersFromConfig, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
-import type { APIConfig, TtsProvider } from '../types';
+import type { APIConfig, AudioApiConfig, AudioApiSongQuality, TtsProvider } from '../types';
 import { describeImageWithVisionApi, VISION_API_TEST_IMAGE_DATA_URL, visionApiConfigFromPreset } from '../utils/visionApi';
+import { AUDIO_SONG_QUALITY_OPTIONS, audioBlobToPayload, buildTestToneWav, describeAudioWithAudioApi } from '../utils/audioApi';
 import {
     FIRECRAWL_API_KEYS_URL,
     getFirecrawlApiKey,
@@ -529,6 +530,14 @@ const Settings: React.FC = () => {
   const [visionStatusMsg, setVisionStatusMsg] = useState('');
   const [testingVisionApi, setTestingVisionApi] = useState(false);
   const [visionTestResult, setVisionTestResult] = useState<string | null>(null);
+  const [localAudioEnabled, setLocalAudioEnabled] = useState(apiConfig.audioApi?.enabled === true);
+  const [localAudioUrl, setLocalAudioUrl] = useState(apiConfig.audioApi?.baseUrl || '');
+  const [localAudioKey, setLocalAudioKey] = useState(apiConfig.audioApi?.apiKey || '');
+  const [localAudioModel, setLocalAudioModel] = useState(apiConfig.audioApi?.model || '');
+  const [localAudioQuality, setLocalAudioQuality] = useState<AudioApiSongQuality>(apiConfig.audioApi?.songQuality || 'exhigh');
+  const [audioStatusMsg, setAudioStatusMsg] = useState('');
+  const [testingAudioApi, setTestingAudioApi] = useState(false);
+  const [audioTestResult, setAudioTestResult] = useState<string | null>(null);
   const [localMiniMaxKey, setLocalMiniMaxKey] = useState(apiConfig.minimaxApiKey || '');
   const [localMiniMaxGroupId, setLocalMiniMaxGroupId] = useState(apiConfig.minimaxGroupId || '');
   const [localMiniMaxRegion, setLocalMiniMaxRegion] = useState<'domestic' | 'overseas'>(
@@ -1507,6 +1516,71 @@ const Settings: React.FC = () => {
       trackEvent('测试识图 API', { result: '失败' });
     } finally {
       setTestingVisionApi(false);
+    }
+  };
+
+  const buildAudioApiConfig = (enabled: boolean, songQuality: AudioApiSongQuality = localAudioQuality): AudioApiConfig => ({
+    enabled,
+    baseUrl: normalizeApiBaseUrl(localAudioUrl),
+    apiKey: normalizeApiCredential(localAudioKey),
+    model: normalizeApiModel(localAudioModel),
+    songQuality,
+  });
+
+  const flashAudioStatus = (msg: string) => {
+    setAudioStatusMsg(msg);
+    setTimeout(() => setAudioStatusMsg(''), 2200);
+  };
+
+  const handleSaveAudioApi = (enabled = localAudioEnabled) => {
+    const next = buildAudioApiConfig(enabled);
+    if (next.enabled && (!next.baseUrl || !next.apiKey || !next.model)) {
+      addToast('开启音频识别 API 前，请填写完整的 URL、Key 和 Model', 'error');
+      return;
+    }
+    setLocalAudioUrl(next.baseUrl);
+    setLocalAudioKey(next.apiKey);
+    setLocalAudioModel(next.model);
+    updateApiConfig({ audioApi: next });
+    flashAudioStatus(next.enabled ? '音频识别 API 已接入' : '已关闭，角色不会真的去听');
+  };
+
+  const handleToggleAudioApi = () => {
+    const enabled = !localAudioEnabled;
+    setLocalAudioEnabled(enabled);
+    if (!enabled) {
+      updateApiConfig({ audioApi: {
+        baseUrl: '', apiKey: '', model: '', songQuality: localAudioQuality, ...apiConfig.audioApi, enabled: false,
+      } });
+      flashAudioStatus('已关闭，角色不会真的去听');
+    } else if (normalizeApiBaseUrl(localAudioUrl) && normalizeApiCredential(localAudioKey) && normalizeApiModel(localAudioModel)) {
+      handleSaveAudioApi(true);
+    } else {
+      setAudioStatusMsg('请填写 URL、Key 和 Model，保存后接入');
+    }
+  };
+
+  const handleChangeAudioQuality = (quality: AudioApiSongQuality) => {
+    setLocalAudioQuality(quality);
+    if (apiConfig.audioApi) updateApiConfig({ audioApi: { ...apiConfig.audioApi, songQuality: quality } });
+  };
+
+  const handleTestAudioApi = async () => {
+    const config = buildAudioApiConfig(true);
+    if (!config.baseUrl || !config.apiKey || !config.model) {
+      setAudioTestResult('❌ 请先填写完整的 URL、Key 和 Model');
+      return;
+    }
+    setTestingAudioApi(true);
+    setAudioTestResult(null);
+    try {
+      const description = await describeAudioWithAudioApi(await audioBlobToPayload(buildTestToneWav(), 'test.wav'), config);
+      setAudioTestResult(`✅ 听到了 — ${description.slice(0, 80)}`);
+    } catch (error: any) {
+      console.error('Test Audio API Error', error);
+      setAudioTestResult(`❌ 测试失败：${error?.message || '未知错误'}`);
+    } finally {
+      setTestingAudioApi(false);
     }
   };
 
@@ -3378,6 +3452,113 @@ const Settings: React.FC = () => {
             </div>
         </SettingsSection>
 
+        <SettingsSection
+            title="音频识别 API"
+            badge={
+                <span className={`text-[9px] font-bold px-2 py-1 rounded-full ${
+                    apiConfig.audioApi?.enabled
+                        ? 'bg-rose-100 text-rose-600'
+                        : 'bg-slate-100 text-slate-400'
+                }`}>
+                    {apiConfig.audioApi?.enabled ? '已接入' : '未接入'}
+                </span>
+            }
+            icon={
+                <div className="p-2 bg-rose-100/60 rounded-xl text-rose-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m9 9 10.5-3m0 6.553v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 1 1-.99-3.467l2.31-.66a2.25 2.25 0 0 0 1.632-2.163Zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 0 1-1.632 2.163l-1.32.377a1.803 1.803 0 0 1-.99-3.467l2.31-.66A2.25 2.25 0 0 0 9 15.553Z" />
+                    </svg>
+                </div>
+            }
+        >
+            <div className="space-y-4">
+                <div className="rounded-2xl border border-rose-100 bg-rose-50/60 p-3.5">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <div className="text-xs font-bold text-slate-600">让角色真的听见</div>
+                            <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                需要能收音频输入的模型（如 Gemini 2.5、GPT-4o Audio、Qwen-Omni）。
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={localAudioEnabled}
+                            aria-label="接入音频识别 API"
+                            onClick={handleToggleAudioApi}
+                            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${localAudioEnabled ? 'bg-rose-500' : 'bg-slate-200'}`}
+                        >
+                            <span className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${localAudioEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                    </div>
+                </div>
+
+                <p className="text-[10px] text-slate-400 leading-relaxed px-1">
+                    开启后：第一次和角色「一起听」某首歌、或角色自己挑歌来听时，会带着角色人设单独听一遍整首歌（附歌词），写成听歌日记存进音乐 App，下一轮聊天再告诉主模型；单聊里发的本地音频会先识别成
+                    <span className="font-semibold text-rose-600"> [音频：听到的内容] </span>
+                    再交给主 API。同一首歌、同一条音频只听一次。
+                </p>
+
+                <div className={`transition-opacity ${localAudioEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <ApiConnectionPicker
+                        value={localAudioUrl ? { baseUrl: localAudioUrl, apiKey: localAudioKey, model: localAudioModel } : null}
+                        onChange={cfg => {
+                            setLocalAudioUrl(cfg?.baseUrl || '');
+                            setLocalAudioKey(cfg?.apiKey || '');
+                            setLocalAudioModel(cfg?.model || '');
+                            setAudioTestResult(null);
+                        }}
+                        hint="选一个能听音频的模型。不会切换主 API；站点与模型在 系统设置 → API 配置 里统一管理。"
+                    />
+                </div>
+
+                <div className={`space-y-1.5 transition-opacity ${localAudioEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <label htmlFor="audio-api-song-quality" className="text-[11px] font-bold text-slate-500 px-1">听歌音质</label>
+                    <select
+                        id="audio-api-song-quality"
+                        value={localAudioQuality}
+                        onChange={e => handleChangeAudioQuality(e.target.value as AudioApiSongQuality)}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-200"
+                    >
+                        {AUDIO_SONG_QUALITY_OPTIONS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                    </select>
+                    <p className="text-[9px] text-slate-300 px-1 leading-relaxed">音质越高越费流量和 token。网易云 VIP 歌没登录会员 cookie 时只能拿到约 45 秒试听；本地写的歌不受这个选项影响。</p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                    <button
+                        type="button"
+                        onClick={handleTestAudioApi}
+                        disabled={testingAudioApi || !localAudioEnabled || !localAudioUrl.trim() || !localAudioKey.trim() || !localAudioModel.trim()}
+                        className="py-3 rounded-2xl font-bold text-rose-600 border border-rose-200 bg-rose-50 active:scale-95 transition-all disabled:opacity-40"
+                    >
+                        {testingAudioApi ? '测试中…' : '🧪 测试听音'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => handleSaveAudioApi()}
+                        disabled={testingAudioApi}
+                        className="py-3 rounded-2xl font-bold text-white shadow-lg shadow-rose-500/20 bg-rose-500 active:scale-95 transition-all disabled:opacity-50"
+                    >
+                        保存音频 API
+                    </button>
+                </div>
+                {audioStatusMsg && (
+                    <div className="text-[11px] text-center text-rose-600 bg-rose-50 px-3 py-2 rounded-xl">{audioStatusMsg}</div>
+                )}
+                <p className="text-[9px] text-slate-300 px-1">测试会发送一段 0.6 秒的 440Hz 提示音，确认该模型真的能收音频。</p>
+                {audioTestResult && (
+                    <div className={`text-xs px-3 py-2 rounded-xl leading-relaxed ${
+                        audioTestResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
+                    }`}>
+                        {audioTestResult}
+                    </div>
+                )}
+            </div>
+        </SettingsSection>
+
         {/* API 调用记录入口 — 点开看最近 5 天各 App / 角色 / 用途的调用明细 */}
         <button
             type="button"
@@ -3655,7 +3836,7 @@ const Settings: React.FC = () => {
                         ))}
                     </select>
                     <p className="text-[11px] text-slate-400 mt-1 pl-1">
-                        Flash v2.5 默认更适合实时聊天；v3 支持更丰富的方括号 Audio Tags。切换后对应的内置语音提示规则也会同步切换。
+                        Flash v2.5 默认更适合实时聊天；v4 / v3 支持方括号 Audio Tags，v4 还能写自由描述的标签（如 [quietly curious]）。v4 只用稳定度和相似度，风格强度、Speaker Boost 和角色语速对它不生效。切换后对应的内置语音提示规则也会同步切换。
                     </p>
 
                     <details className="mt-3 rounded-xl border border-slate-200/60 bg-white/35 px-3 py-2">

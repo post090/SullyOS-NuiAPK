@@ -17,6 +17,7 @@ import {
   resolveElevenLabsApiKey,
   resolveElevenLabsModel,
   stripElevenLabsMarkupForDisplay,
+  supportsElevenLabsAudioTags,
   synthesizeSpeechElevenLabsDetailed,
 } from './elevenLabsTts';
 import { cleanTextForTts, cleanVoiceMarkupForDisplay } from './minimaxTts';
@@ -35,8 +36,8 @@ export const assertTtsLanguageSupported = (
 ): void => {
   if ((languageBoost || '').trim().toLowerCase() !== 'yue') return;
   const provider = resolveTtsProvider(apiConfig);
-  if (provider === 'elevenlabs' && resolveElevenLabsModel(apiConfig) !== 'eleven_v3') {
-    throw new Error('ElevenLabs 粤语需要 Eleven v3，请先在「设置 → 其他 API」切换模型');
+  if (provider === 'elevenlabs' && !supportsElevenLabsAudioTags(resolveElevenLabsModel(apiConfig))) {
+    throw new Error('ElevenLabs 粤语需要 Eleven v4 或 v3，请先在「设置 → 其他 API」切换模型');
   }
   const fishModel = (char.voiceProfile?.fishModel || apiConfig.fishAudioModel || 's2.1-pro').trim().toLowerCase();
   if (provider === 'fishaudio' && fishModel === 's1') {

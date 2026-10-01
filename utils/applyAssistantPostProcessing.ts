@@ -77,6 +77,7 @@ export function buildReplySnapshotContent(msg: { type?: string; content: string 
     // 值形态判断跟 chatPrompts 的 isMediaValue 同义：data: / http(s) / blobref 令牌都是"一张图"
     const looksLikeMedia = /^(data:|https?:\/\/)/i.test(trimmed) || isBlobRef(trimmed);
     if (msg.type === 'emoji') return '[表情包]';
+    if (msg.type === 'audio') return '[音频]';
     if (msg.type === 'image' || looksLikeMedia) return '[图片]';
     return content.length > 10 ? content.slice(0, 10) + '...' : content;
 }

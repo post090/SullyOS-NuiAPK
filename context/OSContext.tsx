@@ -694,6 +694,13 @@ const defaultApiConfig: APIConfig = {
     apiKey: '',
     model: '',
   },
+  audioApi: {
+    enabled: false,
+    baseUrl: '',
+    apiKey: '',
+    model: '',
+    songQuality: 'exhigh',
+  },
   minimaxApiKey: '',
   minimaxGroupId: '',
   minimaxRegion: 'domestic',
@@ -2976,6 +2983,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   htmlMode: { enabled: !!(char as any).htmlModeEnabled, customPrompt: (char as any).htmlModeCustomPrompt },
                   thinkingChain: { enabled: !!(char as any).showThinkingChain, customPrompt: (char as any).thinkingChainCustomPrompt },
                   visionApiConfig: currentApiConfig.visionApi,
+                  audioApiConfig: currentApiConfig.audioApi,
               });
               const systemPrompt = payload.systemPrompt;
               const apiMessages = payload.cleanedApiMessages;

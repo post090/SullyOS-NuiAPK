@@ -375,6 +375,7 @@ function contentToText(content: unknown): string {
         return content.map((part: any) => {
             if (part?.type === 'text') return part.text || '';
             if (part?.type === 'image_url') return '[图片]';
+            if (part?.type === 'input_audio') return '[音频]';
             return '';
         }).filter(Boolean).join(' ');
     }

@@ -167,6 +167,15 @@ const loadCfg = (): MusicCfg => {
  */
 export const loadMusicCfgStandalone = (): MusicCfg => loadCfg();
 
+/** 非 React 调用者读「本地专辑」（写歌 App 收进来的歌），给角色主动听歌挑候选用。 */
+export const loadLocalAlbumStandalone = (): Song[] => loadLocalAlbum();
+
+/** 当前登录网易云账号的 uid（取 profile 快照，不发网络）；没登录返回 null。 */
+export const loadNeteaseUidStandalone = (): number | null => {
+  const cfg = loadCfg();
+  return loadCachedProfile(cfg.cookie)?.userId ?? null;
+};
+
 /**
  * 实时播放快照 — 给 OSContext 主动消息流程读，避免 OSProvider 在 MusicProvider
  * 外层导致拿不到 useMusic()。MusicProvider mount 后会持续把当前播放状态写到这里。
@@ -1154,6 +1163,18 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       },
       joinListeningTogether: (cid: string) => {
         addListeningPartner(cid);
+        if (!current) return;
+        const song = current;
+        void import('../utils/songListening').then(async ({ isSongListeningAvailable, startSongListen }) => {
+          if (!isSongListeningAvailable()) return;
+          const outcome = await startSongListen(cid, song, 'together');
+          if (outcome.status === 'listened') {
+            const charName = (await DB.getCharacter(cid))?.name || '角色';
+            toast(`${charName} 听完了《${song.name}》，写进了听歌日记${outcome.isTrial ? '（只听到试听片段）' : ''}`, 'success');
+          } else if (outcome.status === 'failed') {
+            toast(`没能让角色听到《${song.name}》：${outcome.error || '未知错误'}`, 'error');
+          }
+        }).catch(() => {});
       },
       addSongToCharPlaylist: async (cid, song, target) => {
         try {
@@ -1232,7 +1253,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
       },
     };
-  }, [current, addListeningPartner]);
+  }, [current, addListeningPartner, toast]);
 
   const value: MusicContextType = {
     cfg, setCfg, effectiveWorkerUrl,

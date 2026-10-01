@@ -18,6 +18,7 @@ import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcess
 import { stripLeakedSourceTags } from '../../utils/sanitize';
 import TokenImg from '../os/TokenImg';
 import ChatImage from './ChatImage';
+import ChatAudioBubble from './ChatAudioBubble';
 import { SARSpeechSwitch } from '../sar/SARSpeechSwitch';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
@@ -3658,6 +3659,10 @@ const MessageItem = React.memo(({
                 <div className="px-3 py-2 rounded-2xl bg-slate-100 text-slate-400 text-xs italic">[表情已丢失]</div>
             )
         );
+    }
+
+    if (m.type === 'audio') {
+        return commonLayout(<ChatAudioBubble message={m} selectionMode={selectionMode} />);
     }
 
     if (m.type === 'image') {

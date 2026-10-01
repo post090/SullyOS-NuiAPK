@@ -121,6 +121,11 @@ export function normalizeMessageContent(
         const transcript = getVoiceTranscript(msg);
         return transcript ? `[语音转写] ${transcript}` : '[语音]';
     }
+    if (type === 'audio') {
+        const description = typeof msg.metadata?.audioDescription === 'string' ? msg.metadata.audioDescription.trim() : '';
+        const fileName = String(msg.metadata?.fileName || '音频');
+        return description ? `[音频《${fileName}》] ${description}` : `[音频《${fileName}》]`;
+    }
 
     // 系统交互事件
     // TODO(记录形态): 转账已迁到 [[记录:TRANSFER|...]] (见 transferFormat.ts 头注)，
@@ -420,6 +425,7 @@ export function isMessageSemanticallyRelevant(msg: Message): boolean {
     const type = msg.type as string;
     if (type === 'image' || type === 'emoji') return false;
     if (type === 'voice') return !!getVoiceTranscript(msg);
+    if (type === 'audio') return typeof msg.metadata?.audioDescription === 'string' && !!msg.metadata.audioDescription.trim();
     // 卡片是其它功能汇入聊天的结构化上下文；即使 content 为空，只要专用格式化器
     // 能从 metadata 生成可读摘要，也必须参与缓冲区计数和记忆总结。
     if (type?.endsWith('_card')) {

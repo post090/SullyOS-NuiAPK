@@ -1262,6 +1262,16 @@ ${voiceActingGuide()}`;
                      return { role: m.role, content: [{ type: "text", text: textPart }, { type: "image_url", image_url: { url: m.content } }] };
                 }
                 
+                if (m.type === 'audio') {
+                    const audioDescription = typeof m.metadata?.audioDescription === 'string' ? m.metadata.audioDescription.trim() : '';
+                    const fileName = String(m.metadata?.fileName || '一段音频');
+                    let textPart = audioDescription
+                        ? `${timeStr} [用户发来音频《${fileName}》，你听到的内容：${audioDescription}]`
+                        : `${timeStr} [用户发来一段音频《${fileName}》，但你这边听不到声音，不要假装听过]`;
+                    if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
+                    return { role: m.role, content: textPart };
+                }
+
                 if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') content = `${content}\n\n${timeGapHint}`; 
                 
                 // TODO(记录形态): 戳一戳 / 时间间隔提示等其他系统事件, 等转账的 [[记录:TRANSFER]]

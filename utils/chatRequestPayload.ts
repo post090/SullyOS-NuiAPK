@@ -13,7 +13,7 @@ import { getMemoryPalaceHighWaterMarkForContext, selectCharacterContextMessages 
  * 等价。新增 caller（runProactive）只是补齐了过去缺的字段。
  */
 
-import type { CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig } from '../types';
+import type { AudioApiConfig, CharacterProfile, UserProfile, GroupProfile, Emoji, EmojiCategory, Message, RealtimeConfig, TranslationConfig, VisionApiConfig } from '../types';
 import { ChatPrompts, detectChatModeTransition } from './chatPrompts';
 import { ContextBuilder } from './context';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
@@ -37,6 +37,8 @@ import { mergeSystemMessages } from './systemMessageMerge';
 import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
+import { isAudioApiReady, materializeAudioDescriptions } from './audioApi';
+import { buildListenSongGuide, buildRecentListenBlock, collectListenCandidates } from './songListening';
 import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
 import { loadCollaborationFileCabinetBlock } from '../features/collaboration/chatLibrary';
 import { buildSARUserSurfaceRequest, selectSARUserSurfaceTargets } from './vrWorld/sarUserSurface';
@@ -96,6 +98,8 @@ export interface BuildChatPayloadInput {
     thinkingChain?: { enabled: boolean; customPrompt?: string };
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
+    /** 可选音频识别 API：开启后聊天音频先转写为文字说明；私聊还会提示角色可以挑歌去听。 */
+    audioApiConfig?: AudioApiConfig;
     mcdMiniSnap?: McdMiniAppSnapshot;
     luckinMiniSnap?: LuckinMiniAppSnapshot;
     /** 瑞幸聊天点单模式 (点"瑞一杯"激活, 角色直接调真实工具) */
@@ -262,6 +266,14 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         recentMsgsHint = rawRecentMsgsHint.map(message => preparedById.get(message.id) || message);
     }
 
+    if (isAudioApiReady(input.audioApiConfig) && historyMsgsForPrompt.some(message => message.type === 'audio')) {
+        const audioMessages = historyMsgsForPrompt.filter(message => message.type === 'audio');
+        const prepared = await materializeAudioDescriptions(audioMessages, input.audioApiConfig);
+        const preparedById = new Map(prepared.map(message => [message.id, message]));
+        historyMsgsForPrompt = historyMsgsForPrompt.map(message => preparedById.get(message.id) || message);
+        recentMsgsHint = recentMsgsHint.map(message => preparedById.get(message.id) || message);
+    }
+
     if (isPromptBuildSkipped()) {
         const { apiMessages } = ChatPrompts.buildMessageHistory(
             historyMsgsForPrompt,
@@ -415,6 +427,19 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     }
 
     const messagesWithWorldbookDepth = parts.history;
+
+    // ── 8b. 真的听过的歌：音频识别 API 写下的听后感，下一轮带给主模型 ──
+    const recentListenBlock = buildRecentListenBlock(char, userProfile?.name || '用户');
+    if (recentListenBlock) volatileTail += `\n${recentListenBlock}`;
+    if (input.recallEntryPoint === 'chat_app' && isAudioApiReady(input.audioApiConfig)) {
+        try {
+            const candidates = await collectListenCandidates(char, userProfile?.name || '用户');
+            const guide = buildListenSongGuide(candidates, userProfile?.name || '用户');
+            if (guide) volatileTail += `\n${guide}`;
+        } catch (e) {
+            console.warn('[chatRequestPayload] 听歌候选读取失败', e);
+        }
+    }
 
     // ── 9. 麦当劳小程序上下文（购物车/菜单实时快照 → 易变尾段） ──
     const mcdActive = !!mcdMiniSnap?.open;

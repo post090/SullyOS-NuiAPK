@@ -88,6 +88,39 @@ describe('ElevenLabs request body', () => {
   });
 });
 
+describe('Eleven v4', () => {
+  it('keeps free-form English direction tags and drops non-tag brackets', () => {
+    expect(cleanTextForTtsElevenLabs('[quietly curious] 你从哪来的？[第2章] [nervous laugh] 好吧', 'eleven_v4'))
+      .toBe('[quietly curious] 你从哪来的？ [nervous laugh] 好吧');
+  });
+
+  it('turns SSML breaks and long pauses into v4 pause tags', () => {
+    expect(cleanTextForTtsElevenLabs('等等<break time="1.5s" />好了 [long pause] 走吧', 'eleven_v4'))
+      .toBe('等等 [pause] 好了 [long pause] 走吧');
+  });
+
+  it('only sends stability and similarity', () => {
+    const config = {
+      baseUrl: '', apiKey: '', model: '',
+      elevenLabsModel: 'eleven_v4',
+      elevenLabsStability: 0.35,
+      elevenLabsSimilarityBoost: 0.9,
+      elevenLabsStyle: 0.6,
+      elevenLabsUseSpeakerBoost: true,
+    } as APIConfig;
+    const body = buildElevenLabsRequestBody('真的？', character, config, { emotion: 'surprised' });
+    expect(body.model_id).toBe('eleven_v4');
+    expect(body.voice_settings).toEqual({ stability: 0.35, similarity_boost: 0.9 });
+    expect(body.text).toBe('[curious] 真的？');
+  });
+
+  it('uses the v4 guide and strips free-form tags from display text', () => {
+    expect(getElevenLabsVoiceActingGuide('eleven_v4')).toContain('Eleven v4');
+    expect(getElevenLabsVoiceActingGuide('eleven_v4_turbo')).toContain('Eleven v4');
+    expect(stripElevenLabsMarkupForDisplay('[under her breath] 算了 [第2章]')).toBe('算了 [第2章]');
+  });
+});
+
 describe('ElevenLabs prompt and provider routing', () => {
   it('uses audio-tag guidance only for v3 and recognizes the provider', () => {
     expect(getElevenLabsVoiceActingGuide('eleven_v3')).toContain('Audio Tags');
