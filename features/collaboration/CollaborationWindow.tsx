@@ -28,6 +28,7 @@ import {
 } from '@phosphor-icons/react';
 import type { APIConfig, ApiPreset, CharacterProfile, ChatTheme, Emoji, EmojiCategory, GroupProfile, Message, RealtimeConfig, UserProfile } from '../../types';
 import TokenImg from '../../components/os/TokenImg';
+import NetImg from '../../components/os/NetImg';
 import { bucketFewCount, trackEvent } from '../../utils/analytics';
 import { processImageToBlob } from '../../utils/file';
 import { shareOrDownloadBlob } from '../../utils/shareExport';
@@ -1241,7 +1242,7 @@ const CollaborationVoiceBar: React.FC<{
 
 const CollaborationEmojiCard: React.FC<{ name: string; emoji?: Emoji }> = ({ name, emoji }) => (
   emoji
-    ? <TokenImg value={emoji.url} alt={emoji.name} title={emoji.name} className="collab-emoji mt-2 max-h-36 max-w-36 object-contain" />
+    ? <NetImg src={emoji.url} alt={emoji.name} title={emoji.name} className="collab-emoji mt-2 max-h-36 max-w-36 object-contain" />
     : <div className="mt-2 rounded-xl border border-dashed border-current/15 px-3 py-2 text-[10px] opacity-55">表情包未找到：{name}</div>
 );
 

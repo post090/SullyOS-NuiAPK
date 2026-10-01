@@ -10,6 +10,7 @@ import { formatBackupTimestamp } from '../utils/format';
 import { shareOrDownloadBlob } from '../utils/shareExport';
 import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
+import ApiConnectionPicker from '../components/os/ApiConnectionPicker';
 import UserHolidaySettings from '../components/settings/UserHolidaySettings';
 import { consumeHolidaySettings, hasHolidaySettingsRequest, type UserHolidayConfig } from '../utils/userHolidays';
 import { NotionManager, FeishuManager, RealtimeContextManager, fetchOwmWeather, fetchOpenMeteoWeather } from '../utils/realtimeContext';
@@ -3331,82 +3332,18 @@ const Settings: React.FC = () => {
                     再发给主 API；之后聊天和重 roll 都直接复用，不会重复识图扣费。关闭时完全沿用原来的图片发送逻辑。
                 </p>
 
-                <div className="rounded-2xl border border-violet-100 bg-white/70 p-3">
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                        <label className="text-[10px] font-bold text-violet-500 uppercase tracking-widest">从模型预设载入</label>
-                        <span className="text-[9px] text-slate-300">不会切换主 API</span>
-                    </div>
-                    {apiPresets.length > 0 ? (
-                        <div className="flex gap-2 flex-wrap">
-                            {apiPresets.map(preset => (
-                                <button
-                                    key={preset.id}
-                                    type="button"
-                                    onClick={() => loadVisionApiPreset(preset)}
-                                    className={`max-w-full px-3 py-1.5 rounded-lg border text-[11px] font-medium truncate transition-colors ${
-                                        selectedVisionPresetId === preset.id
-                                            ? 'bg-violet-100 border-violet-200 text-violet-700'
-                                            : 'bg-white border-slate-200 text-slate-500 hover:border-violet-200'
-                                    }`}
-                                    title={`${preset.name} · ${preset.config.model || '未配置模型'}`}
-                                >
-                                    {preset.name}
-                                </button>
-                            ))}
-                        </div>
-                    ) : (
-                        <p className="text-[10px] text-slate-400 leading-relaxed">还没有模型预设；可先在上方“API 配置”中保存预设，或直接手动填写。</p>
-                    )}
-                </div>
-
-                <div className={`space-y-3 transition-opacity ${localVisionEnabled ? 'opacity-100' : 'opacity-50'}`}>
-                    <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">URL</label>
-                        <input
-                            type="text"
-                            value={localVisionUrl}
-                            onChange={event => { setLocalVisionUrl(event.target.value); setSelectedVisionPresetId(null); setVisionTestResult(null); }}
-                            disabled={!localVisionEnabled}
-                            placeholder="https://.../v1"
-                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
-                        />
-                    </div>
-                    <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">Key</label>
-                        <input
-                            type="password"
-                            value={localVisionKey}
-                            onChange={event => { setLocalVisionKey(event.target.value); setSelectedVisionPresetId(null); setVisionTestResult(null); }}
-                            disabled={!localVisionEnabled}
-                            placeholder="sk-..."
-                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all disabled:cursor-not-allowed"
-                        />
-                    </div>
-                    <div>
-                        <div className="flex justify-between items-center mb-1.5 pl-1">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Model</label>
-                            <button
-                                type="button"
-                                onClick={fetchVisionModels}
-                                disabled={!localVisionEnabled || isLoadingVisionModels}
-                                className="text-[10px] text-violet-600 font-bold disabled:text-slate-300"
-                            >
-                                {isLoadingVisionModels ? 'Fetching...' : '刷新模型列表'}
-                            </button>
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowVisionModelModal(true)}
-                            disabled={!localVisionEnabled}
-                            title={localVisionModel || '选择或手动输入模型'}
-                            className="w-full bg-white/60 border border-slate-200/60 rounded-xl px-4 py-3 text-sm text-slate-700 flex justify-between items-center gap-2 active:bg-white transition-all shadow-sm disabled:cursor-not-allowed"
-                        >
-                            <span className="font-mono overflow-hidden whitespace-nowrap min-w-0 flex-1 text-left text-ellipsis">
-                                {localVisionModel || '选择或手动输入模型...'}
-                            </span>
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-400 shrink-0"><path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" /></svg>
-                        </button>
-                    </div>
+                <div className={`transition-opacity ${localVisionEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
+                    <ApiConnectionPicker
+                        value={localVisionUrl ? { baseUrl: localVisionUrl, apiKey: localVisionKey, model: localVisionModel } : null}
+                        onChange={cfg => {
+                            setLocalVisionUrl(cfg?.baseUrl || '');
+                            setLocalVisionKey(cfg?.apiKey || '');
+                            setLocalVisionModel(cfg?.model || '');
+                            setSelectedVisionPresetId(null);
+                            setVisionTestResult(null);
+                        }}
+                        hint="选一个能看图的模型（如 GPT-4o、Gemini、Qwen-VL）。不会切换主 API；站点与模型在 系统设置 → API 配置 里统一管理。"
+                    />
                 </div>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -3421,7 +3358,7 @@ const Settings: React.FC = () => {
                     <button
                         type="button"
                         onClick={() => handleSaveVisionApi()}
-                        disabled={isLoadingVisionModels || testingVisionApi}
+                        disabled={testingVisionApi}
                         className="py-3 rounded-2xl font-bold text-white shadow-lg shadow-violet-500/20 bg-violet-500 active:scale-95 transition-all disabled:opacity-50"
                     >
                         保存识图 API

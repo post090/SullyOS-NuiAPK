@@ -18,6 +18,7 @@ import { autoFixProposalCodesByName } from '../../utils/mcdToolBridge';
 import { mcdItemEmoji } from '../../utils/mcdEmoji';
 import type { McdCartItem } from '../chat/McdCard';
 import TokenImg from '../os/TokenImg';
+import NetImg from '../os/NetImg';
 
 interface McdMiniAppProps {
     open: boolean;
@@ -1027,8 +1028,8 @@ const InAppChat: React.FC<{
                                             onAddAll={(items: McdProposalItem[]) => onAddAllFromProposal?.(items)}
                                         />
                                     ) : m.type === 'emoji' ? (
-                                        <TokenImg
-                                            value={m.content}
+                                        <NetImg
+                                            src={m.content}
                                             alt="表情"
                                             className="w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-lg bg-white/40 p-1"
                                             loading="lazy"

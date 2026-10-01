@@ -2,6 +2,7 @@
 import React, { useRef, useState } from 'react';
 import Modal from '../os/Modal';
 import TokenImg from '../os/TokenImg';
+import NetImg from '../os/NetImg';
 import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
@@ -1046,11 +1047,11 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                     {Array.isArray(selectedEmoji) ? (
                         <div className="flex flex-wrap justify-center gap-2 max-h-48 overflow-y-auto no-scrollbar w-full px-2">
                             {selectedEmoji.map((e: any, idx: number) => (
-                                <TokenImg key={idx} value={e.url} className="w-16 h-16 object-contain rounded-xl border border-slate-200" />
+                                <NetImg key={idx} src={e.url} className="w-16 h-16 object-contain rounded-xl border border-slate-200" />
                             ))}
                         </div>
                     ) : (
-                        selectedEmoji && <TokenImg value={selectedEmoji.url} className="w-24 h-24 object-contain rounded-xl border" />
+                        selectedEmoji && <NetImg src={selectedEmoji.url} className="w-24 h-24 object-contain rounded-xl border" />
                     )}
                     <p className="text-center text-sm text-slate-500">
                         {Array.isArray(selectedEmoji) ? `确定要删除这 ${selectedEmoji.length} 个表情包吗？` : "确定要删除这个表情包吗？"}
@@ -1063,7 +1064,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                 <div className="flex flex-col items-center gap-4 py-1">
                     {selectedEmoji && !Array.isArray(selectedEmoji) && (
                         <div className="flex flex-col items-center gap-2">
-                            <TokenImg value={selectedEmoji.url} className="w-20 h-20 object-contain rounded-xl border border-slate-200" />
+                            <NetImg src={selectedEmoji.url} className="w-20 h-20 object-contain rounded-xl border border-slate-200" />
                             <span className="text-sm font-medium text-slate-600 max-w-[12rem] truncate">{selectedEmoji.name}</span>
                         </div>
                     )}

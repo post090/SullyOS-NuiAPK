@@ -733,7 +733,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     textareaRef.current?.focus({ preventScroll: true });
                                 }}
                                 className="flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl p-1 hover:bg-slate-400/10 active:scale-95 transition-transform motion-reduce:transition-none">
-                                <TokenImg value={emoji.url} alt={emoji.name} decoding="async" className="h-12 w-12 object-contain" />
+                                <NetImg src={emoji.url} alt={emoji.name} decoding="async" className="h-12 w-12 object-contain" />
                                 <span className="w-full truncate text-center text-[10px]">{emoji.name}</span>
                             </button>
                         ))}
@@ -942,7 +942,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         >
                                             <div className="aspect-square w-full">
                                                 {/* 换图仍重建 img，避免新图解码前残留旧位图；分页和懒加载照旧。 */}
-                                                <TokenImg key={e.url} value={e.url} loading="lazy" decoding="async" className="sully-emoji-thumb w-full h-full object-contain pointer-events-none" />
+                                                <NetImg key={e.url} src={e.url} loading="lazy" decoding="async" className="sully-emoji-thumb w-full h-full object-contain pointer-events-none" />
                                             </div>
                                             <span className={`text-[9px] truncate w-full text-center mt-0.5 leading-tight pointer-events-none ${emojiLabelClass}`}>{e.name}</span>
                                             {isSelected && <div className="absolute inset-0 bg-blue-500/20 rounded-2xl pointer-events-none border-2 border-blue-500" />}
