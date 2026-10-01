@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Base64;
 
+import com.getcapacitor.JSObject;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -283,8 +285,8 @@ final class AmsgUnifiedPushStore {
             .apply();
     }
 
-    static synchronized JSONObject readPollStatus(Context context) {
-        JSONObject status = new JSONObject();
+    static synchronized JSObject readPollStatus(Context context) {
+        JSObject status = new JSObject();
         try {
             status.put("enabled", readPollConfig(context) != null);
             status.put("cursor", readPollCursor(context));
