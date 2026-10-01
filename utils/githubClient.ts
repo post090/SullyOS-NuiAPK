@@ -35,6 +35,11 @@ const RELEASE_NAME_PREFIX = 'Sully Backup ';
 // and its 128 MB isolate memory ceiling. Smaller parts also reduce the native
 // Capacitor base64 bridge peak during downloads.
 const MAX_PART_SIZE = 32 * 1024 * 1024;
+// APK 直连走 CapacitorHttp 时每片要变成 base64 字符串过桥（×4/3），32MB 片会生成
+// 40MB+ 的桥消息，单线程 JSON 解析与大堆 GC 会把主线程拖到 ANR。原生直连单独用小片。
+const NATIVE_DIRECT_PART_SIZE = 4 * 1024 * 1024;
+const partSizeFor = (config: CloudBackupConfig): number =>
+    isNative() && !shouldUseGithubProxy(config) ? NATIVE_DIRECT_PART_SIZE : MAX_PART_SIZE;
 const PART_FILENAME_RE = /^(.+)\.part(\d+)of(\d+)\.zip$/i;
 const MANIFEST_SUFFIX = '.sully-backup.json';
 const MAX_ASSET_ATTEMPTS = 3;
@@ -709,15 +714,16 @@ export const uploadBackup = async (
         if (!releaseId) throw new Error('GitHub 没有返回有效的 Release 标识。');
 
         onProgress?.(5);
-        const totalParts = Math.max(1, Math.ceil(blob.size / MAX_PART_SIZE));
+        const partSize = partSizeFor(config);
+        const totalParts = Math.max(1, Math.ceil(blob.size / partSize));
         const baseName = filename.replace(/\.zip$/i, '');
         const padWidth = String(totalParts).length;
         const span = 86 / Math.max(1, totalParts);
         const uploadedAssets: GithubAsset[] = [];
 
         for (let i = 0; i < totalParts; i++) {
-            const start = i * MAX_PART_SIZE;
-            const end = Math.min(start + MAX_PART_SIZE, blob.size);
+            const start = i * partSize;
+            const end = Math.min(start + partSize, blob.size);
             const partBlob = blob.slice(start, end, 'application/zip');
             const partName = totalParts === 1
                 ? filename

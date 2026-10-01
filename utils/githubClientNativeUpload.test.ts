@@ -147,6 +147,40 @@ describe('GitHub 备份 · 原生直连上传', () => {
     }, 20_000);
 });
 
+describe('GitHub 备份 · 原生直连分片大小', () => {
+    it('原生直连按 4MB 小片切分，避免 40MB+ base64 字符串过桥拖出 ANR', async () => {
+        const partBytes = 4 * 1024 * 1024;
+        const blob = new Blob([new Uint8Array(partBytes * 2 + 10)], { type: 'application/zip' });
+        const zipSizes: number[] = [];
+        let assetId = 500;
+
+        capacitorHttpMocks.request.mockImplementation(async (options: NativeRequest) => {
+            const url = String(options.url);
+            if (url.endsWith('/releases') && options.method === 'POST') {
+                return { status: 201, headers: {}, data: { id: 66 } };
+            }
+            if (url.startsWith('https://uploads.github.com/')) {
+                const name = new URL(url).searchParams.get('name') || '';
+                const size = name.endsWith('.sully-backup.json')
+                    ? Buffer.byteLength(String(options.data), 'utf8')
+                    : Buffer.from(String(options.data), 'base64').length;
+                if (!name.endsWith('.sully-backup.json')) zipSizes.push(size);
+                return { status: 201, headers: {}, data: { id: assetId++, name, size, state: 'uploaded' } };
+            }
+            if (url.endsWith('/releases/66') && options.method === 'PATCH') {
+                return { status: 200, headers: {}, data: { id: 66, draft: false } };
+            }
+            throw new Error(`unexpected native request: ${options.method} ${url}`);
+        });
+        vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('原生直连不应使用 WebView fetch'))));
+
+        const result = await uploadBackup(config, blob, 'Sully_Backup_full_3.zip');
+
+        expect(result.ok).toBe(true);
+        expect(zipSizes).toEqual([partBytes, partBytes, 10]);
+    }, 30_000);
+});
+
 describe('GitHub 备份 · 原生 + 应用内中转', () => {
     it('附件仍走 WebView fetch → Worker（流式 Blob），不经原生桥 base64', async () => {
         const proxyConfig = { ...config, githubUseProxy: true, githubProxyConsentVersion: 1 };

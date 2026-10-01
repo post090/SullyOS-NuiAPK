@@ -10,6 +10,7 @@ export interface NativeJobRecord {
   updatedAt: number;
   timeoutMs?: number;
   responseType?: 'text' | 'json';
+  /** Only present on getJob; listJobs returns summaries without request/response. */
   request?: { url?: string; method?: string };
   response?: { statusCode: number; headers?: Record<string, string>; body?: string };
   meta?: Record<string, unknown>;

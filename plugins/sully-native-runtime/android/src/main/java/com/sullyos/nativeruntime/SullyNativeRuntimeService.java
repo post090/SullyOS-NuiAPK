@@ -240,7 +240,7 @@ public class SullyNativeRuntimeService extends Service {
                 intent.getStringExtra("title"),
                 intent.getStringExtra("text")
             );
-            resumePendingJobs();
+            EXECUTOR.execute(this::resumePendingJobs);
             if (callStartedAtMs != 0) maybeFetchCallAvatar();
             return START_STICKY;
         }
@@ -271,28 +271,29 @@ public class SullyNativeRuntimeService extends Service {
         if (ACTION_ENQUEUE_HTTP.equals(action)) {
             String jobId = intent.getStringExtra("jobId");
             if (jobId == null) return START_NOT_STICKY;
-            long runAt = readJobRunAt(jobId);
-            // Far-future jobs: hand off to AlarmManager instead of parking a worker thread.
-            if (runAt > System.currentTimeMillis() + ALARM_THRESHOLD_MS) {
-                scheduleExactAlarm(this, jobId, runAt);
-                // We were started via startForegroundService; satisfy that contract first,
-                // then release the foreground unless something else needs it. The alarm wakes us.
-                startForegroundCompat(
-                    intent.getStringExtra("title"),
-                    intent.getStringExtra("text")
-                );
-                restoreMusicForegroundIfIdle();
-                maybeStop();
-                return START_NOT_STICKY;
-            }
+            // Satisfy the startForegroundService contract before touching disk: the job file
+            // carries the full request body and parsing it on the main thread risks ANR.
             startForegroundCompat(
                 intent.getStringExtra("title"),
                 intent.getStringExtra("text")
             );
-            if (ACTIVE_JOB_IDS.add(jobId)) {
-                RUNNING_JOBS.incrementAndGet();
-                EXECUTOR.execute(() -> runHttpJob(jobId));
-            }
+            if (!ACTIVE_JOB_IDS.add(jobId)) return START_REDELIVER_INTENT;
+            RUNNING_JOBS.incrementAndGet();
+            EXECUTOR.execute(() -> {
+                long runAt = readJobRunAt(jobId);
+                // Far-future jobs: hand off to AlarmManager instead of parking a worker thread.
+                if (runAt > System.currentTimeMillis() + ALARM_THRESHOLD_MS) {
+                    scheduleExactAlarm(this, jobId, runAt);
+                    ACTIVE_JOB_IDS.remove(jobId);
+                    RUNNING_JOBS.decrementAndGet();
+                    MAIN_HANDLER.post(() -> {
+                        restoreMusicForegroundIfIdle();
+                        maybeStop();
+                    });
+                    return;
+                }
+                runHttpJob(jobId);
+            });
             return START_REDELIVER_INTENT;
         }
         if (ACTION_ALARM_WAKE.equals(action)) {
@@ -303,10 +304,14 @@ public class SullyNativeRuntimeService extends Service {
                 RUNNING_JOBS.incrementAndGet();
                 EXECUTOR.execute(() -> runHttpJob(jobId));
             }
-            // Also pick up any other jobs whose runAt has elapsed.
-            resumePendingJobs();
-            restoreMusicForegroundIfIdle();
-            maybeStop();
+            // Also pick up any other jobs whose runAt has elapsed (off the main thread).
+            EXECUTOR.execute(() -> {
+                resumePendingJobs();
+                MAIN_HANDLER.post(() -> {
+                    restoreMusicForegroundIfIdle();
+                    maybeStop();
+                });
+            });
             return START_NOT_STICKY;
         }
         return START_NOT_STICKY;
@@ -1252,7 +1257,13 @@ public class SullyNativeRuntimeService extends Service {
         for (File f : files) {
             if (!f.isFile() || !f.getName().endsWith(".json")) continue;
             try (FileInputStream fis = new FileInputStream(f)) {
-                arr.put(new JSONObject(readAll(fis)));
+                // Summary only: request/response bodies can be megabytes each and the
+                // resolve payload is injected via evaluateJavascript on the main thread.
+                // Callers that need the full record use getJob(jobId).
+                JSONObject job = new JSONObject(readAll(fis));
+                job.remove("request");
+                job.remove("response");
+                arr.put(job);
             } catch (Exception ignored) {}
         }
         return arr;
