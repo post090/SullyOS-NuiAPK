@@ -116,7 +116,8 @@ describe('安卓 App 没装 ntfy 时的内置拉取通道', () => {
   });
 
   it('拉取就是它自己的通道：不算「不支持」，也不标红', () => {
-    expect(describeSupport(poll())).toBe('是（内置定时拉取，每 15 分钟左右一趟）');
+    expect(describeSupport(poll({ endpoint: 'poll:android' }))).toBe('是（内置定时拉取，每 15 分钟左右一趟）');
+    expect(describeSupport(poll())).toContain('重置订阅');
     expect(isSupportBad(poll())).toBe(false);
   });
 

@@ -142,17 +142,21 @@ export const readUnifiedPushPanelState = async (): Promise<BrowserPushState> => 
     const distributor = status.distributor || status.subscription?.distributor || null;
     // 没装 ntfy 但内置拉取在跑：endpoint 用占位订阅，面板据此把「云端登记」比对出来。
     const usingPoll = !status.subscription?.endpoint && Boolean(poll?.enabled);
+    const pollChannel = usingPoll
+      || (!status.subscription?.endpoint && !distributor && status.distributors.length === 0);
     return {
       ...base,
-      transport: usingPoll ? 'native-poll' as const : 'unified-push' as const,
-      supported: Boolean(distributor) || status.distributors.length > 0 || usingPoll,
+      transport: pollChannel ? 'native-poll' as const : 'unified-push' as const,
+      supported: Boolean(distributor) || status.distributors.length > 0 || pollChannel,
       permission: status.permission === 'prompt' ? 'default' : status.permission,
       endpoint: status.subscription?.endpoint || (usingPoll ? NATIVE_POLL_SUBSCRIPTION.endpoint : null),
       channel: status.subscription?.endpoint
         ? `UnifiedPush（${distributor || 'ntfy'}）`
         : usingPoll
           ? '内置定时拉取（每 15 分钟左右）'
-          : 'UnifiedPush（未选推送服务）',
+          : pollChannel
+            ? '内置定时拉取（还没开启）'
+            : 'UnifiedPush（未选推送服务）',
       distributor,
       distributorCount: status.distributors.length,
       nativeError: status.lastError || poll?.lastError,

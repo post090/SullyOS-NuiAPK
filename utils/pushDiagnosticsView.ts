@@ -60,7 +60,11 @@ export const describeSubscription = (state: BrowserPushState): string => {
  * 也算进来。
  */
 export const describeSupport = (state: BrowserPushState): string => {
-  if (state.transport === 'native-poll') return '是（内置定时拉取，每 15 分钟左右一趟）';
+  if (state.transport === 'native-poll') {
+    return state.endpoint
+      ? '是（内置定时拉取，每 15 分钟左右一趟）'
+      : '可以用内置定时拉取（点下面「重置订阅」开启）';
+  }
   if (state.transport === 'unified-push') {
     if (state.distributor) return `是（UnifiedPush：${state.distributor}）`;
     if (state.distributorCount) return '已装推送服务，还没选用（点下面「重置订阅」）';
