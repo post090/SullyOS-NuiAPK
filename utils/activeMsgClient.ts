@@ -1,3 +1,4 @@
+import { stoppedReplyStateEntries } from './amsgStoppedReplyClient';
 import { loadCharacterContextMessages } from './chatContextRange';
 import { ReiClient } from '@rei-standard/amsg-client';
 import {
@@ -1413,6 +1414,7 @@ const buildCharStateEntries = async (
   firePack: AmsgFirePack,
   updatedAt: number,
 ) => [
+  ...(await stoppedReplyStateEntries(char.id)).map(entry => ({ ...entry, namespace: amsgStateNamespace(char.id), updatedAt })),
   buildLimitsEntry(char, updatedAt),
   {
     namespace: amsgStateNamespace(char.id),
@@ -2440,6 +2442,7 @@ export const ActiveMsgClient = {
   },
 
   async scheduleCharacterTask(params: {
+    signal?: AbortSignal;
     char: CharacterProfile;
     /** 角色级共享设置（secondaryApi / maxTokens）。 */
     config: ActiveMsg2CharacterConfig;
@@ -2592,9 +2595,11 @@ export const ActiveMsgClient = {
     if (credRow) await putLlmCredentialRows([credRow]);
 
     const postSchedule = async () => {
+      params.signal?.throwIfAborted();
       const encrypted = await encryptPayload(client, payload);
       return fetchWithAuth('schedule-message', globalConfig, {
         method: 'POST',
+        signal: params.signal,
         headers: {
           'Content-Type': 'application/json',
           'X-Payload-Encrypted': 'true',
@@ -2835,6 +2840,8 @@ export const ActiveMsgClient = {
    * 绝不退回本地生成——静默分流那种查无可查的坑踩过一次就够了。
    */
   async sendInstantChat(params: {
+    uuid?: string;
+    signal?: AbortSignal;
     char: CharacterProfile;
     /** 本地生成会 POST 给 /chat/completions 的那串 fullMessages，原样带上去。 */
     chatMessages: Array<{ role: string; content: unknown }>;
@@ -2873,11 +2880,13 @@ export const ActiveMsgClient = {
     /** 上一条还没被认领的即时对话任务，连发两条时用它顶掉（合并成一起回）。 */
     supersedesUuid?: string;
   }): Promise<{ uuid: string; clientTaskId: string }> {
+    params.signal?.throwIfAborted();
     const { char, chatMessages, api, userProfile, groups, realtimeConfig } = params;
     if (!api.baseUrl || !api.model) throw new Error('即时对话没发出去：聊天 API 地址或模型没配齐。');
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
 
+    params.signal?.throwIfAborted();
     const now = Date.now();
     const tzId = resolveCharTimeZone(char) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     // 模板只有定时任务那条路才渲染：角色 2.0 关着（云端 fire 不注入排程工具，排不出
@@ -2894,6 +2903,7 @@ export const ActiveMsgClient = {
 
     const clientTaskId = crypto.randomUUID();
 
+    params.signal?.throwIfAborted();
     // ── 这一轮的凭据走引用还是内联 ──
     //
     // 走引用时两行一起登记：
@@ -2932,6 +2942,7 @@ export const ActiveMsgClient = {
 
     const remoteAvatarUrl = toRemoteAvatarUrl(char.avatar);
     const taskPayload: Record<string, unknown> = {
+      ...(params.uuid ? { uuid: params.uuid } : {}),
       contactName: char.name,
       ...(remoteAvatarUrl ? { avatarUrl: remoteAvatarUrl } : {}),
       // 用 'auto' 而不是 'instant'：'instant' 在上游是「当场跑完」的行型，走不到 fire hooks，
@@ -3021,16 +3032,22 @@ export const ActiveMsgClient = {
     // 旧 bundle 的 worker 不认 credPayload，凭据行还得靠这一步单独登记（上游建任务前会
     // 挨个查引用）。只有值跟底账不一样才真的发请求，常态下是零请求；新 bundle 上它最多是
     // 值刚变的那一轮多写一遍。
+    params.signal?.throwIfAborted();
     if (credRows.length > 0) await putLlmCredentialRows(credRows);
 
-    const postInstantChat = () => fetchWithAuthRaw('instant-chat', globalConfig, {
-      method: 'POST',
-      // 外壳是明文：里头两个信封已经加密好，别再给外壳挂加密头（包装层会当它是整体密文）。
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ statePayload, taskPayload: encryptedTask, ...(credPayload ? { credPayload } : {}) }),
-    }, '即时对话');
+    const postInstantChat = () => {
+      params.signal?.throwIfAborted();
+      // 已发出的受理请求读完 UUID 后再取消，避免请求断开却留下不知道身份的任务。
+      return fetchWithAuthRaw('instant-chat', globalConfig, {
+        method: 'POST',
+        // 外壳是明文：里头两个信封已经加密好，别再给外壳挂加密头（包装层会当它是整体密文）。
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ statePayload, taskPayload: encryptedTask, ...(credPayload ? { credPayload } : {}) }),
+      }, '即时对话');
+    };
 
     let { status, body } = await postInstantChat();
+    if (status !== 202) params.signal?.throwIfAborted();
     // 云端说引用的凭据不存在（本地底账脏了）：绕过指纹强传一次再发一次，只自愈一次。
     // 包装层把上游那份原样塞在 error.upstream 里，所以要往里再剥一层看错误码。
     if (status !== 202 && credRows.length > 0 && isCredentialNotFound(body)) {

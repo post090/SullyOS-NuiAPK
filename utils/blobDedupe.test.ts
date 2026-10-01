@@ -200,7 +200,7 @@ describe('与孤儿 GC 的配合', () => {
         expect(REF_SOURCE_STORES.length).toBeGreaterThan(0);
         expect([...REF_SOURCE_STORES]).toEqual(
             [
-                'characters', 'messages', 'cc_custom_parts', 'songs', 'gallery', 'assets', 'themes', 'emojis',
+                'daily_schedule', 'characters', 'messages', 'cc_custom_parts', 'songs', 'gallery', 'assets', 'themes', 'emojis',
                 'user_profile', 'social_posts', 'groups', 'character_groups', 'story_theater_masks',
                 'bank_data', 'guidebook', 'life_sim', 'pixel_home_assets',
             ],

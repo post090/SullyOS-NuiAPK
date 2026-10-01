@@ -39,7 +39,7 @@ async function seedStore(name: string, records: any[]): Promise<void> {
 beforeEach(async () => {
     // 每条用例都从干净的世界出发：blob 库、本组会写的引用面表、localStorage 全清，
     // 避免上一条用例的令牌 / 引用串味（GC 是全库扫描，残留会直接改变 deleted/kept 计数）
-    for (const s of ['blob_assets', 'characters', 'songs']) {
+    for (const s of ['blob_assets', 'characters', 'songs', 'daily_schedule']) {
         await clearStore(s);
     }
     localStorage.clear();
@@ -73,6 +73,12 @@ describe('混用表守卫（GC 的世界观边界）', () => {
 });
 
 describe('GC 基础三件', () => {
+    it('日程头图独占引用也不会被清理', async () => {
+        await DB.putBlobAsset('img_schedule_cover', tinyBlob());
+        await seedStore('daily_schedule', [{ id: 'c_2026-10-01', charId: 'c', coverImage: 'blobref:img_schedule_cover' }]);
+        expect(await runBlobGc({ minAgeMs: 0 })).toMatchObject({ deleted: 0, aborted: false });
+        expect(await DB.getBlobAsset('img_schedule_cover')).not.toBeNull();
+    });
     it('老孤儿删：img_ 前缀、无任何引用 → 被回收', async () => {
         await DB.putBlobAsset('img_orphan_dead', tinyBlob());
 

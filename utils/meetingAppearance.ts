@@ -1,0 +1,33 @@
+export const MEETING_APPEARANCES = [
+    { id: 'none', name: '无', description: '保留原有界面', background: '#faf8f5', ink: '#292524' },
+    { id: 'novel', name: '纯小说', description: '素白正文 · 连续阅读', background: '#fcfcfa', ink: '#292929' },
+    { id: 'paper', name: '旧书纸页', description: '暖纸衬底 · 宽松行距', background: '#f3ead8', ink: '#51432f' },
+    { id: 'night', name: '静夜阅读', description: '深色页面 · 柔和文字', background: '#191d24', ink: '#d6d9df' },
+] as const;
+export type MeetingAppearance = { preset: typeof MEETING_APPEARANCES[number]['id']; name?: string };
+export function validateMeetingAppearance(value: unknown): MeetingAppearance {
+    const preset = (value as MeetingAppearance | null)?.preset;
+    if (!MEETING_APPEARANCES.some(item => item.id === preset)) throw Error('见面／剧情美化样式无效');
+    const name = (value as MeetingAppearance).name;
+    return { preset: preset!, ...(typeof name === 'string' && name.trim() ? { name: name.trim().slice(0, 60) } : {}) };
+}
+export function meetingAppearance(value?: MeetingAppearance) {
+    const base = MEETING_APPEARANCES.find(item => item.id === value?.preset) || MEETING_APPEARANCES[0];
+    return { ...base, name: base.id !== 'none' && value?.name ? value.name : base.name };
+}
+
+/** Shared reading typography for real surfaces and isolated sample previews. */
+export const MEETING_READING_CSS = `
+.meeting-reading { --meeting-paper:#fcfcfa; --meeting-ink:#292929; }
+.meeting-reading[data-reading-preset="paper"] { --meeting-paper:#f3ead8; --meeting-ink:#51432f; }
+.meeting-reading[data-reading-preset="night"] { --meeting-paper:#191d24; --meeting-ink:#d6d9df; }
+.meeting-reading .meeting-reading-page { background:var(--meeting-paper)!important; color:var(--meeting-ink)!important; mask-image:none!important; backdrop-filter:none!important; }
+.meeting-reading .meeting-prose { color:var(--meeting-ink)!important; font-family:var(--app-font,serif); font-size:17px!important; line-height:2!important; letter-spacing:.035em; text-align:justify!important; font-style:normal!important; border:0!important; padding-inline:0!important; text-shadow:none!important; }
+.meeting-reading .meeting-prose p { margin-block:.7em; }
+.meeting-reading .meeting-reading-page .meeting-reading-avatar { display:none; }
+.meeting-reading .meeting-reading-page .meeting-user-label { display:none; }
+.meeting-reading .meeting-user-turn { border:0!important; padding-left:0!important; }
+.meeting-reading .meeting-reading-page .meeting-prose { white-space:pre-wrap; }
+.meeting-reading.story-theme { --story-bg:var(--meeting-paper); --story-surface:var(--meeting-paper); --story-ink:var(--meeting-ink); }
+.meeting-reading.story-theme::before { display:none; }
+`;

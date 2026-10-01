@@ -204,5 +204,6 @@ export const runAmsgEmotionEval = async (
   chatMessages: Array<{ role: string; content: unknown }>,
   charName: string,
   timeoutMs: number = EMOTION_EVAL_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<AmsgEmotionEvalOutcome> =>
-  requestEmotionEval(api, coreRestoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs);
+  requestEmotionEval(api, coreRestoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs, signal);

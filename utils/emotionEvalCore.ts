@@ -96,8 +96,12 @@ export const requestEmotionEval = async (
   api: EmotionEvalApi,
   promptContent: string,
   timeoutMs: number = EMOTION_EVAL_TIMEOUT_MS,
+  signal?: AbortSignal,
 ): Promise<EmotionEvalOutcome> => {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) return { raw: null, error: null };
+  signal?.addEventListener('abort', abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const baseUrl = String(api.baseUrl).replace(/\/+$/, '');
@@ -140,6 +144,7 @@ export const requestEmotionEval = async (
     }
     return { raw, error: null };
   } catch (error) {
+    if (signal?.aborted) return { raw: null, error: null };
     console.warn('[emotion-eval] 评估失败（主流程不受影响）', error);
     // 只带异常名/消息，不带栈：这句要走 push 出门，短一点、也别把内部路径抖出去。
     // 异常消息同样过打码：fetch 异常一般不含请求头，但 URL 解析类错误会回显传入的
@@ -150,5 +155,6 @@ export const requestEmotionEval = async (
     return { raw: null, error: reason };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
 };

@@ -54,3 +54,17 @@ describe('useChatAI 请求生命周期', () => {
         expect(current!.isTyping).toBe(false);
     });
 });
+
+it('停止正在等待的初始化会立即解除占位，不留下错误消息', async () => {
+    const { stopReplyRuns } = await import('./chatReplyCancellation');
+    const { DB } = await import('./db');
+    root = createRoot(container);
+    vi.mocked(KeepAlive.start).mockImplementation(() => new Promise(() => {}));
+    await act(async () => { root.render(createElement(Probe, { charId: 'stop-lifecycle' })); });
+    let pending!: Promise<void>;
+    await act(async () => { pending = current.triggerAI([]); });
+    expect(current.isTyping).toBe(true);
+    await act(async () => { stopReplyRuns('stop-lifecycle'); await pending; });
+    expect(current.isTyping).toBe(false);
+    expect(await DB.getRecentMessagesByCharId('stop-lifecycle', 20)).toEqual([]);
+});

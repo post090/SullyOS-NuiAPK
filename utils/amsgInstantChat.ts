@@ -1,3 +1,7 @@
+import { stageStoppedReplyReceipt } from './amsgStoppedReplyClient';
+import { amsgStateNamespace } from './amsgFirePack';
+import { stoppedReplyKey } from './amsgStoppedReply';
+import { getReplyDisplayIds, isReplyStopped, markReplyStopped, replyAbortError } from './chatReplyCancellation';
 /**
  * 即时对话（instant chat）的客户端这一半。
  *
@@ -488,7 +492,7 @@ export const announceInstantChatRoute = (detail: InstantChatRouteDetail): void =
 // 那几秒里，别处打脏触发的常规包（没有 chat 段）可能晚于 POST 内部那次 client-state
 // 写入落地，把带 chat 段的包盖掉，worker 到点只会硬失败。所以从按下发送那一刻起就
 // 占位，挡板认「占位或待收」，202 后由待收记录接棒，失败则释放。
-const inFlightSends = new Set<string>();
+const inFlightSends = new Map<string, symbol>();
 
 /** POST /instant-chat 正在飞（还没等到 202/失败）吗。amsgStateSync 的挂起挡板用。 */
 export const isInstantChatSendInFlight = (charId: string): boolean => inFlightSends.has(charId);
@@ -508,6 +512,7 @@ export interface InstantChatSendResult {
  * 一次回复。上一条已经在跑了（取消不掉）也不影响这一条，最多两句相近的回复。
  */
 export const sendInstantChatTurn = async (params: {
+  signal?: AbortSignal;
   char: CharacterProfile;
   chatMessages: Array<{ role: string; content: unknown }>;
   /** 本地生成这一轮会用的凭据（effectiveApi），云端必须用同一份。 */
@@ -537,7 +542,19 @@ export const sendInstantChatTurn = async (params: {
   sarModule?: AmsgSarModuleSnapshot;
 }): Promise<InstantChatSendResult> => {
   const supersedes = getInstantChatPending(params.char.id);
-  inFlightSends.add(params.char.id);
+  const requestedUuid = crypto.randomUUID();
+  const stopSending = () => {
+    markReplyStopped(requestedUuid);
+    const receipt = stageStoppedReplyReceipt(params.char.id, requestedUuid, Promise.resolve(''));
+    void Promise.allSettled([
+      ActiveMsgClient.cancelTask(requestedUuid),
+      receipt.then(text => ActiveMsgClient.writeClientStateValue(amsgStateNamespace(params.char.id),
+        stoppedReplyKey(requestedUuid), JSON.stringify({ text }))),
+    ]);
+  };
+  params.signal?.addEventListener('abort', stopSending, { once: true });
+  const sendToken = Symbol('instant-send');
+  inFlightSends.set(params.char.id, sendToken);
   // 这一轮在「API 调用记录」里的那一笔：本地这条路只经手一个 POST，真正的模型请求
   // 是云端发的，日志的全局拦截器够不着——不在这儿记，用户就会看到聊天从记录里消失。
   // meta 跟本地生成那条路对齐（useChatAI 传给 safeFetchJson 的那份），两条路在列表里
@@ -549,7 +566,10 @@ export const sendInstantChatTurn = async (params: {
     purpose: '聊天回复',
   };
   try {
+    params.signal?.throwIfAborted();
     const { uuid } = await ActiveMsgClient.sendInstantChat({
+      uuid: requestedUuid,
+      signal: params.signal,
       char: params.char,
       chatMessages: params.chatMessages,
       api: params.api,
@@ -563,6 +583,12 @@ export const sendInstantChatTurn = async (params: {
       ...(params.sarModule ? { sarModule: params.sarModule } : {}),
       ...(supersedes ? { supersedesUuid: supersedes.uuid } : {}),
     });
+    // A stop during POST still needs the accepted UUID so the remote task can be cancelled.
+    if (params.signal?.aborted) {
+      markReplyStopped(uuid);
+      await ActiveMsgClient.cancelTask(uuid);
+      throw replyAbortError();
+    }
     // 先记待收再释放占位（finally），挡板的两个信号无缝交接，不留「都不认」的空窗。
     setInstantChatPending(params.char.id, uuid, Date.now(), params.char.name);
     recordCloudApiCall({
@@ -581,6 +607,11 @@ export const sendInstantChatTurn = async (params: {
     }
     return { ok: true, uuid };
   } catch (error: any) {
+    if (params.signal?.aborted) {
+      // A response can be lost after the task was created. We still know which task to cancel.
+      await ActiveMsgClient.cancelTask(requestedUuid).catch(() => {});
+      throw error;
+    }
     // 只报失败、只有事件名（跟送达端那几条同一条口径）：失败原因里带着 HTTP 状态和
     // 上游报文，不进上报。用户侧同一时刻已经有明确的报错提示，这里只记「发生过」。
     trackEvent('即时对话发送失败');
@@ -597,7 +628,8 @@ export const sendInstantChatTurn = async (params: {
     });
     return { ok: false, error: error?.message || String(error) };
   } finally {
-    inFlightSends.delete(params.char.id);
+    params.signal?.removeEventListener('abort', stopSending);
+    if (inFlightSends.get(params.char.id) === sendToken) inFlightSends.delete(params.char.id);
   }
 };
 
@@ -619,7 +651,7 @@ export const settleInstantChatApiLog = (uuid: string, metadata?: Record<string, 
   const toolTrace = metadata?.amsgToolTrace;
   settleCloudApiCall({
     id: cloudApiCallLogId(uuid),
-    ok: true,
+    ok: !isReplyStopped(uuid),
     promptTokens: num(usage?.promptTokens),
     completionTokens: num(usage?.completionTokens),
     tokensPartial: Array.isArray(toolTrace) && toolTrace.length > 0,
@@ -1013,4 +1045,32 @@ export const failInstantChatPending = async (
   } catch (error) {
     console.warn(`${HEADER} 失败说明写入失败`, { charId, error });
   }
+};
+
+/** Stop locally first; a failed remote request must never let late content reappear. */
+export const stopInstantChat = async (charId: string): Promise<void> => {
+  const pending = getInstantChatPending(charId);
+  if (!pending) return;
+  const visibleIds = getReplyDisplayIds(charId);
+  markReplyStopped(pending.uuid);
+  clearInstantChatPending(charId);
+  discardInstantChatExpiredNotices(charId, pending.uuid);
+  announceEmotionDone(charId);
+  settleCloudApiCall({ id: cloudApiCallLogId(pending.uuid), ok: false });
+  // Issue cancellation immediately; history reconciliation must not delay the remote abort.
+  const cancel = ActiveMsgClient.cancelTask(pending.uuid);
+  const keptText = stageStoppedReplyReceipt(charId, pending.uuid, (async () => {
+    const messages = (await DB.getMessagesByCharId(charId)).filter(message =>
+      (message.metadata as any)?.activeMsg2?.taskUuid === pending.uuid);
+    const kept = messages.filter(message => !visibleIds || visibleIds.has(message.id));
+    const unseen = messages.filter(message => visibleIds && !visibleIds.has(message.id));
+    if (unseen.length) await DB.deleteMessages(unseen.map(message => message.id));
+    window.dispatchEvent(new CustomEvent('active-msg-progress', { detail: { charId } }));
+    return kept.map(message => message.content).join('\n');
+  })());
+  const reconcile = keptText.then(text => ActiveMsgClient.writeClientStateValue(
+    amsgStateNamespace(charId), stoppedReplyKey(pending.uuid), JSON.stringify({ text })));
+  const results = await Promise.allSettled([cancel, reconcile]);
+  const failed = results.find(result => result.status === 'rejected');
+  if (failed?.status === 'rejected') throw failed.reason;
 };

@@ -366,10 +366,13 @@ var init_mcpFireCore = __esm({
       }
     };
     postCore = async (target, session, body, timeoutMs, expectResponse = true) => {
+      target.signal?.throwIfAborted();
       const headers = target.headers(session.sessionId, session.protocolVersion);
       const sendRequest = target.fetchImpl ?? ((url, init) => fetch(url, init));
       let resp;
       const controller = new AbortController();
+      const abort = () => controller.abort(target.signal?.reason);
+      target.signal?.addEventListener("abort", abort, { once: true });
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
         try {
@@ -380,6 +383,7 @@ var init_mcpFireCore = __esm({
             signal: controller.signal
           });
         } catch (e) {
+          target.signal?.throwIfAborted();
           if (controller.signal.aborted) {
             throw new Error(`MCP \u8BF7\u6C42\u8D85\u65F6\uFF08${Math.round(timeoutMs / 1e3)} \u79D2\uFF09`);
           }
@@ -390,6 +394,7 @@ var init_mcpFireCore = __esm({
           try {
             return await resp.text();
           } catch (e) {
+            target.signal?.throwIfAborted();
             if (controller.signal.aborted) {
               throw new Error(`MCP \u8BF7\u6C42\u8D85\u65F6\uFF08${Math.round(timeoutMs / 1e3)} \u79D2\uFF09`);
             }
@@ -416,6 +421,7 @@ var init_mcpFireCore = __esm({
           const text2 = await readText();
           return { response: parseResp(text2, ct) };
         } catch (e) {
+          target.signal?.throwIfAborted();
           if (controller.signal.aborted) {
             throw new Error(`MCP \u8BF7\u6C42\u8D85\u65F6\uFF08${Math.round(timeoutMs / 1e3)} \u79D2\uFF09`);
           }
@@ -423,6 +429,7 @@ var init_mcpFireCore = __esm({
         }
       } finally {
         clearTimeout(timeoutId);
+        target.signal?.removeEventListener("abort", abort);
       }
     };
     initializeCore = async (target, session, timeoutMs) => {
@@ -535,6 +542,8 @@ var init_mcpFireCore = __esm({
       }
     };
     callMcpToolCore = async (target, session, toolName, args = {}, opts = {}) => {
+      target = { ...target, signal: opts.signal ?? target.signal };
+      target.signal?.throwIfAborted();
       const timeoutMs = opts.timeoutMs ?? MCP_REQUEST_TIMEOUT_MS;
       const normalizedArgs = normalizeMcpToolArguments(args, opts.inputSchema);
       const finish = (result) => {
@@ -597,6 +606,7 @@ var init_mcpFireCore = __esm({
         }
         return finish({ success: true, data: result });
       } catch (e) {
+        target.signal?.throwIfAborted();
         return finish({ success: false, error: e?.message || String(e) });
       }
     };
@@ -723,6 +733,7 @@ function validateBeautyMetadata(value) {
   if (!Array.isArray(value.platforms) || value.platforms.length < 1 || value.platforms.some((p) => !BEAUTY_PLATFORMS.includes(p))) throw Error("\u8BF7\u9009\u62E9\u53D1\u653E\u5E73\u53F0");
   if (typeof value.allowRemix !== "boolean" || typeof value.allowRedistribute !== "boolean") throw Error("\u8BF7\u8BBE\u7F6E\u4E8C\u6539\u548C\u4E8C\u6B21\u4F20\u64AD\u6743\u9650");
   if (value.bugFeedback !== "welcome" && value.bugFeedback !== "self-fix") throw Error("\u8BF7\u9009\u62E9\u53CD\u9988\u504F\u597D");
+  if (value.allowPublicListing !== void 0 && typeof value.allowPublicListing !== "boolean") throw Error("\u8BF7\u786E\u8BA4\u662F\u5426\u5141\u8BB8\u516C\u5F00\u5C55\u793A");
   return {
     name: text(value.name, "\u7F8E\u5316\u540D", 80, true),
     credit: text(value.credit, "\u7F72\u540D", 60, true),
@@ -730,6 +741,7 @@ function validateBeautyMetadata(value) {
     contact: text(value.contact, "\u8054\u7CFB\u8BF4\u660E", 160),
     allowRemix: value.allowRemix,
     allowRedistribute: value.allowRedistribute,
+    ...value.allowPublicListing !== void 0 ? { allowPublicListing: value.allowPublicListing } : {},
     exportVersion: text(value.exportVersion, "\u5BFC\u51FA\u7248\u672C", 80, true),
     bugFeedback: value.bugFeedback,
     message: text(value.message, "\u4F5C\u8005\u7559\u8A00", 2e3)
@@ -798,7 +810,7 @@ var init_beautyPreferencesBackup = __esm({
     USAGE = "sully-beauty-usage-v1";
     REPO = "sully-beauty-repo-status-v1";
     DEFAULTS = "sully-beauty-author-defaults-v1";
-    FLAGS = ["sullyos_chat_wardrobe_update_v2_seen", "sullyos_chat_wardrobe_guide_v2_done"];
+    FLAGS = ["sullyos_chat_wardrobe_update_v2_seen", "sullyos_chat_wardrobe_guide_v2_done", "sully-beauty-catalog-notice-v1", "sully-beauty-author-notice-v1"];
     record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
     code = (value) => typeof value === "string" && /^S-[A-F0-9]{12}$/.test(value);
   }
@@ -2944,7 +2956,7 @@ var init_db = __esm({
       },
       // DateApp 等按来源展示的轻量历史读取：用 charId 索引倒序扫，只收集目标 source 的最近 N 条。
       // 这样不会为了渲染见面阅读模式，把该角色全量聊天（含图片/base64消息）一次性 getAll 进内存。
-      getRecentMessagesByCharIdAndSource: async (charId, source, limit) => {
+      getRecentMessagesByCharIdAndSource: async (charId, source, limit, beforeId) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_MESSAGES, "readonly");
@@ -2955,6 +2967,11 @@ var init_db = __esm({
           cursorReq.onsuccess = () => {
             const cursor = cursorReq.result;
             if (cursor && collected.length < limit) {
+              if (beforeId !== void 0 && Number(cursor.primaryKey) >= beforeId) {
+                if (Number(cursor.primaryKey) > beforeId) cursor.continuePrimaryKey(charId, beforeId);
+                else cursor.continue();
+                return;
+              }
               const m = cursor.value;
               if (!m.groupId && m.metadata?.source === source) collected.push(m);
               cursor.continue();
@@ -4474,8 +4491,25 @@ var init_db = __esm({
       },
       saveDailySchedule: async (schedule) => {
         const db = await openDB2();
-        const transaction = db.transaction(STORE_DAILY_SCHEDULE, "readwrite");
-        transaction.objectStore(STORE_DAILY_SCHEDULE).put(schedule);
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_DAILY_SCHEDULE, "readwrite");
+          const store = transaction.objectStore(STORE_DAILY_SCHEDULE);
+          if (schedule.coverImage !== void 0) store.put(schedule);
+          else {
+            const range = IDBKeyRange.bound(`${schedule.charId}_`, `${schedule.charId}_\uFFFF`);
+            const request = store.openCursor(range, "prev");
+            request.onsuccess = () => {
+              const cursor = request.result;
+              if (!cursor) store.put(schedule);
+              else if (cursor.value.charId === schedule.charId && cursor.value.coverImage) {
+                store.put({ ...schedule, coverImage: cursor.value.coverImage });
+              } else cursor.continue();
+            };
+          }
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error);
+        });
       },
       deleteDailySchedule: async (charId, date) => {
         const db = await openDB2();
@@ -4553,7 +4587,7 @@ var init_db = __esm({
           }
           const transaction = db.transaction(STORE_DAILY_SCHEDULE, "readonly");
           const store = transaction.objectStore(STORE_DAILY_SCHEDULE);
-          const req = store.openCursor();
+          const req = store.openCursor(null, "prev");
           req.onsuccess = () => {
             const cursor = req.result;
             if (cursor) {
@@ -5130,6 +5164,27 @@ var init_db = __esm({
         if (!db.objectStoreNames.contains(STORE_VR_GUESTBOOK)) return;
         const transaction = db.transaction(STORE_VR_GUESTBOOK, "readwrite");
         transaction.objectStore(STORE_VR_GUESTBOOK).put({ id: "board", messages: [], updatedAt: Date.now() });
+      },
+      /** Edit/delete against the latest board, without replacing concurrent posts. */
+      editVRGuestbookMessage: async (id, content) => {
+        const db = await openDB2();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_VR_GUESTBOOK, "readwrite");
+          const store = tx.objectStore(STORE_VR_GUESTBOOK);
+          const request = store.get("board");
+          request.onsuccess = () => {
+            const board = request.result;
+            if (!board) return;
+            const messages = content === null ? board.messages.filter((m) => m.id !== id) : board.messages.map((m) => m.id === id ? { ...m, content } : m);
+            store.put({ ...board, messages, updatedAt: Date.now() });
+          };
+          tx.oncomplete = () => {
+            if (typeof window !== "undefined") window.dispatchEvent(new Event("vr-guestbook-updated"));
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error);
+        });
       },
       // --- 剧院·投稿剧本库 ---
       getVRScripts: async () => {
@@ -6629,10 +6684,30 @@ var init_db = __esm({
   }
 });
 
+// utils/amsgStoppedReply.ts
+var stoppedReplyKey = (uuid) => `chat_stop:${uuid}`;
+function reconcileStoppedReplies(log, rows) {
+  if (!log) return log;
+  const kept = /* @__PURE__ */ new Map();
+  for (const row of rows) {
+    if (!row.key.startsWith("chat_stop:")) continue;
+    try {
+      const value = JSON.parse(row.value);
+      if (typeof value.text === "string") kept.set(row.key.slice("chat_stop:".length), value.text);
+    } catch {
+    }
+  }
+  return { ...log, entries: log.entries.flatMap((entry) => {
+    if (!entry.taskUuid || !kept.has(entry.taskUuid)) return [entry];
+    const text2 = kept.get(entry.taskUuid);
+    return text2 ? [{ ...entry, text: text2 }] : [];
+  }) };
+}
+
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2_e6f2312f5e9a7bcdb7f479ab757e7745/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2_741addd052047aa4c24c2ea39fde28f7/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -6651,7 +6726,7 @@ var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
 var TASK_DELIVERY_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, retry_after, status, retry_count";
 var TASK_DETAIL_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, status, retry_count, last_error, created_at, updated_at";
 
-// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.10/node_modules/@rei-standard/amsg-shared/dist/index.mjs
+// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.11/node_modules/@rei-standard/amsg-shared/dist/index.mjs
 var TEXT_ENCODER = new TextEncoder();
 var TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 function toUint8(buf) {
@@ -6807,7 +6882,7 @@ async function callLlm(payload, options = {}) {
       "Authorization": `Bearer ${payload.apiKey}`
     },
     body: JSON.stringify(requestBody),
-    signal: AbortSignal.timeout(timeoutMs)
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
   });
   if (!aiResponse.ok) {
     const detail = await readUpstreamErrorDetail(aiResponse);
@@ -7844,7 +7919,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2_e6f2312f5e9a7bcdb7f479ab757e7745/node_modules/@rei-standard/amsg-server/dist/chunk-VBDBORLR.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2_741addd052047aa4c24c2ea39fde28f7/node_modules/@rei-standard/amsg-server/dist/chunk-INNZZFGJ.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -8558,58 +8633,6 @@ function createGetUserKeyHandler(ctx) {
   }
   return { GET };
 }
-var WEB_PUSH_MAX_BODY_BYTES = 4096;
-var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES = 16 + 4 + 1 + 65 + 1 + 16;
-var MAX_PUSH_PAYLOAD_BYTES = WEB_PUSH_MAX_BODY_BYTES - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES;
-var PUSH_ENVELOPE_RESERVED_BYTES = 384;
-var payloadEncoder = new TextEncoder();
-function measurePushPayload(payload, options) {
-  const reserveEnvelope = !!(options && options.reserveEnvelope);
-  const bytes = payloadEncoder.encode(typeof payload === "string" ? payload : String(payload)).length;
-  const envelopeReservedBytes = reserveEnvelope ? PUSH_ENVELOPE_RESERVED_BYTES : 0;
-  const maxBytes = MAX_PUSH_PAYLOAD_BYTES - envelopeReservedBytes;
-  return {
-    bytes,
-    maxBytes,
-    remainingBytes: maxBytes - bytes,
-    withinLimit: bytes <= maxBytes,
-    envelopeReservedBytes
-  };
-}
-async function sendWebPush2(args) {
-  const { payload } = args || {};
-  if (typeof payload === "string") {
-    const size = measurePushPayload(payload);
-    if (!size.withinLimit) {
-      const err6 = new Error(
-        `sendWebPush: payload is ${size.bytes} bytes, over the ${MAX_PUSH_PAYLOAD_BYTES}-byte limit (push services cap the encrypted body at ${WEB_PUSH_MAX_BODY_BYTES} bytes; aes128gcm adds ${WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES} bytes)`
-      );
-      err6.code = "PUSH_PAYLOAD_TOO_LARGE";
-      err6.bytes = size.bytes;
-      err6.maxBytes = MAX_PUSH_PAYLOAD_BYTES;
-      throw err6;
-    }
-  }
-  return sendWebPush(args);
-}
-var SCHEDULED_DEFAULT_TTL = 2419200;
-function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}) {
-  return {
-    async sendNotification(subscription, payload) {
-      return sendWebPush2({
-        subscription,
-        payload,
-        ttl,
-        vapid: {
-          email: vapid.email,
-          publicKey: vapid.publicKey,
-          privateKey: vapid.privateKey
-        },
-        fetch: globalThis.fetch
-      });
-    }
-  };
-}
 var NonRetryableError = class extends Error {
   /**
    * @param {string} message
@@ -8745,6 +8768,89 @@ function summarizeErrorCause(error, stage) {
     cause.code = sanitizeErrorSummary(raw.code).slice(0, 100);
   }
   return cause;
+}
+var DEFAULT_MAX_DELIVERY_RETRIES = 3;
+function resolveMaxDeliveryRetries(ctx) {
+  const value = ctx.maxDeliveryRetries;
+  return Number.isInteger(value) && value >= 0 ? value : DEFAULT_MAX_DELIVERY_RETRIES;
+}
+function resolveMaxGenerationRetries(ctx, safeTask) {
+  let value;
+  try {
+    value = typeof ctx.maxGenerationRetries === "function" ? ctx.maxGenerationRetries(safeTask) : ctx.maxGenerationRetries;
+  } catch (cause) {
+    throw new DeploymentConfigError("maxGenerationRetries callback failed", { code: "GENERATION_RETRY_POLICY_INVALID", cause });
+  }
+  if (value === void 0) return resolveMaxDeliveryRetries(ctx);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new DeploymentConfigError("maxGenerationRetries must return a non-negative integer or undefined", { code: "GENERATION_RETRY_POLICY_INVALID" });
+  }
+  return value;
+}
+function failureRetryDecision(state, error) {
+  const retryLimit = state.outboxed ? state.deliveryLimit : state.generationLimit;
+  const permanent = isPermanentDeliveryFailure({
+    permanent: isNonRetryableError(error),
+    errorCode: error?.code,
+    pushStatus: readPushStatusCode(error)
+  });
+  return {
+    failureStage: state.outboxed ? "delivery" : "generation",
+    retryLimit,
+    willRetry: !state.isCancelled?.() && !isTaskCancelledError(error) && !permanent && state.retryCount < retryLimit
+  };
+}
+var WEB_PUSH_MAX_BODY_BYTES = 4096;
+var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES = 16 + 4 + 1 + 65 + 1 + 16;
+var MAX_PUSH_PAYLOAD_BYTES = WEB_PUSH_MAX_BODY_BYTES - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES;
+var PUSH_ENVELOPE_RESERVED_BYTES = 384;
+var payloadEncoder = new TextEncoder();
+function measurePushPayload(payload, options) {
+  const reserveEnvelope = !!(options && options.reserveEnvelope);
+  const bytes = payloadEncoder.encode(typeof payload === "string" ? payload : String(payload)).length;
+  const envelopeReservedBytes = reserveEnvelope ? PUSH_ENVELOPE_RESERVED_BYTES : 0;
+  const maxBytes = MAX_PUSH_PAYLOAD_BYTES - envelopeReservedBytes;
+  return {
+    bytes,
+    maxBytes,
+    remainingBytes: maxBytes - bytes,
+    withinLimit: bytes <= maxBytes,
+    envelopeReservedBytes
+  };
+}
+async function sendWebPush2(args) {
+  const { payload } = args || {};
+  if (typeof payload === "string") {
+    const size = measurePushPayload(payload);
+    if (!size.withinLimit) {
+      const err6 = new Error(
+        `sendWebPush: payload is ${size.bytes} bytes, over the ${MAX_PUSH_PAYLOAD_BYTES}-byte limit (push services cap the encrypted body at ${WEB_PUSH_MAX_BODY_BYTES} bytes; aes128gcm adds ${WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES} bytes)`
+      );
+      err6.code = "PUSH_PAYLOAD_TOO_LARGE";
+      err6.bytes = size.bytes;
+      err6.maxBytes = MAX_PUSH_PAYLOAD_BYTES;
+      throw err6;
+    }
+  }
+  return sendWebPush(args);
+}
+var SCHEDULED_DEFAULT_TTL = 2419200;
+function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}) {
+  return {
+    async sendNotification(subscription, payload) {
+      return sendWebPush2({
+        subscription,
+        payload,
+        ttl,
+        vapid: {
+          email: vapid.email,
+          publicKey: vapid.publicKey,
+          privateKey: vapid.privateKey
+        },
+        fetch: globalThis.fetch
+      });
+    }
+  };
 }
 function isUniqueViolation(error) {
   if (!error || typeof error !== "object") return false;
@@ -9432,6 +9538,17 @@ function firstPositiveNumber(values, fallback) {
 }
 async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
   const hooks = ctx.hooks;
+  const signal = ctx.signal || new AbortController().signal;
+  const isCancelled = () => signal.aborted || ctx.isTaskCancelled?.() === true;
+  const throwIfCancelled = () => {
+    if (!isCancelled()) return;
+    if (isTaskCancelledError(signal.reason)) throw signal.reason;
+    const error = new Error("Task was cancelled or superseded");
+    error.code = "TASK_CANCELLED";
+    throw error;
+  };
+  const cancellation = { signal, isCancelled, throwIfCancelled };
+  ctx = { ...ctx, ...cancellation };
   if (typeof hooks.onLLMOutput !== "function") {
     throw new DeploymentConfigError(
       "AGENTIC_CONFIG_ERROR: hooks.onBeforeFire requires hooks.onLLMOutput to classify LLM rounds",
@@ -9440,13 +9557,17 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
   }
   const nowFn = typeof ctx._agenticNow === "function" ? ctx._agenticNow : Date.now;
   const sleep2 = typeof ctx._agenticSleep === "function" ? ctx._agenticSleep : defaultSleep;
-  const { readState, writeState } = createStateAccessors({
+  const { readState, writeState: writeSettledState } = createStateAccessors({
     db: ctx.db,
     userId: task.user_id,
     userKey,
     maxStateValueBytes: ctx.maxStateValueBytes,
     now: nowFn
   });
+  const writeState = async (namespace, entries) => {
+    throwIfCancelled();
+    return writeSettledState(namespace, entries);
+  };
   const sessionId = task.id != null ? `sess_task_${task.id}${occurrenceSuffix(task)}` : `sess_${randomUUID()}`;
   const messageIdBase = task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_${randomUUID()}`;
   const occurrenceMs = occurrenceMsOf(task);
@@ -9462,7 +9583,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     now: nowFn,
     // run-tick 在投递 ctx 上挂的取消信号（与 guardWebpushWithLease 读的是同一
     // 个租约状态），emitResult 不发推送的那条路要靠它拦下已取消任务的落行。
-    isCancelled: typeof ctx.isTaskCancelled === "function" ? ctx.isTaskCancelled : null
+    isCancelled
   });
   const maxScheduledTasksPerFire = Number.isInteger(ctx.maxScheduledTasksPerFire) && ctx.maxScheduledTasksPerFire >= 0 ? ctx.maxScheduledTasksPerFire : DEFAULT_MAX_SCHEDULED_TASKS_PER_FIRE;
   let scheduledTaskCount = 0;
@@ -9479,6 +9600,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     }
   }
   const scheduleTask = async (options) => {
+    throwIfCancelled();
     if (!options || typeof options !== "object" || Array.isArray(options)) {
       throw new TypeError("scheduleTask(options) \u9700\u8981\u4E00\u4E2A\u5BF9\u8C61\uFF0C\u81F3\u5C11\u5305\u542B { firstSendTime }");
     }
@@ -9599,6 +9721,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     }
     scheduledTaskCount++;
     const encryptedPayload = await encryptForStorage(serializedTaskData, userKey);
+    throwIfCancelled();
     let created;
     try {
       created = await ctx.db.createTask({
@@ -9633,6 +9756,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     };
   };
   const cancelTask = async (uuid) => {
+    throwIfCancelled();
     if (typeof uuid !== "string" || !uuid.trim()) {
       throw new TypeError("cancelTask(uuid) \u9700\u8981\u975E\u7A7A\u5B57\u7B26\u4E32 uuid");
     }
@@ -9647,6 +9771,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
         { code: "AGENTIC_CANCEL_UNSUPPORTED" }
       );
     }
+    throwIfCancelled();
     const cancelled = await ctx.db.deleteTaskByUuid(uuid, task.user_id);
     if (cancelled) {
       await discardUndeliveredPushesForTask({ db: ctx.db, userId: task.user_id, taskUuid: uuid });
@@ -9654,6 +9779,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     return { cancelled: !!cancelled };
   };
   const renewTask = async (uuid, nextSendAt) => {
+    throwIfCancelled();
     if (typeof uuid !== "string" || !uuid.trim()) {
       throw new TypeError("renewTask(uuid, nextSendAt) \u9700\u8981\u975E\u7A7A\u5B57\u7B26\u4E32 uuid");
     }
@@ -9684,12 +9810,16 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     const payload = JSON.parse(await decryptFromStorage(row.encrypted_payload, userKey));
     const nextSendAtIso = sendAt.toISOString();
     const encrypted = await encryptForStorage(JSON.stringify({ ...payload, firstSendTime: nextSendAtIso }), userKey);
+    throwIfCancelled();
     const updated = await ctx.db.updateTaskByUuid(uuid, task.user_id, encrypted, {
       next_send_at: nextSendAtIso,
       retry_count: 0,
       ...typeof ctx.db.claimTask === "function" ? { retry_after: null } : {}
     });
-    if (!updated) return { renewed: false, reason: "not_found" };
+    if (!updated) {
+      const stillPending = await ctx.db.getTaskByUuid(uuid, task.user_id);
+      return { renewed: false, reason: stillPending ? "in_flight" : "not_found" };
+    }
     return { renewed: true, uuid, nextSendAt: nextSendAtIso };
   };
   const resolveLlmCredential2 = async (credId) => {
@@ -9701,6 +9831,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
   };
   const scratch = {};
   const fireCtx = Object.freeze({
+    ...cancellation,
     task: buildHookTask(task, decryptedPayload),
     userId: task.user_id,
     readState,
@@ -9749,15 +9880,26 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       messageIdBase,
       occurrenceMs
     });
+    throwIfCancelled();
     settledStatus = !outcome.handled ? "not-handled" : outcome.result.status === "skipped" ? "skipped" : "sent";
     return outcome;
   } catch (error) {
+    if (isCancelled() && !isTaskCancelledError(error)) {
+      try {
+        throwIfCancelled();
+      } catch (cancelled) {
+        error = cancelled;
+      }
+    }
+    if (isTaskCancelledError(error)) settledStatus = "cancelled";
     settledError = error;
     throw error;
   } finally {
     await notifyFireSettled(ctx, {
       task,
+      ...cancellation,
       status: settledStatus,
+      ...settledStatus === "cancelled" ? { willRetry: false, failureStage: null } : settledStatus === "failed" && ctx._deliveryState ? failureRetryDecision(ctx._deliveryState, settledError) : { willRetry: null, failureStage: null },
       skipReason: settledStatus === "skipped" ? progress.skipReason : null,
       sentCount: progress.sentCount,
       pushedCount: progress.pushedCount,
@@ -9781,7 +9923,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       outboxed: progress.outboxed,
       scratch,
       readState,
-      writeState,
+      writeState: writeSettledState,
       emitResult
     });
   }
@@ -9808,7 +9950,9 @@ async function runFireChain({
   messageIdBase,
   occurrenceMs
 }) {
+  ctx.throwIfCancelled();
   const before = await hooks.onBeforeFire(fireCtx);
+  ctx.throwIfCancelled();
   if (before == null) return { handled: false };
   if (typeof before === "object" && before.skip === true) {
     progress.skipReason = "before-fire";
@@ -9832,6 +9976,7 @@ async function runFireChain({
     decryptedPayload
   });
   for (let iteration = 0; iteration < maxToolIterations; iteration++) {
+    ctx.throwIfCancelled();
     if (nowFn() >= deadline) {
       throw new Error(`AGENTIC_TOTAL_TIMEOUT: fire chain exceeded ${totalTimeoutMs}ms after ${iteration} LLM round(s)`);
     }
@@ -9845,13 +9990,17 @@ async function runFireChain({
         messages,
         ...normalized.tools ? { tools: normalized.tools, toolChoice: normalized.toolChoice } : {}
       },
-      { requireContent: false, timeoutMs: roundTimeoutMs }
+      { requireContent: false, timeoutMs: roundTimeoutMs, signal: ctx.signal }
     );
     const assistantMessage = extractAssistantMessage(llmResponse);
     messages = [...messages, assistantMessage];
     progress.usage = llmResponse && typeof llmResponse === "object" && llmResponse.usage || null;
     progress.usageTotal = accumulateUsage(progress.usageTotal, progress.usage);
+    ctx.throwIfCancelled();
     const sessionCtx = Object.freeze({
+      signal: ctx.signal,
+      isCancelled: ctx.isCancelled,
+      throwIfCancelled: ctx.throwIfCancelled,
       ...buildSessionContext({
         sessionId,
         messages,
@@ -9875,6 +10024,7 @@ async function runFireChain({
       resolveLlmCredential: resolveLlmCredential2
     });
     const decision = await hooks.onLLMOutput(sessionCtx);
+    ctx.throwIfCancelled();
     try {
       assertValidDecision(decision, { inlineToolCalls: true });
     } catch (error) {
@@ -9925,11 +10075,15 @@ async function runFireChain({
     }
     let toolResults;
     try {
+      ctx.throwIfCancelled();
       toolResults = await hooks.executeToolCalls(toolCalls, sessionCtx);
+      ctx.throwIfCancelled();
       if (!Array.isArray(toolResults)) {
         throw new TypeError('executeToolCalls must resolve to an array of { tool_call_id, role: "tool", content }');
       }
     } catch (error) {
+      ctx.throwIfCancelled();
+      if (isTaskCancelledError(error)) throw error;
       toolResults = toolCalls.map((toolCall) => ({
         tool_call_id: toolCall && typeof toolCall === "object" && typeof toolCall.id === "string" ? toolCall.id : "",
         role: "tool",
@@ -10019,8 +10173,11 @@ async function sendHookPushPayloads({
       stampTaskIdentity(push, task, decryptedPayload, occurrenceMs);
       finalized.push(push);
     }
+    ctx.throwIfCancelled();
     outboxed = await appendPushesToOutbox({ db: ctx.db, userId: task.user_id, userKey, pushes: finalized });
     progress.outboxed = outboxed;
+    if (ctx._deliveryState) ctx._deliveryState.outboxed = outboxed;
+    ctx.throwIfCancelled();
     if (!ctx.vapid || !ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
       throw new Error("VAPID configuration missing - push notifications cannot be sent");
     }
@@ -10034,6 +10191,7 @@ async function sendHookPushPayloads({
     const willPush = finalized.map((push) => shouldSendPush(push, pushGate));
     const lastPushIndex = willPush.lastIndexOf(true);
     for (let i = 0; i < total; i++) {
+      ctx.throwIfCancelled();
       if (willPush[i]) {
         await sendTaggedPush(ctx.webpush, pushSubscription, JSON.stringify(finalized[i]));
         pushedCount++;
@@ -10179,7 +10337,7 @@ function resolveMultipartOptions(ctx) {
 function assertChunkBytesFitPushLimit({ maxChunkBytes, maxChunks, ttlMs }) {
   const PROBE_CHUNK_BYTES = 3;
   const [probe] = buildMultipartPushPayloads(
-    { messageKind: "reasoning" },
+    { messageKind: longestMessageKind() },
     { serializedPayload: "x".repeat(PROBE_CHUNK_BYTES), maxChunkBytes: PROBE_CHUNK_BYTES, ttlMs }
   );
   const digitHeadroom = 2 * (String(maxChunks).length - 1);
@@ -10197,6 +10355,9 @@ function assertChunkBytesFitPushLimit({ maxChunkBytes, maxChunks, ttlMs }) {
 }
 function base64UrlLength(n) {
   return Math.ceil(n * 4 / 3);
+}
+function longestMessageKind() {
+  return Object.values(MESSAGE_KIND).reduce((a, b) => b.length > a.length ? b : a);
 }
 function positiveIntegerOr(value, fallback) {
   return Number.isInteger(value) && /** @type {number} */
@@ -10239,7 +10400,15 @@ async function redeliverCommittedBatch(task, ctx, userKey, decryptedPayload, bat
   }
   return { success: true, messagesSent, redelivered: true, pushedCount: sentIds.length };
 }
-async function processSingleMessage(task, ctx, providedMasterKey, predecrypted = null, options = {}) {
+async function processSingleMessage(task, ctx, providedMasterKey, predecrypted = null) {
+  const deliveryState = {
+    outboxed: false,
+    deliveryLimit: resolveMaxDeliveryRetries(ctx),
+    generationLimit: resolveMaxDeliveryRetries(ctx),
+    retryCount: task.retry_count ?? 0,
+    isCancelled: ctx.isTaskCancelled
+  };
+  ctx = { ...ctx, _deliveryState: deliveryState };
   try {
     const masterKey = providedMasterKey || ctx.masterKey;
     if (!masterKey) {
@@ -10247,17 +10416,18 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
     }
     const userKey = predecrypted && predecrypted.userKey || await deriveUserEncryptionKey(task.user_id, masterKey);
     const decryptedPayload = predecrypted && predecrypted.payload || JSON.parse(await decryptFromStorage(task.encrypted_payload, userKey));
-    const resumeCommittedBatch = options && typeof options.resumeCommittedBatch === "boolean" ? options.resumeCommittedBatch : (task.retry_count || 0) > 0;
-    if (resumeCommittedBatch) {
-      const committed = await findCommittedBatch({
-        db: ctx.db,
-        userId: task.user_id,
-        userKey,
-        taskUuid: task.uuid,
-        occurrenceMs: occurrenceMsOf(task)
-      });
-      if (committed) return await redeliverCommittedBatch(task, ctx, userKey, decryptedPayload, committed);
+    const committed = await findCommittedBatch({
+      db: ctx.db,
+      userId: task.user_id,
+      userKey,
+      taskUuid: task.uuid,
+      occurrenceMs: occurrenceMsOf(task)
+    });
+    if (committed) {
+      deliveryState.outboxed = true;
+      return await redeliverCommittedBatch(task, ctx, userKey, decryptedPayload, committed);
     }
+    deliveryState.generationLimit = resolveMaxGenerationRetries(ctx, buildHookTask(task, decryptedPayload));
     if (ctx.hooks && typeof ctx.hooks.onBeforeFire === "function" && taskNeedsLlm(decryptedPayload)) {
       const agentic = await runAgenticFire({ task, decryptedPayload, userKey, ctx });
       if (agentic.handled) return agentic.result;
@@ -10271,7 +10441,7 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
       const hasChatSource = hasChatCredRef(decryptedPayload) || !!(decryptedPayload.apiUrl && decryptedPayload.apiKey && decryptedPayload.primaryModel);
       if (hasPrompt && hasChatSource) {
         const chatCred = await resolveFireCredentials({ db: ctx.db, userId: task.user_id, userKey, decryptedPayload });
-        const aiResult = await callLlm2(chatCred ? { ...decryptedPayload, ...chatCred } : decryptedPayload);
+        const aiResult = await callLlm2(chatCred ? { ...decryptedPayload, ...chatCred } : decryptedPayload, { signal: ctx.signal });
         messageContent = aiResult.content;
         llmResponse = aiResult.response;
       } else if (decryptedPayload.userMessage) {
@@ -10281,7 +10451,7 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
       }
     } else if (decryptedPayload.messageType === "prompted" || decryptedPayload.messageType === "auto") {
       const chatCred = await resolveFireCredentials({ db: ctx.db, userId: task.user_id, userKey, decryptedPayload });
-      const aiResult = await callLlm2(chatCred ? { ...decryptedPayload, ...chatCred } : decryptedPayload);
+      const aiResult = await callLlm2(chatCred ? { ...decryptedPayload, ...chatCred } : decryptedPayload, { signal: ctx.signal });
       messageContent = aiResult.content;
       llmResponse = aiResult.response;
     } else {
@@ -10338,6 +10508,7 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
     }
     const pushesToSend = reasoningPush ? [reasoningPush, ...contentPushes] : contentPushes;
     const outboxed = await appendPushesToOutbox({ db: ctx.db, userId: task.user_id, userKey, pushes: pushesToSend });
+    deliveryState.outboxed = outboxed;
     if (!ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
       throw new Error("VAPID configuration missing - push notifications cannot be sent");
     }
@@ -10395,7 +10566,8 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
       error: error.message,
       errorCode: error.code || null,
       pushStatusCode: readPushStatusCode(error),
-      permanent: isNonRetryableError(error)
+      permanent: isNonRetryableError(error),
+      ...failureRetryDecision(deliveryState, error)
     };
   }
 }
@@ -10408,7 +10580,7 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
       error: { code: "TENANT_MASTER_KEY_MISSING", message: "\u79DF\u6237\u4E3B\u5BC6\u94A5\u4E0D\u5B58\u5728\u6216\u914D\u7F6E\u5F02\u5E38" }
     };
   }
-  while (retryCount <= maxRetries) {
+  while (true) {
     let task;
     try {
       task = userId ? await ctx.db.getTaskByUuid(uuid, userId) : await ctx.db.getTaskByUuidOnly(uuid);
@@ -10426,16 +10598,14 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
     if (!task) {
       return { success: false, error: { code: "TASK_NOT_FOUND", message: "\u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u5904\u7406" } };
     }
-    const result = await processSingleMessage(task, ctx, masterKey, null, {
-      resumeCommittedBatch: retryCount > 0 || (task.retry_count || 0) > 0
-    });
+    const result = await processSingleMessage({ ...task, retry_count: retryCount }, { ...ctx, maxDeliveryRetries: maxRetries }, masterKey, null);
     if (!result.success) {
       const permanent = isPermanentDeliveryFailure({
         permanent: result.permanent,
         errorCode: result.errorCode,
         pushStatus: result.pushStatusCode
       });
-      if (!permanent && retryCount < maxRetries) {
+      if (!permanent && result.willRetry !== false && retryCount < (result.retryLimit ?? maxRetries)) {
         retryCount++;
         await new Promise((resolve) => setTimeout(resolve, 1e3 * retryCount));
         continue;
@@ -10668,10 +10838,10 @@ function createScheduleMessageHandler(ctx) {
         dbResult = await db.createTaskSuperseding(createParams, supersedesUuid);
         superseded = !!(dbResult && dbResult.superseded);
       } else {
-        if (supersedesUuid) {
+        dbResult = await db.createTask(createParams);
+        if (supersedesUuid && dbResult) {
           superseded = await db.deleteTaskByUuid(supersedesUuid, userId);
         }
-        dbResult = await db.createTask(createParams);
       }
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -10751,7 +10921,6 @@ var CLAIM_LEASE_MARGIN_MS = 2 * 60 * 1e3;
 var DEFAULT_LEASE_HEARTBEAT_MS = 30 * 1e3;
 var DEFAULT_HEARTBEAT_LEASE_TTL_MS = 90 * 1e3;
 var STALE_AFTER_MS = 60 * 60 * 1e3;
-var DEFAULT_MAX_DELIVERY_RETRIES = 3;
 var adaptersWithoutLastErrorColumn = /* @__PURE__ */ new WeakSet();
 var lastErrorColumnSuspicions = /* @__PURE__ */ new WeakMap();
 var warnedAboutMissingLastErrorColumn = false;
@@ -10798,10 +10967,6 @@ function guardWebpushWithLease(webpush, lease) {
 }
 function resolveStaleAfterMs(ctx) {
   return positiveNumber(ctx.staleAfterMs) || STALE_AFTER_MS;
-}
-function resolveMaxDeliveryRetries(ctx) {
-  const value = ctx.maxDeliveryRetries;
-  return Number.isInteger(value) && value >= 0 ? value : DEFAULT_MAX_DELIVERY_RETRIES;
 }
 function isRecurringType(recurrenceType) {
   return recurrenceType === "daily" || recurrenceType === "weekly";
@@ -10903,7 +11068,8 @@ async function deliverTasks(ctx, tasks) {
     return !!await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup);
   }
   function startLeaseHeartbeat(task) {
-    const lease = { lost: false, released: false, stop: () => {
+    const controller = new AbortController();
+    const lease = { lost: false, released: false, signal: controller.signal, stop: () => {
     } };
     if (!heartbeatEnabled) return lease;
     let stopped = false;
@@ -10919,6 +11085,9 @@ async function deliverTasks(ctx, tasks) {
       if (renewed === false) {
         if (stopped || lease.released) return;
         lease.lost = true;
+        const error = new Error("Task was cancelled or superseded");
+        error.code = TASK_CANCELLED_CODE;
+        controller.abort(error);
         console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u7684\u79DF\u7EA6\u5DF2\u5931\u6548\uFF08\u884C\u88AB\u53D6\u6D88\u6216\u9876\u66FF\uFF09\uFF0C\u5269\u4F59\u63A8\u9001\u5C06\u4E2D\u6B62`);
         return;
       }
@@ -11065,7 +11234,7 @@ async function deliverTasks(ctx, tasks) {
     const permanent = isPermanentDeliveryFailure({ permanent: failure.permanent, errorCode, pushStatus });
     const errorExtra = buildErrorExtra(errorCode, pushStatus);
     try {
-      if (permanent || task.retry_count >= maxDeliveryRetries) {
+      if (permanent || failure.willRetry === false || task.retry_count >= (failure.retryLimit ?? maxDeliveryRetries)) {
         const encrypted = await encryptPayloadWithLastError(task, decryptedPayload, userKey, reason, errorExtra);
         if (isRecurringType(recurrenceType)) {
           const nextSendAt = nextFutureOccurrence(Date.parse(task.next_send_at), recurrenceType, Date.now(), tzId);
@@ -11248,13 +11417,11 @@ async function deliverTasks(ctx, tasks) {
           db,
           masterKey,
           webpush: guardWebpushWithLease(ctx.webpush, lease),
-          isTaskCancelled: () => lease.lost
+          isTaskCancelled: () => lease.lost,
+          signal: lease.signal
         },
         masterKey,
-        { userKey, payload: decryptedPayload },
-        // 重试计数就记在这一列上：大于 0 说明这是同一次触发的重试，内容已经落
-        // 进 outbox 的话只补推送、不再生成（见 redeliverCommittedBatch）。
-        { resumeCommittedBatch: (task.retry_count || 0) > 0 }
+        { userKey, payload: decryptedPayload }
       );
     } catch (error) {
       if (lease.lost) {
@@ -11282,7 +11449,7 @@ async function deliverTasks(ctx, tasks) {
         recurrenceType,
         decryptedPayload,
         userKey,
-        { errorCode: sendResult.errorCode || null, permanent: sendResult.permanent === true, pushStatus: sendResult.pushStatusCode }
+        { errorCode: sendResult.errorCode || null, permanent: sendResult.permanent === true, pushStatus: sendResult.pushStatusCode, willRetry: sendResult.willRetry, retryLimit: sendResult.retryLimit }
       );
       return;
     }
@@ -11561,6 +11728,16 @@ function createUpdateMessageHandler(ctx) {
     };
     const result = await db.updateTaskByUuid(taskUuid, userId, encryptedPayload, extraFields);
     if (!result) {
+      const inFlight2 = updates.nextSendAt && typeof db.getTaskByUuid === "function" && !!await db.getTaskByUuid(taskUuid, userId);
+      if (inFlight2) {
+        return {
+          status: 409,
+          body: {
+            success: false,
+            error: { code: "TASK_IN_FLIGHT", message: "\u8FD9\u6761\u4EFB\u52A1\u6B63\u5728\u6295\u9012\uFF0C\u7B49\u8FD9\u6B21\u53D1\u5B8C\u518D\u6539\u6392\u671F" }
+          }
+        };
+      }
       return { status: 409, body: { success: false, error: { code: "UPDATE_CONFLICT", message: "\u4EFB\u52A1\u66F4\u65B0\u5931\u8D25\uFF0C\u4EFB\u52A1\u53EF\u80FD\u5DF2\u88AB\u4FEE\u6539\u6216\u5220\u9664" } } };
     }
     const applied = /* @__PURE__ */ new Set([
@@ -12483,6 +12660,15 @@ var D1Adapter = class {
     ).bind(...values).run();
     return this._db.prepare("SELECT * FROM scheduled_messages WHERE id = ?").bind(taskId).first();
   }
+  /**
+   * 按 uuid 改一条 pending 任务（PUT /update-message、fire hook 的 renewTask）。
+   *
+   * 改排期（extraFields 里带 next_send_at）时多一道租约门：这条任务正被一次投递
+   * 占着的话不改，返回 null。投递收尾会按自己领取时看到的排期推进下一次（一次性
+   * 任务干脆标成已发送），这期间写进去的新时刻随后就被盖掉，接口却已经回了成功
+   * ——用户以为改期生效了，实际什么都没留下。正文这类字段不受这道门约束：它们
+   * 只影响以后的触发，收尾那边本来就不会覆盖（见 run-tick 的收尾守卫）。
+   */
   async updateTaskByUuid(uuid, userId, encryptedPayload, extraFields) {
     const now = this._now();
     const sets = ["encrypted_payload = ?", "updated_at = ?"];
@@ -12497,9 +12683,14 @@ var D1Adapter = class {
       }
     }
     values.push(uuid, userId);
+    let leaseGate = "";
+    if (extraFields && Object.prototype.hasOwnProperty.call(extraFields, "next_send_at")) {
+      leaseGate = " AND (lease_until IS NULL OR lease_until <= ?)";
+      values.push(now);
+    }
     const res = await this._db.prepare(
       `UPDATE scheduled_messages SET ${sets.join(", ")}
-       WHERE uuid = ? AND user_id = ? AND status = 'pending'`
+       WHERE uuid = ? AND user_id = ? AND status = 'pending'${leaseGate}`
     ).bind(...values).run();
     if (!res.meta.changes) return null;
     return { uuid, updated_at: now };
@@ -13604,7 +13795,7 @@ function createClientStateNamespacesHandler(ctx) {
   }
   return { GET };
 }
-var SERVER_VERSION = true ? "2.6.0-next.30" : "0.0.0-dev";
+var SERVER_VERSION = true ? "2.6.0-next.32" : "0.0.0-dev";
 var SERVER_FEATURES = Object.freeze([
   "client-state",
   "client-state-chunking",
@@ -13713,7 +13904,9 @@ var SERVER_FEATURES = Object.freeze([
   // onAfterSend / onFireSettled 的载荷带整次 fire 的 usageTotal 与 llmCalls。
   "hook-usage-total",
   // 工厂配置认 maxDeliveryRetries（投递失败的重试次数上限，默认 3）。
-  "max-delivery-retries"
+  "max-delivery-retries",
+  // Per-task pre-commit retry limit and fire receipt retry decision.
+  "max-generation-retries"
 ]);
 function createCapabilitiesHandler(ctx) {
   async function GET(url, headers) {
@@ -13922,6 +14115,7 @@ function createSingleUserServer(config) {
     maxScheduledTasksPerFire: config.maxScheduledTasksPerFire,
     // 定时任务投递失败后的重试次数上限（默认 3）。handlers 用不到，宿主拿这个
     // ctx 去调 runScheduledTick 时它跟着走。
+    maxGenerationRetries: config.maxGenerationRetries,
     maxDeliveryRetries: config.maxDeliveryRetries
   };
   return {
@@ -14101,6 +14295,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       onFireSettled: cfg.onFireSettled,
       // 一次触发投递失败后最多再重试几次（默认 3，0 = 第一次失败就终审；见
       // lib/run-tick.js 的 DEFAULT_MAX_DELIVERY_RETRIES）。
+      maxGenerationRetries: cfg.maxGenerationRetries,
       maxDeliveryRetries: cfg.maxDeliveryRetries,
       // 分组串行：(task) => 分组标识 | null。同一分组的任务同时只跑一条，
       // 跨跳也算（见 lib/run-tick.js）。不配 = 全并发，与以前一致。
@@ -14258,7 +14453,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-10-01.1";
+var AMSG_BUNDLE_VERSION = "2026-10-02.1";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -17690,13 +17885,15 @@ init_mcpFireCore();
 
 // utils/realtimeFetchCore.ts
 init_proxyWorker();
-var performSearch = async (query, apiKey) => {
+var performSearch = async (query, apiKey, signal) => {
+  signal?.throwIfAborted();
   if (!query || !apiKey) {
     return { success: false, results: [], message: "\u7F3A\u5C11\u641C\u7D22\u5173\u952E\u8BCD\u6216API Key", reached: false };
   }
   try {
     const workerUrl = `${getProxyWorkerUrl()}/search?q=${encodeURIComponent(query)}&count=5`;
     const response = await fetch(workerUrl, {
+      signal,
       method: "GET",
       headers: {
         "Accept": "application/json",
@@ -17710,6 +17907,7 @@ var performSearch = async (query, apiKey) => {
         const errJson = JSON.parse(text2);
         return { success: false, results: [], message: `\u641C\u7D22\u5931\u8D25: ${errJson.error || response.status}`, reached: false };
       } catch {
+        signal?.throwIfAborted();
         return { success: false, results: [], message: `\u641C\u7D22\u5931\u8D25: ${response.status}`, reached: false };
       }
     }
@@ -17717,6 +17915,7 @@ var performSearch = async (query, apiKey) => {
     try {
       data = JSON.parse(text2);
     } catch (e) {
+      signal?.throwIfAborted();
       console.error("Search response not JSON:", text2.slice(0, 200));
       return { success: false, results: [], message: "\u641C\u7D22\u8FD4\u56DE\u683C\u5F0F\u9519\u8BEF", reached: false };
     }
@@ -17730,13 +17929,16 @@ var performSearch = async (query, apiKey) => {
     }
     return { success: false, results: [], message: "\u6CA1\u6709\u627E\u5230\u76F8\u5173\u7ED3\u679C", reached: true };
   } catch (e) {
+    signal?.throwIfAborted();
     console.error("Search failed:", e);
     return { success: false, results: [], message: `\u641C\u7D22\u51FA\u9519: ${e.message}`, reached: false };
   }
 };
-var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date) => {
+var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date, signal) => {
+  signal?.throwIfAborted();
   try {
     const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+      signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -17781,13 +17983,16 @@ var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date) => {
     });
     return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u65E5\u8BB0` };
   } catch (e) {
+    signal?.throwIfAborted();
     console.error("Get diary by date failed:", e);
     return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${e.message}` };
   }
 };
-var notionReadDiaryContent = async (apiKey, pageId) => {
+var notionReadDiaryContent = async (apiKey, pageId, signal) => {
+  signal?.throwIfAborted();
   try {
     const response = await fetch(`${getProxyWorkerUrl()}/notion/blocks/${pageId}`, {
+      signal,
       method: "GET",
       headers: {
         "X-Notion-API-Key": apiKey
@@ -17805,14 +18010,17 @@ var notionReadDiaryContent = async (apiKey, pageId) => {
     const content = notionBlocksToText(data.results);
     return { success: true, content, message: "\u8BFB\u53D6\u6210\u529F" };
   } catch (e) {
+    signal?.throwIfAborted();
     console.error("Read diary content failed:", e);
     return { success: false, content: "", message: `\u8BFB\u53D6\u5931\u8D25: ${e.message}` };
   }
 };
 var notionReadNoteContent = notionReadDiaryContent;
-var notionSearchUserNotes = async (apiKey, notesDatabaseId, keyword, limit = 5) => {
+var notionSearchUserNotes = async (apiKey, notesDatabaseId, keyword, limit = 5, signal) => {
+  signal?.throwIfAborted();
   try {
     const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+      signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -17848,6 +18056,7 @@ var notionSearchUserNotes = async (apiKey, notesDatabaseId, keyword, limit = 5) 
     });
     return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u7B14\u8BB0` };
   } catch (e) {
+    signal?.throwIfAborted();
     console.error("Search user notes failed:", e);
     return { success: false, entries: [], message: `\u641C\u7D22\u5931\u8D25: ${e.message}` };
   }
@@ -17906,12 +18115,14 @@ ${text2}
   return lines.join("\n");
 }
 var feishuTokenCache = null;
-var feishuGetToken = async (appId, appSecret) => {
+var feishuGetToken = async (appId, appSecret, signal) => {
+  signal?.throwIfAborted();
   if (feishuTokenCache && feishuTokenCache.expiresAt > Date.now() + 5 * 60 * 1e3) {
     return { success: true, token: feishuTokenCache.token, message: "\u4F7F\u7528\u7F13\u5B58token" };
   }
   try {
     const response = await fetch(`${getProxyWorkerUrl()}/feishu/token`, {
+      signal,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ app_id: appId, app_secret: appSecret })
@@ -17922,6 +18133,7 @@ var feishuGetToken = async (appId, appSecret) => {
         const errJson = JSON.parse(text2);
         return { success: false, token: "", message: `\u83B7\u53D6token\u5931\u8D25: ${errJson.msg || errJson.error || response.status}` };
       } catch {
+        signal?.throwIfAborted();
         return { success: false, token: "", message: `\u83B7\u53D6token\u5931\u8D25: ${response.status}` };
       }
     }
@@ -17934,18 +18146,21 @@ var feishuGetToken = async (appId, appSecret) => {
     feishuTokenCache = { token, expiresAt: Date.now() + expire };
     return { success: true, token, message: "Token\u83B7\u53D6\u6210\u529F" };
   } catch (e) {
+    signal?.throwIfAborted();
     return { success: false, token: "", message: `\u7F51\u7EDC\u9519\u8BEF: ${e.message}` };
   }
 };
-var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterName, date) => {
+var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterName, date, signal) => {
+  signal?.throwIfAborted();
   try {
-    const tokenResult = await feishuGetToken(appId, appSecret);
+    const tokenResult = await feishuGetToken(appId, appSecret, signal);
     if (!tokenResult.success) {
       return { success: false, entries: [], message: tokenResult.message };
     }
     const dateTimestamp = new Date(date).getTime();
     const nextDayTimestamp = dateTimestamp + 24 * 60 * 60 * 1e3;
     const response = await fetch(`${getProxyWorkerUrl()}/feishu/bitable/${baseId}/${tableId}/records/search`, {
+      signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -17989,6 +18204,7 @@ var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterNa
     });
     return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u65E5\u8BB0` };
   } catch (e) {
+    signal?.throwIfAborted();
     return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${e.message}` };
   }
 };
@@ -18115,7 +18331,8 @@ var withSpiderCircuitError = (detail, message) => ({
     }
   }
 });
-var trySpiderV3CommentPatch = async (baseUrl, requestBody, cookie, detail) => {
+var trySpiderV3CommentPatch = async (baseUrl, requestBody, cookie, detail, signal) => {
+  signal?.throwIfAborted();
   const storage = spiderStorage();
   if (!storage || detail?.data?.comments_status === "loaded" || detail?.platform === "rednote" || detail?.data?.platform === "rednote") {
     return detail;
@@ -18136,6 +18353,7 @@ var trySpiderV3CommentPatch = async (baseUrl, requestBody, cookie, detail) => {
   const strategy = ["no-client-hints", "browser-hints", "legacy-transport"].includes(requestedStrategy) ? requestedStrategy : "no-client-hints";
   try {
     const response = await fetch(`${baseUrl}/api/xhs-experimental-comments`, {
+      signal,
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -18174,10 +18392,12 @@ var trySpiderV3CommentPatch = async (baseUrl, requestBody, cookie, detail) => {
       }
     };
   } catch {
+    signal?.throwIfAborted();
     return detail;
   }
 };
-var bridgePost = async (serverUrl, endpoint, body = {}) => {
+var bridgePost = async (serverUrl, endpoint, body = {}, signal) => {
+  signal?.throwIfAborted();
   const baseUrl = serverUrl.replace(/\/+$/, "").replace(/\/api$/, "");
   const url = `${baseUrl}/api/${endpoint}`;
   const headers = buildBridgeHeaders(true);
@@ -18185,6 +18405,7 @@ var bridgePost = async (serverUrl, endpoint, body = {}) => {
   if (requestPlatform !== "auto") headers["x-xhs-platform"] = requestPlatform;
   try {
     const resp = await fetch(url, {
+      signal,
       method: "POST",
       headers,
       body: JSON.stringify(body)
@@ -18206,10 +18427,11 @@ var bridgePost = async (serverUrl, endpoint, body = {}) => {
     }
     if (endpoint === "get-feed-detail") {
       const ck = resolveLiteCookie();
-      if (ck) data = await trySpiderV3CommentPatch(baseUrl, body, ck, data);
+      if (ck) data = await trySpiderV3CommentPatch(baseUrl, body, ck, data, signal);
     }
     return { success: true, data };
   } catch (e) {
+    signal?.throwIfAborted();
     return { success: false, error: e.message };
   }
 };
@@ -18303,13 +18525,14 @@ var mcpParseResponse = (text2, contentType) => {
     throw new Error(`MCP: \u65E0\u6CD5\u89E3\u6790\u54CD\u5E94: ${text2.slice(0, 300)}`);
   }
 };
-var mcpPost = async (serverUrl, body, expectResponse = true) => {
+var mcpPost = async (serverUrl, body, expectResponse = true, signal) => {
+  signal?.throwIfAborted();
   const headers = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream"
   };
   if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId;
-  const resp = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body) });
+  const resp = await fetch(serverUrl, { signal, method: "POST", headers, body: JSON.stringify(body) });
   const sessionId = resp.headers.get("Mcp-Session-Id") || resp.headers.get("mcp-session-id");
   if (resp.status === 202) return { response: null, sessionId };
   if (!resp.ok) {
@@ -18321,13 +18544,14 @@ var mcpPost = async (serverUrl, body, expectResponse = true) => {
   const text2 = await resp.text();
   return { response: mcpParseResponse(text2, contentType), sessionId };
 };
-var mcpInitialize = async (serverUrl) => {
+var mcpInitialize = async (serverUrl, signal) => {
+  signal?.throwIfAborted();
   const initReq = mcpBuildRequest("initialize", {
     protocolVersion: "2024-11-05",
     capabilities: {},
     clientInfo: { name: "AetherOS-XhsFreeRoam", version: "1.0.0" }
   });
-  const { response, sessionId } = await mcpPost(serverUrl, initReq);
+  const { response, sessionId } = await mcpPost(serverUrl, initReq, void 0, signal);
   if (sessionId) mcpSessionId = sessionId;
   if (response?.error) throw new Error(`MCP Initialize failed: ${response.error.message}`);
   if (!mcpSessionId) {
@@ -18339,31 +18563,34 @@ var mcpInitialize = async (serverUrl) => {
     );
   }
   const notifReq = mcpBuildRequest("notifications/initialized", {}, true);
-  await mcpPost(serverUrl, notifReq, false);
+  await mcpPost(serverUrl, notifReq, false, signal);
   try {
     const toolsReq = mcpBuildRequest("tools/list");
-    const { response: toolsResp } = await mcpPost(serverUrl, toolsReq);
+    const { response: toolsResp } = await mcpPost(serverUrl, toolsReq, void 0, signal);
     if (toolsResp?.result?.tools) {
       mcpDiscoveredTools = toolsResp.result.tools.map((t) => ({ name: t.name, description: t.description }));
       console.log("[MCP] \u53D1\u73B0\u5DE5\u5177:", mcpDiscoveredTools.map((t) => t.name).join(", "));
     }
   } catch (e) {
+    signal?.throwIfAborted();
     console.warn("[MCP] tools/list \u8C03\u7528\u5931\u8D25\uFF0C\u5C06\u4F7F\u7528\u9ED8\u8BA4\u5DE5\u5177\u540D", e);
   }
   mcpInitialized = true;
 };
-var mcpEnsureInitialized = async (serverUrl) => {
+var mcpEnsureInitialized = async (serverUrl, signal) => {
+  signal?.throwIfAborted();
   if (mcpInitialized) return;
   if (!mcpInitPromise) {
-    mcpInitPromise = mcpInitialize(serverUrl).finally(() => {
+    mcpInitPromise = mcpInitialize(serverUrl, signal).finally(() => {
       mcpInitPromise = null;
     });
   }
   await mcpInitPromise;
 };
-var mcpCallTool = async (serverUrl, toolName, args = {}) => {
+var mcpCallTool = async (serverUrl, toolName, args = {}, signal) => {
+  signal?.throwIfAborted();
   try {
-    await mcpEnsureInitialized(serverUrl);
+    await mcpEnsureInitialized(serverUrl, signal);
     const resolved = mcpResolveToolName(toolName);
     const adapted = mcpAdaptParams(resolved, args);
     if (resolved !== toolName) console.log(`[MCP] \u5DE5\u5177\u540D\u6620\u5C04: ${toolName} \u2192 ${resolved}`);
@@ -18373,7 +18600,7 @@ var mcpCallTool = async (serverUrl, toolName, args = {}) => {
       "Accept": "application/json, text/event-stream"
     };
     if (mcpSessionId) headers["Mcp-Session-Id"] = mcpSessionId;
-    const resp = await fetch(serverUrl, { method: "POST", headers, body: JSON.stringify(body) });
+    const resp = await fetch(serverUrl, { signal, method: "POST", headers, body: JSON.stringify(body) });
     if (!resp.ok) {
       const errText = await resp.text().catch(() => "");
       return { success: false, error: `MCP HTTP ${resp.status}: ${errText.slice(0, 200)}` };
@@ -18392,12 +18619,14 @@ var mcpCallTool = async (serverUrl, toolName, args = {}) => {
         console.log(`[MCP] \u5DE5\u5177 ${toolName} \u8FD4\u56DE JSON, \u9876\u5C42 keys: ${typeof parsed2 === "object" && parsed2 ? Object.keys(parsed2).join(",") : typeof parsed2}`);
         return { success: true, data: parsed2 };
       } catch {
+        signal?.throwIfAborted();
         console.log(`[MCP] \u5DE5\u5177 ${toolName} \u8FD4\u56DE\u7EAF\u6587\u672C (${fullText.length} chars)`);
         return { success: true, data: fullText };
       }
     }
     return { success: true, data: result };
   } catch (e) {
+    signal?.throwIfAborted();
     return { success: false, error: e.message };
   }
 };
@@ -18481,7 +18710,8 @@ var XhsMcpClient = {
   setBridgeToken: (token) => {
     bridgeToken = token || "";
   },
-  testConnection: async (serverUrl, cookie, token) => {
+  testConnection: async (serverUrl, cookie, token, signal) => {
+    signal?.throwIfAborted();
     if (cookie !== void 0) XhsMcpClient.setCookie(cookie);
     if (token !== void 0) bridgeToken = token;
     const mode = detectMode(serverUrl);
@@ -18490,10 +18720,10 @@ var XhsMcpClient = {
         const baseUrl = serverUrl.replace(/\/+$/, "").replace(/\/api$/, "");
         const healthResp = await fetch(`${baseUrl}/api/health`, {
           headers: buildBridgeHeaders(false),
-          signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(1e4) : void 0
+          signal: signal ?? (typeof AbortSignal !== "undefined" && AbortSignal.timeout ? AbortSignal.timeout(1e4) : void 0)
         });
         if (!healthResp.ok) return { connected: false, error: `Bridge \u670D\u52A1\u672A\u54CD\u5E94 (HTTP ${healthResp.status})` };
-        const loginResult = await bridgePost(serverUrl, "check-login");
+        const loginResult = await bridgePost(serverUrl, "check-login", void 0, signal);
         const tools = ["check-login", "search", "list-feeds", "get-feed-detail", "publish", "publish-video", "long-article", "post-comment", "reply-comment", "like-feed", "favorite-feed", "user-profile", "login", "get-qrcode"];
         let loggedIn = false, nickname, userId, platform;
         if (loginResult.success && loginResult.data) {
@@ -18514,23 +18744,25 @@ var XhsMcpClient = {
         let xsecToken;
         if (loggedIn) {
           try {
-            const feedResult = await bridgePost(serverUrl, "list-feeds");
+            const feedResult = await bridgePost(serverUrl, "list-feeds", void 0, signal);
             if (feedResult.success) xsecToken = extractFirstXsecToken(feedResult.data);
           } catch {
+            signal?.throwIfAborted();
           }
         }
         return { connected: true, tools, nickname, userId, loggedIn, xsecToken, platform };
       } catch (e) {
+        signal?.throwIfAborted();
         return { connected: false, error: describeXhsConnectFailure(e, serverUrl) };
       }
     }
     try {
       XhsMcpClient.resetSession();
-      await mcpInitialize(serverUrl);
+      await mcpInitialize(serverUrl, signal);
       const tools = mcpDiscoveredTools.map((t) => t.name);
       let nickname, userId, loggedIn = false;
       try {
-        const loginResult = await mcpCallTool(serverUrl, "check_login");
+        const loginResult = await mcpCallTool(serverUrl, "check_login", void 0, signal);
         if (loginResult.success && loginResult.data) {
           const d = loginResult.data;
           if (typeof d === "string") {
@@ -18546,42 +18778,50 @@ var XhsMcpClient = {
           }
         }
       } catch (e) {
+        signal?.throwIfAborted();
         console.warn("[MCP] \u83B7\u53D6\u767B\u5F55\u72B6\u6001\u5931\u8D25\uFF0C\u8DF3\u8FC7:", e);
       }
       let xsecToken;
       if (loggedIn) {
         try {
           console.log("[MCP] \u81EA\u52A8\u83B7\u53D6 xsecToken: \u8C03\u7528 get_recommend...");
-          const feedResult = await mcpCallTool(serverUrl, "get_recommend");
+          const feedResult = await mcpCallTool(serverUrl, "get_recommend", void 0, signal);
           if (feedResult.success) {
             xsecToken = extractFirstXsecToken(feedResult.data);
             console.log(`[MCP] \u81EA\u52A8\u83B7\u53D6 xsecToken: ${xsecToken ? "\u6210\u529F" : "\u672A\u627E\u5230"}`);
           }
         } catch (e) {
+          signal?.throwIfAborted();
           console.warn("[MCP] \u81EA\u52A8\u83B7\u53D6 xsecToken \u5931\u8D25\uFF08\u4E0D\u5F71\u54CD\u8FDE\u63A5\uFF09:", e);
         }
       }
       return { connected: true, tools, nickname, userId, loggedIn, xsecToken };
     } catch (e) {
+      signal?.throwIfAborted();
       return { connected: false, error: e.message };
     }
   },
-  ensureInitialized: async (serverUrl) => {
+  ensureInitialized: async (serverUrl, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "mcp" && !mcpInitialized) {
       XhsMcpClient.resetSession();
-      await mcpInitialize(serverUrl);
+      await mcpInitialize(serverUrl, signal);
     }
   },
-  checkLogin: async (serverUrl) => {
-    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "check-login") : mcpCallTool(serverUrl, "check_login");
+  checkLogin: async (serverUrl, signal) => {
+    signal?.throwIfAborted();
+    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "check-login", void 0, signal) : mcpCallTool(serverUrl, "check_login", void 0, signal);
   },
-  search: async (serverUrl, keyword, options) => {
-    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "search", { keyword, ...options }) : mcpCallTool(serverUrl, "search", { keyword });
+  search: async (serverUrl, keyword, options, signal) => {
+    signal?.throwIfAborted();
+    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "search", { keyword, ...options }, signal) : mcpCallTool(serverUrl, "search", { keyword }, signal);
   },
-  getRecommend: async (serverUrl) => {
-    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "list-feeds") : mcpCallTool(serverUrl, "get_recommend");
+  getRecommend: async (serverUrl, signal) => {
+    signal?.throwIfAborted();
+    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "list-feeds", void 0, signal) : mcpCallTool(serverUrl, "get_recommend", void 0, signal);
   },
-  getNoteDetail: async (serverUrl, noteUrl, xsecToken, options) => {
+  getNoteDetail: async (serverUrl, noteUrl, xsecToken, options, signal) => {
+    signal?.throwIfAborted();
     const feedId = extractNoteIdFromUrl(noteUrl);
     const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || "";
     const loadAllComments = !!options?.loadAllComments;
@@ -18589,6 +18829,7 @@ var XhsMcpClient = {
     try {
       xsecSource = new URL(noteUrl).searchParams.get("xsec_source") || xsecSource;
     } catch {
+      signal?.throwIfAborted();
     }
     if (detectMode(serverUrl) === "bridge") {
       return bridgePost(serverUrl, "get-feed-detail", {
@@ -18597,7 +18838,7 @@ var XhsMcpClient = {
         xsec_source: xsecSource,
         load_all_comments: loadAllComments,
         click_more_replies: loadAllComments
-      });
+      }, signal);
     }
     const args = { url: noteUrl };
     if (xsecToken) args.xsec_token = xsecToken;
@@ -18605,9 +18846,10 @@ var XhsMcpClient = {
       args.load_all_comments = true;
       args.click_more_replies = true;
     }
-    return mcpCallTool(serverUrl, "get_note_detail", args);
+    return mcpCallTool(serverUrl, "get_note_detail", args, signal);
   },
-  publishNote: async (serverUrl, params) => {
+  publishNote: async (serverUrl, params, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
       return bridgePost(serverUrl, "publish", {
         title: params.title,
@@ -18615,54 +18857,60 @@ var XhsMcpClient = {
         images: params.images || [],
         tags: params.tags || [],
         visibility: params.is_private ? "private" : void 0
-      });
+      }, signal);
     }
-    return mcpCallTool(serverUrl, "publish_note", { ...params, images: params.images || [] });
+    return mcpCallTool(serverUrl, "publish_note", { ...params, images: params.images || [] }, signal);
   },
-  publishVideo: async (serverUrl, params) => {
+  publishVideo: async (serverUrl, params, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
       return bridgePost(serverUrl, "publish-video", {
         title: params.title,
         content: params.content,
         video: params.video,
         tags: params.tags || []
-      });
+      }, signal);
     }
     return { success: false, error: "\u89C6\u9891\u53D1\u5E03\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   },
-  publishLongArticle: async (serverUrl, params) => {
+  publishLongArticle: async (serverUrl, params, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
       return bridgePost(serverUrl, "long-article", {
         title: params.title,
         content: params.content,
         images: params.images || []
-      });
+      }, signal);
     }
     return { success: false, error: "\u957F\u6587\u53D1\u5E03\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   },
-  comment: async (serverUrl, noteUrl, content, xsecToken) => {
+  comment: async (serverUrl, noteUrl, content, xsecToken, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
       const feedId = extractNoteIdFromUrl(noteUrl);
       const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || "";
-      return bridgePost(serverUrl, "post-comment", { feed_id: feedId, xsec_token: token, content });
+      return bridgePost(serverUrl, "post-comment", { feed_id: feedId, xsec_token: token, content }, signal);
     }
     const args = { url: noteUrl, content };
     if (xsecToken) args.xsec_token = xsecToken;
-    return mcpCallTool(serverUrl, "comment", args);
+    return mcpCallTool(serverUrl, "comment", args, signal);
   },
-  likeFeed: async (serverUrl, feedId, xsecToken, unlike = false) => {
+  likeFeed: async (serverUrl, feedId, xsecToken, unlike = false, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
-      return bridgePost(serverUrl, "like-feed", { feed_id: feedId, xsec_token: xsecToken, unlike });
+      return bridgePost(serverUrl, "like-feed", { feed_id: feedId, xsec_token: xsecToken, unlike }, signal);
     }
-    return mcpCallTool(serverUrl, "like_feed", { feed_id: feedId, xsec_token: xsecToken, ...unlike ? { unlike: true } : {} });
+    return mcpCallTool(serverUrl, "like_feed", { feed_id: feedId, xsec_token: xsecToken, ...unlike ? { unlike: true } : {} }, signal);
   },
-  favoriteFeed: async (serverUrl, feedId, xsecToken, unfavorite = false) => {
+  favoriteFeed: async (serverUrl, feedId, xsecToken, unfavorite = false, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
-      return bridgePost(serverUrl, "favorite-feed", { feed_id: feedId, xsec_token: xsecToken, unfavorite });
+      return bridgePost(serverUrl, "favorite-feed", { feed_id: feedId, xsec_token: xsecToken, unfavorite }, signal);
     }
-    return mcpCallTool(serverUrl, "favorite_feed", { feed_id: feedId, xsec_token: xsecToken, ...unfavorite ? { unfavorite: true } : {} });
+    return mcpCallTool(serverUrl, "favorite_feed", { feed_id: feedId, xsec_token: xsecToken, ...unfavorite ? { unfavorite: true } : {} }, signal);
   },
-  replyComment: async (serverUrl, feedId, xsecToken, content, commentId, userId, parentCommentId) => {
+  replyComment: async (serverUrl, feedId, xsecToken, content, commentId, userId, parentCommentId, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
       return bridgePost(serverUrl, "reply-comment", {
         feed_id: feedId,
@@ -18670,32 +18918,36 @@ var XhsMcpClient = {
         content,
         comment_id: commentId,
         user_id: userId
-      });
+      }, signal);
     }
     const args = { feed_id: feedId, xsec_token: xsecToken, content };
     if (commentId) args.comment_id = commentId;
     if (userId) args.user_id = userId;
     if (parentCommentId) args.parent_comment_id = parentCommentId;
-    return mcpCallTool(serverUrl, "reply_comment", args);
+    return mcpCallTool(serverUrl, "reply_comment", args, signal);
   },
-  getUserProfile: async (serverUrl, userId, xsecToken) => {
+  getUserProfile: async (serverUrl, userId, xsecToken, signal) => {
+    signal?.throwIfAborted();
     if (detectMode(serverUrl) === "bridge") {
-      return bridgePost(serverUrl, "user-profile", { user_id: userId, xsec_token: xsecToken || "" });
+      return bridgePost(serverUrl, "user-profile", { user_id: userId, xsec_token: xsecToken || "" }, signal);
     }
     const args = { user_id: userId };
     if (xsecToken) args.xsec_token = xsecToken;
-    return mcpCallTool(serverUrl, "get_user_info", args);
+    return mcpCallTool(serverUrl, "get_user_info", args, signal);
   },
-  login: async (serverUrl) => {
-    if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "login");
+  login: async (serverUrl, signal) => {
+    signal?.throwIfAborted();
+    if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "login", void 0, signal);
     return { success: false, error: "\u767B\u5F55\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   },
-  getQrcode: async (serverUrl) => {
-    if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "get-qrcode");
+  getQrcode: async (serverUrl, signal) => {
+    signal?.throwIfAborted();
+    if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "get-qrcode", void 0, signal);
     return { success: false, error: "\u4E8C\u7EF4\u7801\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   },
-  logout: async (serverUrl) => {
-    if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "delete-cookies");
+  logout: async (serverUrl, signal) => {
+    signal?.throwIfAborted();
+    if (detectMode(serverUrl) === "bridge") return bridgePost(serverUrl, "delete-cookies", void 0, signal);
     return { success: false, error: "\u767B\u51FA\u529F\u80FD\u4EC5\u5728 Skills (Bridge) \u6A21\u5F0F\u4E0B\u53EF\u7528" };
   }
 };
@@ -18905,7 +19157,7 @@ async function runSearch(args, ctx) {
   if (!realtimeConfig?.newsEnabled || !realtimeConfig?.newsApiKey) {
     return { ok: false, reason: "no_api_key", query: args.query };
   }
-  const searchResult = await performSearch(args.query, realtimeConfig.newsApiKey);
+  const searchResult = await performSearch(args.query, realtimeConfig.newsApiKey, ctx.signal);
   if (!searchResult.reached) {
     return { ok: false, reason: "unreachable", query: args.query, message: searchResult.message };
   }
@@ -18931,7 +19183,8 @@ async function runReadDiary(args, ctx) {
     realtimeConfig.notionApiKey,
     realtimeConfig.notionDatabaseId,
     char.name,
-    targetDate
+    targetDate,
+    ctx.signal
   );
   if (!findResult.success) {
     return { ok: false, reason: "unreachable", date: targetDate };
@@ -18944,7 +19197,8 @@ async function runReadDiary(args, ctx) {
   for (const entry of findResult.entries) {
     const readResult = await notionReadDiaryContent(
       realtimeConfig.notionApiKey,
-      entry.id
+      entry.id,
+      ctx.signal
     );
     if (readResult.success) {
       diaryContents.push(`\u{1F4D4}\u300C${entry.title}\u300D(${entry.date})
@@ -18972,7 +19226,8 @@ async function runFsReadDiary(args, ctx) {
     realtimeConfig.feishuBaseId,
     realtimeConfig.feishuTableId,
     char.name,
-    targetDate
+    targetDate,
+    ctx.signal
   );
   if (!findResult.success) {
     return { ok: false, reason: "unreachable", date: targetDate };
@@ -18994,7 +19249,8 @@ async function runReadNote(args, ctx) {
     realtimeConfig.notionApiKey,
     realtimeConfig.notionNotesDatabaseId,
     args.keyword,
-    3
+    3,
+    ctx.signal
   );
   if (!findResult.success) {
     return { ok: false, reason: "unreachable", keyword: args.keyword };
@@ -19007,7 +19263,8 @@ async function runReadNote(args, ctx) {
   for (const entry of findResult.entries) {
     const readResult = await notionReadNoteContent(
       realtimeConfig.notionApiKey,
-      entry.id
+      entry.id,
+      ctx.signal
     );
     if (readResult.success) {
       noteContents.push(`\u{1F4DD}\u300C${entry.title}\u300D(${entry.date})
@@ -19020,14 +19277,14 @@ ${readResult.content}`);
   const noteText = noteContents.join("\n\n---\n\n");
   return { ok: true, keyword: args.keyword, noteText, entryCount: findResult.entries.length };
 }
-async function xhsSearchImpl(conf, keyword) {
-  const r = await XhsMcpClient.search(conf.mcpUrl, keyword);
+async function xhsSearchImpl(conf, keyword, signal) {
+  const r = await XhsMcpClient.search(conf.mcpUrl, keyword, void 0, signal);
   if (!r.success) return { success: false, notes: [], message: r.error };
   const raw = extractNotesFromMcpData(r.data);
   return { success: true, notes: raw.map((n) => normalizeNote(n)) };
 }
-async function xhsBrowseImpl(conf) {
-  const r = await XhsMcpClient.getRecommend(conf.mcpUrl);
+async function xhsBrowseImpl(conf, signal) {
+  const r = await XhsMcpClient.getRecommend(conf.mcpUrl, signal);
   if (!r.success) return { success: false, notes: [], message: r.error };
   const unwrapped = r.data?.data && typeof r.data.data === "object" && !Array.isArray(r.data.data) ? r.data.data : r.data;
   console.log(`\u{1F4D5} [XHS] getRecommend \u54CD\u5E94\u7C7B\u578B: ${typeof r.data}, \u662F\u5426\u6709 data \u5D4C\u5957: ${unwrapped !== r.data}, unwrapped keys: ${unwrapped && typeof unwrapped === "object" ? Object.keys(unwrapped).join(",") : "N/A"}`);
@@ -19056,7 +19313,7 @@ async function runXhsSearch(args, ctx) {
   if (!xhsConf.enabled) {
     return { ok: false, reason: "not_enabled", keyword: args.keyword };
   }
-  const result = await xhsSearchImpl(xhsConf, args.keyword);
+  const result = await xhsSearchImpl(xhsConf, args.keyword, ctx.signal);
   if (!result.success) {
     return { ok: false, reason: "unreachable", keyword: args.keyword, message: result.message };
   }
@@ -19076,7 +19333,7 @@ async function runXhsBrowse(args, ctx) {
   if (!xhsConf.enabled) {
     return { ok: false, reason: "not_enabled", category: args.category };
   }
-  const result = await xhsBrowseImpl(xhsConf);
+  const result = await xhsBrowseImpl(xhsConf, ctx.signal);
   console.log("\u{1F4D5} [XHS] \u6D4F\u89C8\u7ED3\u679C:", result.success, result.message, result.notes?.length || 0);
   if (!result.success) {
     return { ok: false, reason: "unreachable", category: args.category, message: result.message };
@@ -19108,7 +19365,7 @@ async function runXhsMyProfile(_args, ctx) {
     console.log(`\u{1F4D5} [XHS] \u7528 getUserProfile(${userId}) \u83B7\u53D6\u4E3B\u9875...`);
     ctx.onProgress?.("xhs", "\u6B63\u5728\u83B7\u53D6\u4E3B\u9875\u4FE1\u606F...");
     try {
-      const profileResult = await XhsMcpClient.getUserProfile(xhsConf.mcpUrl, userId, xhsConf.userXsecToken);
+      const profileResult = await XhsMcpClient.getUserProfile(xhsConf.mcpUrl, userId, xhsConf.userXsecToken, ctx.signal);
       if (profileResult.success && profileResult.data) {
         const d = profileResult.data;
         if (typeof d === "string") {
@@ -19158,7 +19415,7 @@ async function runXhsMyProfile(_args, ctx) {
     }
     console.log(`\u{1F4D5} [XHS] \u964D\u7EA7: \u7528\u6635\u79F0\u300C${nickname}\u300D\u641C\u7D22...`);
     ctx.onProgress?.("xhs", "\u6B63\u5728\u641C\u7D22\u4F60\u7684\u7B14\u8BB0...");
-    const searchResult = await xhsSearchImpl(xhsConf, nickname);
+    const searchResult = await xhsSearchImpl(xhsConf, nickname, ctx.signal);
     if (!searchResult.success) {
       return { ok: false, reason: "unreachable", message: searchResult.message };
     }
@@ -19184,13 +19441,13 @@ async function runXhsDetail(args, ctx) {
   const lastNotes = ctx.lastXhsNotesRef?.current ?? [];
   let xsecToken = findXsecToken(ctx.xhsCaches, lastNotes, args.noteId);
   console.log(`\u{1F4D5} [XHS] AI\u8981\u67E5\u770B\u7B14\u8BB0\u8BE6\u60C5:`, args.noteId, xsecToken ? "(\u6709xsecToken)" : "(\u65E0xsecToken)");
-  let result = await XhsMcpClient.getNoteDetail(xhsConf.mcpUrl, args.noteId, xsecToken, { loadAllComments: true });
+  let result = await XhsMcpClient.getNoteDetail(xhsConf.mcpUrl, args.noteId, xsecToken, { loadAllComments: true }, ctx.signal);
   if (!result.success || !result.data) {
     const cachedTitle = ctx.xhsCaches?.noteTitleCache.get(args.noteId);
     if (cachedTitle) {
       console.log(`\u{1F4D5} [XHS] \u8BE6\u60C5\u5931\u8D25\uFF0C\u5C1D\u8BD5\u91CD\u65B0\u641C\u7D22\u300C${cachedTitle}\u300D\u4EE5\u5237\u65B0 xsecToken...`);
       ctx.onProgress?.("xhs", "\u6B63\u5728\u5237\u65B0\u8BBF\u95EE\u51ED\u8BC1...");
-      const refreshResult = await xhsSearchImpl(xhsConf, cachedTitle);
+      const refreshResult = await xhsSearchImpl(xhsConf, cachedTitle, ctx.signal);
       if (refreshResult.success && refreshResult.notes.length > 0) {
         cacheXsecTokensImpl(ctx.xhsCaches, refreshResult.notes);
         if (ctx.lastXhsNotesRef) ctx.lastXhsNotesRef.current = refreshResult.notes;
@@ -19199,7 +19456,7 @@ async function runXhsDetail(args, ctx) {
           xsecToken = refreshedNote.xsecToken;
           console.log(`\u{1F4D5} [XHS] \u62FF\u5230\u65B0 xsecToken\uFF0C\u91CD\u8BD5 detail...`);
           ctx.onProgress?.("xhs", "\u6B63\u5728\u67E5\u770B\u7B14\u8BB0\u8BE6\u60C5...");
-          result = await XhsMcpClient.getNoteDetail(xhsConf.mcpUrl, args.noteId, xsecToken, { loadAllComments: true });
+          result = await XhsMcpClient.getNoteDetail(xhsConf.mcpUrl, args.noteId, xsecToken, { loadAllComments: true }, ctx.signal);
         } else {
           console.warn(`\u{1F4D5} [XHS] \u91CD\u65B0\u641C\u7D22\u7ED3\u679C\u4E2D\u672A\u627E\u5230 noteId=${args.noteId}`);
         }
@@ -20704,8 +20961,11 @@ var maskAndSnip = (text2, apiKey) => {
   if (apiKey && snippet.includes(apiKey)) snippet = snippet.split(apiKey).join("***");
   return snippet.slice(0, ERROR_SNIPPET_MAX);
 };
-var requestEmotionEval = async (api, promptContent, timeoutMs = EMOTION_EVAL_TIMEOUT_MS) => {
+var requestEmotionEval = async (api, promptContent, timeoutMs = EMOTION_EVAL_TIMEOUT_MS, signal) => {
   const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  if (signal?.aborted) return { raw: null, error: null };
+  signal?.addEventListener("abort", abort, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const baseUrl = String(api.baseUrl).replace(/\/+$/, "");
@@ -20747,11 +21007,13 @@ var requestEmotionEval = async (api, promptContent, timeoutMs = EMOTION_EVAL_TIM
     }
     return { raw, error: null };
   } catch (error) {
+    if (signal?.aborted) return { raw: null, error: null };
     console.warn("[emotion-eval] \u8BC4\u4F30\u5931\u8D25\uFF08\u4E3B\u6D41\u7A0B\u4E0D\u53D7\u5F71\u54CD\uFF09", error);
     const reason = controller.signal.aborted ? `\u8BC4\u4F30\u8D85\u65F6\uFF08${Math.round(timeoutMs / 1e3)} \u79D2\u6CA1\u56DE\u6765\uFF09` : `\u8BC4\u4F30\u8BF7\u6C42\u6CA1\u53D1\u51FA\u53BB\uFF1A${maskAndSnip(error instanceof Error ? error.message : String(error), api.apiKey)}`;
     return { raw: null, error: reason };
   } finally {
     clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
   }
 };
 
@@ -20798,7 +21060,7 @@ var takeEmotionEvalSpec = (metadata) => {
   return isUsableEvalSpec(spec) ? spec : null;
 };
 var EMOTION_EVAL_RIDE_ALONG_MS = 1e4;
-var runAmsgEmotionEval = async (spec, api, chatMessages, charName, timeoutMs = EMOTION_EVAL_TIMEOUT_MS) => requestEmotionEval(api, restoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs);
+var runAmsgEmotionEval = async (spec, api, chatMessages, charName, timeoutMs = EMOTION_EVAL_TIMEOUT_MS, signal) => requestEmotionEval(api, restoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs, signal);
 
 // utils/amsgScheduleResult.ts
 var SCHEDULE_CHANGE_RESULT_KIND = "schedule-change";
@@ -21169,7 +21431,9 @@ var sendInstantErrorPush = async (args) => {
 var amsgFireSettled = async (info) => {
   const stash = getFireStash(info.scratch);
   if (!stash) return;
-  const committed = info.outboxed === true;
+  const cancelled = info.status === "cancelled";
+  if (cancelled) stash.selfLogTexts = null;
+  const committed = !cancelled && info.outboxed === true;
   const delivered = committed || (info.sentCount ?? 0) > 0;
   const stateWrites = [];
   if (!stash.instant && !stash.dailyCounted) {
@@ -21185,7 +21449,7 @@ var amsgFireSettled = async (info) => {
       stateWrites.push({ key: AMSG_DAILY_SENDS_KEY, value: JSON.stringify(stash.dailySends) });
     }
   }
-  if (stash.instant && info.status === "failed" && !committed && stash.taskUuid) {
+  if (stash.instant && info.status === "failed" && info.willRetry === false && !committed && stash.taskUuid) {
     const failReason = info.error instanceof Error ? info.error.message : String(info.error ?? "\u672A\u77E5\u9519\u8BEF");
     const retryCount = typeof info.task?.retry_count === "number" ? info.task.retry_count : 0;
     const errorCode = readErrorCode(info.error);
@@ -21195,32 +21459,15 @@ var amsgFireSettled = async (info) => {
       retryCount,
       errorCode
     });
-    const permanent = info.error instanceof Error && info.error.permanent === true;
-    if (retryCount >= 3 || permanent) {
-      await sendInstantErrorPush({
-        charId: stash.charId,
-        taskUuid: stash.taskUuid,
-        reason: failReason,
-        errorCode,
-        userId: typeof info.task?.user_id === "string" ? info.task.user_id : null
-      });
-    } else if (stash.emotionEvalPromise && stash.clientTaskId) {
-      try {
-        const outcome = await raceEmotionEval(
-          stash.emotionEvalPromise,
-          "\u8BC4\u4F30\u6CA1\u8D76\u4E0A\u8FD9\u8DF3\u6536\u5C3E\uFF0C\u91CD\u8BD5\u90A3\u8F6E\u53EA\u597D\u91CD\u65B0\u8BC4\u4F30"
-        );
-        if (outcome?.raw) {
-          await info.writeState(amsgStateNamespace(stash.charId), [
-            { key: amsgEmotionUpdateKey(stash.clientTaskId), value: outcome.raw }
-          ]);
-        }
-      } catch (error) {
-        console.warn("[amsg:emotion] \u91CD\u8BD5\u524D\u7559\u4E0D\u4E0B\u8BC4\u4F30\u7ED3\u679C\uFF08\u4E0B\u4E00\u8DF3\u4F1A\u91CD\u65B0\u8BC4\u4F30\uFF09", error);
-      }
-    }
+    await sendInstantErrorPush({
+      charId: stash.charId,
+      taskUuid: stash.taskUuid,
+      reason: failReason,
+      errorCode,
+      userId: typeof info.task?.user_id === "string" ? info.task.user_id : null
+    });
   }
-  if (stash.instant && stash.emotionLatePending && stash.emotionEvalPromise && stash.clientTaskId && delivered) {
+  if (!cancelled && stash.instant && stash.emotionLatePending && stash.emotionEvalPromise && stash.clientTaskId && delivered) {
     stash.emotionLatePending = false;
     try {
       const outcome = await stash.emotionEvalPromise;
@@ -21244,6 +21491,7 @@ var amsgFireSettled = async (info) => {
     const rerun = stash.selfLog.entries.some((e) => e.id === entryId);
     const next = appendSelfLogEntry(stash.selfLog, {
       id: entryId,
+      taskUuid: stash.taskUuid ?? void 0,
       at: Date.now(),
       startedAt: stash.firedAt,
       text: text2,
@@ -21546,7 +21794,7 @@ var FINAL_ROUND_NOTICE = "\uFF08\u63D0\u9192\uFF1A\u8FD9\u662F\u6700\u540E\u4E00
 var feedsFinalRound = (iteration, maxToolIterations) => typeof iteration === "number" && iteration >= maxToolIterations - 2;
 var MCP_CALL_TIMEOUT_MS = 25e3;
 var MCP_TOTAL_BUDGET_MS = 12e4;
-var runMcpFireTool = async (stash, name, args) => {
+var runMcpFireTool = async (stash, name, args, signal) => {
   const exposed = name.slice(MCP_FIRE_NAME_PREFIX.length);
   const hit = stash.mcpResolve?.get(exposed);
   if (!hit) {
@@ -21578,6 +21826,7 @@ var runMcpFireTool = async (stash, name, args) => {
     args,
     {
       // 剩余预算比单次上限还少时按剩余的来，最后一个调用不会越过总线。
+      signal,
       timeoutMs: Math.min(MCP_CALL_TIMEOUT_MS, remaining),
       inputSchema: hit.tool.inputSchema,
       serverLabel: hit.server.name
@@ -21588,12 +21837,14 @@ var runMcpFireTool = async (stash, name, args) => {
 };
 var amsgHooks = {
   async onBeforeFire(ctx) {
+    ctx.throwIfCancelled?.();
     const charId = ctx.task?.metadata?.charId;
     if (typeof charId !== "string" || !charId) {
       throw fireStateError("task metadata \u7F3A charId", { taskId: ctx.task.id });
     }
     const instant = isInstantChatTask(ctx.task.metadata ?? {});
     const fail3 = (reason, extra) => {
+      ctx.throwIfCancelled?.();
       if (instant && typeof ctx.task.uuid === "string" && ctx.task.uuid) {
         if (typeof ctx.writeState === "function") {
           void writeChatFail(ctx.writeState, charId, {
@@ -21724,7 +21975,10 @@ var amsgHooks = {
     const mcpResolve = mcpServers.length ? buildMcpNameMap(mcpServers, { maxNameLen: MCP_FIRE_NAME_BUDGET }) : null;
     const mcpNative = toolConfig.mcpUseNativeTools !== false;
     const maxToolIterations = resolveToolIterationBudget(!!mcpResolve);
-    const storedSelfLog = parseSelfLog(charRows.find((r) => r.key === AMSG_SELF_LOG_KEY)?.value ?? "");
+    if (instant && ctx.task.uuid && charRows.some((row) => row.key === stoppedReplyKey(ctx.task.uuid))) {
+      return { skip: true };
+    }
+    const storedSelfLog = reconcileStoppedReplies(parseSelfLog(charRows.find((r) => r.key === AMSG_SELF_LOG_KEY)?.value ?? ""), charRows);
     const selfLog = reconcileSelfLogWithPack(storedSelfLog, pack, expireInput.lastUserMessageAt);
     const clientTaskId = typeof taskMeta.amsgClientTaskId === "string" ? taskMeta.amsgClientTaskId : "";
     const nowMs = ctx.now.getTime();
@@ -21934,7 +22188,9 @@ ${userHoliday}` });
             emotionEvalSpec,
             evalApi,
             instantMessages,
-            toolPack.charName || ctx.task.contactName || "\u89D2\u8272"
+            toolPack.charName || ctx.task.contactName || "\u89D2\u8272",
+            void 0,
+            ctx.signal
           );
         })();
       }
@@ -21960,6 +22216,7 @@ ${userHoliday}` });
     };
   },
   async onLLMOutput(ctx) {
+    ctx.throwIfCancelled?.();
     const kindFire = getKindFireStash(ctx.scratch);
     if (kindFire) {
       const handler = FIRE_KIND_HANDLERS[kindFire.kind];
@@ -22190,6 +22447,7 @@ ${userHoliday}` });
     if (stash.xhsCookie) XhsMcpClient.setCookie(stash.xhsCookie);
     const results = [];
     for (const toolCall of toolCalls) {
+      ctx.throwIfCancelled?.();
       const name = toolCall?.function?.name || "";
       let content;
       try {
@@ -22211,12 +22469,14 @@ ${userHoliday}` });
           });
           continue;
         }
-        const result = name === AMSG_FIRE_SCHEDULE_TOOL ? await runFireScheduleTool(stash, ctx.scheduleTask, args, Date.now()) : name === AMSG_FIRE_CANCEL_TOOL ? await runFireCancelTool(stash, ctx.cancelTask, args, Date.now()) : name === AMSG_FIRE_RENEW_TOOL ? await runFireRenewTool(stash, ctx, args, Date.now()) : name.startsWith(MCP_FIRE_NAME_PREFIX) ? await runMcpFireTool(stash, name, args) : await dispatchAgenticTool(name, args, stash.toolCtx);
+        const result = name === AMSG_FIRE_SCHEDULE_TOOL ? await runFireScheduleTool(stash, ctx.scheduleTask, args, Date.now()) : name === AMSG_FIRE_CANCEL_TOOL ? await runFireCancelTool(stash, ctx.cancelTask, args, Date.now()) : name === AMSG_FIRE_RENEW_TOOL ? await runFireRenewTool(stash, ctx, args, Date.now()) : name.startsWith(MCP_FIRE_NAME_PREFIX) ? await runMcpFireTool(stash, name, args, ctx.signal) : await dispatchAgenticTool(name, args, { ...stash.toolCtx, signal: ctx.signal });
         stash.session.duplicateToolCalls = 0;
         stash.session.toolCalls.push({ name, fingerprint, ran: toolDidSomething(name, result) });
         content = buildToolResultMessage({ name, result, history: stash.session.toolCalls });
         console.log("[amsg:agentic]", { type: "tool_done", sessionId: ctx.sessionId, tool: name });
       } catch (error) {
+        ctx.throwIfCancelled?.();
+        ctx.signal?.throwIfAborted();
         content = JSON.stringify({
           ok: false,
           reason: "tool_error",
@@ -22266,10 +22526,11 @@ var buildWorkerConfig = (env) => {
     // executeToolCalls 服务端工具循环）；总超时用库默认 240s，轮数由 onBeforeFire 按
     // 是否接入 MCP 返回 5 / 12；即时对话再把总超时抬到 INSTANT_TOTAL_TIMEOUT_MS。
     hooks: amsgHooks,
-    // 租约不再显式配：amsg-server 2.6.0-next.15 起投递期间按心跳滚动续租（30s 一跳、
-    // 90s TTL），fire 跑多久租约就滚多久——以前为了盖住即时对话 600s 的 fire 把
-    // claimLeaseMs 定格在 12 分钟，代价是 isolate 中途死掉后任务要干等 12 分钟才被
-    // 下一跳接手；心跳租约把这个恢复窗压到 ~90s，还不用管单条超时抬到多高。
+    leaseHeartbeatMs: 1e3,
+    // 用户主动触发的即时对话：生成失败本轮就结束，由用户决定是否重发。
+    // 策略由上游在 onBeforeFire 前解析，读取上下文失败也覆盖；整批入箱后仍可补推原文。
+    maxGenerationRetries: (task) => isInstantChatTask(task.metadata) ? 0 : void 0,
+    // 取消通过租约心跳通知执行中的 Worker；1 秒检测一次，TTL 仍由上游管理。
     // 收尾回执 + 过期跳过回执（config 级 hook）。
     // onFireSettled: 无论这次 fire 是发出去了、跳过了还是抛错了都会调一次，self_log
     //   在这里统一落盘（见 amsgFireSettled）。不用 onAfterSend——它只在真发出去那条路

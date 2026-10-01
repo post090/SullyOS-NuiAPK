@@ -1,3 +1,4 @@
+import { withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
 
 import { DB } from './db';
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -203,10 +204,13 @@ export const ChatParser = {
          * 只有主动消息 2.0 的定时路径传，其余路径不传 = 取用户此刻在听的那首。
          */
         frozenMusicSong?: FrozenMusicSong,
+        replyRun?: ReplyRun,
     ) => {
+        const replyStep = <T>(operation: () => Promise<T>) => withReplyCancellation(replyRun, operation);
+        replyRun?.check();
         let content = aiContent;
         /** 落库统一走这里，别直接调 DB.saveMessage —— 漏一处就是一条消息两个时间、重试时还认不出来。 */
-        const persist = (msg: Parameters<typeof DB.saveMessage>[0]) => DB.saveMessage({
+        const persist = (msg: Parameters<typeof DB.saveMessage>[0]) => (replyRun?.saveMessage ?? DB.saveMessage)({
             ...msg,
             ...(messageTimestamp != null ? { timestamp: messageTimestamp } : {}),
             // 卡片自己的字段优先，inheritMeta 只补它没有的键（两边键名本来就不重叠，这里是防御）
@@ -220,28 +224,29 @@ export const ChatParser = {
         if (fileDirectives.requestedTitles.length > 0) {
             content = fileDirectives.visibleText;
             try {
-                const chars = await DB.getAllCharacters();
+                const chars = await replyStep(async () => DB.getAllCharacters());
                 const collaborationEnabled = !!chars.find(char => char.id === charId)?.chatCollaborationEnabled;
                 if (!collaborationEnabled) {
                     console.warn('[CollaborationFileCabinet] 忽略未开启协同能力时的文件标记:', { charId });
                 } else {
-                    const files = await CollaborationStore.listLibraryFiles(charId);
+                    const files = await replyStep(async () => CollaborationStore.listLibraryFiles(charId));
                     for (const requestedTitle of fileDirectives.requestedTitles) {
                         const file = resolveCollaborationFileByTitle(files, requestedTitle);
                         if (!file) {
                             addToast(`文件柜里找不到《${requestedTitle}》，已跳过发送`, 'error');
                             continue;
                         }
-                        await persist({
+                        await replyStep(async () => persist({
                             charId,
                             role: 'assistant',
                             type: 'collaboration_file',
                             content: `[协同文件：${file.name}]`,
                             metadata: collaborationFileMessageMetadata(file),
-                        });
+                        }));
                     }
                 }
             } catch (error) {
+                replyRun?.check();
                 console.warn('[CollaborationFileCabinet] 发送文件失败:', error);
                 addToast('协同文件柜暂时读取失败', 'error');
             }
@@ -249,7 +254,7 @@ export const ChatParser = {
 
         // POKE
         if (content.includes('[[ACTION:POKE]]')) {
-            await persist({ charId, role: 'assistant', type: 'interaction', content: '[戳一戳]' });
+            await replyStep(async () => persist({ charId, role: 'assistant', type: 'interaction', content: '[戳一戳]' }));
             content = content.replace('[[ACTION:POKE]]', '').trim();
         }
 
@@ -264,7 +269,7 @@ export const ChatParser = {
             let amount: string | number | undefined;
             let refId: number | undefined;
             try {
-                const all = await DB.getMessagesByCharId(charId, true);
+                const all = await replyStep(async () => DB.getMessagesByCharId(charId, true));
                 const pendings = all.filter(
                     x => x.type === 'transfer' && x.role === 'user' && !x.metadata?.receipt
                         && (!x.metadata?.status || x.metadata.status === 'pending'),
@@ -288,9 +293,10 @@ export const ChatParser = {
                 if (pending) {
                     amount = pending.metadata?.amount;
                     refId = pending.id;
-                    await DB.updateMessageMetadata(pending.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
+                    await replyStep(async () => DB.updateMessageMetadata(pending.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() })));
                 }
             } catch (e) {
+                replyRun?.check();
                 console.warn('[Transfer] 查待处理转账失败，跳过回执:', e);
                 return;
             }
@@ -298,11 +304,11 @@ export const ChatParser = {
                 console.warn(`[Transfer] 角色想${action === 'accepted' ? '收下' : '退回'}转账，但没有待处理的用户转账，已忽略`);
                 return;
             }
-            await persist({
+            await replyStep(async () => persist({
                 charId, role: 'assistant', type: 'transfer',
                 content: action === 'accepted' ? '[已收款]' : '[已退回]',
                 metadata: { receipt: action, amount, ref: refId },
-            });
+            }));
             // 资产系统联动：角色收下用户的转账 → 钱真的进角色零钱、出用户零钱。
             // 退回不动钱（钱压根没离开过用户手）。
             if (action === 'accepted') {
@@ -318,9 +324,9 @@ export const ChatParser = {
             if (ev.kind === 'send') {
                 // role 固定 'assistant' —— 方向不由文本决定，文本里的方向信息只在
                 // transferFormat 里做过校验（伪造的已被丢弃）。
-                await persist({ charId, role: 'assistant', type: 'transfer', content: '[转账]', metadata: { amount: ev.amount, status: 'pending' } });
+                await replyStep(async () => persist({ charId, role: 'assistant', type: 'transfer', content: '[转账]', metadata: { amount: ev.amount, status: 'pending' } }));
             } else {
-                await resolveUserTransfer(ev.kind === 'accept' ? 'accepted' : 'returned');
+                await replyStep(async () => resolveUserTransfer(ev.kind === 'accept' ? 'accepted' : 'returned'));
             }
         }
 
@@ -375,7 +381,7 @@ export const ChatParser = {
             // 没有这一份才退回「用户此刻在听的那首」——本地聊天走的一直是后者。
             const frozen = normalizeFrozenSong(frozenMusicSong);
             const snap = frozen
-                ? await resolveFrozenSongSnapshot(charId, frozen)
+                ? await replyStep(async () => resolveFrozenSongSnapshot(charId, frozen))
                 : musicHooks.getListeningSnapshot();
             if (snap) {
                 let addedToPlaylistTitle: string | undefined;
@@ -399,14 +405,15 @@ export const ChatParser = {
                             source: frozen ? 'discovered' : 'user',
                             addedAt: Date.now(),
                         };
-                        const added = await musicHooks.addSongToCharPlaylist(charId, playlistSong, target);
+                        const added = await replyStep(async () => musicHooks.addSongToCharPlaylist(charId, playlistSong, target));
                         if (added) {
                             addedToPlaylistTitle = added.playlistTitle;
                             playlistCreated = added.created;
                         }
-                    } catch { /* 忽略 */ }
+                    } catch { replyRun?.check(); /* 忽略 */ }
+
                 }
-                await persist({
+                await replyStep(async () => persist({
                     charId,
                     role: 'assistant',
                     type: 'music_card',
@@ -417,7 +424,7 @@ export const ChatParser = {
                         addedToPlaylistTitle,
                         playlistCreated,
                     },
-                });
+                }));
                 const playlistSuffix = addedToPlaylistTitle
                     ? (playlistCreated ? `（新建《${addedToPlaylistTitle}》）` : `《${addedToPlaylistTitle}》`)
                     : '';
@@ -464,7 +471,7 @@ export const ChatParser = {
                 let url: string | undefined;
                 let desc: string | undefined;
                 try {
-                    const snap = await DB.getLatestHotNewsSnapshot();
+                    const snap = await replyStep(async () => DB.getLatestHotNewsSnapshot());
                     const items = snap?.items || [];
                     // 先精确匹配。模糊匹配只在**唯一命中**时才用：本地这份快照和角色当时看到的
                     // 那份常常不是同一刻，热搜里相似标题成堆（同一件事好几条），挑错一条就是卡片
@@ -486,15 +493,16 @@ export const ChatParser = {
                         desc = hit.desc;
                         if (!source && hit.source) source = hit.source;
                     }
-                } catch { /* 补不到就算了 */ }
+                } catch { replyRun?.check(); /* 补不到就算了 */ }
+
                 if (title) {
-                    await persist({
+                    await replyStep(async () => persist({
                         charId,
                         role: 'assistant',
                         type: 'news_card',
                         content: `[你分享了一个热点：「${title}」${source ? `（来源：${source}）` : ''}${desc ? `——${desc}` : ''}]`,
                         metadata: { source, title, url, desc },
-                    });
+                    }));
                     addToast(`${charName} 分享了一条热点`, 'info');
                 }
             }
@@ -508,9 +516,9 @@ export const ChatParser = {
             const date = eventMatch[2].trim();
             if (title && date) {
                 const anni: any = { id: `anni-${Date.now()}`, title: title, date: date, charId };
-                await DB.saveAnniversary(anni);
+                await replyStep(async () => DB.saveAnniversary(anni));
                 addToast(`${charName} 添加了新日程: ${title}`, 'success');
-                await persist({ charId, role: 'system', type: 'text', content: `[系统: ${charName} 新增了日程 "${title}" (${date})]` });
+                await replyStep(async () => persist({ charId, role: 'system', type: 'text', content: `[系统: ${charName} 新增了日程 "${title}" (${date})]` }));
             }
             content = content.replace(eventMatch[0], '').trim();
         }
@@ -539,17 +547,18 @@ export const ChatParser = {
                 );
                 continue;
             }
-            await DB.saveScheduledMessage({ id: `sched-${Date.now()}-${Math.random()}`, charId, content: msgContent, dueAt: dueTime, createdAt: Date.now() });
+            await replyStep(async () => DB.saveScheduledMessage({ id: `sched-${Date.now()}-${Math.random()}`, charId, content: msgContent, dueAt: dueTime, createdAt: Date.now() }));
             try {
-                const hasPerm = await LocalNotifications.checkPermissions();
+                const hasPerm = await replyStep(async () => LocalNotifications.checkPermissions());
                 if (hasPerm.display === 'granted') {
                     // 确定性 id：同一条定时消息重复解析时不会叠出多条通知（参照 taskReminderScheduler）
                     const notifKey = `${charId}|${msgContent}|${dueTime}`;
                     let nh = 0;
                     for (let i = 0; i < notifKey.length; i++) nh = ((nh << 5) - nh + notifKey.charCodeAt(i)) | 0;
-                    await LocalNotifications.schedule({ notifications: [{ title: charName, body: msgContent, id: Math.abs(nh) & 0x3FFFFFFF, schedule: { at: new Date(dueTime) }, smallIcon: 'ic_stat_icon_config_sample' }] });
+                    await replyStep(async () => LocalNotifications.schedule({ notifications: [{ title: charName, body: msgContent, id: Math.abs(nh) & 0x3FFFFFFF, schedule: { at: new Date(dueTime) }, smallIcon: 'ic_stat_icon_config_sample' }] }));
                 }
-            } catch (e) { console.log("Notification schedule skipped (web mode)"); }
+            } catch (e) { replyRun?.check(); console.log("Notification schedule skipped (web mode)"); }
+
             addToast(`${charName} 似乎打算一会儿找你...`, 'info');
         }
         content = content.replace(scheduleRegex, '').trim();
@@ -558,12 +567,13 @@ export const ChatParser = {
         // 都在 lifeRecords.ts 里；这里只负责取角色档案。取不到就只剥 tag（静默丢弃）。
         if (content.includes('[[LIFE:')) {
             try {
-                const chars = await DB.getAllCharacters();
+                const chars = await replyStep(async () => DB.getAllCharacters());
                 const charProfile = chars.find(c => c.id === charId);
                 content = charProfile
-                    ? await executeLifeDirectives(content, charProfile, addToast, messageTimestamp, inheritMeta)
+                    ? await replyStep(async () => executeLifeDirectives(content, charProfile, addToast, messageTimestamp, inheritMeta, replyRun))
                     : content.replace(/\[\[LIFE:[^\]]*\]\]/g, '').trim();
             } catch (e) {
+                replyRun?.check();
                 console.error('[LifeRecord] parse failed:', e);
                 content = content.replace(/\[\[LIFE:[^\]]*\]\]/g, '').trim();
             }

@@ -129,7 +129,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const canSwitchToGenerate = sendButtonGenerates && !!onGenerate;
     const canEndEditing = canSwitchToGenerate || autoReplyEnabled;
     const isGenerateButton = canSwitchToGenerate && !isInputFocused;
-    const primaryButtonDisabled = isGenerateButton ? isTyping : !input.trim();
+    const primaryButtonDisabled = isGenerateButton ? false : !input.trim();
 
     useEffect(() => {
         onInputFocusChange?.(isInputFocused);
@@ -805,14 +805,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         }}
                         onClick={isGenerateButton ? onGenerate : onSend}
                         disabled={primaryButtonDisabled}
-                        aria-label={isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
-                        title={isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
+                        aria-label={isGenerateButton ? (isTyping ? '停止回复' : '生成回复') : '发送文字'}
+                        title={isGenerateButton ? (isTyping ? '停止回复' : '让对方回复已发送的消息') : '发送文字'}
                         className={`sully-chat-send-button ${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
                     >
                         {sendButtonStyle === 'pill'
-                            ? <span>{isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
+                            ? <span>{isGenerateButton ? (isTyping ? '停止' : '生成') : '发送'}</span>
                             : isGenerateButton
-                                ? <Lightning className={`w-5 h-5 ${isTyping ? 'animate-pulse' : ''}`} weight="fill" />
+                                ? (isTyping ? <span className="block w-3.5 h-3.5 rounded-sm bg-current" /> : <Lightning className="w-5 h-5" weight="fill" />)
                                 : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
                     </button>
 

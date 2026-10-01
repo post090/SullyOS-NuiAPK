@@ -1,14 +1,15 @@
-import React, { useState, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import {meetingAppearance, MEETING_READING_CSS} from '../../utils/meetingAppearance';
+import React, { useState, useEffect, useLayoutEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { CharacterProfile, Message, DateState, DialogueItem, UserProfile, DateObservation } from '../../types';
 import Modal from '../../components/os/Modal';
 import { useOS } from '../../context/OSContext';
-import { DB } from '../../utils/db';
+
 import DateSettings from './DateSettings';
 import ObserveHUD from './ObserveHUD';
 import { extractObservation, hasObservation } from '../../utils/datePrompts';
 import { useBlobRefUrl } from '../../utils/blobRef';
 import TokenImg from '../os/TokenImg';
-import { clearDateResumeAttempt } from '../../utils/dateSessionRecovery';
+
 import { VALID_EMOTIONS } from '../../utils/minimaxTts';
 import {
     canSynthesizeSpeech,
@@ -18,7 +19,6 @@ import {
     synthesizeSpeech,
 } from '../../utils/ttsRouter';
 import { resilientFetch } from '../../utils/resilientFetch';
-import { planNovelLoadMore } from '../../utils/dateSessionHistory';
 import { getPendingReplyText } from '../../utils/pendingReply';
 import { fetchBlobForShare } from '../../utils/shareExport';
 import VoiceFavoriteActionSheet from '../voice/VoiceFavoriteActionSheet';
@@ -123,28 +123,22 @@ interface DateSessionProps {
     messages: Message[]; // The DB messages for history/novel mode
     peekStatus: string;  // Initial text from the Peek phase
     initialState?: DateState; // Resume state
+    encounterId?: string;
     onSendMessage: (text: string, kind?: 'continue') => Promise<string>; // Returns AI content
     onReroll: () => Promise<string>;
-    onExit: (currentState: DateState) => void;
+    onExit: () => void;
     onEditMessage: (msg: Message) => void;
     onDeleteMessage: (msg: Message) => void;
     onDeleteMessages: (ids: number[]) => Promise<void>;
     onSettings: () => void;
-    /** 阅读模式「加载更早」铺满已加载部分后，回库里取下一批（limit 递增式重取）。 */
-    onLoadMoreHistory?: (nextLimit: number) => Promise<void>;
-    /** 当前查询用的 limit（配合 onLoadMoreHistory 递增）。 */
-    historyLoadLimit?: number;
+    /** 按游标加载更早的 50 条记录。 */
+    onLoadMoreHistory?: () => Promise<void>;
+    historyLoading?: boolean;
+    historyError?: string;
     /** 库里的见面记录是否已经取完。 */
     historyReachedEnd?: boolean;
 }
 
-// Long replies can expand into many DOM lines. Keeping a smaller reading window
-// materially reduces iOS WebKit content-process crashes while older entries
-// remain available through the existing "加载更早" button.
-const NOVEL_MESSAGE_WINDOW_SIZE = 40;
-/** 铺满已加载部分后，每次回库多取多少条见面消息。 */
-const NOVEL_HISTORY_FETCH_STEP = 220;
-const NOVEL_MESSAGE_LOAD_STEP = 40;
 const REQUIRED_EMOTIONS_SET = ['normal', 'happy', 'angry', 'sad', 'shy'];
 
 type DateSpeechResult = { url: string; spokenText: string };
@@ -189,13 +183,15 @@ const ReadingAvatar: React.FC<{ src?: string; name: string; light: boolean }> = 
 
 const DateSession: React.FC<DateSessionProps> = ({ 
     onLoadMoreHistory,
-    historyLoadLimit = 0,
+    historyLoading = false,
+    historyError = '',
     historyReachedEnd = true,
     char, 
     userProfile,
-    messages, 
+    messages: historyMessages,
     peekStatus, 
     initialState,
+    encounterId,
     onSendMessage, 
     onReroll, 
     onExit,
@@ -206,8 +202,12 @@ const DateSession: React.FC<DateSessionProps> = ({
 }) => {
     const { addToast, registerBackHandler, apiConfig, updateCharacter } = useOS();
     
+    const readingStyle = meetingAppearance(char.dateAppearance);
+    const decoratedReading = readingStyle.id !== 'none';
+    const lightReading = decoratedReading ? readingStyle.id !== 'night' : char.dateLightReading;
     // Core VN State
-    const [isNovelMode, setIsNovelMode] = useState(false);
+    const [isNovelMode, setIsNovelMode] = useState(decoratedReading);
+    useEffect(() => { if (decoratedReading) setIsNovelMode(true); }, [readingStyle.id]);
     const [bgImage, setBgImage] = useState<string>(char.dateBackground || '');
     // bgImage state 里存的一直是原始字段值（令牌 / data: / 外链），只在渲染这一刻解析成能喂 CSS 的 url
     const bgImageUrl = useBlobRefUrl(bgImage);
@@ -227,11 +227,11 @@ const DateSession: React.FC<DateSessionProps> = ({
     const [observation, setObservation] = useState<DateObservation | null>(initialState?.observation ?? null);
     
     // Interaction State
+    const messages = React.useMemo(() => encounterId ? historyMessages.filter(message => message.metadata?.dateEncounterId === encounterId) : historyMessages, [historyMessages, encounterId]);
     const [input, setInput] = useState('');
-    const [showInputBox, setShowInputBox] = useState(false);
+    const [showInputBox, setShowInputBox] = useState(!peekStatus && !initialState);
     const [isTyping, setIsTyping] = useState(false); // Waiting for API
-    const [isShowingOpening, setIsShowingOpening] = useState(!initialState); // True until first user interaction
-    const [showExitModal, setShowExitModal] = useState(false);
+    const [isShowingOpening, setIsShowingOpening] = useState(!!peekStatus && !initialState); // True until first user interaction
     // API 失败时本地记住本轮输入，不依赖父组件的 DB 刷新是否已经完成；用户可直接点重试。
     const [pendingRetryText, setPendingRetryText] = useState('');
     const [sarTruthMessageIds, setSarTruthMessageIds] = useState<Set<number>>(new Set());
@@ -273,7 +273,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     const voiceCacheRef = useRef<Record<string, DateSpeechResult>>({});
     const [novelVoiceLoading, setNovelVoiceLoading] = useState<Set<string>>(new Set());
     const [novelPlayingId, setNovelPlayingId] = useState<string | null>(null);
-    const [novelVisibleCount, setNovelVisibleCount] = useState(NOVEL_MESSAGE_WINDOW_SIZE);
+
     const dateAudioRef = useRef<HTMLAudioElement | null>(null);
     const voiceEnabled = !!char.dateVoiceEnabled;
     const voiceLang = char.dateVoiceLang || '';
@@ -530,15 +530,11 @@ const DateSession: React.FC<DateSessionProps> = ({
                 setShowVoiceLangPicker(false);
                 return true;
             }
-            if (showExitModal) {
-                setShowExitModal(false);
-                return true;
-            }
-            setShowExitModal(true);
+            onExit();
             return true;
         });
         return unregister;
-    }, [voiceFavoriteTarget, voiceFavoriteBusy, showSettings, showMenu, showExitModal, registerBackHandler]);
+    }, [voiceFavoriteTarget, voiceFavoriteBusy, showSettings, showMenu, onExit, registerBackHandler]);
 
     const dateEmotionKeys = [...REQUIRED_EMOTIONS_SET, ...(char.customDateSprites || [])];
 
@@ -584,25 +580,7 @@ const DateSession: React.FC<DateSessionProps> = ({
         return { key: fallback.key, src: state.currentSprite || fallback.src };
     };
 
-    // Filter messages for Novel Mode: Show only current session
-    // Logic: Find the LAST message with `isOpening: true`. Show all messages from there onwards.
-    const sessionMessages = React.useMemo(() => {
-        const openingIndex = messages.map(m => m.metadata?.isOpening).lastIndexOf(true);
-        if (openingIndex !== -1) {
-            return messages.slice(openingIndex);
-        }
-        // Fallback: If no opening found (legacy data), show all
-        return messages;
-    }, [messages]);
-
-    const visibleSessionMessages = React.useMemo(() => {
-        return sessionMessages.slice(-novelVisibleCount);
-    }, [sessionMessages, novelVisibleCount]);
-    const hiddenNovelMessageCount = Math.max(0, sessionMessages.length - visibleSessionMessages.length);
-
-    useEffect(() => {
-        setNovelVisibleCount(NOVEL_MESSAGE_WINDOW_SIZE);
-    }, [char.id]);
+    const visibleSessionMessages = historyMessages;
 
     // Initialization
     useEffect(() => {
@@ -654,11 +632,29 @@ const DateSession: React.FC<DateSessionProps> = ({
     }, [char, currentSpriteKey]);
 
     // Novel Mode Scroll
-    useEffect(() => {
-        if (isNovelMode && novelScrollRef.current) {
-            novelScrollRef.current.scrollTop = novelScrollRef.current.scrollHeight;
-        }
-    }, [visibleSessionMessages.length, isNovelMode, showInputBox]);
+    const readingPosition = useRef({ first: 0, last: 0, height: 0, top: 0, nearBottom: true, active: false });
+    useLayoutEffect(() => {
+        const element = novelScrollRef.current;
+        const previous = readingPosition.current;
+        if (!isNovelMode || !element) { previous.active = false; return; }
+        const first = visibleSessionMessages[0]?.id || 0;
+        const last = visibleSessionMessages.at(-1)?.id || 0;
+        if (!previous.active || !previous.last) element.scrollTop = element.scrollHeight;
+        else if (first && first < previous.first) element.scrollTop = previous.top + element.scrollHeight - previous.height;
+        else if (previous.nearBottom) element.scrollTop = element.scrollHeight;
+        readingPosition.current = { first, last, height: element.scrollHeight, top: element.scrollTop,
+            nearBottom: element.scrollHeight - element.clientHeight - element.scrollTop < 100, active: true };
+    }, [visibleSessionMessages, isNovelMode, showInputBox]);
+    const onReadingScroll = () => {
+        const element = novelScrollRef.current;
+        if (!element) return;
+        const movingUp = element.scrollTop < readingPosition.current.top;
+        readingPosition.current.top = element.scrollTop;
+        readingPosition.current.height = element.scrollHeight;
+        readingPosition.current.nearBottom = element.scrollHeight - element.clientHeight - element.scrollTop < 100;
+        if (movingUp && element.scrollTop < 80 && !historyLoading && !historyReachedEnd && !historyError)
+            void onLoadMoreHistory?.();
+    };
 
     // Typewriter effect
     useEffect(() => {
@@ -822,72 +818,7 @@ const DateSession: React.FC<DateSessionProps> = ({
         }
     };
 
-    const buildCurrentState = (): DateState => ({
-        dialogueQueue,
-        dialogueBatch,
-        currentText,
-        // Keep recovery snapshots light: don't duplicate base64 background/sprite data here.
-        // TODO(date-assets): migrate CharacterProfile dateBackground/sprites/dateSkinSets themselves
-        // into the IndexedDB assets store and keep stable asset refs on the character.
-        currentSpriteKey: currentSpriteKey || inferSpriteKey(currentSprite) || undefined,
-        activeSkinSetId: char.activeSkinSetId,
-        isNovelMode,
-        timestamp: Date.now(),
-        peekStatus,
-        observation: observation || undefined,
-    });
-
-    const handleExitClick = () => {
-        onExit(buildCurrentState());
-    };
-
-    // Auto-save: persist date state so refresh/close doesn't lose progress
-    const stateRef = useRef<() => DateState>(buildCurrentState);
-    stateRef.current = buildCurrentState;
-    const charRef = useRef(char);
-    charRef.current = char;
-
-    useEffect(() => {
-        // Direct DB save — works during beforeunload when React state updates are useless
-        const saveStateToDB = () => {
-            try {
-                const state = stateRef.current();
-                // 外层 try 只能接住同步异常；Promise reject 要单独 .catch 否则是 unhandled rejection
-                DB.saveCharacter({ ...charRef.current, savedDateState: state }).catch(() => { /* best-effort */ });
-            } catch (e) { /* best-effort */ }
-        };
-
-        // beforeunload: catch page refresh / tab close
-        const handleBeforeUnload = () => { saveStateToDB(); };
-        // visibilitychange: catch tab switch / app background (more reliable on mobile)
-        const handleVisibilityChange = () => { if (document.visibilityState === 'hidden') saveStateToDB(); };
-        window.addEventListener('beforeunload', handleBeforeUnload);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        // Periodic auto-save every 30s
-        const interval = setInterval(saveStateToDB, 30000);
-
-        // 见面「继续上次」崩溃自愈：只要会话稳定挂载并渲染了一小段时间没崩，
-        // 就撤销 DateApp 在恢复前武装的哨兵——证明这份快照能安全加载。若 iOS WebKit
-        // 在此之前把内容进程撑崩（进程级崩溃，不会跑下面的卸载 cleanup），哨兵留存，
-        // 下次进见面即被检出并丢弃这份有毒快照。新会话（无 initialState）无哨兵，clear 为空操作。
-        const settleTimer = setTimeout(() => clearDateResumeAttempt(), 2500);
-
-        return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            clearInterval(interval);
-            clearTimeout(settleTimer);
-            // 干净卸载（SPA 内导航离开会话）= 非崩溃，撤销哨兵。
-            clearDateResumeAttempt();
-            // 卸载时只把进度直接落库，绝不调用 onExit。onExit 会执行「用户主动退出」的
-            // 导航（setMode('select') + 弹「进度已保存」），而卸载在很多非用户意图的场景
-            // 都会发生 —— 尤其 React.StrictMode (dev) 的「挂载→卸载→重挂载」探测：
-            // 一进正式见面就被自己的卸载副作用导航回选择页，并弹两次「进度已保存」。
-            // 直接 DB 持久化与其它自动保存路径（beforeunload / visibilitychange / 定时）一致。
-            saveStateToDB();
-        };
-    }, []);
+    // Messages are persisted per turn; leaving ends this encounter. No resume snapshot.
 
     // Message Touch Logic (Robust version for scrollable lists)
     const handleMsgTouchStart = (e: React.TouchEvent | React.MouseEvent, msg: Message) => {
@@ -957,7 +888,7 @@ const DateSession: React.FC<DateSessionProps> = ({
     const canReroll = messages.length > 0 && messages[messages.length - 1].role === 'assistant';
 
     return (
-        <div className="h-full w-full relative bg-black overflow-hidden font-sans select-none" onClick={handleScreenClick}>
+        <div className={`h-full w-full relative bg-black overflow-hidden font-sans select-none ${decoratedReading ? 'meeting-reading' : ''}`} data-reading-preset={readingStyle.id} onClick={handleScreenClick}><style>{MEETING_READING_CSS}</style>
             
             {/* Background Layer */}
             <div 
@@ -1048,7 +979,7 @@ const DateSession: React.FC<DateSessionProps> = ({
                             {isNovelMode ? '立绘模式' : '阅读模式'}
                         </button>
 
-                        {isNovelMode && char.dateLightReading && !isBatchSelectMode && (
+                        {isNovelMode && lightReading && !isBatchSelectMode && (
                             <button onClick={() => { setIsBatchSelectMode(true); setShowMenu(false); setShowVoiceLangPicker(false); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-black/40 backdrop-blur-md border-white/15 text-white hover:bg-white/20">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
                                 多选删除
@@ -1072,7 +1003,7 @@ const DateSession: React.FC<DateSessionProps> = ({
                             布置场景
                         </button>
 
-                        <button onClick={() => { setShowMenu(false); setShowVoiceLangPicker(false); setShowExitModal(true); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-red-500/70 backdrop-blur-md border-white/20 text-white hover:bg-red-600">
+                        <button onClick={() => { setShowMenu(false); setShowVoiceLangPicker(false); onExit(); }} className="h-9 px-3.5 rounded-full flex items-center gap-2 text-xs font-bold border shadow-lg active:scale-95 transition-all bg-red-500/70 backdrop-blur-md border-white/20 text-white hover:bg-red-600">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15M12 9l-3 3m0 0 3 3m-3-3h12.75" /></svg>
                             离开
                         </button>
@@ -1091,7 +1022,7 @@ const DateSession: React.FC<DateSessionProps> = ({
 
             {/* Novel Mode View */}
             {isNovelMode && (
-                <div ref={novelScrollRef} className={`absolute inset-0 z-20 overflow-y-auto no-scrollbar pt-24 pb-32 px-8 mask-image-gradient overscroll-contain ${char.dateLightReading ? 'bg-[#faf8f5]' : 'bg-black/90 backdrop-blur-sm'}`} onClick={(e) => { e.stopPropagation(); if (showMenu) { setShowMenu(false); setShowVoiceLangPicker(false); return; } setShowInputBox(true); }}>
+                <div ref={novelScrollRef} onScroll={onReadingScroll} style={{ overflowAnchor: 'none' }} className={`meeting-reading-page absolute inset-0 z-20 overflow-y-auto no-scrollbar pt-24 pb-32 px-8 mask-image-gradient overscroll-contain ${lightReading ? 'bg-[#faf8f5]' : 'bg-black/90 backdrop-blur-sm'}`} onClick={(e) => { e.stopPropagation(); if (showMenu) { setShowMenu(false); setShowVoiceLangPicker(false); return; } setShowInputBox(true); }}>
                     <div className="min-h-full flex flex-col justify-end">
                         <div className="max-w-2xl mx-auto animate-fade-in space-y-6">
                             {isBatchSelectMode && (
@@ -1110,51 +1041,34 @@ const DateSession: React.FC<DateSessionProps> = ({
                                     </div>
                                 </div>
                             )}
-                            {sessionMessages.length === 0 && peekStatus && (() => {
+                            {visibleSessionMessages.length === 0 && peekStatus && (() => {
                                 const { observation: peekObs, rest: peekBody } = extractObservation(peekStatus, { lenient: observeEnabled, custom: char.dateObserve?.custom });
                                 return (
                                     <>
                                         {observeEnabled && hasObservation(peekObs) && (
-                                            <div className="max-w-md mx-auto mb-6"><ObserveHUD observation={peekObs} variant="card" charName={char.name} config={char.dateObserve} /></div>
+                                            <div className="max-w-md mx-auto mb-6"><ReadingObservation reading={decoratedReading} observation={peekObs} variant="card" charName={char.name} config={char.dateObserve} /></div>
                                         )}
-                                        <div className={`italic text-center text-sm mb-8 px-4 ${char.dateLightReading ? 'text-stone-400' : 'text-slate-200/50'}`}>
+                                        <div className={`meeting-prose italic text-center text-sm mb-8 px-4 ${lightReading ? 'text-stone-400' : 'text-slate-200/50'}`}>
                                             {cleanTextForDisplay(peekBody).split('\n').map((line, idx) => line.trim() && <p key={idx} className="whitespace-pre-wrap leading-relaxed tracking-wide my-2">{line}</p>)}
                                         </div>
                                     </>
                                 );
                             })()}
-                            {(hiddenNovelMessageCount > 0 || !historyReachedEnd) && (
-                                <div className="flex justify-center">
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            // 本地还有没显示的就只开窗；已经铺满则回库里取更早的一批，
-                                            // 否则初始窗口以外的见面记录在阅读模式里永远够不着。
-                                            const plan = planNovelLoadMore({
-                                                loadedCount: sessionMessages.length,
-                                                visibleCount: novelVisibleCount,
-                                                windowStep: NOVEL_MESSAGE_LOAD_STEP,
-                                                loadLimit: historyLoadLimit,
-                                                loadStep: NOVEL_HISTORY_FETCH_STEP,
-                                                reachedDbEnd: historyReachedEnd,
-                                            });
-                                            setNovelVisibleCount(plan.nextVisibleCount);
-                                            if (plan.nextLoadLimit !== null) void onLoadMoreHistory?.(plan.nextLoadLimit);
-                                        }}
-                                        className={`px-4 py-2 rounded-full text-xs font-bold border active:scale-95 transition-transform ${
-                                            char.dateLightReading
-                                                ? 'bg-stone-100 text-stone-500 border-stone-200'
-                                                : 'bg-white/10 text-white/60 border-white/10'
-                                        }`}
-                                    >
-                                        加载更早见面记录{hiddenNovelMessageCount > 0 ? ` (${hiddenNovelMessageCount})` : ''}
+                            {(!historyReachedEnd || historyError) && (
+                                <div className="flex flex-col items-center gap-2">
+                                    {historyError && <p role="alert" className="text-xs text-rose-400">{historyError}</p>}
+                                    <button disabled={historyLoading} onClick={e => { e.stopPropagation(); void onLoadMoreHistory?.(); }}
+                                        className={`px-4 py-2 rounded-full text-xs font-bold border disabled:opacity-50 ${lightReading ? 'bg-stone-100 text-stone-500 border-stone-200' : 'bg-white/10 text-white/60 border-white/10'}`}>
+                                        {historyLoading ? '正在读取…' : historyError ? '重试读取记录' : '加载更早见面记录'}
                                     </button>
                                 </div>
                             )}
                             {visibleSessionMessages.map((msg) => (
                                 <div
                                     key={msg.id}
-                                    className={`group relative rounded-xl transition-colors -mx-4 px-4 py-2 ${isBatchSelectMode ? 'pl-10' : ''} ${char.dateLightReading ? 'active:bg-stone-100' : 'active:bg-white/5'}`}
+                                    data-date-message-id={msg.id}
+                                    style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 240px' }}
+                                    className={`group relative rounded-xl transition-colors -mx-4 px-4 py-2 ${isBatchSelectMode ? 'pl-10' : ''} ${lightReading ? 'active:bg-stone-100' : 'active:bg-white/5'}`}
                                     onClick={(e) => {
                                         if (!isBatchSelectMode) return;
                                         e.stopPropagation();
@@ -1181,13 +1095,13 @@ const DateSession: React.FC<DateSessionProps> = ({
                                         return (
                                         <div className="flex min-w-0 items-start justify-end gap-3">
                                             <p
-                                                className={`min-w-0 flex-1 whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${char.dateLightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}
-                                            >{cleanTextForDisplay(shown)} <span className="text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
-                                            {char.dateReadingShowAvatars && (
+                                                className={`meeting-prose min-w-0 flex-1 whitespace-pre-wrap font-serif text-[16px] text-right leading-loose tracking-wide italic pr-4 ${lightReading ? 'text-stone-400 border-r-2 border-stone-300/50' : 'text-slate-400 border-r-2 border-slate-600/50'}`}
+                                            >{cleanTextForDisplay(shown)} <span className="meeting-user-label text-[10px] uppercase font-sans not-italic ml-2 opacity-50">{userProfile.name}</span></p>
+                                            {!decoratedReading && char.dateReadingShowAvatars && (
                                                 <ReadingAvatar
                                                     src={userProfile.perCharAvatars?.[char.id] || userProfile.avatar}
                                                     name={userProfile.name}
-                                                    light={!!char.dateLightReading}
+                                                    light={!!lightReading}
                                                 />
                                             )}
                                         </div>
@@ -1199,12 +1113,12 @@ const DateSession: React.FC<DateSessionProps> = ({
                                         const { observation: msgObs, rest: msgBody } = extractObservation(shown || '', { lenient: observeEnabled, custom: char.dateObserve?.custom });
                                         return (
                                         <div className="flex min-w-0 items-start gap-3">
-                                            {char.dateReadingShowAvatars && (
-                                                <ReadingAvatar src={char.avatar} name={char.name} light={!!char.dateLightReading} />
+                                            {!decoratedReading && char.dateReadingShowAvatars && (
+                                                <ReadingAvatar src={char.avatar} name={char.name} light={!!lightReading} />
                                             )}
                                             <div className="min-w-0 flex-1">
                                                 {observeEnabled && hasObservation(msgObs) && (
-                                                    <ObserveHUD observation={msgObs} variant="card" charName={char.name} config={char.dateObserve} />
+                                                    <ReadingObservation reading={decoratedReading} observation={msgObs} variant="card" charName={char.name} config={char.dateObserve} />
                                                 )}
                                                 {(msgBody || '').split('\n').map((line, idx) => {
                                                 const cleanLine = cleanTextForDisplay(line);
@@ -1236,7 +1150,7 @@ const DateSession: React.FC<DateSessionProps> = ({
                                                         onContextMenu={voiceEnabled && lineIsDialogue && !isOpeningMsg ? (e) => { e.preventDefault(); e.stopPropagation(); void openDateVoiceFavorite(voiceTarget); } : undefined}
                                                     >
                                                         <p
-                                                            className={`flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${char.dateLightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}
+                                                            className={`meeting-prose flex-1 whitespace-pre-wrap font-serif text-[18px] text-justify leading-loose tracking-wide pl-4 ${lightReading ? 'text-stone-700 border-l-2 border-stone-200' : 'text-slate-200 drop-shadow-md border-l-2 border-white/10'}`}
                                                         >{cleanLine}</p>
                                                         {/* Voice button: only for dialogue lines, not opening */}
                                                         {voiceEnabled && lineIsDialogue && !isOpeningMsg && (
@@ -1253,8 +1167,8 @@ const DateSession: React.FC<DateSessionProps> = ({
                                                                 title="播放；长按可收藏"
                                                                 className={`shrink-0 mt-2 w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90 select-none ${
                                                                     novelPlayingId === lineKey
-                                                                        ? (char.dateLightReading ? 'bg-emerald-100 text-emerald-600' : 'bg-emerald-500/20 text-emerald-300')
-                                                                        : (char.dateLightReading ? 'bg-stone-100 text-stone-400 hover:bg-stone-200' : 'bg-white/5 text-white/40 hover:bg-white/10')
+                                                                        ? (lightReading ? 'bg-emerald-100 text-emerald-600' : 'bg-emerald-500/20 text-emerald-300')
+                                                                        : (lightReading ? 'bg-stone-100 text-stone-400 hover:bg-stone-200' : 'bg-white/5 text-white/40 hover:bg-white/10')
                                                                 }`}
                                                             >
                                                                 {novelVoiceLoading.has(lineKey) ? (
@@ -1273,7 +1187,7 @@ const DateSession: React.FC<DateSessionProps> = ({
                                         </div>
                                         ); })()}
                                     {getSARSurface(msg) && (
-                                        <div className="sar-date-speech-control" style={{ color: char.dateLightReading ? '#57534e' : '#cbd5e1' }}>
+                                        <div className="sar-date-speech-control" style={{ color: lightReading ? '#57534e' : '#cbd5e1' }}>
                                             <SARSpeechSwitch truth={sarTruthMessageIds.has(msg.id)} moduleTitle={msg.metadata?.sarModuleSurface?.moduleTitle}
                                                 onToggle={() => setSarTruthMessageIds(previous => {
                                                     const next = new Set(previous);
@@ -1360,8 +1274,8 @@ const DateSession: React.FC<DateSessionProps> = ({
                     </div>
                 )}
                 {showInputBox && (
-                    <div className={`w-[90%] min-w-0 max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto ${char.dateLightReading ? 'bg-stone-100 border border-stone-300' : 'bg-white/10 border border-white/20'}`} onClick={(e) => e.stopPropagation()}>
-                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`min-w-0 flex-1 bg-transparent px-3 sm:px-4 py-3 outline-none font-light resize-none h-14 overflow-y-auto overscroll-contain touch-pan-y no-scrollbar leading-tight ${char.dateLightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
+                    <div className={`w-[90%] min-w-0 max-w-lg backdrop-blur-xl rounded-2xl p-2 flex gap-2 shadow-2xl animate-fade-in mb-8 pointer-events-auto ${lightReading ? 'bg-stone-100 border border-stone-300' : 'bg-white/10 border border-white/20'}`} onClick={(e) => e.stopPropagation()}>
+                        <textarea value={input} onChange={(e) => setInput(e.target.value)} placeholder={isTyping ? "等待回应..." : "输入对话..."} disabled={isTyping} className={`min-w-0 flex-1 bg-transparent px-3 sm:px-4 py-3 outline-none font-light resize-none h-14 overflow-y-auto overscroll-contain touch-pan-y no-scrollbar leading-tight ${lightReading ? 'text-stone-800 placeholder:text-stone-400' : 'text-white placeholder:text-white/30'}`} autoFocus />
                         {(() => {
                             const retryText = pendingRetryText || getPendingReplyText(messages);
                             const canRetry = !input.trim() && !isTyping && !!retryText;
@@ -1397,9 +1311,6 @@ const DateSession: React.FC<DateSessionProps> = ({
             />
 
             {/* Exit Modal */}
-            <Modal isOpen={showExitModal} title="暂时离开?" onClose={() => setShowExitModal(false)} footer={<div className="flex gap-3 w-full"><button onClick={() => setShowExitModal(false)} className="flex-1 py-3 bg-slate-100 rounded-2xl text-slate-600 font-bold">留在这里</button><button onClick={handleExitClick} className="flex-1 py-3 bg-slate-800 text-white rounded-2xl font-bold">保存并退出</button></div>}>
-                <div className="text-center text-slate-500 text-sm py-2 leading-relaxed">选择“保存并退出”将保留当前对话进度。<br/>下次见面时，你可以选择继续话题。</div>
-            </Modal>
 
             {/* Message Options Modal */}
             <Modal isOpen={modalType === 'options'} title="操作" onClose={() => setModalType('none')}>
@@ -1427,3 +1338,7 @@ const DateSession: React.FC<DateSessionProps> = ({
 };
 
 export default DateSession;
+
+function ReadingObservation({reading,...props}: React.ComponentProps<typeof ObserveHUD> & {reading:boolean}) {
+    return reading ? <details className="mb-4 text-xs text-slate-500"><summary className="cursor-pointer py-2">场景信息</summary><ObserveHUD {...props}/></details> : <ObserveHUD {...props}/>;
+}

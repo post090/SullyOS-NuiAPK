@@ -26,6 +26,7 @@
 // | emojis 表 | url（表情库；http 外链不是令牌，一并逐字吐过去也无妨） | 分页逐行 |
 // | cc_custom_parts 表 | src / shadowSrc | 分页逐行 |
 // | songs 表 | coverImage | 分页逐行 |
+// | daily_schedule 表 | coverImage（日程头图） | 分页逐行 |
 // | gallery 表 | url | 分页逐行 |
 // | assets 表 | wallpaper / lock_wallpaper / wallpaper_user_backup / icon_* /
 // |           | appearance_preset_*（JSON）/ room_custom_assets_list（JSON）/
@@ -66,6 +67,7 @@ import { tryAcquireMaintenanceLock, releaseMaintenanceLock, currentMaintenanceHo
 // 导出仅供测试核对拼写：名字写错时 getStoreRowsPage 的 contains 兜底会静默返回空页，
 // 等于那个面没扫、无任何报错——blobGc.test.ts 有一条守卫断言每个名字真实存在。
 export const REF_SOURCE_STORES = [
+    'daily_schedule',
     'characters',
     'messages',
     'cc_custom_parts',

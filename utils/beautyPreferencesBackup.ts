@@ -1,7 +1,7 @@
 import {validateBeautyMetadata,type BeautyShare} from './beautyShareContract';
 // Personal backup only. Deliberately exclude sessions, passwords and device identifiers.
 const USAGE='sully-beauty-usage-v1',REPO='sully-beauty-repo-status-v1',DEFAULTS='sully-beauty-author-defaults-v1';
-const FLAGS=['sullyos_chat_wardrobe_update_v2_seen','sullyos_chat_wardrobe_guide_v2_done'];
+const FLAGS=['sullyos_chat_wardrobe_update_v2_seen','sullyos_chat_wardrobe_guide_v2_done','sully-beauty-catalog-notice-v1','sully-beauty-author-notice-v1'];
 export interface BeautyPreferencesBackup {version:1;values:Record<string,unknown>}
 const record=(value:any):value is Record<string,any>=>!!value&&typeof value==='object'&&!Array.isArray(value);
 const code=(value:unknown):value is string=>typeof value==='string'&&/^S-[A-F0-9]{12}$/.test(value);

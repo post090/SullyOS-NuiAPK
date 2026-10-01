@@ -144,3 +144,9 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 
 回归守卫：`scripts/amsg2-e2e-harness.mjs` S8/S8b（mock MCP 服务器端到端）+
 `worker/amsg/src/agentic.test.ts`、`index.test.ts`、`utils/mcpFireCore.test.ts`。
+
+### 聊天中停止工具调用
+
+聊天生成入口在执行工具时也可以停止。前台和主动消息 2.0 的 instant 路径都把本轮 `AbortSignal` 传入 MCP 的握手与 `tools/call` 请求；停止后取消网络等待，不再把取消当作工具失败送回模型继续生成。后台执行链通过任务租约心跳收到取消，本应用的检测间隔为 1 秒。
+
+停止不能撤回工具服务端已经完成的操作；远端服务是否能停止自身执行取决于其实现。本应用会中断连接并阻止这一轮的后续调用。已经显示的聊天内容保留，尚未显示的结果不再写入聊天。

@@ -154,4 +154,19 @@ describe('iOS 全屏 PWA 键盘态', () => {
         expect(inKeyboardMode()).toBe(false);
         expect(appHeight()).toBe(`${SCREEN_H + SAFE_BOTTOM}px`);
     });
+
+    it.each(['Android Chrome', 'iPhone Safari'])('浏览器平移不抵消键盘高度：%s', async userAgent => {
+        Object.defineProperty(navigator, 'userAgent', { value: userAgent, configurable: true });
+        const originalMatchMedia = window.matchMedia;
+        window.matchMedia = query => ({ ...originalMatchMedia(query), matches: false });
+        await install();
+        visualViewport.offsetTop = KEYBOARD_H;
+        emitViewportResize(SCREEN_H - KEYBOARD_H);
+        expect(inKeyboardMode()).toBe(true);
+        expect(appHeight()).toBe(`${SCREEN_H - KEYBOARD_H}px`);
+        visualViewport.offsetTop = 0;
+        emitViewportResize(SCREEN_H);
+        expect(inKeyboardMode()).toBe(false);
+        expect(appHeight()).toBe(`${SCREEN_H}px`);
+    });
 });

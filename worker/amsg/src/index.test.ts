@@ -186,6 +186,18 @@ const makeCtx = (opts: {
   };
 };
 
+describe('取消中的 instant hook', () => {
+  it('已取消的请求不读上下文、不继续处理模型输出', async () => {
+    const { ctx, readState, writeState } = makeCtx({ metadata: { amsgInstantChat: true } });
+    const cancelled = new DOMException('Stopped', 'AbortError');
+    ctx.throwIfCancelled = () => { throw cancelled; };
+    await expect(amsgHooks.onBeforeFire(ctx)).rejects.toBe(cancelled);
+    await expect(amsgHooks.onLLMOutput(ctx)).rejects.toBe(cancelled);
+    expect(readState).not.toHaveBeenCalled();
+    expect(writeState).not.toHaveBeenCalled();
+  });
+});
+
 /** onBeforeFire 生成路径的返回值：{ messages, tools? }（skip 那一支各测各的）。 */
 interface FiredResult {
   messages: Array<{ role: string; content: string }>;
@@ -2307,7 +2319,7 @@ describe('self_log — 角色自述回写', () => {
       sendAt: '2026-07-25T12:00:00.000Z', llmOutput: '说到一半', skipAfterSend: true,
     });
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, llmCalls: 1, error: new Error('push 5xx'), scratch, writeState: store.writeState,
+      status: 'failed', willRetry: false, sentCount: 0, llmCalls: 1, error: new Error('push 5xx'), scratch, writeState: store.writeState,
     });
     expect(JSON.parse(store.rows.get(AMSG_DAILY_SENDS_KEY) ?? '{}')).toMatchObject({ sends: 0, llmCalls: 1 });
   });
@@ -2334,7 +2346,7 @@ describe('self_log — 角色自述回写', () => {
       sendAt: '2026-07-25T12:00:00.000Z', llmOutput: '第一段\n\n第二段', skipAfterSend: true,
     });
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, outboxed: true, llmCalls: 1,
+      status: 'failed', willRetry: false, sentCount: 0, outboxed: true, llmCalls: 1,
       error: new Error('push 503'), scratch, writeState: store.writeState,
     } as any);
     expect(store.selfLog()?.entries.map((e) => e.text)).toEqual(['第一段\n第二段']);
@@ -2753,7 +2765,7 @@ describe('自排后续任务', () => {
       _entries: Array<{ key: string; value: string | null }>,
     ) => ({ upserted: 1, skipped: 0, deleted: 0 }));
     await amsgFireSettled({
-      status: 'failed', sentCount: 0,
+      status: 'failed', willRetry: false, sentCount: 0,
       task: { retry_count: 3 },
       error: new Error('LLM HTTP 502'),
       scratch: { fire: makeStash({ instant: true }) }, writeState,
@@ -2772,7 +2784,7 @@ describe('自排后续任务', () => {
     const writeState = vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 }));
     const error = Object.assign(new Error('AI API error: 401 …'), { code: 'LLM_CALL_FAILED' });
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, task: { retry_count: 3 }, error,
+      status: 'failed', willRetry: false, sentCount: 0, task: { retry_count: 3 }, error,
       scratch: { fire: makeStash({ instant: true }) }, writeState,
     } as any);
 
@@ -2788,7 +2800,7 @@ describe('自排后续任务', () => {
     const writeState = vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 }));
     const error = Object.assign(new Error('hook 里转手抛的 404'), { statusCode: 404 });
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, task: { retry_count: 3 }, error,
+      status: 'failed', willRetry: false, sentCount: 0, task: { retry_count: 3 }, error,
       scratch: { fire: makeStash({ instant: true }) }, writeState,
     } as any);
 
@@ -2804,7 +2816,7 @@ describe('自排后续任务', () => {
       _entries: Array<{ key: string; value: string | null }>,
     ) => ({ upserted: 1, skipped: 0, deleted: 0 }));
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, error: new Error('x'),
+      status: 'failed', willRetry: false, sentCount: 0, error: new Error('x'),
       scratch: { fire: makeStash() }, writeState,
     } as any);
     expect(writeState).not.toHaveBeenCalled();
@@ -4482,9 +4494,7 @@ describe('即时对话的云端情绪评估', () => {
     }
   });
 
-  // 一段都没送出去（推送全灭 → 任务整轮重跑）时不写晚投：客户端没收到 pending 标记，
-  // 没人会来取这一份，重跑的那轮会带着自己的评估重新走完整流程。评估一直没跑出来时，
-  // 失败收尾那段「留给下一跳」的等待也是有界的（搭车窗口那么久），等不到就空手收尾。
+  // 未落进收件箱也没送出去时，本轮终止，客户端没有晚投评估可接收。
   it('推送没送出去时收尾不写晚投评估', async () => {
     vi.useFakeTimers();
     try {
@@ -4497,13 +4507,11 @@ describe('即时对话的云端情绪评估', () => {
       const { scratch } = await pending;
 
       const settling = amsgFireSettled({
-        status: 'failed', sentCount: 0, task: { retry_count: 0 },
+        status: 'failed', willRetry: false, sentCount: 0, task: { retry_count: 0 },
         error: new Error('push send failed'),
         scratch, writeState: store.writeState,
       } as any);
       for (let i = 0; i < 8; i += 1) await vi.advanceTimersByTimeAsync(0);
-      // 失败收尾那段有界等待（评估结果留给下一跳复用）也要拨过去
-      await vi.advanceTimersByTimeAsync(EMOTION_EVAL_RIDE_ALONG_MS);
       await settling;
 
       expect(store.rows.has(`emotion_update:${CLIENT_TASK_ID}`)).toBe(false);
@@ -4512,33 +4520,20 @@ describe('即时对话的云端情绪评估', () => {
     }
   });
 
-  // fire 重试白烧评估费的回归守卫：失败那跳的收尾把已出的评估结果写进旁路键
-  // （amsgEmotionUpdateKey，重试跨 tick 唯一能带过来的位置），下一跳 onBeforeFire
-  // 读到就直接复用——2/4/6 分钟梯子打满也只烧一次副 API。
-  it('fire 失败重试：第二跳复用上一跳的评估结果，副 API 只调 1 次', async () => {
-    const fetchSpy = vi.fn(async () => new Response(JSON.stringify({
-      choices: [{ message: { content: '{"changed":true,"buffs":[]} RETRY-EVAL-MARKER' } }],
-    }), { status: 200, headers: { 'content-type': 'application/json' } }));
-    vi.stubGlobal('fetch', fetchSpy);
+  it('即时对话失败后不再为重试缓存情绪评估结果', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: '{"changed":true,"buffs":[]} FAILED-EVAL-MARKER' } }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
 
     const store = makeStore();
-    // 第一跳：生成完但这跳失败（比如推送没发出去），任务还会重试
-    const first = await evalFire(store, { amsgEmotionEval: EVAL_SPEC });
+    const { scratch } = await evalFire(store, { amsgEmotionEval: EVAL_SPEC });
+    const error = new Error('生成失败');
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, task: { retry_count: 0 },
-      error: new Error('push send failed'),
-      scratch: first.scratch, writeState: store.writeState,
+      status: 'failed', willRetry: false, sentCount: 0, task: { retry_count: 0 }, error,
+      scratch, writeState: store.writeState,
     } as any);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    expect(store.rows.get(`emotion_update:${CLIENT_TASK_ID}`), '失败收尾该把结果留给下一跳')
-      .toContain('RETRY-EVAL-MARKER');
-
-    // 第二跳（重试）：评估一个请求都不再发，结果照常随末条 push 回客户端
-    const second = await evalFire(store, { amsgEmotionEval: EVAL_SPEC });
-    expect(fetchSpy, '第二跳不许再烧一次副 API').toHaveBeenCalledTimes(1);
-    const lastMeta = (second.decision.pushPayloads as Array<Record<string, any>>).slice(-1)[0].metadata;
-    expect(lastMeta.amsgEmotionUpdate).toContain('RETRY-EVAL-MARKER');
-    expect(lastMeta.amsgEmotionDone).toBe(true);
+    expect((error as Error & { permanent?: boolean }).permanent).toBeUndefined();
+    expect(store.rows.has(`emotion_update:${CLIENT_TASK_ID}`)).toBe(false);
   });
 
   // 正常情况下评估早就跑完了，搭车窗口一秒都用不上——不能因为加了窗口就变成「每轮都等」。
@@ -4792,14 +4787,14 @@ describe('即时对话终态失败的直发 error push', () => {
 
   afterEach(() => configureInstantErrorPush(null));
 
-  it('重试打光（retry_count >= 3）的失败 → 直发 error push（always + 折叠 + 静音）', async () => {
+  it('上游确认不再重试的失败 → 直发 error push（always + 折叠 + 静音）', async () => {
     const { deps, sent } = makeErrorPushDeps();
     configureInstantErrorPush(deps as any);
 
     const store = makeFireStore(CHAT_MESSAGES);
     const { scratch } = await runFire(store, { metadata: INSTANT_META, llmOutput: '在的。' });
     await amsgFireSettled({
-      status: 'failed', sentCount: 0,
+      status: 'failed', willRetry: false, sentCount: 0,
       task: { retry_count: 3, user_id: 'u1' },
       error: new Error('LLM 上游 502'),
       scratch, writeState: store.writeState,
@@ -4832,7 +4827,7 @@ describe('即时对话终态失败的直发 error push', () => {
     const { scratch } = await runFire(store, { metadata: INSTANT_META, llmOutput: '在的。' });
     const writesBefore = store.writeState.mock.calls.length;
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, outboxed: true,
+      status: 'failed', willRetry: false, sentCount: 0, outboxed: true,
       task: { retry_count: 3, user_id: 'u1' },
       error: new Error('push 503'),
       scratch, writeState: store.writeState,
@@ -4868,7 +4863,7 @@ describe('即时对话终态失败的直发 error push', () => {
 
     // 上游随后照常调收尾（status failed、scratch 上没有 stash）→ 不双发
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, task: { retry_count: 0 }, error,
+      status: 'failed', willRetry: false, sentCount: 0, task: { retry_count: 0 }, error,
       scratch, writeState: vi.fn(async () => ({ upserted: 0, skipped: 0, deleted: 0 })),
     } as any);
     expect(sent).toHaveLength(1);
@@ -4884,7 +4879,7 @@ describe('即时对话终态失败的直发 error push', () => {
     const { scratch } = await runFire(store, { metadata: INSTANT_META, llmOutput: '在的。' });
     const error = Object.assign(new Error('状态坏了，重试也没用'), { permanent: true });
     await amsgFireSettled({
-      status: 'failed', sentCount: 0, task: { retry_count: 0, user_id: 'u1' }, error,
+      status: 'failed', willRetry: false, sentCount: 0, task: { retry_count: 0, user_id: 'u1' }, error,
       scratch, writeState: store.writeState,
     } as any);
 
@@ -4893,20 +4888,41 @@ describe('即时对话终态失败的直发 error push', () => {
     expect(sent[0].body.metadata.reason).toContain('状态坏了');
   });
 
-  it('还会重试的失败（retry_count < 3）绝不发——报错完回复又到是最伤的误报', async () => {
+  it('即时对话首次生成失败通知用户，不修改上游错误对象', async () => {
     const { deps, sent } = makeErrorPushDeps();
     configureInstantErrorPush(deps as any);
 
     const store = makeFireStore(CHAT_MESSAGES);
     const { scratch } = await runFire(store, { metadata: INSTANT_META, llmOutput: '在的。' });
+    const error = new Error('中转返回了没有统一错误码的失败');
     await amsgFireSettled({
-      status: 'failed', sentCount: 0,
-      task: { retry_count: 1, user_id: 'u1' },
-      error: new Error('临时抖动'),
+      status: 'failed', willRetry: false, sentCount: 0,
+      task: { retry_count: 0, user_id: 'u1' },
+      error,
       scratch, writeState: store.writeState,
     } as any);
 
+    expect((error as Error & { permanent?: boolean }).permanent).toBeUndefined();
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body.metadata.reason).toBe(error.message);
+  });
+
+  it.each([true, null, undefined])('上游未确认终态（willRetry=%s）时不提前报错', async (willRetry) => {
+    const { deps, sent } = makeErrorPushDeps();
+    configureInstantErrorPush(deps as any);
+    const store = makeFireStore(CHAT_MESSAGES);
+    const { scratch } = await runFire(store, { metadata: INSTANT_META, llmOutput: '在的。' });
+    const writesBefore = store.writeState.mock.calls.length;
+    await amsgFireSettled({
+      status: 'failed', willRetry, sentCount: 0,
+      task: { retry_count: 99, user_id: 'u1' },
+      error: new Error('仍由上游决定是否重试'),
+      scratch, writeState: store.writeState,
+    } as any);
     expect(sent).toHaveLength(0);
+    const newKeys = store.writeState.mock.calls.slice(writesBefore)
+      .flatMap(([, entries]: any) => entries.map((entry: { key: string }) => entry.key));
+    expect(newKeys).not.toContain(AMSG_CHAT_FAIL_KEY);
   });
 
   it('skip-push（空输出，一锤定音）→ 直发，横幅文案是人话', async () => {
@@ -4945,7 +4961,7 @@ describe('即时对话终态失败的直发 error push', () => {
     const store = makeFireStore(CHAT_MESSAGES);
     const { scratch } = await runFire(store, { metadata: INSTANT_META, llmOutput: '在的。' });
     await expect(amsgFireSettled({
-      status: 'failed', sentCount: 0,
+      status: 'failed', willRetry: false, sentCount: 0,
       task: { retry_count: 3, user_id: 'u1' },
       error: new Error('LLM 上游 502'),
       scratch, writeState: store.writeState,

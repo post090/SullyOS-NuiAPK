@@ -5,7 +5,7 @@ import {PRESET_THEMES} from '../components/chat/ChatConstants';
 import {validateScopedCss} from './scopedCss';
 import {WHITEBOX_AI_PROMPT,WHITEBOX_SCOPE_REGEX,WHITEBOX_SCOPE_HINT} from './chatWhitebox';
 
-export const DECORATION_WORKSHOPS=[['whitebox','白框'],['bubbles','气泡'],['avatar','头像框'],['background','聊天背景'],['psyche','心象'],['sound','提示音'],['schedule','日程表'],['journal','交换日记']] as const;
+export const DECORATION_WORKSHOPS=[['whitebox','白框'],['bubbles','气泡'],['avatar','头像框'],['background','聊天背景'],['psyche','心象'],['sound','提示音'],['date','见面界面'],['story','剧情界面'],['schedule','日程表'],['journal','交换日记']] as const;
 export type DecorationWorkshop=typeof DECORATION_WORKSHOPS[number][0];
 export const workshopBlock=(category:'avatar'|'background')=>new RegExp(`/\\* sully-composer:${category} \\*/\\n?([\\s\\S]*?)/\\* end-sully-composer:${category} \\*/`,'g');
 export function workshopCss(preset:DecorationPreset,category:DecorationWorkshop){
@@ -18,7 +18,7 @@ export function workshopCss(preset:DecorationPreset,category:DecorationWorkshop)
 }
 export function replaceWorkshopCss(base:string,category:'avatar'|'background',css:string){return [base.replace(workshopBlock(category),'').trim(),css.trim()?`/* sully-composer:${category} */\n${css}\n/* end-sully-composer:${category} */`:''].filter(Boolean).join('\n');}
 export function makeWorkshopPreset(category:DecorationWorkshop):DecorationPreset{
- const parts:DecorationPreset['parts']=category==='journal'?{journal:{preset:'original',customCss:''}}:category==='schedule'?{schedule:{preset:'original',customCss:''}}:category==='bubbles'?{bubbles:{...structuredClone(PRESET_THEMES.default),type:'custom'}}:category==='psyche'?{psyche:{styleId:'echo',customCss:''}}:category==='background'?{background:{image:null,style:'plain'}}:category==='sound'?{sound:null}:{css:''};
+ const parts:DecorationPreset['parts']=category==='date'?{date:{preset:'novel'}}:category==='story'?{story:{preset:'novel'}}:category==='journal'?{journal:{preset:'original',customCss:''}}:category==='schedule'?{schedule:{preset:'original',customCss:''}}:category==='bubbles'?{bubbles:{...structuredClone(PRESET_THEMES.default),type:'custom'}}:category==='psyche'?{psyche:{styleId:'echo',customCss:''}}:category==='background'?{background:{image:null,style:'plain'}}:category==='sound'?{sound:null}:{css:''};
  return {format:'sullyos-chat-decoration',version:1,name:`我的${DECORATION_WORKSHOPS.find(([id])=>id===category)![1]}`,parts};
 }
 export function projectWorkshopPreset(preset:DecorationPreset,category:DecorationWorkshop):DecorationPreset{
@@ -41,7 +41,7 @@ const scopes={
  psyche:[/^\.sully-psyche[\w-]*\b/,'.sully-psyche*'],
 } as const;
 export function checkWorkshopCss(category:DecorationWorkshop,css:string){
- if(category==='sound')return;
+ if(category==='sound'||category==='date'||category==='story')return;
  // The old whitebox editor accepts arbitrary CSS. Stable hooks are authoring
  // guidance, not a new hard restriction on existing work. Other makers stay scoped.
  const [scope,hint]=scopes[category];const check=validateScopedCss(css,category==='whitebox'?/^[\s\S]*$/:scope,hint);
@@ -55,6 +55,6 @@ export function workshopPrompt(category:DecorationWorkshop){
  if(category==='journal')return JOURNAL_AI_CSS_PROMPT;
  if(category==='schedule')return SCHEDULE_BEAUTY_PROMPT;
  if(category==='whitebox')return WHITEBOX_AI_PROMPT;
- if(category==='sound')return '';
+ if(category==='sound'||category==='date'||category==='story')return '';
  return `为 SullyOS 制作${DECORATION_WORKSHOPS.find(([id])=>id===category)![1]} CSS。仅修改当前类别，保留其他聊天内容的默认样式。可用选择器：${scopes[category][1]}。返回纯 CSS，不要 HTML、脚本或整套页面。不要隐藏正文、操作按钮或破坏滚动。`;
 }

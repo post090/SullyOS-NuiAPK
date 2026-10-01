@@ -149,8 +149,10 @@ const parseResp = (text: string, contentType: string): McpJsonRpcResponse => {
 
 const post = async (
     body: McpJsonRpcRequest,
-    expectResponse = true
+    expectResponse = true,
+    signal?: AbortSignal
 ): Promise<{ response: McpJsonRpcResponse | null }> => {
+    signal?.throwIfAborted();
     const token = getLuckinToken();
     if (!token) throw new Error('未配置瑞幸 MCP Token，请到设置 → 瑞幸填入');
 
@@ -162,6 +164,7 @@ const post = async (
     if (sessionId) headers['Mcp-Session-Id'] = sessionId;
 
     const resp = await fetch(mcpProxyUrl(), {
+        signal,
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -185,22 +188,23 @@ const post = async (
     return { response: parseResp(text, ct) };
 };
 
-const doInitialize = async (): Promise<void> => {
+const doInitialize = async (signal?: AbortSignal): Promise<void> => {
+    signal?.throwIfAborted();
     const initReq = buildRequest('initialize', {
         protocolVersion: '2024-11-05',
         capabilities: {},
         clientInfo: { name: 'AetherOS-Aetheros', version: '1.0.0' },
     });
-    const { response } = await post(initReq);
+    const { response } = await post(initReq, undefined, signal);
     if (response?.error) throw new Error(`Initialize 失败: ${response.error.message}`);
 
     // 通知 server 初始化完成 (协议要求)
     const notif = buildRequest('notifications/initialized', {}, true);
-    await post(notif, false).catch(() => { /* notification 失败不阻塞 */ });
+    await post(notif, false, signal).catch(() => { /* notification 失败不阻塞 */ });
 
     // 拉取工具清单
     try {
-        const { response: toolsResp } = await post(buildRequest('tools/list'));
+        const { response: toolsResp } = await post(buildRequest('tools/list'), undefined, signal);
         if (toolsResp?.result?.tools && Array.isArray(toolsResp.result.tools)) {
             cachedTools = toolsResp.result.tools.map((t: any) => ({
                 name: t.name,
@@ -210,16 +214,18 @@ const doInitialize = async (): Promise<void> => {
             console.log('[Luckin-MCP] 工具清单:', cachedTools.map(t => t.name).join(', '));
         }
     } catch (e) {
+        signal?.throwIfAborted();
         console.warn('[Luckin-MCP] tools/list 失败:', e);
     }
 
     initialized = true;
 };
 
-const ensureInitialized = async (): Promise<void> => {
+const ensureInitialized = async (signal?: AbortSignal): Promise<void> => {
+    signal?.throwIfAborted();
     if (initialized) return;
     if (!initPromise) {
-        initPromise = doInitialize().catch((e) => {
+        initPromise = doInitialize(signal).catch((e) => {
             initPromise = null;
             throw e;
         });
@@ -230,14 +236,15 @@ const ensureInitialized = async (): Promise<void> => {
 // ========== 公开 API ==========
 
 /** 拉取工具清单 (会触发首次 initialize, 之后内存缓存) */
-export const listLuckinTools = async (forceRefresh = false): Promise<LuckinToolDef[]> => {
+export const listLuckinTools = async (forceRefresh = false, signal?: AbortSignal): Promise<LuckinToolDef[]> => {
+    signal?.throwIfAborted();
     if (forceRefresh) {
         initialized = false;
         sessionId = null;
         cachedTools = [];
         initPromise = null;
     }
-    await ensureInitialized();
+    await ensureInitialized(signal);
     return cachedTools;
 };
 
@@ -283,14 +290,15 @@ const normalizeLuckinArgs = (args: Record<string, any>): Record<string, any> => 
 };
 
 /** 调用一个工具 */
-export const callLuckinTool = async (toolName: string, args: Record<string, any> = {}): Promise<LuckinToolResult> => {
+export const callLuckinTool = async (toolName: string, args: Record<string, any> = {}, signal?: AbortSignal): Promise<LuckinToolResult> => {
+    signal?.throwIfAborted();
     try {
         const normalizedToolName = normalizeLuckinToolName(toolName);
         args = normalizeLuckinArgs(args);
 
-        await ensureInitialized();
+        await ensureInitialized(signal);
         const body = buildRequest('tools/call', { name: normalizedToolName, arguments: args });
-        const { response } = await post(body);
+        const { response } = await post(body, undefined, signal);
         if (!response) return { success: false, error: '空响应' };
         if (response.error) return { success: false, error: `MCP 错误 [${response.error.code}]: ${response.error.message}` };
 
@@ -318,8 +326,10 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
                 return out;
             };
             const safeParse = (s: string): any => {
-                try { return JSON.parse(s); } catch { /* try repair */ }
-                try { return JSON.parse(repairJson(s)); } catch { return undefined; }
+                try { return JSON.parse(s); } catch {
+        signal?.throwIfAborted(); /* try repair */ }
+                try { return JSON.parse(repairJson(s)); } catch {
+        signal?.throwIfAborted(); return undefined; }
             };
             const tryExtractJsonFromMixed = (text: string): any => {
                 if (!text) return undefined;
@@ -390,7 +400,8 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
                 if (typeof v === 'string') {
                     const s = v.trim();
                     if (s.startsWith('{') || s.startsWith('[')) {
-                        try { return tryDeepParse(JSON.parse(s)); } catch { return v; }
+                        try { return tryDeepParse(JSON.parse(s)); } catch {
+        signal?.throwIfAborted(); return v; }
                     }
                     return v;
                 }
@@ -403,7 +414,8 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
                         if (typeof inner === 'string') {
                             const s = inner.trim();
                             if (s.startsWith('{') || s.startsWith('[')) {
-                                try { return tryDeepParse(JSON.parse(s)); } catch { /* fall through */ }
+                                try { return tryDeepParse(JSON.parse(s)); } catch {
+        signal?.throwIfAborted(); /* fall through */ }
                             }
                             return s;
                         }
@@ -423,7 +435,8 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
                         if (typeof cv === 'string') {
                             const s = cv.trim();
                             if (s.startsWith('{') || s.startsWith('[')) {
-                                try { out[k] = JSON.parse(s); continue; } catch { /* ignore */ }
+                                try { out[k] = JSON.parse(s); continue; } catch {
+        signal?.throwIfAborted(); /* ignore */ }
                             }
                         }
                         out[k] = cv;
@@ -438,6 +451,7 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
                 parsed = JSON.parse(fullText);
                 parseRoute = 'direct';
             } catch {
+                signal?.throwIfAborted();
                 parsed = tryExtractJsonFromMixed(fullText);
                 if (parsed !== undefined) parseRoute = 'extracted';
             }
@@ -448,7 +462,8 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
                         ? Object.keys(finalData).slice(0, 10).join(',')
                         : (Array.isArray(finalData) ? `[Array len=${finalData.length}]` : typeof finalData);
                     console.log(`☕ [Luckin-MCP] 工具结果 ${parseRoute} | rawLen=${fullText.length} | topKeys=${topKeys}`);
-                } catch { /* ignore log errors */ }
+                } catch {
+        signal?.throwIfAborted(); /* ignore log errors */ }
                 return { success: true, data: finalData, rawText: fullText };
             }
             console.warn(`☕ [Luckin-MCP] 工具结果 parse 全失败, rawLen=${fullText.length}, 前 200 字: ${fullText.slice(0, 200)}`);
@@ -456,21 +471,24 @@ export const callLuckinTool = async (toolName: string, args: Record<string, any>
         }
         return { success: true, data: result };
     } catch (e: any) {
+        signal?.throwIfAborted();
         return { success: false, error: e?.message || String(e) };
     }
 };
 
 /** 测试连接: 仅验证 token 是否能成功 initialize + 拿到 tools */
-export const testLuckinConnection = async (): Promise<{ ok: boolean; message: string; tools?: LuckinToolDef[] }> => {
+export const testLuckinConnection = async (signal?: AbortSignal): Promise<{ ok: boolean; message: string; tools?: LuckinToolDef[] }> => {
+    signal?.throwIfAborted();
     try {
         initialized = false;
         sessionId = null;
         cachedTools = [];
         initPromise = null;
-        const tools = await listLuckinTools(false);
+        const tools = await listLuckinTools(false, signal);
         if (!tools.length) return { ok: true, message: '已连接, 但工具清单为空 (可能服务侧未挂载工具)', tools };
         return { ok: true, message: `已连接, 拿到 ${tools.length} 个工具`, tools };
     } catch (e: any) {
+        signal?.throwIfAborted();
         return { ok: false, message: e?.message || String(e) };
     }
 };

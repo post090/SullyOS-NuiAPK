@@ -12,6 +12,8 @@
  *   - 不注入：实时天气 / 新闻、群聊背景、Notion / 飞书日记标题——见面是高沉浸短会话，
  *     这些背景块收益低，还会稀释 VN 格式指令的权重。
  *   - 日程 / 音乐氛围目前也不进见面场景；以后要加请在这里统一加，别在组件里散拼。
+ *   - 角色表达原则与 ChatApp 共用；三条路径均在世界书和模式指令之后追加 system 收尾。
+ *     收尾不参与世界书关键词扫描或对话深度计数，也不按模型供应商分流。
  *
  * 历史构建统一复用 ChatPrompts.buildMessageHistory：html_card / score_card /
  * chat_forward / emoji 等都会被压成短摘要，不会把原始 HTML / JSON / URL 塞进
@@ -25,6 +27,22 @@ import { injectMemoryPalace } from './memoryPalace/pipeline';
 import { resolveCharTimeZone, nowInTimeZone } from './timezone';
 import { getVoicePromptOverride } from './ttsProvider';
 import { selectCharacterContextMessages } from './chatContextRange';
+import { buildCharacterResponsePrinciples } from './characterResponsePrinciples';
+
+/** Adapted from story preset character-polyphony / evidence-gate / user-agency.
+ * In-person companionship permits a small beat; it does not require plot escalation.
+ */
+export function buildDateInteractionPrinciples(charName: string, userName: string, peek: boolean | 'invite' = false): string {
+    return `### 面对面的角色与回应
+人物设定、已经发生的共同经历与本轮事实决定你怎样行动；文风只决定怎样描写。文风示例是格式示意，不是你的性格、关系阶段或本轮行为。
+显著特质只是动机的一部分。把它和你此刻在意的事、责任、习惯、顾虑、疲惫以及眼前事实放在一起，选择属于你的反应；人物的变化要有来路，不必把某项特质每轮推到极端。你可以主动、坚持、不同意，也可以迟疑、改口或继续手头的事。
+先接住对方实际说出的内容。只有对方明确写出的动作和可感知线索，才是现场证据；未说出口的内心或场外信息不自动成为你知道的事。推测保留不确定，不替代明确表达。
+对方纠正你、表示不愿意、想停下或换个话题时，让这个新事实改变你的下一步，而不是替它补出相反的意思。你依然用自己的性格回应，不必变成统一的温柔口吻。
+用户没有写出的台词、动作、身体反应、内心和决定留给用户。你可以完成自己的动作、发出邀请、留下具体话头，但不替对方写下接受、回应或关系升级。
+一轮只需走到此刻自然成熟的一步。允许一句台词、一个普通动作、共享沉默或继续日常；无需凑满戏剧拍数。张力可以起伏、回落，不必连续升高。已有亲密和热烈也可以自然延续，程度仍来自这两个人的关系和当前互动。
+${peek === 'invite' ? '此刻由角色主动靠近用户：用第三人称开场散文写自己的行动和开口，不使用 VN 情绪标签；给用户留下回应空间，不代写用户反应。' : peek ? '此刻是用户尚未走近的第三人称镜头：描写角色自己的生活与当下状态，不新增用户的到场动作、台词或双方互动。' : '保持本场景的 VN 输出格式；角色与回应原则用于形成正文，不在正文解释规则。'}
+` + buildCharacterResponsePrinciples(charName, userName);
+}
 
 export type ApiMessage = { role: string; content: any };
 
@@ -91,16 +109,15 @@ export const DATE_STYLE_PRESETS: DateStylePreset[] = [
 - 写出**情绪的痕迹**：不要说"他很紧张"，而是写他的手指在桌面上画了一道看不见的线
 - 让每一行都有**画面**，像电影里的一个镜头
 
-❌ **不要这样写**（只用一个情绪 + 干巴巴的动作罗列）：
+❌ **不要这样写**（后续行缺少标签，动作只剩罗列）：
 [normal] 把手放下，看向你。
 走到你身边，坐下来。
 拿起杯子，喝了一口水。
 
-✅ **要这样写**（每行标注情绪 + 有画面、有停顿的叙述）：
-[normal] 指尖从发梢滑落，垂在身侧。视线转过来的时候并不急，像是刚好、又像是故意。
-[shy] "……你一直在看我吗？"
-[happy] 嘴角的弧度藏不住，像是被戳中了什么小心思。
-[normal] 脚步踩在木地板上的声音很轻。在你旁边坐下来，衣料带过一缕还没散尽的冷风。`,
+✅ **要这样写**（感官细节服务于当前动作，标签体现每行实际表情，相邻行可以重复）：
+[normal] 杯底在桌面落下轻轻一声，手还搭在杯沿。
+[happy] "对，就是这件事。想起来还是觉得好笑。"
+[happy] 嘴角还带着笑，端起杯子慢慢喝了一口。`,
     },
     {
         id: 'plain',
@@ -119,7 +136,7 @@ export const DATE_STYLE_PRESETS: DateStylePreset[] = [
 ✅ **示例**：
 [normal] 放下杯子。
 [normal] "来了。"
-[shy] 视线挪开，落在窗外。`,
+[normal] 视线挪开，落在窗外。`,
     },
     {
         id: 'lyrical',
@@ -160,10 +177,10 @@ export const DATE_STYLE_PRESETS: DateStylePreset[] = [
     {
         id: 'intense',
         label: '浓烈炽热',
-        hint: '情绪张力拉满，呼吸、心跳、距离感，克制边缘的爆发。',
-        peekHint: '张力浓烈，感官冲击具体，空气绷紧',
+        hint: '用具体感官写出已有张力，允许起伏与回落，行动仍由人物和关系决定。',
+        peekHint: '已有情绪写得浓烈具体，张力随情境起伏',
         block: `### ⭐ 动作与叙述行的写法（风格：浓烈炽热）
-情绪张力拉满。呼吸、心跳、距离感，每一行都往前压一步。
+把此刻已有的情绪写得鲜明。呼吸、心跳、距离感可以承载张力，情绪也可以停留、松动或回落；不为了文风制造冲突、身体接触或关系升级。
 
 **具体要求**：
 - 感官冲击要具体：温度、力度、停在半空的手
@@ -171,9 +188,9 @@ export const DATE_STYLE_PRESETS: DateStylePreset[] = [
 - 浓烈不等于直白嘶吼，克制边缘的爆发更有力量
 
 ✅ **示例**：
-[normal] 一步，又一步。影子先碰到了你的影子。
-[angry] "刚才那句话，再说一遍。"
-[shy] 呼吸在离得很近的地方，乱了半拍。`,
+[normal] 指尖停在杯沿，瓷面的凉意让那句话迟了半拍。
+[normal] "这件事，我还没想好。"
+[normal] 一口气慢慢呼出去，手终于从杯沿松开。`,
     },
 ];
 
@@ -192,19 +209,19 @@ const buildPovBlock = (config: DateStyleConfig | undefined, charName: string, us
         case 'third-name':
             return `### 叙事人称（必须严格遵守）
 叙述行使用**第三人称**：称呼你自己为「${charName}」，称呼对方为「${uname}」。叙述里不要出现"我""你"。
-示例：${charName}看向${uname}，伸手替${uname}拢了拢被风吹乱的头发。
+示例：${charName}看向${uname}，把手边的书合上。
 （台词引号内不受限，正常说话即可。上方风格示例中的人称仅为格式示意，一律以本节为准。）
 `;
         case 'third-you':
             return `### 叙事人称（必须严格遵守）
 叙述行中称呼你自己为「${charName}」（第三人称），称呼对方为"你"。叙述里不要用"我"指代自己。
-示例：${charName}看向你，伸手替你拢了拢被风吹乱的头发。
+示例：${charName}看向你，把手边的书合上。
 （台词引号内不受限，正常说话即可。上方风格示例中的人称仅为格式示意，一律以本节为准。）
 `;
         case 'first-you':
             return `### 叙事人称（必须严格遵守）
 叙述行使用**第一人称**：称呼你自己为"我"，称呼对方为"你"。不要在叙述里用自己的名字指代自己。
-示例：我看向你，伸手替你拢了拢被风吹乱的头发。
+示例：我看向你，把手边的书合上。
 （上方风格示例中的人称仅为格式示意，一律以本节为准。）
 `;
         default:
@@ -234,30 +251,30 @@ ${extra}
 const isDigDeeperOn = (config?: DateStyleConfig): boolean => config?.digDeeper !== false;
 
 const DIG_DEEPER_BLOCK = `### 💎 素材永远比你以为的多（深挖，别填充）
-对方哪怕随口一句话，都至少藏着这些可以接的线：
+从本轮已经提供的信息里找一条值得回应的线；信息简单时，简单回应也足够：
 1. **ta的用词**——为什么是这个词？换个人不会这么说。
-2. **ta怎么说的**——语速、音量、说话时手在干什么、眼睛看哪。
-3. **ta没说的**——这句话省略了什么？和ta平时的样子比，哪里不一样？
+2. **ta怎么说的**——只使用对方实际写出的语气、动作和神情，不为深挖补造证据。
+3. **尚不清楚的部分**——保留未知；确实影响回应时，可以自然确认一个关键点。
 4. **现场**——此刻的光线、声音、桌上的东西，随便一样都能参与进互动。
 5. **你们的过去**——这句话让你想起哪件只有你们知道的事？
 6. **你自己**——它在你心里激起的第一反应是什么？你压下去了，还是说了出来？
 
-比如对方只说了句"有点累"，能接的就有：累的是身体还是别的；ta说这话时把包放下的动作；你上次见ta累成这样是什么时候；要不要把窗边那杯还温着的水推过去。
+比如对方只说了句"有点累"，先回应这份疲惫。现场确实有水时可以递水，也可以用自己的方式应一声；不必补出原因、放包的动作或一段并不存在的共同往事。
 
 规则：
-- 每一轮只挑**一两条线**往深处走，写透它。不要每条都碰——什么都写等于什么都没写。
-- 觉得"没什么可写"的时候，恰恰说明该回到上面的清单里找。空泛的感慨和万能句式都是没话找话，宁可写一个具体的小动作。
+- 只挑与当前输入有关的**一两条线**，也可以不展开。对方明确说出的意思优先于你对潜台词的猜测。
+- 细节用于接住当前互动，不是每轮任务；对方在收束、拒绝或换话题时，顺着新信息调整，不继续挖旧话题。
 `;
 
 /** 每轮随机注入一条，把注意力推向不同的具体方向；reroll 时另抽一条换切入角度 */
 export const DIG_FOCUS_HINTS = [
     '从对方刚才的用词里挑一个词，作为这一轮回应的起点',
     '让场景里的一件具体物品参与到这一轮互动里',
-    '写一个克制的身体细节——距离、姿态、或一个没完成的动作',
-    '把对方这句话和你们的一段过去连起来（只有你们知道的事）',
-    '这一轮重点回应对方"怎么说"而不是"说了什么"——语气、停顿、视线',
+    '若有必要，写你自己的一个细微动作，不替对方补出反应',
+    '如果已有记录中确有相关共同经历，可以自然接上；没有就留在当下',
+    '先回应对方说了什么，再参考对方实际提供的语气或动作',
     '写一个你心里闪过但没说出口的念头，让它影响你的下一句话',
-    '留意对方没说出口的部分，回应那个空白',
+    '允许不清楚的部分暂时留白，不必替对方解释',
     '让此刻的环境（光线、声音、温度）影响你说话的方式',
 ];
 
@@ -578,7 +595,7 @@ const buildVNModeBlock = (char: CharacterProfile, userName: string): string => {
 ### 核心规则：一行一念 (One Line per Beat)
 前端解析器基于**换行符**来分割气泡。
 1. **禁止混写**: 严禁在同一行里既写动作又写带引号的台词。
-2. **情绪标签**: **每一行都必须以** \`[emotion]\` **开头**，表示该行的表情立绘。情绪随内容变化——台词温柔就用 [happy]，动作紧张就用 [shy]，语气冲就用 [angry]。**不要整段只用一个情绪，要逐行根据语境切换。** 仅限使用以下情绪: ${dateEmotions.join(', ')}。不要使用任何不在此列表中的标签。
+2. **情绪标签**: **每一行都必须以** \`[emotion]\` **开头**，表示该行的表情立绘。逐行结合台词、动作和上下文选择最贴切的表情，细微情绪也要体现；[normal] 用于确实平静或中性的状态，不是默认占位符。已有笑意、低落、恼意或羞赧时，应从可用标签中选对应表情，不要把明确情绪全标成 [normal]。同一情绪延续时，相邻行可以重复标签；情绪发生变化时及时切换，不为了凑标签种类制造情绪。仅限使用以下情绪: ${dateEmotions.join(', ')}。不要使用任何不在此列表中的标签。
 3. **格式**: 台词用双引号 **"..."**，动作/叙述直接写（不加引号）。
 ${char.dateVoiceEnabled ? (getVoicePromptOverride('dateVoice') ?? DATE_VOICE_GUIDE) : ''}
 
@@ -632,6 +649,7 @@ export const DatePrompts = {
         allMsgs: Message[];
         emojis: Emoji[];
         useVisionDescriptions?: boolean;
+        openingMode?: 'approach' | 'invite';
     }): { messages: ApiMessage[] } => {
         const { char, userProfile, allMsgs, emojis } = input;
         const charTz = resolveCharTimeZone(char);
@@ -670,19 +688,20 @@ export const DatePrompts = {
         // 根据时间间隔选择合适的分隔符
         const contextSeparator = gapHint
             ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
-            : `\n\n--- [SCENE CONTINUATION: 刚刚还在聊天，现在来到了面对面的场景] ---\n\n`;
+            : `\n\n--- [最近互动见上文，场景关系以具体上下文为准] ---\n\n`;
 
+        const invite = input.openingMode === 'invite';
         const peekInstructions = `
 ### 场景：感知 (Sense Presence)
 ${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
 
 ### 任务
-你现在并不在和用户直接对话。用户正在悄悄靠近你所在的地点。
+${invite ? `由你主动以合理的方式与 ${userProfile?.name || '对方'} 见面。根据已有上下文中的地点、约定、关系和你自己的动机，写出你如何走近或来到对方面前；如果已经在一起，就从当前场景自然靠近、开口，不另编一次到访。未知的地点或安排不要当成已知事实，也不代写用户答应、移动或回应。` : '你现在并不在和用户直接对话。用户正在悄悄靠近你所在的地点。'}
 请用**第三人称**描写一段话。
-描述：${char.name} 此时此刻正在做什么？周围环境是怎样的？状态如何？
+${invite ? '描写角色自己的到来、动作与必要的开场台词，停在留给用户回应的位置。' : `描述：${char.name} 此时此刻正在做什么？周围环境是怎样的？状态如何？`}
 
 ### 逻辑检查
-1. **上下文连贯性**: 参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。如果有 [TIME SKIP] 且间隔很久，开启新场景；如果是 [SCENE CONTINUATION]，说明刚刚还在聊天，**必须**自然衔接最近的聊天话题和情绪状态，不要无视之前的对话内容。
+1. **上下文连贯性**: 参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。地点、正在做的事、话题是否延续，都以具体上下文为准；时间间隔只是参考。选择开场方式只决定谁主动靠近，不表示关系或话题重新开始，也不强制续接上一句话。
 2. **状态一致性**: ${gapHint.includes('天') ? '如果间隔了很多天，可能在发呆、忙碌或者有点落寞。' : '根据最近的聊天内容和情绪来决定当前状态。如果刚聊完，角色的状态应该与聊天内容相呼应。'}
 3. **描写风格**: ${preset.peekHint}。${isObserveOn(char) ? '先按下方「观测协议」输出观测块，再开始描写内容（描写本身不要加任何前缀）。' : '不要输出任何前缀，直接输出描写内容。'}
 ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlock(char)}` : ''}`;
@@ -691,6 +710,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             messages: [
                 ...context.messages,
                 { role: 'user', content: `[最近记录 (Previous Context)] 见以上消息历史。${contextSeparator}${peekInstructions}\n\n(Start sensing...)` },
+                { role: 'system', content: buildDateInteractionPrinciples(char.name, userProfile?.name || '对方', invite ? 'invite' : true) },
             ],
         };
     },
@@ -732,10 +752,10 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
             + ContextBuilder.buildSARModuleContext(char, userProfile, 'date');
 
         // 每轮轮换的聚焦线索：把注意力推向不同的具体方向，相邻回复天然有差异
-        const focusLine = isDigDeeperOn(char.dateStyleConfig) ? ` 本轮线索：${pickFocusHint()}。` : '';
+        const focusLine = isDigDeeperOn(char.dateStyleConfig) ? ` 可选的本轮线索（与当前互动无关就跳过）：${pickFocusHint()}。` : '';
         const note = variant === 'send'
-            ? `(System Note: 严格遵守 VN 格式。每一行都要以 [emotion] 开头，根据内容逐行切换情绪标签，不要整段只用同一个。叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`
-            : `(System Note: Reroll. 换一个切入角度重写，不要复用上一版的展开思路。依然严格遵守 VN 格式：每一行以 [emotion] 开头并逐行切换情绪，叙述行写具体的感官细节和停顿，不要罗列动作。${focusLine})`;
+            ? `(System Note: 严格遵守 VN 格式，每一行以 [emotion] 开头；逐行选择贴合实际表情的标签，明确情绪不要一律标 normal，同一情绪延续可重复。篇幅随本轮实际内容，可以简短。${focusLine})`
+            : `(System Note: Reroll. 保持已有事实、角色性格与关系阶段，尝试另一种自然回应，不必加强情绪或推进关系。严格遵守 VN 格式，每一行以 [emotion] 开头；逐行选择贴合实际表情的标签，明确情绪不要一律标 normal，同一情绪延续可重复。${focusLine})`;
 
         const messagesWithWorldbooks = context.history;
         // depth=0 会在末条用户消息之后插入世界书，不能给数组最后一项追加 VN 指令。
@@ -746,6 +766,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
                 ...messagesWithWorldbooks.map(message => message === pendingMessage
                     ? { ...message, content: `${userText}\n\n${note}` }
                     : message),
+                { role: 'system', content: buildDateInteractionPrinciples(char.name, userProfile?.name || '对方') },
             ],
         };
     },

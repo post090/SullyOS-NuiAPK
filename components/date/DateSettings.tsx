@@ -1,3 +1,5 @@
+import {meetingAppearance} from '../../utils/meetingAppearance';
+import MeetingAppearanceControl from './MeetingAppearanceControl';
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useOS } from '../../context/OSContext';
@@ -49,6 +51,7 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
         patchStyleConfig({ extra: trimmed || undefined });
         addToast(trimmed ? '补充要求已保存' : '补充要求已清空', 'success');
     };
+    const readingAppearance = meetingAppearance(char.dateAppearance);
     const userName = userProfile?.name || '用户';
     const POV_OPTIONS: { id: DateStyleConfig['pov']; label: string; example: string }[] = [
         { id: undefined, label: '默认', example: '不额外指定，随模型发挥' },
@@ -244,8 +247,10 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                 <div className="w-8"></div>
             </div>
             
+            <MeetingAppearanceControl surface="date" characterId={char.id} />
             {/* Live Preview Area */}
             <div className="h-64 bg-black relative overflow-hidden shrink-0 border-b border-slate-200">
+                {readingAppearance.id!=='none'&&<div className="absolute inset-0 z-10 px-8 py-6 font-serif leading-8" style={{background:readingAppearance.background,color:readingAppearance.ink}}><small className="text-xs opacity-50">{readingAppearance.name} · 阅读预览</small><p className="mt-4">窗边的灯亮了，书页上留下了一小片暖色。</p><p>“今天读到哪里了？”</p><p>他把书签夹好，慢慢合上书。</p></div>}
                     <div className="absolute inset-0 bg-cover bg-center opacity-60" style={{ backgroundImage: dateBackgroundUrl ? `url("${dateBackgroundUrl}")` : 'none' }}></div>
                     <div className="absolute inset-0 flex items-end justify-center pointer-events-none">
                         <TokenImg
@@ -277,7 +282,7 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                     </div>
                 </Section>
 
-                <section className="bg-white rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-100">
+                {readingAppearance.id=== 'none' && <section className="bg-white rounded-2xl border border-slate-100 shadow-sm divide-y divide-slate-100">
                     <div className="flex items-center justify-between gap-4 p-4">
                         <div className="min-w-0">
                             <h3 className="text-xs font-bold text-slate-400 uppercase">浅色阅读模式</h3>
@@ -310,7 +315,7 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                             <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-transform ${char.dateReadingShowAvatars ? 'translate-x-5' : 'translate-x-0.5'}`}></div>
                         </button>
                     </div>
-                </section>
+                </section>}
 
                 <ObserveSettings char={char} />
 
@@ -363,7 +368,7 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                     <div className="mb-5 flex items-center justify-between">
                         <div className="pr-4">
                             <label className="text-[11px] text-slate-500 font-bold block">细节深挖引导</label>
-                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">教 AI 从任何一句话里挖出可写的细节，并每轮给一条不同的聚焦线索，减少空话和模型口癖。</p>
+                            <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">从已有对话和现场细节中寻找可选线索，减少空话；不相关时可以跳过，也允许简短回应。</p>
                         </div>
                         <button
                             onClick={() => patchStyleConfig({ digDeeper: styleConfig.digDeeper === false ? undefined : false })}

@@ -9,6 +9,8 @@ export interface BeautyMetadata {
   contact: string;
   allowRemix: boolean;
   allowRedistribute: boolean;
+  /** Explicit consent per work. Older submissions remain unlisted. */
+  allowPublicListing?: boolean;
   exportVersion: string;
   bugFeedback: 'welcome' | 'self-fix';
   message: string;
@@ -25,6 +27,8 @@ export interface BeautySubmission {
   reviewNote: string;
   updatedAt: number;
   authorCode?: string;
+  catalogHidden?: boolean;
+  catalogPublic?: boolean;
 }
 export interface BeautyShare {
   code: string;
@@ -63,10 +67,12 @@ export function validateBeautyMetadata(value: unknown): BeautyMetadata {
   if (!Array.isArray(value.platforms) || value.platforms.length < 1 || value.platforms.some((p: unknown) => !BEAUTY_PLATFORMS.includes(p as any))) throw Error('请选择发放平台');
   if (typeof value.allowRemix !== 'boolean' || typeof value.allowRedistribute !== 'boolean') throw Error('请设置二改和二次传播权限');
   if (value.bugFeedback !== 'welcome' && value.bugFeedback !== 'self-fix') throw Error('请选择反馈偏好');
+  if (value.allowPublicListing !== undefined && typeof value.allowPublicListing !== 'boolean') throw Error('请确认是否允许公开展示');
   return {
     name: text(value.name, '美化名', 80, true), credit: text(value.credit, '署名', 60, true),
     platforms: [...new Set(value.platforms)] as string[], contact: text(value.contact, '联系说明', 160),
     allowRemix: value.allowRemix, allowRedistribute: value.allowRedistribute,
+    ...(value.allowPublicListing !== undefined ? {allowPublicListing:value.allowPublicListing} : {}),
     exportVersion: text(value.exportVersion, '导出版本', 80, true), bugFeedback: value.bugFeedback,
     message: text(value.message, '作者留言', 2000),
   };
@@ -76,11 +82,18 @@ export function validateBeautyMetadata(value: unknown): BeautyMetadata {
 export function validateBeautyPackage(value: unknown): { kind: BeautyKind; data: Record<string, any> } {
   if (!isRecord(value) || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 200) throw Error('请提交有效的美化预设文件');
   if (value.format === 'sullyos-chat-decoration' && value.version === 1 && isRecord(value.parts)) {
+    const parts = { ...value.parts };
     const keys = Object.keys(value.parts);
-    if (!keys.length || keys.some(key => !['layout', 'bubbles', 'background', 'sound', 'css', 'psyche', 'schedule', 'journal'].includes(key))) throw Error('聊天装扮包含未知内容');
+    if (!keys.length || keys.some(key => !['layout', 'bubbles', 'background', 'sound', 'css', 'psyche', 'schedule', 'journal', 'date', 'story'].includes(key))) throw Error('聊天装扮包含未知内容');
+    if ((keys.includes('date') || keys.includes('story')) && keys.length !== 1) throw Error('见面与剧情界面美化请单独提交');
+    for (const key of ['date', 'story']) if (value.parts[key] !== undefined) {
+      const part = value.parts[key];
+      if (!isRecord(part) || !['none', 'novel', 'paper', 'night'].includes(part.preset)) throw Error('见面／剧情美化样式无效');
+      parts[key] = { preset: part.preset, ...(typeof part.name === 'string' ? { name: part.name.slice(0, 60) } : {}) };
+    }
     if ((keys.includes('schedule')||keys.includes('journal'))&&keys.length!==1) throw Error('App 美化请按分类分别提交');
     if (value.parts.css !== undefined && typeof value.parts.css !== 'string') throw Error('CSS 格式不正确');
-    return { kind: 'chat-decoration', data: { format: value.format, version: 1, name: value.name, parts: value.parts } };
+    return { kind: 'chat-decoration', data: { format: value.format, version: 1, name: value.name, parts } };
   }
   if (value.type === 'sully_appearance_preset' && value.version === 1 && isRecord(value.theme)) {
     const data: Record<string, any> = { type: value.type, version: 1, name: value.name, theme: value.theme };

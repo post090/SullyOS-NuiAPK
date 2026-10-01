@@ -1,3 +1,5 @@
+import { publishReplyDisplay, stopReplyRuns } from '../utils/chatReplyCancellation';
+import { stopInstantChat } from '../utils/amsgInstantChat';
 import {resolvePsycheAppearance} from '../utils/psycheAppearance';
 import { startsNewMessageGroup } from '../utils/chatMessageGrouping';
 import EmojiExportDialog from '../components/chat/EmojiExportDialog';
@@ -1826,7 +1828,14 @@ const Chat: React.FC = () => {
     // 顶栏 ⚡ 手动触发（也是「发完后自动生成」到点时调的那一下）。
     const handleManualTrigger = () => {
         autoReply.cancel();
-        if (isTyping) return;
+        if (isTyping || instantChatPending) {
+            stopReplyRuns(char.id);
+            void stopInstantChat(char.id).catch(error => {
+                console.warn('[Chat] remote stop failed', error);
+                addToast('已停止接收回复，但云端取消失败，后台操作可能仍在执行', 'error');
+            });
+            return;
+        }
         triggerAI(messages);
     };
 
@@ -3563,6 +3572,10 @@ const Chat: React.FC = () => {
         return displayMessages.filter(message => !pending.has(message.id));
     }, [displayMessages, streamingBubbles, streamingThinking, streamingHandoverIds, selectionMode]);
 
+    useLayoutEffect(() => {
+        publishReplyDisplay(activeCharacterId, renderedMessages.map(message => message.id), streamingBubbles);
+    }, [activeCharacterId, renderedMessages, streamingBubbles]);
+
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
     const hasOlderHistoryWindow = windowedFocusMsgId !== null && !!historyWindowRange && historyWindowRange.start > 0;
     const hasNewerHistoryWindow = windowedFocusMsgId !== null && !!historyWindowRange && historyWindowRange.end < chatDisplayMessages.length;
@@ -4070,7 +4083,7 @@ const Chat: React.FC = () => {
                 selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
                 onCancelSelection={() => { setSelectionMode(false); setSelectedMsgIds(new Set()); setSelectedThinkingMsgIds(new Set()); }}
                 activeCharacter={char}
-                isTyping={isTyping}
+                isTyping={isTyping || instantChatPending}
                 isSummarizing={isSummarizing}
                 isEmotionEvaluating={emotionStatus === 'evaluating'}
                 isMemoryPalaceProcessing={!!memoryPalaceStatus}
@@ -4079,6 +4092,7 @@ const Chat: React.FC = () => {
                 tokenBreakdown={tokenBreakdown}
                 onClose={closeApp}
                 onTriggerAI={handleManualTrigger}
+                triggerIcon={isTyping || instantChatPending ? 'stop' : 'lightning'}
                 hideTrigger={inputPreferences.sendButtonGenerates}
                 onShowCharsPanel={() => setShowPanel('chars')}
                 onDeleteBuff={(buffId) => {
@@ -4496,7 +4510,7 @@ const Chat: React.FC = () => {
 
                 <ChatInputArea
                     input={input} setInput={handleInputChange}
-                    isTyping={isTyping} selectionMode={selectionMode}
+                    isTyping={isTyping || instantChatPending} selectionMode={selectionMode}
                     showPanel={showPanel} setShowPanel={setShowPanel}
                     onSend={handleSendCallback}
                     onGenerate={handleManualTrigger}

@@ -435,3 +435,22 @@ describe('叶子纪律', () => {
         expect(src.match(/\bimport\s*\(/g) ?? []).toEqual([]);
     });
 });
+
+it('停止会取消正在执行的 MCP 请求，且取消不会变成工具失败结果', async () => {
+    const controller = new AbortController();
+    const session = createMcpSessionState();
+    session.initialized = true;
+    let requestSignal: AbortSignal | undefined;
+    vi.stubGlobal('fetch', (_url: string, options: RequestInit) => {
+        requestSignal = options.signal as AbortSignal;
+        return new Promise((_resolve, reject) => {
+            requestSignal!.addEventListener('abort', () => reject(new DOMException('stopped', 'AbortError')));
+        });
+    });
+    const pending = callMcpToolCore({ url: 'https://mcp.test', headers: () => ({}) }, session, 'tool', {}, { signal: controller.signal });
+    await Promise.resolve();
+    controller.abort();
+    expect(requestSignal?.aborted).toBe(true);
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    vi.unstubAllGlobals();
+});

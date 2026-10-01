@@ -3386,3 +3386,21 @@ describe('即时对话 SAR 临时模块收尾（走真库）', () => {
     expect(clearSpy).not.toHaveBeenCalledWith(ns, keys.surface2);
   }, 20000);
 });
+
+describe('停止的instant回程', () => {
+  it('迟到的正文直接销账丢弃，不走重试或原稿降级', async () => {
+    const { markReplyStopped } = await import('./chatReplyCancellation');
+    (globalThis as any).window ??= { dispatchEvent: () => true };
+    const charId = 'stopped-inbox-char';
+    await DB.saveCharacter({ id: charId, name: '角色' } as any);
+    markReplyStopped('stopped-inbox-task');
+    await ActiveMsgStore.saveInboxMessage({
+      messageId: 'stopped-inbox-message', taskUuid: 'stopped-inbox-task',
+      charId, charName: '角色', source: 'instant', messageType: 'text',
+      body: '不要显示这句话', receivedAt: Date.now() - 100000,
+    } as any);
+    await flushInboxToChat('轮询补收');
+    expect(await DB.getRecentMessagesByCharId(charId, 20)).toEqual([]);
+    expect((await ActiveMsgStore.consumeInboxMessages()).filter(m => m.taskUuid === 'stopped-inbox-task')).toEqual([]);
+  });
+});

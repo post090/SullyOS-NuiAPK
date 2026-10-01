@@ -136,7 +136,9 @@ const trySpiderV3CommentPatch = async (
     requestBody: Record<string, any>,
     cookie: string,
     detail: any,
+    signal?: AbortSignal,
 ): Promise<any> => {
+    signal?.throwIfAborted();
     const storage = spiderStorage();
     if (
         !storage
@@ -166,6 +168,7 @@ const trySpiderV3CommentPatch = async (
         : 'no-client-hints';
     try {
         const response = await fetch(`${baseUrl}/api/xhs-experimental-comments`, {
+            signal,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -204,6 +207,7 @@ const trySpiderV3CommentPatch = async (
             },
         };
     } catch {
+        signal?.throwIfAborted();
         return detail;
     }
 };
@@ -214,7 +218,9 @@ const bridgePost = async (
     serverUrl: string,
     endpoint: string,
     body: Record<string, any> = {},
+    signal?: AbortSignal,
 ): Promise<McpToolResult> => {
+    signal?.throwIfAborted();
     const baseUrl = serverUrl.replace(/\/+$/, '').replace(/\/api$/, '');
     const url = `${baseUrl}/api/${endpoint}`;
 
@@ -226,6 +232,7 @@ const bridgePost = async (
 
     try {
         const resp = await fetch(url, {
+            signal,
             method: 'POST',
             headers,
             body: JSON.stringify(body),
@@ -250,10 +257,11 @@ const bridgePost = async (
         }
         if (endpoint === 'get-feed-detail') {
             const ck = resolveLiteCookie();
-            if (ck) data = await trySpiderV3CommentPatch(baseUrl, body, ck, data);
+            if (ck) data = await trySpiderV3CommentPatch(baseUrl, body, ck, data, signal);
         }
         return { success: true, data };
     } catch (e: any) {
+        signal?.throwIfAborted();
         return { success: false, error: e.message };
     }
 };
@@ -365,14 +373,16 @@ const mcpPost = async (
     serverUrl: string,
     body: McpJsonRpcRequest,
     expectResponse = true,
+    signal?: AbortSignal,
 ): Promise<{ response: McpJsonRpcResponse | null; sessionId: string | null }> => {
+    signal?.throwIfAborted();
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'Accept': 'application/json, text/event-stream',
     };
     if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
-    const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+    const resp = await fetch(serverUrl, { signal, method: 'POST', headers, body: JSON.stringify(body) });
     const sessionId = resp.headers.get('Mcp-Session-Id') || resp.headers.get('mcp-session-id');
 
     if (resp.status === 202) return { response: null, sessionId };
@@ -387,13 +397,14 @@ const mcpPost = async (
     return { response: mcpParseResponse(text, contentType), sessionId };
 };
 
-const mcpInitialize = async (serverUrl: string): Promise<void> => {
+const mcpInitialize = async (serverUrl: string, signal?: AbortSignal): Promise<void> => {
+    signal?.throwIfAborted();
     const initReq = mcpBuildRequest('initialize', {
         protocolVersion: '2024-11-05',
         capabilities: {},
         clientInfo: { name: 'AetherOS-XhsFreeRoam', version: '1.0.0' },
     });
-    const { response, sessionId } = await mcpPost(serverUrl, initReq);
+    const { response, sessionId } = await mcpPost(serverUrl, initReq, undefined, signal);
     if (sessionId) mcpSessionId = sessionId;
     if (response?.error) throw new Error(`MCP Initialize failed: ${response.error.message}`);
 
@@ -411,16 +422,17 @@ const mcpInitialize = async (serverUrl: string): Promise<void> => {
     }
 
     const notifReq = mcpBuildRequest('notifications/initialized', {}, true);
-    await mcpPost(serverUrl, notifReq, false);
+    await mcpPost(serverUrl, notifReq, false, signal);
 
     try {
         const toolsReq = mcpBuildRequest('tools/list');
-        const { response: toolsResp } = await mcpPost(serverUrl, toolsReq);
+        const { response: toolsResp } = await mcpPost(serverUrl, toolsReq, undefined, signal);
         if (toolsResp?.result?.tools) {
             mcpDiscoveredTools = toolsResp.result.tools.map((t: any) => ({ name: t.name, description: t.description }));
             console.log('[MCP] 发现工具:', mcpDiscoveredTools.map(t => t.name).join(', '));
         }
     } catch (e) {
+        signal?.throwIfAborted();
         console.warn('[MCP] tools/list 调用失败，将使用默认工具名', e);
     }
 
@@ -435,17 +447,19 @@ const mcpInitialize = async (serverUrl: string): Promise<void> => {
  * 发 tools/call 就用了别人的 session。worker 到点最多并发跑 8 个任务，两个任务同一分钟
  * 都用小红书就会踩到。失败时清掉在途 promise，下一次调用可以重新握手。
  */
-const mcpEnsureInitialized = async (serverUrl: string): Promise<void> => {
+const mcpEnsureInitialized = async (serverUrl: string, signal?: AbortSignal): Promise<void> => {
+    signal?.throwIfAborted();
     if (mcpInitialized) return;
     if (!mcpInitPromise) {
-        mcpInitPromise = mcpInitialize(serverUrl).finally(() => { mcpInitPromise = null; });
+        mcpInitPromise = mcpInitialize(serverUrl, signal).finally(() => { mcpInitPromise = null; });
     }
     await mcpInitPromise;
 };
 
-const mcpCallTool = async (serverUrl: string, toolName: string, args: Record<string, any> = {}): Promise<McpToolResult> => {
+const mcpCallTool = async (serverUrl: string, toolName: string, args: Record<string, any> = {}, signal?: AbortSignal): Promise<McpToolResult> => {
+    signal?.throwIfAborted();
     try {
-        await mcpEnsureInitialized(serverUrl);
+        await mcpEnsureInitialized(serverUrl, signal);
         const resolved = mcpResolveToolName(toolName);
         const adapted = mcpAdaptParams(resolved, args);
         if (resolved !== toolName) console.log(`[MCP] 工具名映射: ${toolName} → ${resolved}`);
@@ -457,7 +471,7 @@ const mcpCallTool = async (serverUrl: string, toolName: string, args: Record<str
         };
         if (mcpSessionId) headers['Mcp-Session-Id'] = mcpSessionId;
 
-        const resp = await fetch(serverUrl, { method: 'POST', headers, body: JSON.stringify(body) });
+        const resp = await fetch(serverUrl, { signal, method: 'POST', headers, body: JSON.stringify(body) });
         if (!resp.ok) {
             const errText = await resp.text().catch(() => '');
             return { success: false, error: `MCP HTTP ${resp.status}: ${errText.slice(0, 200)}` };
@@ -479,12 +493,14 @@ const mcpCallTool = async (serverUrl: string, toolName: string, args: Record<str
                 console.log(`[MCP] 工具 ${toolName} 返回 JSON, 顶层 keys: ${typeof parsed === 'object' && parsed ? Object.keys(parsed).join(',') : typeof parsed}`);
                 return { success: true, data: parsed };
             } catch {
+                signal?.throwIfAborted();
                 console.log(`[MCP] 工具 ${toolName} 返回纯文本 (${fullText.length} chars)`);
                 return { success: true, data: fullText };
             }
         }
         return { success: true, data: result };
     } catch (e: any) {
+        signal?.throwIfAborted();
         return { success: false, error: e.message };
     }
 };
@@ -603,7 +619,8 @@ export const XhsMcpClient = {
         bridgeToken = token || '';
     },
 
-    testConnection: async (serverUrl: string, cookie?: string, token?: string): Promise<{ connected: boolean; tools?: string[]; error?: string; nickname?: string; userId?: string; loggedIn?: boolean; xsecToken?: string; platform?: XhsPlatform }> => {
+    testConnection: async (serverUrl: string, cookie?: string, token?: string, signal?: AbortSignal): Promise<{ connected: boolean; tools?: string[]; error?: string; nickname?: string; userId?: string; loggedIn?: boolean; xsecToken?: string; platform?: XhsPlatform }> => {
+        signal?.throwIfAborted();
         if (cookie !== undefined) XhsMcpClient.setCookie(cookie);
         if (token !== undefined) bridgeToken = token;
         const mode = detectMode(serverUrl);
@@ -615,11 +632,11 @@ export const XhsMcpClient = {
                 // 「连接中」，用户只能当成卡死。10s 到点主动断，走下面的 catch 出一句人话。
                 const healthResp = await fetch(`${baseUrl}/api/health`, {
                     headers: buildBridgeHeaders(false),
-                    signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined,
+                    signal: signal ?? (typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? AbortSignal.timeout(10000) : undefined),
                 });
                 if (!healthResp.ok) return { connected: false, error: `Bridge 服务未响应 (HTTP ${healthResp.status})` };
 
-                const loginResult = await bridgePost(serverUrl, 'check-login');
+                const loginResult = await bridgePost(serverUrl, 'check-login', undefined, signal);
                 const tools = ['check-login', 'search', 'list-feeds', 'get-feed-detail', 'publish', 'publish-video', 'long-article', 'post-comment', 'reply-comment', 'like-feed', 'favorite-feed', 'user-profile', 'login', 'get-qrcode'];
                 let loggedIn = false, nickname: string | undefined, userId: string | undefined, platform: XhsPlatform | undefined;
                 if (loginResult.success && loginResult.data) {
@@ -641,12 +658,14 @@ export const XhsMcpClient = {
                 let xsecToken: string | undefined;
                 if (loggedIn) {
                     try {
-                        const feedResult = await bridgePost(serverUrl, 'list-feeds');
+                        const feedResult = await bridgePost(serverUrl, 'list-feeds', undefined, signal);
                         if (feedResult.success) xsecToken = extractFirstXsecToken(feedResult.data);
-                    } catch { /* 非关键，静默忽略 */ }
+                    } catch {
+        signal?.throwIfAborted(); /* 非关键，静默忽略 */ }
                 }
                 return { connected: true, tools, nickname, userId, loggedIn, xsecToken, platform };
             } catch (e: any) {
+                signal?.throwIfAborted();
                 return { connected: false, error: describeXhsConnectFailure(e, serverUrl) };
             }
         }
@@ -654,11 +673,11 @@ export const XhsMcpClient = {
         // MCP mode
         try {
             XhsMcpClient.resetSession();
-            await mcpInitialize(serverUrl);
+            await mcpInitialize(serverUrl, signal);
             const tools = mcpDiscoveredTools.map(t => t.name);
             let nickname: string | undefined, userId: string | undefined, loggedIn = false;
             try {
-                const loginResult = await mcpCallTool(serverUrl, 'check_login');
+                const loginResult = await mcpCallTool(serverUrl, 'check_login', undefined, signal);
                 if (loginResult.success && loginResult.data) {
                     const d = loginResult.data;
                     if (typeof d === 'string') {
@@ -674,6 +693,7 @@ export const XhsMcpClient = {
                     }
                 }
             } catch (e) {
+                signal?.throwIfAborted();
                 console.warn('[MCP] 获取登录状态失败，跳过:', e);
             }
             // 自动获取 xsecToken：从首页推荐中提取（同时验证 get_recommend 工具可用性）
@@ -681,56 +701,64 @@ export const XhsMcpClient = {
             if (loggedIn) {
                 try {
                     console.log('[MCP] 自动获取 xsecToken: 调用 get_recommend...');
-                    const feedResult = await mcpCallTool(serverUrl, 'get_recommend');
+                    const feedResult = await mcpCallTool(serverUrl, 'get_recommend', undefined, signal);
                     if (feedResult.success) {
                         xsecToken = extractFirstXsecToken(feedResult.data);
                         console.log(`[MCP] 自动获取 xsecToken: ${xsecToken ? '成功' : '未找到'}`);
                     }
                 } catch (e) {
+                    signal?.throwIfAborted();
                     console.warn('[MCP] 自动获取 xsecToken 失败（不影响连接）:', e);
                 }
             }
             return { connected: true, tools, nickname, userId, loggedIn, xsecToken };
         } catch (e: any) {
+            signal?.throwIfAborted();
             return { connected: false, error: e.message };
         }
     },
 
-    ensureInitialized: async (serverUrl: string): Promise<void> => {
+    ensureInitialized: async (serverUrl: string, signal?: AbortSignal): Promise<void> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'mcp' && !mcpInitialized) {
             XhsMcpClient.resetSession();
-            await mcpInitialize(serverUrl);
+            await mcpInitialize(serverUrl, signal);
         }
     },
 
-    checkLogin: async (serverUrl: string): Promise<McpToolResult> => {
+    checkLogin: async (serverUrl: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         return detectMode(serverUrl) === 'bridge'
-            ? bridgePost(serverUrl, 'check-login')
-            : mcpCallTool(serverUrl, 'check_login');
+            ? bridgePost(serverUrl, 'check-login', undefined, signal)
+            : mcpCallTool(serverUrl, 'check_login', undefined, signal);
     },
 
     search: async (serverUrl: string, keyword: string, options?: {
         sort_by?: string; note_type?: string; publish_time?: string; search_scope?: string; location?: string;
-    }): Promise<McpToolResult> => {
+    }, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         return detectMode(serverUrl) === 'bridge'
-            ? bridgePost(serverUrl, 'search', { keyword, ...options })
-            : mcpCallTool(serverUrl, 'search', { keyword });
+            ? bridgePost(serverUrl, 'search', { keyword, ...options }, signal)
+            : mcpCallTool(serverUrl, 'search', { keyword }, signal);
     },
 
-    getRecommend: async (serverUrl: string): Promise<McpToolResult> => {
+    getRecommend: async (serverUrl: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         return detectMode(serverUrl) === 'bridge'
-            ? bridgePost(serverUrl, 'list-feeds')
-            : mcpCallTool(serverUrl, 'get_recommend');
+            ? bridgePost(serverUrl, 'list-feeds', undefined, signal)
+            : mcpCallTool(serverUrl, 'get_recommend', undefined, signal);
     },
 
-    getNoteDetail: async (serverUrl: string, noteUrl: string, xsecToken?: string, options?: { loadAllComments?: boolean; xsecSource?: string }): Promise<McpToolResult> => {
+    getNoteDetail: async (serverUrl: string, noteUrl: string, xsecToken?: string, options?: { loadAllComments?: boolean; xsecSource?: string }, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         const feedId = extractNoteIdFromUrl(noteUrl);
         const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || '';
         const loadAllComments = !!options?.loadAllComments;
         let xsecSource = options?.xsecSource || 'pc_feed';
         try {
             xsecSource = new URL(noteUrl).searchParams.get('xsec_source') || xsecSource;
-        } catch { /* keep the share-link default */ }
+        } catch {
+        signal?.throwIfAborted(); /* keep the share-link default */ }
 
         if (detectMode(serverUrl) === 'bridge') {
             return bridgePost(serverUrl, 'get-feed-detail', {
@@ -738,108 +766,119 @@ export const XhsMcpClient = {
                 xsec_source: xsecSource,
                 load_all_comments: loadAllComments,
                 click_more_replies: loadAllComments,
-            });
+            }, signal);
         }
         const args: Record<string, any> = { url: noteUrl };
         if (xsecToken) args.xsec_token = xsecToken;
         if (loadAllComments) { args.load_all_comments = true; args.click_more_replies = true; }
-        return mcpCallTool(serverUrl, 'get_note_detail', args);
+        return mcpCallTool(serverUrl, 'get_note_detail', args, signal);
     },
 
     publishNote: async (serverUrl: string, params: {
         title: string; content: string; images?: string[]; tags?: string[]; is_private?: boolean;
-    }): Promise<McpToolResult> => {
+    }, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
             return bridgePost(serverUrl, 'publish', {
                 title: params.title, content: params.content,
                 images: params.images || [], tags: params.tags || [],
                 visibility: params.is_private ? 'private' : undefined,
-            });
+            }, signal);
         }
-        return mcpCallTool(serverUrl, 'publish_note', { ...params, images: params.images || [] });
+        return mcpCallTool(serverUrl, 'publish_note', { ...params, images: params.images || [] }, signal);
     },
 
     publishVideo: async (serverUrl: string, params: {
         title: string; content: string; video: string; tags?: string[];
-    }): Promise<McpToolResult> => {
+    }, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
             return bridgePost(serverUrl, 'publish-video', {
                 title: params.title, content: params.content, video: params.video, tags: params.tags || [],
-            });
+            }, signal);
         }
         return { success: false, error: '视频发布仅在 Skills (Bridge) 模式下可用' };
     },
 
     publishLongArticle: async (serverUrl: string, params: {
         title: string; content: string; images?: string[];
-    }): Promise<McpToolResult> => {
+    }, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
             return bridgePost(serverUrl, 'long-article', {
                 title: params.title, content: params.content, images: params.images || [],
-            });
+            }, signal);
         }
         return { success: false, error: '长文发布仅在 Skills (Bridge) 模式下可用' };
     },
 
-    comment: async (serverUrl: string, noteUrl: string, content: string, xsecToken?: string): Promise<McpToolResult> => {
+    comment: async (serverUrl: string, noteUrl: string, content: string, xsecToken?: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
             const feedId = extractNoteIdFromUrl(noteUrl);
             const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || '';
-            return bridgePost(serverUrl, 'post-comment', { feed_id: feedId, xsec_token: token, content });
+            return bridgePost(serverUrl, 'post-comment', { feed_id: feedId, xsec_token: token, content }, signal);
         }
         const args: Record<string, any> = { url: noteUrl, content };
         if (xsecToken) args.xsec_token = xsecToken;
-        return mcpCallTool(serverUrl, 'comment', args);
+        return mcpCallTool(serverUrl, 'comment', args, signal);
     },
 
-    likeFeed: async (serverUrl: string, feedId: string, xsecToken: string, unlike = false): Promise<McpToolResult> => {
+    likeFeed: async (serverUrl: string, feedId: string, xsecToken: string, unlike = false, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
-            return bridgePost(serverUrl, 'like-feed', { feed_id: feedId, xsec_token: xsecToken, unlike });
+            return bridgePost(serverUrl, 'like-feed', { feed_id: feedId, xsec_token: xsecToken, unlike }, signal);
         }
-        return mcpCallTool(serverUrl, 'like_feed', { feed_id: feedId, xsec_token: xsecToken, ...(unlike ? { unlike: true } : {}) });
+        return mcpCallTool(serverUrl, 'like_feed', { feed_id: feedId, xsec_token: xsecToken, ...(unlike ? { unlike: true } : {}) }, signal);
     },
 
-    favoriteFeed: async (serverUrl: string, feedId: string, xsecToken: string, unfavorite = false): Promise<McpToolResult> => {
+    favoriteFeed: async (serverUrl: string, feedId: string, xsecToken: string, unfavorite = false, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
-            return bridgePost(serverUrl, 'favorite-feed', { feed_id: feedId, xsec_token: xsecToken, unfavorite });
+            return bridgePost(serverUrl, 'favorite-feed', { feed_id: feedId, xsec_token: xsecToken, unfavorite }, signal);
         }
-        return mcpCallTool(serverUrl, 'favorite_feed', { feed_id: feedId, xsec_token: xsecToken, ...(unfavorite ? { unfavorite: true } : {}) });
+        return mcpCallTool(serverUrl, 'favorite_feed', { feed_id: feedId, xsec_token: xsecToken, ...(unfavorite ? { unfavorite: true } : {}) }, signal);
     },
 
-    replyComment: async (serverUrl: string, feedId: string, xsecToken: string, content: string, commentId?: string, userId?: string, parentCommentId?: string): Promise<McpToolResult> => {
+    replyComment: async (serverUrl: string, feedId: string, xsecToken: string, content: string, commentId?: string, userId?: string, parentCommentId?: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
             return bridgePost(serverUrl, 'reply-comment', {
                 feed_id: feedId, xsec_token: xsecToken, content, comment_id: commentId, user_id: userId,
-            });
+            }, signal);
         }
         const args: Record<string, any> = { feed_id: feedId, xsec_token: xsecToken, content };
         if (commentId) args.comment_id = commentId;
         if (userId) args.user_id = userId;
         if (parentCommentId) args.parent_comment_id = parentCommentId;
-        return mcpCallTool(serverUrl, 'reply_comment', args);
+        return mcpCallTool(serverUrl, 'reply_comment', args, signal);
     },
 
-    getUserProfile: async (serverUrl: string, userId: string, xsecToken?: string): Promise<McpToolResult> => {
+    getUserProfile: async (serverUrl: string, userId: string, xsecToken?: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
         if (detectMode(serverUrl) === 'bridge') {
-            return bridgePost(serverUrl, 'user-profile', { user_id: userId, xsec_token: xsecToken || '' });
+            return bridgePost(serverUrl, 'user-profile', { user_id: userId, xsec_token: xsecToken || '' }, signal);
         }
         const args: Record<string, any> = { user_id: userId };
         if (xsecToken) args.xsec_token = xsecToken;
-        return mcpCallTool(serverUrl, 'get_user_info', args);
+        return mcpCallTool(serverUrl, 'get_user_info', args, signal);
     },
 
-    login: async (serverUrl: string): Promise<McpToolResult> => {
-        if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'login');
+    login: async (serverUrl: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
+        if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'login', undefined, signal);
         return { success: false, error: '登录功能仅在 Skills (Bridge) 模式下可用' };
     },
 
-    getQrcode: async (serverUrl: string): Promise<McpToolResult> => {
-        if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'get-qrcode');
+    getQrcode: async (serverUrl: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
+        if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'get-qrcode', undefined, signal);
         return { success: false, error: '二维码功能仅在 Skills (Bridge) 模式下可用' };
     },
 
-    logout: async (serverUrl: string): Promise<McpToolResult> => {
-        if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'delete-cookies');
+    logout: async (serverUrl: string, signal?: AbortSignal): Promise<McpToolResult> => {
+        signal?.throwIfAborted();
+        if (detectMode(serverUrl) === 'bridge') return bridgePost(serverUrl, 'delete-cookies', undefined, signal);
         return { success: false, error: '登出功能仅在 Skills (Bridge) 模式下可用' };
     },
 };

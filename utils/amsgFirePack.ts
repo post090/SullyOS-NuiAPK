@@ -550,6 +550,8 @@ export const buildAwayHint = (targetName: string, timeSinceUser: string): string
 // ─── self_log：角色自己发出去的那几条 ───
 
 export interface AmsgSelfLogEntry {
+  /** 云端即时回复轮次，用于停止后校正已说出口的正文。 */
+  taskUuid?: string;
   /**
    * 这条正文属于哪一次触发（`<clientTaskId>@<触发时刻>`）。
    *

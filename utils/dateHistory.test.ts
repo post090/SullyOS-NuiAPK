@@ -25,6 +25,26 @@ const message = (
 });
 
 describe('splitDateEncounters', () => {
+    it('无开场的两次见面独立分组，跨日与迟到回复仍归属原场次', () => {
+        const inEncounter = (id: number, day: number, encounter: string) => ({
+            ...message(id, at(day, 10)), metadata: { source: 'date', dateEncounterId: encounter },
+        });
+        const messages = [message(1, at(8, 10), { opening: true }),
+            inEncounter(2, 9, 'a'), inEncounter(3, 9, 'b'), inEncounter(4, 10, 'a')];
+        const groups = splitDateEncounters(messages);
+        expect(groups.map(g => g.messages.map(m => m.id))).toEqual([[1], [2, 4], [3]]);
+        expect(groups.map(g => g.encounterCount)).toEqual([1, 1, 1]);
+        const days = groupDateMessagesByDate(messages);
+        expect(days.map(g => g.messages.map(m => m.id))).toEqual([[1], [2, 3], [4]]);
+        expect(days.map(g => g.encounterCount)).toEqual([1, 2, 1]);
+    });
+
+    it('删除开场或只加载部分记录后仍按场次归组，不依赖锚点消息', () => {
+        const messages = [message(2, at(9, 10)), message(3, at(9, 11))]
+            .map(m => ({ ...m, metadata: { source: 'date', dateEncounterId: 'same' } }));
+        expect(splitDateEncounters(messages)).toHaveLength(1);
+        expect(splitDateEncounters(messages.slice(1))[0].id).toBe(splitDateEncounters(messages)[0].id);
+    });
     it('有开场锚点时不会再因长时间间隔或跨日误拆同一次见面', () => {
         const groups = splitDateEncounters([
             message(1, at(9, 22), { opening: true }),

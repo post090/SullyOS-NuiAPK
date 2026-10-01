@@ -78,6 +78,17 @@ vi.mock('./activeMsgStore', () => ({
 
 const ENTRIES = [{ namespace: 'amsg:char:x', key: 'fire_pack', value: '{}', updatedAt: 1 }];
 
+it('已经停止的即时请求不会开始准备或上传下一轮状态', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const fetchSpy = vi.spyOn(globalThis, 'fetch');
+  try {
+    await expect(ActiveMsgClient.sendInstantChat({ signal: controller.signal } as any))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  } finally { fetchSpy.mockRestore(); }
+});
+
 /** 只需要 putClientState 这一个方法，其余 InternalReiClient 成员用不到。 */
 const clientWith = (impl: any) => ({ putClientState: impl } as any);
 

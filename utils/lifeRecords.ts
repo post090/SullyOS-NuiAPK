@@ -1,3 +1,4 @@
+import { withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
 
 import { DB } from './db';
 import {
@@ -551,8 +552,11 @@ export const executeLifeDirectives = async (
     messageTimestamp?: number,
     /** 这一轮消息统一继承的 metadata（主动消息 2.0 的标记，见 chatParser 的同名参数）。 */
     inheritMeta?: Record<string, any>,
+    replyRun?: ReplyRun,
 ): Promise<string> => {
     /** 生活卡跟同一条消息的正文气泡共用一个时间戳，别一条消息两个时间。 */
+    const replyStep = <T>(operation: () => Promise<T>) => withReplyCancellation(replyRun, operation);
+    replyRun?.check();
     const stamp = messageTimestamp != null ? { timestamp: messageTimestamp } : {};
     /** 卡片自己的字段优先，inheritMeta 只补它没有的键。 */
     const withInherited = (meta: Record<string, any>) => (inheritMeta ? { ...inheritMeta, ...meta } : meta);
@@ -563,7 +567,7 @@ export const executeLifeDirectives = async (
     let executed = 0;
     const MAX_PER_MESSAGE = 4; // 防 LLM 发疯连打十几条
     // 全局隐藏的模块：即使角色开关全开也不记（用户长按隐藏 = 不想看到这类内容），但会留条提示
-    const hidden = getHiddenLifeModules(await DB.getLifeRecordSettings().catch(() => null));
+    const hidden = getHiddenLifeModules(await replyStep(async () => DB.getLifeRecordSettings().catch(() => null)));
 
     /**
      * 想记但没记成（开关关了 / 模块被隐藏）时留一条系统提示。
@@ -573,13 +577,14 @@ export const executeLifeDirectives = async (
      */
     const noteSkipped = async (summary: string, reason: string) => {
         try {
-            await DB.saveMessage({
+            await replyStep(async () => (replyRun?.saveMessage ?? DB.saveMessage)({
                 ...stamp,
                 charId: char.id, role: 'system', type: 'text',
                 content: `[系统: ${char.name}想帮你记「${summary}」，但${reason}，这次没记成]`,
                 metadata: withInherited({ lifeRecordSkipped: true }),
-            });
+            }));
         } catch (e) {
+            replyRun?.check();
             console.warn('[LifeRecord] 记不成的提示也没落进去:', e);
         }
     };
@@ -598,21 +603,21 @@ export const executeLifeDirectives = async (
 
         const skipSummary = summarizeLifeRecord(d.module, d.kind, d.payload);
         if (!isLifeRecordOn(char)) {
-            await noteSkipped(skipSummary, '生活记录功能已关闭');
+            await replyStep(async () => noteSkipped(skipSummary, '生活记录功能已关闭'));
             continue;
         }
         if (!isLifeModuleOn(char, d.module) || hidden.has(d.module)) {
-            await noteSkipped(skipSummary, `「${LIFE_MODULE_LABELS[d.module]}」已关闭`);
+            await replyStep(async () => noteSkipped(skipSummary, `「${LIFE_MODULE_LABELS[d.module]}」已关闭`));
             continue;
         }
 
         try {
-            const records = await DB.getAllLifeRecords();
-            const dup = await findDuplicate(d, records, today);
+            const records = await replyStep(async () => DB.getAllLifeRecords());
+            const dup = await replyStep(async () => findDuplicate(d, records, today));
             const summary = summarizeLifeRecord(d.module, d.kind, d.payload);
 
             if (dup) {
-                await DB.saveMessage({
+                await replyStep(async () => (replyRun?.saveMessage ?? DB.saveMessage)({
                     ...stamp,
                     charId: char.id, role: 'assistant', type: 'life_card',
                     content: `[生活记录：${summary}（已有记录，未重复添加）]`,
@@ -620,7 +625,7 @@ export const executeLifeDirectives = async (
                         module: d.module, kind: d.kind, summary, dateStr: today,
                         recordedByName: char.name, duplicate: true, duplicateBy: dup.byName,
                     }),
-                });
+                }));
                 addToast(`${char.name} 想记「${summary}」，已有记录`, 'info');
                 continue;
             }
@@ -636,7 +641,7 @@ export const executeLifeDirectives = async (
                     timestamp: Date.now(),
                     dateStr: today,
                 };
-                await DB.saveTransaction(tx);
+                await replyStep(async () => DB.saveTransaction(tx));
                 bankTxId = tx.id;
             }
 
@@ -648,9 +653,9 @@ export const executeLifeDirectives = async (
                 reviewStatus: 'active',
                 ...(bankTxId ? { bankTxId } : {}),
             };
-            await DB.saveLifeRecord(record);
+            await replyStep(async () => DB.saveLifeRecord(record));
 
-            await DB.saveMessage({
+            await replyStep(async () => (replyRun?.saveMessage ?? DB.saveMessage)({
                 ...stamp,
                 charId: char.id, role: 'assistant', type: 'life_card',
                 content: `[生活记录：${summary}]`,
@@ -658,9 +663,10 @@ export const executeLifeDirectives = async (
                     recordId: record.id, module: d.module, kind: d.kind, summary,
                     dateStr: today, recordedByName: char.name, reviewStatus: 'active',
                 }),
-            });
+            }));
             addToast(`${char.name} 帮你记录了「${summary}」`, 'success');
         } catch (e) {
+            replyRun?.check();
             console.error('[LifeRecord] directive failed:', verb, e);
         }
     }

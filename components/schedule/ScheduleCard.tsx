@@ -7,6 +7,7 @@ import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
 import TokenImg from '../os/TokenImg';
+import { putImageBlob } from '../../utils/blobRef';
 
 interface ScheduleCardProps {
     schedule: DailySchedule | null;
@@ -16,7 +17,7 @@ interface ScheduleCardProps {
     onEdit?: (index: number, slot: ScheduleSlot) => void;
     onDelete?: (index: number) => void;
     onReroll?: () => void;
-    onCoverImageChange?: (dataUrl: string) => void;
+    onCoverImageChange?: (imageRef: string) => void | Promise<void>;
     onPlayTheater?: (index: number) => void; // 点某个「已过去/正在进行」时段的播放按钮 → 小剧场
     isGenerating?: boolean;
 }
@@ -75,6 +76,7 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
     const [editDesc, setEditDesc] = useState('');
     const [editEmoji, setEditEmoji] = useState('');
     const coverInputRef = useRef<HTMLInputElement>(null);
+    const [coverUploadError, setCoverUploadError] = useState('');
 
     // 长按菜单状态：记录哪一条日程被长按触发 action sheet（修改 / 删除）
     const [actionIdx, setActionIdx] = useState<number | null>(null);
@@ -143,25 +145,15 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
         setEditingIdx(null);
     };
 
-    const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file || !onCoverImageChange) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            const img = new window.Image();
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                const maxW = 400;
-                const scale = Math.min(1, maxW / img.width);
-                canvas.width = img.width * scale;
-                canvas.height = img.height * scale;
-                canvas.getContext('2d')?.drawImage(img, 0, 0, canvas.width, canvas.height);
-                onCoverImageChange(canvas.toDataURL('image/jpeg', 0.8));
-            };
-            img.src = ev.target?.result as string;
-        };
-        reader.readAsDataURL(file);
         e.target.value = '';
+        setCoverUploadError('');
+        try {
+            // Store original pixels once; each day's schedule keeps a durable token.
+            await onCoverImageChange(await putImageBlob(file));
+        } catch { setCoverUploadError('头图保存失败，请重试'); }
     };
 
     const palette = resolveScheduleCardPalette(
@@ -240,6 +232,7 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
                 </div>
             </div>
 
+            {coverUploadError && <p role="alert" className="px-4 py-2 text-xs text-red-500">{coverUploadError}</p>}
             {/* Content: Character Image Banner on top, Schedule List below */}
             <div className="flex flex-col">
                 {/* Character Image Banner */}

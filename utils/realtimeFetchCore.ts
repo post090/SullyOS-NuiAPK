@@ -45,7 +45,8 @@ export interface FeishuDiaryPreview {
  * 调用方要是把它们当成同一件事，角色就会把一次没发出去的搜索说成「我刚搜了下，没什么」。
  * `reached` 就是用来分这两种的：它为 true 才表示真的问到了搜索服务并拿回一份读得懂的结果。
  */
-export const performSearch = async (query: string, apiKey: string): Promise<{ success: boolean; results: SearchResult[]; message: string; reached: boolean }> => {
+export const performSearch = async (query: string, apiKey: string, signal?: AbortSignal): Promise<{ success: boolean; results: SearchResult[]; message: string; reached: boolean }> => {
+    signal?.throwIfAborted();
     if (!query || !apiKey) {
         return { success: false, results: [], message: '缺少搜索关键词或API Key', reached: false };
     }
@@ -55,6 +56,7 @@ export const performSearch = async (query: string, apiKey: string): Promise<{ su
         const workerUrl = `${getProxyWorkerUrl()}/search?q=${encodeURIComponent(query)}&count=5`;
 
         const response = await fetch(workerUrl, {
+            signal,
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
@@ -73,6 +75,7 @@ export const performSearch = async (query: string, apiKey: string): Promise<{ su
                 const errJson = JSON.parse(text);
                 return { success: false, results: [], message: `搜索失败: ${errJson.error || response.status}`, reached: false };
             } catch {
+                signal?.throwIfAborted();
                 return { success: false, results: [], message: `搜索失败: ${response.status}`, reached: false };
             }
         }
@@ -82,6 +85,7 @@ export const performSearch = async (query: string, apiKey: string): Promise<{ su
         try {
             data = JSON.parse(text);
         } catch (e) {
+            signal?.throwIfAborted();
             console.error('Search response not JSON:', text.slice(0, 200));
             // 回了东西但读不懂，等于不知道搜到了什么，同样不能算"搜过了"
             return { success: false, results: [], message: '搜索返回格式错误', reached: false };
@@ -100,6 +104,7 @@ export const performSearch = async (query: string, apiKey: string): Promise<{ su
         // 这一条才是真的"搜过了，没有相关结果"
         return { success: false, results: [], message: '没有找到相关结果', reached: true };
     } catch (e: any) {
+        signal?.throwIfAborted();
         console.error('Search failed:', e);
         return { success: false, results: [], message: `搜索出错: ${e.message}`, reached: false };
     }
@@ -118,10 +123,12 @@ export const notionGetDiaryByDate = async (
     apiKey: string,
     databaseId: string,
     characterName: string,
-    date: string  // YYYY-MM-DD
+    date: string, signal?: AbortSignal  // YYYY-MM-DD
 ): Promise<{ success: boolean; entries: DiaryPreview[]; message: string }> => {
+    signal?.throwIfAborted();
     try {
         const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+            signal,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -172,6 +179,7 @@ export const notionGetDiaryByDate = async (
 
         return { success: true, entries, message: `找到 ${entries.length} 篇日记` };
     } catch (e: any) {
+        signal?.throwIfAborted();
         console.error('Get diary by date failed:', e);
         return { success: false, entries: [], message: `查询失败: ${e.message}` };
     }
@@ -186,10 +194,12 @@ export const notionGetDiaryByDate = async (
  */
 export const notionReadDiaryContent = async (
     apiKey: string,
-    pageId: string
+    pageId: string, signal?: AbortSignal
 ): Promise<{ success: boolean; content: string; message: string }> => {
+    signal?.throwIfAborted();
     try {
         const response = await fetch(`${getProxyWorkerUrl()}/notion/blocks/${pageId}`, {
+            signal,
             method: 'GET',
             headers: {
                 'X-Notion-API-Key': apiKey
@@ -213,6 +223,7 @@ export const notionReadDiaryContent = async (
         const content = notionBlocksToText(data.results);
         return { success: true, content, message: '读取成功' };
     } catch (e: any) {
+        signal?.throwIfAborted();
         console.error('Read diary content failed:', e);
         return { success: false, content: '', message: `读取失败: ${e.message}` };
     }
@@ -233,10 +244,12 @@ export const notionSearchUserNotes = async (
     apiKey: string,
     notesDatabaseId: string,
     keyword: string,
-    limit: number = 5
+    limit: number = 5, signal?: AbortSignal
 ): Promise<{ success: boolean; entries: DiaryPreview[]; message: string }> => {
+    signal?.throwIfAborted();
     try {
         const response = await fetch(`${getProxyWorkerUrl()}/notion/query`, {
+            signal,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -284,6 +297,7 @@ export const notionSearchUserNotes = async (
 
         return { success: true, entries, message: `找到 ${entries.length} 篇笔记` };
     } catch (e: any) {
+        signal?.throwIfAborted();
         console.error('Search user notes failed:', e);
         return { success: false, entries: [], message: `搜索失败: ${e.message}` };
     }
@@ -357,7 +371,8 @@ let feishuTokenCache: { token: string; expiresAt: number } | null = null;
 /**
  * 获取飞书 tenant_access_token（通过 Worker 代理，带缓存）
  */
-export const feishuGetToken = async (appId: string, appSecret: string): Promise<{ success: boolean; token: string; message: string }> => {
+export const feishuGetToken = async (appId: string, appSecret: string, signal?: AbortSignal): Promise<{ success: boolean; token: string; message: string }> => {
+    signal?.throwIfAborted();
     // 检查缓存是否有效 (提前5分钟过期)
     if (feishuTokenCache && feishuTokenCache.expiresAt > Date.now() + 5 * 60 * 1000) {
         return { success: true, token: feishuTokenCache.token, message: '使用缓存token' };
@@ -365,6 +380,7 @@ export const feishuGetToken = async (appId: string, appSecret: string): Promise<
 
     try {
         const response = await fetch(`${getProxyWorkerUrl()}/feishu/token`, {
+            signal,
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ app_id: appId, app_secret: appSecret })
@@ -376,6 +392,7 @@ export const feishuGetToken = async (appId: string, appSecret: string): Promise<
                 const errJson = JSON.parse(text);
                 return { success: false, token: '', message: `获取token失败: ${errJson.msg || errJson.error || response.status}` };
             } catch {
+                signal?.throwIfAborted();
                 return { success: false, token: '', message: `获取token失败: ${response.status}` };
             }
         }
@@ -391,6 +408,7 @@ export const feishuGetToken = async (appId: string, appSecret: string): Promise<
 
         return { success: true, token, message: 'Token获取成功' };
     } catch (e: any) {
+        signal?.throwIfAborted();
         return { success: false, token: '', message: `网络错误: ${e.message}` };
     }
 };
@@ -407,10 +425,11 @@ export const feishuGetDiaryByDate = async (
     baseId: string,
     tableId: string,
     characterName: string,
-    date: string  // YYYY-MM-DD
+    date: string, signal?: AbortSignal  // YYYY-MM-DD
 ): Promise<{ success: boolean; entries: FeishuDiaryPreview[]; message: string }> => {
+    signal?.throwIfAborted();
     try {
-        const tokenResult = await feishuGetToken(appId, appSecret);
+        const tokenResult = await feishuGetToken(appId, appSecret, signal);
         if (!tokenResult.success) {
             return { success: false, entries: [], message: tokenResult.message };
         }
@@ -419,6 +438,7 @@ export const feishuGetDiaryByDate = async (
         const nextDayTimestamp = dateTimestamp + 24 * 60 * 60 * 1000;
 
         const response = await fetch(`${getProxyWorkerUrl()}/feishu/bitable/${baseId}/${tableId}/records/search`, {
+            signal,
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -468,6 +488,7 @@ export const feishuGetDiaryByDate = async (
 
         return { success: true, entries, message: `找到 ${entries.length} 篇日记` };
     } catch (e: any) {
+        signal?.throwIfAborted();
         return { success: false, entries: [], message: `查询失败: ${e.message}` };
     }
 };

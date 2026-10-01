@@ -7,6 +7,7 @@
     <nav class="workspace-tabs" aria-label="管理分类"><button id="tab-submissions" aria-pressed="true">作品审核</button><button id="tab-repos" aria-pressed="false">私密 Repo</button><button id="logout">退出登录</button></nav>
     <div class="toolbar"><label>状态<select id="filter"><option value="pending">审核中</option><option value="approved">已通过</option><option value="rejected">已退回</option><option value="all">全部</option></select></label><label class="search-label">查找<input id="search" maxlength="80" placeholder="作品名 / 作者码 / 美化码"></label><button id="search-button">查找</button><button id="refresh">刷新</button></div>
     <p id="scope-note">文件内容请下载后人工检查，不直接执行投稿中的 CSS。</p>
+    <div class="toolbar"><span id="catalog-status" role="status"></span><button id="catalog-refresh">更新公开快照</button><button id="catalog-check">查看快照状态</button></div>
     <div class="results-top"><span id="result-count"></span><button id="export-selected" hidden>生成所选 Repo 合集卡</button></div>
     <div id="submissions" aria-live="polite"></div>
     <nav class="pagination" aria-label="结果分页"><button id="previous">上一页</button><span id="page-label"></span><button id="more">下一页</button></nav>

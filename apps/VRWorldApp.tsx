@@ -2706,6 +2706,29 @@ const SignalPanel: React.FC<{ addToast?: (m: string, t?: any) => void; character
     );
 };
 
+const GuestbookMessageButton: React.FC<{
+    message: VRGuestbookMessage; selected: boolean;
+    onReply: () => void; onMenu: () => void;
+}> = ({ message: m, selected, onReply, onMenu }) => {
+    const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const held = useRef(false);
+    const pressOrigin = useRef({ x: 0, y: 0 });
+    const cancel = () => { if (timer.current) clearTimeout(timer.current); timer.current = null; };
+    useEffect(() => cancel, []);
+    return <button type="button"
+        onPointerDown={e => { if (e.button !== 0) return; cancel(); pressOrigin.current = { x: e.clientX, y: e.clientY }; held.current = false; timer.current = setTimeout(() => { held.current = true; onMenu(); }, 500); }}
+        onPointerUp={cancel} onPointerMove={e => { if (Math.hypot(e.clientX - pressOrigin.current.x, e.clientY - pressOrigin.current.y) > 10) cancel(); }} onPointerCancel={cancel} onPointerLeave={cancel}
+        onContextMenu={e => { e.preventDefault(); cancel(); held.current = true; onMenu(); }}
+        onClick={() => { if (!held.current) onReply(); held.current = false; }}
+        aria-label={`${m.authorName}：${m.content}，长按编辑或删除`}
+        className="block text-left text-[12.5px] leading-relaxed text-white/85 px-2.5 py-1 rounded-lg w-fit max-w-full select-none"
+        style={{ background: selected ? 'rgba(96,165,250,0.18)' : 'rgba(255,255,255,0.055)', border: selected ? '1px solid rgba(125,211,252,.35)' : '1px solid transparent', WebkitTouchCallout: 'none' }}>
+        {m.replyToName && <span className="text-[10px] text-sky-200/45 mr-1">↩{m.replyToName}</span>}
+        {m.content}
+        {m.authorId !== 'user' && <span className="ml-2 text-[9px] text-sky-200/35">回复</span>}
+    </button>;
+};
+
 const RoomScene: React.FC<{
     roomId: VRRoomId; occupants: CharacterProfile[];
     latestByChar: Record<string, FeedItem>; onClose: () => void;
@@ -2732,6 +2755,22 @@ const RoomScene: React.FC<{
     const [posting, setPosting] = useState(false);
     const [gbPage, setGbPage] = useState(0);          // 留言墙翻页：0 = 最新一页
     const [confirmClear, setConfirmClear] = useState(false); // 一键清空二次确认
+    const [messageMenu, setMessageMenu] = useState<VRGuestbookMessage | null>(null);
+    const [editingMessage, setEditingMessage] = useState<VRGuestbookMessage | null>(null);
+    const [messageDraft, setMessageDraft] = useState('');
+    const [deletingMessage, setDeletingMessage] = useState<VRGuestbookMessage | null>(null);
+    const [savingMessage, setSavingMessage] = useState(false);
+    const changeMessage = async (message: VRGuestbookMessage, content: string | null) => {
+        if (savingMessage) return;
+        setSavingMessage(true);
+        try {
+            await DB.editVRGuestbookMessage(message.id, content);
+            setBoard(await DB.getVRGuestbook());
+            if (replyingTo?.id === message.id) setReplyingTo(content === null ? null : { ...message, content });
+            setEditingMessage(null); setDeletingMessage(null);
+        } catch { addToast?.('留言保存失败，请重试', 'error'); }
+        finally { setSavingMessage(false); }
+    };
     const [hideChibi, setHideChibi] = useState(false);  // 隐藏小人（留言簿等文字面板会被小人挡住时用）
     const music = useMusic();
 
@@ -2918,14 +2957,7 @@ const RoomScene: React.FC<{
                                                 </div>
                                                 <div className="mt-1 space-y-1">
                                                     {g.map(m => (
-                                                        <button key={m.id} type="button" onClick={() => startReply(m)} disabled={m.authorId === 'user'}
-                                                            aria-label={m.authorId === 'user' ? undefined : `回复 ${m.authorName}：${m.content}`}
-                                                            className="block text-left text-[12.5px] leading-relaxed text-white/85 px-2.5 py-1 rounded-lg w-fit max-w-full disabled:cursor-default active:scale-[0.99]"
-                                                            style={{ background: replyingTo?.id === m.id ? 'rgba(96,165,250,0.18)' : 'rgba(255,255,255,0.055)', border: replyingTo?.id === m.id ? '1px solid rgba(125,211,252,.35)' : '1px solid transparent' }}>
-                                                            {m.replyToName && <span className="text-[10px] text-sky-200/45 mr-1">↩{m.replyToName}</span>}
-                                                            {m.content}
-                                                            {m.authorId !== 'user' && <span className="ml-2 text-[9px] text-sky-200/35">回复</span>}
-                                                        </button>
+                                                        <GuestbookMessageButton key={m.id} message={m} selected={replyingTo?.id === m.id} onReply={() => startReply(m)} onMenu={() => setMessageMenu(m)} />
                                                     ))}
                                                 </div>
                                             </div>
@@ -2947,6 +2979,18 @@ const RoomScene: React.FC<{
                 })()}
 
                 {/* 邮局：信件管理面板 */}
+                <ActionSheet open={!!messageMenu} title={messageMenu?.authorName} onClose={() => setMessageMenu(null)} actions={[
+                    { label: '编辑留言', onClick: () => { setEditingMessage(messageMenu); setMessageDraft(messageMenu?.content || ''); setMessageMenu(null); } },
+                    { label: '删除留言', danger: true, onClick: () => { setDeletingMessage(messageMenu); setMessageMenu(null); } },
+                ]} />
+                <ConfirmDialog open={!!deletingMessage} title="删除这条留言？" message="只删除留言墙上的这条记录。" onCancel={() => { if (!savingMessage) setDeletingMessage(null); }} onConfirm={() => { if (deletingMessage) void changeMessage(deletingMessage, null); }} />
+                {editingMessage && <div className="fixed inset-0 z-[300] bg-black/60 flex items-center justify-center p-5" role="dialog" aria-modal="true" aria-label="编辑留言">
+                    <div className="w-full max-w-md rounded-2xl bg-slate-900 p-4 text-white">
+                        <h3>编辑留言</h3>
+                        <textarea autoFocus aria-label="留言内容" value={messageDraft} onChange={e => setMessageDraft(e.target.value)} className="w-full h-32 my-3 p-3 rounded-xl bg-white/10" />
+                        <div className="flex justify-end gap-4"><button disabled={savingMessage} onClick={() => setEditingMessage(null)}>取消</button><button disabled={savingMessage || !messageDraft.trim()} onClick={() => void changeMessage(editingMessage, messageDraft.trim())}>{savingMessage ? '保存中…' : '保存'}</button></div>
+                    </div>
+                </div>}
                 {isPostOffice && <PostOfficePanel addToast={addToast} characters={characters} userName={userName} />}
 
                 {/* 剧院：话剧部门面板（投稿 / 编排 / 演出 / 历史） */}

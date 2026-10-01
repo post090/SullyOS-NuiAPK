@@ -87,6 +87,7 @@ import {
   resetInstantChatReprobeCooldown,
   resolveInstantChatReadiness,
   sendInstantChatTurn,
+  stopInstantChat,
   setInstantChatPending,
   settleInstantChatApiLog,
   settleInstantChatExpiredNotices,
@@ -1429,4 +1430,49 @@ describe('探测顺手记下 bundle 版本（workerBundleVersion）', () => {
     await ActiveMsgClient.probeInstantChatSupportDetailed();
     expect(versionWrites()).toEqual([]);
   });
+});
+
+it('POST受理前停止也立即屏蔽这一轮，拿到202后不重新点亮待收状态', async () => {
+  const { isReplyStopped } = await import('./chatReplyCancellation');
+  const controller = new AbortController();
+  let accept!: (value: any) => void;
+  let requestedUuid = '';
+  const send = vi.spyOn(ActiveMsgClient, 'sendInstantChat').mockImplementation(params => {
+    requestedUuid = params.uuid!;
+    return new Promise(resolve => { accept = resolve; });
+  });
+  const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask').mockResolvedValue({ uuid: '', alreadyGone: true });
+  const write = vi.spyOn(ActiveMsgClient, 'writeClientStateValue').mockResolvedValue(undefined);
+  const pending = sendInstantChatTurn({
+    char: CHAR, chatMessages: [{ role: 'user', content: '在吗' }], api: API,
+    userProfile: USER, groups: [], realtimeConfig: {} as any, signal: controller.signal,
+  });
+  controller.abort();
+  expect(isReplyStopped(requestedUuid)).toBe(true);
+  accept({ uuid: requestedUuid });
+  await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+  expect(getInstantChatPending(CHAR.id)).toBeNull();
+  expect(cancel).toHaveBeenCalledWith(requestedUuid);
+  send.mockRestore(); cancel.mockRestore(); write.mockRestore();
+});
+
+it('停止待收轮立即解除占位；云端取消失败也只保留已显示正文', async () => {
+  const { publishReplyDisplay, isReplyStopped } = await import('./chatReplyCancellation');
+  const charId = 'stop-received-round';
+  const uuid = 'stop-received-uuid';
+  const base = { charId, role: 'assistant', type: 'text', metadata: { activeMsg2: { taskUuid: uuid } } } as const;
+  const shown = await DB.saveMessage({ ...base, content: '已经显示' } as any);
+  await DB.saveMessage({ ...base, content: '还没上屏' } as any);
+  publishReplyDisplay(charId, [shown], []);
+  setInstantChatPending(charId, uuid, Date.now(), '角色');
+  const cancel = vi.spyOn(ActiveMsgClient, 'cancelTask').mockRejectedValue(new Error('offline'));
+  const write = vi.spyOn(ActiveMsgClient, 'writeClientStateValue').mockResolvedValue(undefined);
+  try {
+    const stopping = stopInstantChat(charId);
+    expect(getInstantChatPending(charId)).toBeNull();
+    expect(isReplyStopped(uuid)).toBe(true);
+    await expect(stopping).rejects.toThrow('offline');
+    expect((await DB.getMessagesByCharId(charId)).map(message => message.content)).toEqual(['已经显示']);
+    expect(write).toHaveBeenCalledWith(`amsg:char:${charId}`, `chat_stop:${uuid}`, JSON.stringify({ text: '已经显示' }));
+  } finally { cancel.mockRestore(); write.mockRestore(); }
 });

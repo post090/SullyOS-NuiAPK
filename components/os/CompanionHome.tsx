@@ -54,7 +54,7 @@ import {
 } from '../../utils/avatarPerformance';
 import { deleteBlobRef, deleteBlobRefIfUnreferenced, isBlobRef, putImageBlob, useBlobRefUrl } from '../../utils/blobRef';
 import TokenImg from './TokenImg';
-import { hslToHex, hueFromGradient, hueFromImage, normalizeHue } from '../../utils/dominantHue';
+import { hslToHex, hueFromGradient, hueFromImage, normalizeHue, rgbToHsl } from '../../utils/dominantHue';
 import { characterHasVoice } from '../../utils/ttsRouter';
 import { CallAudioFeed } from '../../utils/callAudioFeed';
 import { VOICE_LANGUAGE_OPTIONS, voiceLanguageAnalyticsValue, voiceLanguageLabel } from '../../utils/voiceLanguage';
@@ -643,14 +643,16 @@ const CompanionHome: React.FC = () => {
     [backgroundPreset],
   );
   const palette = useMemo(() => {
+    const manual = /^#[0-9a-f]{6}$/i.test(character?.companionThemeColor || '') ? character!.companionThemeColor! : undefined;
+    const manualHsl = manual ? rgbToHsl(parseInt(manual.slice(1, 3), 16), parseInt(manual.slice(3, 5), 16), parseInt(manual.slice(5, 7), 16)) : undefined;
     const baseHue = normalizeHue(theme.hue ?? 267);
-    const saturation = Math.min(74, Math.max(32, theme.saturation ?? 46));
+    const saturation = manualHsl ? manualHsl[1] * 100 : Math.min(74, Math.max(32, theme.saturation ?? 46));
     const sceneHue = backgroundHue ?? presetHue ?? baseHue;
-    const accentHue = charHue ?? sceneHue;
+    const accentHue = manualHsl?.[0] ?? charHue ?? sceneHue;
     const accentLightness = Math.min(78, Math.max(68, (theme.lightness ?? 64) + 7));
     return {
-      accent: hslToHex(accentHue, Math.max(52, saturation), accentLightness),
-      ambient: backgroundPreset?.tint || hslToHex(sceneHue, Math.max(44, saturation), 64),
+      accent: manual || hslToHex(accentHue, Math.max(52, saturation), accentLightness),
+      ambient: manual || backgroundPreset?.tint || hslToHex(sceneHue, Math.max(44, saturation), 64),
       baseTop: hslToHex(baseHue, Math.max(34, saturation - 5), 16),
       baseMid: hslToHex(baseHue, Math.max(28, saturation - 11), 9),
       baseBottom: hslToHex(baseHue, Math.max(24, saturation - 15), 4),
@@ -659,6 +661,7 @@ const CompanionHome: React.FC = () => {
       shadow: hslToHex(accentHue, Math.max(18, saturation - 27), 4),
     };
   }, [
+    character?.companionThemeColor,
     backgroundHue,
     backgroundPreset?.tint,
     charHue,
@@ -1043,10 +1046,11 @@ const CompanionHome: React.FC = () => {
     const input = document.createElement('input');
     input.type = 'file';
     input.style.display = 'none';
+    // VRM 不做系统类型过滤，避免 iOS 把模型置灰；saveAvatarModel 会校验扩展名和文件头。
     input.accept = activeCompanionSource === 'upload'
       ? '.png,.gif,image/png,image/gif'
       : character.videoAvatar?.format === 'vrm'
-        ? '.vrm,model/gltf-binary'
+        ? ''
         : '.zip,application/zip';
     document.body.appendChild(input);
     const removeInput = () => { if (input.parentElement) input.remove(); };
@@ -3793,6 +3797,19 @@ const CompanionHome: React.FC = () => {
                         <span className="text-[9px] text-rose-200/60">移除</span>
                       </button>
                     )}
+                  </div>
+                  <div className="mt-4 border-t border-white/10 pt-3">
+                    <label className="flex items-center justify-between gap-3 text-xs text-white/80">
+                      自定义主题色
+                      <input type="color" aria-label="自定义主题色" value={uiTint} disabled={!character}
+                        onChange={event => { if (character) updateCharacter(character.id, { companionThemeColor: event.target.value }); }}
+                        className="h-9 w-12 cursor-pointer rounded border border-white/20 bg-transparent" />
+                    </label>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-[10px] text-white/50">
+                      <span>{character?.companionThemeColor ? '已使用自选颜色 · 仅对当前角色生效' : '自动取色 · 跟随角色与场景'}</span>
+                      {character?.companionThemeColor && <button type="button" className="shrink-0 rounded-lg border border-white/20 px-2 py-1.5 text-white/80"
+                        onClick={() => updateCharacter(character.id, { companionThemeColor: undefined })}>恢复自动</button>}
+                    </div>
                   </div>
                   <div className="mt-4 border-t border-white/10 pt-3" data-testid="companion-frame-style-picker">
                     <div className="text-[9px] tracking-[0.2em] text-white/40">舞台视觉语言</div>

@@ -131,7 +131,9 @@ const setViewportVars = () => {
         // obscuredHeight = 被软键盘盖住的高度。安卓浏览器若按 resizes-content 回流，
         // innerHeight 会跟着缩，obscuredHeight ≈ 0（走无键盘分支，布局自行回流，什么都不用做）；
         // 若不回流而是缩小可视区/顶起整页，obscuredHeight > 120，进入键盘分支统一避让。
-        const obscuredHeight = Math.max(0, innerHeight - viewportHeight - viewportOffsetTop);
+        // offsetTop is browser panning, not usable height. Subtracting it can
+        // hide the entire keyboard delta when the browser pans to the input.
+        const obscuredHeight = Math.max(0, innerHeight - viewportHeight);
         keyboardOpen = obscuredHeight > 120;
         // 键盘避让统一用「app 高度跟随可视区」，不再靠 keyboard-inset 让各 App 自己叠 padding。
         keyboardInset = 0;
@@ -171,7 +173,7 @@ export const installIOSStandaloneWorkaround = () => {
     const useStandaloneFixes = isIOSStandaloneWebApp();
     // iOS 全屏 PWA 与安卓浏览器都需要这套键盘避让：可视区一变矮就挂 keyboard 类 + 锁外层滚动。
     // 安卓 Chrome/Edge 弹键盘时会把整页顶起，同样靠这套压回去。
-    const useKeyboardFixes = useStandaloneFixes || isAndroidDevice();
+    const useKeyboardFixes = isIOSDevice() || isAndroidDevice();
     keyboardFixesEnabled = useKeyboardFixes;
     if (useStandaloneFixes) {
         document.documentElement.classList.add('ios-standalone');

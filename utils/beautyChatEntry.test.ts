@@ -14,6 +14,20 @@ vi.mock('../components/share/BeautyRepoInvitation',()=>({BeautyRepoLibrary:()=>n
 vi.mock('../components/share/BeautySharePanel',()=>({default:(props:any)=>{mocks.share(props);return null;}}));
 vi.mock('../components/appearance/BeautyWardrobe',()=>({default:({onApply,entries,title}:any)=>{mocks.wardrobe(entries,title);return React.createElement('button',{onClick:()=>onApply({kind:'chat-decoration',read:async()=>({name:'测试心象',parts:{psyche:{styleId:'echo'}}})})},'测试应用');}}));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
+it('opens the story category as chat decorations without requiring an entry character',async()=>{
+ mocks.wardrobe.mockClear();
+ const host=document.createElement('div');const root=createRoot(host);
+ try{
+  await act(async()=>root.render(React.createElement(BeautyShareChannel,{presets:[],onExport:vi.fn(),onImport:vi.fn(),onBusyChange:vi.fn(),initialCategory:'story'})));
+  expect(host.querySelector('h2')?.textContent).toBe('聊天装扮');
+  const tabs=host.querySelector('.wardrobe-categories')!.textContent!;
+  expect(tabs).toContain('提示音见面界面剧情界面');
+  expect(tabs).not.toContain('桌面主题');
+  const entries=mocks.wardrobe.mock.calls.filter(call=>call[1]==='内置剧情美化').at(-1)![0];
+  expect(entries.map((entry:any)=>entry.name)).toEqual(['纯小说','旧书纸页','静夜阅读']);
+  expect((await entries[0].read()).parts).toEqual({story:{preset:'novel'}});
+ }finally{await act(async()=>root.unmount());}
+});
 it('defaults to the entry character, supports switching and explicit apply to all without navigating',async()=>{
  mocks.update.mockClear();
  const host=document.createElement('div');const root=createRoot(host);

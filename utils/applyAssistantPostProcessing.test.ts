@@ -843,3 +843,21 @@ describe('double-bracket sticker history output', () => {
         ]);
     });
 });
+
+describe('停止上屏', () => {
+    it('第一条显示后停止，不落后续正文，也不生成错误提示', async () => {
+        const { createReplyRun, publishReplyDisplay, stopReplyRuns } = await import('./chatReplyCancellation');
+        const charId = 'postprocess-stop';
+        const run = createReplyRun(charId);
+        const ctx = makeCtx(charId, []);
+        ctx.instantRender = true;
+        ctx.replyRun = run;
+        ctx.hooks.setMessages = (messages) => {
+            publishReplyDisplay(charId, messages.map(m => m.id), []);
+            stopReplyRuns(charId);
+        };
+        await expect(applyAssistantPostProcessing('第一句\n第二句\n第三句', ctx)).rejects.toMatchObject({ name: 'AbortError' });
+        await run.settle();
+        expect((await DB.getRecentMessagesByCharId(charId, 20)).map(m => m.content)).toEqual(['第一句']);
+    });
+});

@@ -1131,7 +1131,7 @@ const CallApp: React.FC = () => {
     const character = selectedChar;
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.vrm,.vroid,.zip,model/gltf-binary,application/zip';
+    // iOS 可能无法识别 .vrm 的系统文件类型；不设 accept，选中后再校验扩展名和文件头。
     input.style.display = 'none';
     document.body.appendChild(input);
     const removeInput = () => { if (input.parentElement) input.remove(); };

@@ -86,12 +86,8 @@ export async function dispatchMemberActions(actions: DirectorAction[], ctx: Disp
 
         // 0.5 [[QUOTE: 原话片段]]：AI 想针对某条具体发言回复。两层容错精神——
         // 匹配不到目标就静默剥除标记，绝不因引用失败丢正文
-        let quoteReplyTo: { id: number; content: string; name: string } | undefined;
-        const quoteMatch = publicContent.match(/\[\[\s*QUOTE\s*[:：]\s*([\s\S]*?)\]\]/i);
-        if (quoteMatch) {
-            publicContent = publicContent.replace(quoteMatch[0], '').trim();
-            quoteReplyTo = resolveQuote?.(quoteMatch[1].trim());
-        }
+        // Keep every citation in place until text is split, including standalone tags.
+        let quoteReplyTo: ReturnType<NonNullable<DispatchContext['resolveQuote']>>;
 
         // 0.7 红包命令：[[GRAB_PACKET]] / [[RETURN_PACKET]] / [[SEND_PACKET: …]]。
         // 找不到适用包 / 目标名解析失败 → 静默剥标记保正文
@@ -163,11 +159,26 @@ export async function dispatchMemberActions(actions: DirectorAction[], ctx: Disp
 
         if (textContent) {
             // 只认显式换行；行内空格属于正文，不能把混合语言的一句话拆成多条气泡。
-            const chunks = textContent.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/)
-                .map(c => c.trim())
-                .filter(c => c.length > 0);
+            const quotePattern = /\[{1,2}\s*(?:QUOTE|引用)\s*[:：]\s*([^\]]*?)\]{1,2}/gi;
+            const chunks: { content: string; snippet?: string }[] = [];
+            let offset = 0;
+            const addText = (text: string) => {
+                for (const content of text.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map(c => c.trim()).filter(Boolean)) chunks.push({ content });
+            };
+            for (const match of textContent.matchAll(quotePattern)) {
+                addText(textContent.slice(offset, match.index));
+                chunks.push({ content: '', snippet: match[1].trim() });
+                offset = match.index! + match[0].length;
+            }
+            addText(textContent.slice(offset));
 
-            for (const chunk of chunks) {
+            for (const rawChunk of chunks) {
+                if (rawChunk.snippet !== undefined) {
+                    quoteReplyTo = resolveQuote?.(rawChunk.snippet);
+                    continue;
+                }
+                const chunk = rawChunk.content;
+                if (!chunk) continue;
                 if (signal?.aborted) return;
                 // Typing delay
                 const delay = Math.max(500, chunk.length * 50 + Math.random() * 200);

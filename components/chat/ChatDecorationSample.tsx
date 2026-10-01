@@ -1,4 +1,5 @@
 import JournalThemeArtwork from '../journal/JournalThemeArtwork';
+import {meetingAppearance, MEETING_READING_CSS} from '../../utils/meetingAppearance';
 import {resolveJournalAppearanceCss,JOURNAL_APPEARANCE_SAFETY_CSS} from '../../utils/journalAppearance';
 import {ScheduleCardView} from '../schedule/ScheduleCard';
 import React from 'react';
@@ -30,6 +31,17 @@ const defaultBubble=PRESET_THEMES.default;
 /** Static rendering intentionally never mounts effects or binds actual message actions. */
 export function renderChatDecorationSample(value:unknown,sceneId:string,thumbnailPart?:DecorationThumbnailPart,state:DecorationPreviewState={}) {
  const p=validateDecoration(value).parts,l=p.layout||{};
+ if(p.date||p.story){
+  const style=meetingAppearance(p.date||p.story);
+  const markup=renderToStaticMarkup(<main className="meeting-reading" data-reading-preset={style.id}>
+    <div className="meeting-reading-page" style={{height:thumbnailPart?360:600,padding:'28px 24px',overflow:'hidden'}}>
+      <header style={{fontSize:11,opacity:.55,letterSpacing:3,marginBottom:32}}>{p.date?'见面':'剧情放映厅'} · {style.name}</header>
+      <div className="meeting-prose"><p>窗边的灯亮了，书页上留下了一小片暖色。</p><p>“今天读到哪里了？”</p><p>他把书签夹好，往旁边挪了挪杯子。窗外的雨渐渐停了，只有屋檐还偶尔落下一滴水。</p><p>“刚好到这里。你呢？”</p></div>
+      {p.story&&<small style={{opacity:.5}}>▸ 场景与补充</small>}
+    </div>
+  </main>);
+  return {markup,css:baseCss+'\n'+MEETING_READING_CSS};
+ }
  if(thumbnailPart==='journal'||sceneId==='journal-app'){
   const preset=p.journal?.preset||'original';
   const markup=renderToStaticMarkup(<main className={`sully-journal-root sully-journal-select h-full w-full bg-amber-50 flex flex-col font-light${preset==='original'?'':` sully-journal-designed sully-journal-theme-${preset}`}`}><JournalThemeArtwork preset={preset} scene="select"/><header className="sully-journal-header border-b border-amber-100 bg-amber-50/80 relative z-20"><div className="h-12 px-6 flex items-center justify-between"><span className="sully-journal-back">‹</span><b className="sully-journal-header-title text-amber-900">选择日记本</b><span>⋯</span></div></header><div className="sully-journal-notebook-grid p-6 grid grid-cols-2 gap-5 overflow-y-auto">{['示例角色','另一本日记'].map(name=><div key={name} className="sully-journal-notebook aspect-[3/4] bg-white rounded-r-2xl rounded-l-md border-l-4 border-l-amber-800 shadow-lg p-4 flex flex-col items-center justify-center gap-3 relative overflow-hidden"><div className="sully-journal-notebook-avatar w-16 h-16 rounded-full border border-amber-100 bg-amber-50"><img src="/sully/head.png" className="w-full h-full rounded-full object-cover" alt="示例头像"/></div><b className="sully-journal-notebook-name text-amber-900 text-sm">{name}</b><span className="sully-journal-notebook-label text-[9px] text-amber-600">JOURNAL</span></div>)}</div></main>);

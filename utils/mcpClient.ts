@@ -349,6 +349,7 @@ export const callMcpTool = async (
     server: McpServerConfig,
     toolName: string,
     args: Record<string, any> = {},
+    signal?: AbortSignal,
 ): Promise<McpToolResult> => {
     // 前台才有的确认弹窗：服务端明确标成 destructive 的工具先问用户；
     // 无人值守的后台 fire 不走这里，collectMcpFireServers 已把这类工具剔除。
@@ -364,6 +365,7 @@ export const callMcpTool = async (
         if (!approved) return { success: false, error: '用户拒绝了这次 MCP 调用。' };
     }
     return callMcpToolCore(targetFor(server), getSession(server.id), toolName, args, {
+        signal,
         inputSchema: tool?.inputSchema,
         serverLabel: server.name,
     });

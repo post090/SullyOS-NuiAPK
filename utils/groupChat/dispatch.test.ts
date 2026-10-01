@@ -10,6 +10,18 @@ const ctx: DispatchContext = {
 };
 afterEach(() => vi.restoreAllMocks());
 describe('group sticker format recovery', () => {
+    it('attaches each quote to its following bubble, stripping unresolved tags', async () => {
+        vi.useFakeTimers();
+        try {
+            const save = vi.spyOn(DB, 'saveMessage').mockResolvedValue(1 as any);
+            const resolveQuote = (content: string) => content === '找不到' ? undefined : { id: content === '第一条' ? 1 : 2, content, name: '用户' };
+            const run = dispatchMemberActions([{ charId: 'c-emoji', content: '[[QUOTE: 第一条]]\n回复一\n[[QUOTE: 第二条]]回复二\n[quote：第二条]\n回复三\n[[QUOTE: 找不到]]正文保留' }], { ...ctx, resolveQuote });
+            await vi.runAllTimersAsync(); await run;
+            expect(save.mock.calls.map(([m]) => [m.content, m.replyTo?.id])).toEqual([
+                ['回复一', 1], ['回复二', 2], ['回复三', 2], ['正文保留', undefined],
+            ]);
+        } finally { vi.useRealTimers(); }
+    });
     it.each(['[[你发送了表情包：开心]]','[SEND_EMOJI: 开心]','【发送了表情包: 开心】'])('dispatches %s as an emoji without losing text', async content => {
         const save = vi.spyOn(DB, 'saveMessage').mockResolvedValue(1 as any);
         await dispatchMemberActions([{charId:'c-emoji',content:content+'\n后一句'}], ctx);

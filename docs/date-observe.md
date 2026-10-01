@@ -21,7 +21,7 @@
     - `custom?: DateObserveCustomField[]`：**追加的自定义维度**（最多 6 个），`{ id, label, hint?, enabled? }`。
       与默认维度不同，自定义维度的 `label` **同时是线格式字段名和 HUD 标签**——解析时按 label 精确匹配回该维度，
       所以 `extractObservation` 必须收到 `custom` 才能解析（DateSession 传 `char.dateObserve?.custom`）。空 label 或禁用的不注入/不解析。
-- `DateState.observation?: DateObservation`：当前批次的观测，存进 savedDateState，恢复会话时回填 HUD。
+- `DateState.observation?: DateObservation`：旧版恢复快照的兼容字段。当前见面不再保存／恢复播放快照；观测随消息正文持久化，进入与回看时从正文解析。
 
 ## 样式与自定义（`datePrompts.ts` + `ObserveHUD.tsx` + `ObserveSettings.tsx`）
 

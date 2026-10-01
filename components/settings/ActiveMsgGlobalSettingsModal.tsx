@@ -62,6 +62,8 @@ const REQUIRED_WORKER_FEATURES = [
   // ——包括角色在触发时给自己排的那些——下次触发就用新凭据。缺了它就退回「凭据冻结
   // 进每条任务」的老路：换 Key 要逐条补刷，漏一条到点就是 401。
   'llm-credentials',
+  // 即时对话通过正式策略关闭生成重试，收尾读取上游的 willRetry 决定。
+  'max-generation-retries',
 ];
 // features 之外还必须比版本：这波依赖的能力大多没发独立 flag，光查 features 分不出新旧。
 //   next.5 — GET /messages 投影（charId/clientTaskId）、onBeforeFire 的 { skip } 出口
@@ -130,27 +132,13 @@ const REQUIRED_WORKER_FEATURES = [
 //            上这类响应被当成模型「这轮没说话」静默跳过，面板上只写「没写出要说的话」，
 //            看不出是中转站在报错。同一批还带上 0.4.0-next.9 的脱敏补漏：形状像模型名
 //            的自建网关 Key 不再明文进 last_error。
+//   next.31 — 正式支持按任务配置生成重试次数。即时对话设为 0，失败立即结束；
+//            已整批入箱的内容仍可补推。收尾通过 willRetry 读取上游决定，不修改错误对象。
+//            旧部署缺少这项策略，会继续让用户等自动重试，需更新 Worker。
+//   next.32 — 执行中的即时对话可取消，模型请求与工具循环共享取消信号。
 // 不比版本的话，旧粘贴部署会被误判为最新，问题全在 worker 侧静默发生。
 //
-const REQUIRED_WORKER_VERSION = '2.6.0-next.28';
-
-/**
- * 门槛故意落后于依赖时，把当前依赖的版本写在这里，表示「知道，是有意的」。
- *
- * next.29 多了按命名空间 / 按前缀清理的四条端点（「云端数据」清点用的就是它们），但那是
- * **可选增强**：没有它的 worker 照样能清点和清理，只是「只在云端留了上下文、既没任务也
- * 没凭据」的角色列不出来——那一页会自己说明清单不是全集。为这个亮一次「版本过旧」、
- * 逼所有人重贴一遍部署，不值当。
- *
- * next.30 让投递重试少花钱：模型明确拒了请求（Key 失效、余额不足、模型名写错……）一跳就
- * 终审，不再白试 4 次；内容已经落进收件箱、只是推送没成的，重试只补推原文，不再重新生成。
- * 老 worker 上这些照旧是多花钱、不出错，所以同样不抬门槛——bundle 版本已经往前推了，
- * 设置页会提示有更新。
- *
- * 守卫在 utils/amsgWorkerVersion.test.ts：门槛和这里两个都没跟上依赖，测试就会红，
- * 免得哪天真有「不更新就出错」的改动被当成可选的漏过去。
- */
-const WORKER_VERSION_LAG_ACK = '2.6.0-next.30';
+const REQUIRED_WORKER_VERSION = '2.6.0-next.32';
 
 /** 装着打包好的 worker 代码的部署仓库：fork 它 → 在 Cloudflare 连上 → 以后点 Sync fork 更新。 */
 const WORKERS_REPO_URL = 'https://github.com/Tosd0/sullyos-workers';

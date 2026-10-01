@@ -48,7 +48,7 @@ const sliceSrc = (src: string, label: string, startAnchor: string, endAnchor: st
 };
 
 /** 路由判定那一段源码（在 buildChatRequestPayload 之前算好，上云与否 + 要不要剥时效段 + 没上云的留痕）。 */
-const routingSrc = () => sliceSrc(chatAiSrc, '即时对话路由段', ROUTING_HEAD, 'const payload = await stageT(');
+const routingSrc = () => sliceSrc(chatAiSrc, '即时对话路由段', ROUTING_HEAD, 'const payload = await replyStep(');
 
 /** 即时对话分支那一段源码（从判定行到它自己的 return）。 */
 const branchSrc = () => sliceSrc(chatAiSrc, '即时对话分支', INSTANT_CHAT_BRANCH_HEAD, '// 流式预览：');
@@ -107,7 +107,7 @@ describe('useChatAI 的分流接缝', () => {
     expect(routingSrc()).toContain('const instantChatRoute =');
     expect(chatAiSrc).toMatch(/timelyByWorker:\s*instantChatRoute/);
     const routeAt = chatAiSrc.indexOf('const instantChatRoute =');
-    const payloadAt = chatAiSrc.indexOf('const payload = await stageT(');
+    const payloadAt = chatAiSrc.indexOf('const payload = await replyStep(');
     expect(routeAt).toBeGreaterThan(-1);
     expect(payloadAt).toBeGreaterThan(routeAt);
     // 上云只看两样：即时对话就绪、没被否决。
@@ -178,7 +178,7 @@ describe('useChatAI 的分流接缝', () => {
       chatAiSrc,
       'config-unreadable 分支',
       "} else if (instantChatReadiness.reason === 'config-unreadable')",
-      'const payload = await stageT(',
+      'const payload = await replyStep(',
     );
     expect(branch).toContain("event: 'instant-chat-config-unreadable'");
     // 裸情形的判定与两档去向：veto 在场时本就轮不到即时对话，照原路只留痕不拦。
@@ -233,7 +233,7 @@ describe('useChatAI 的分流接缝', () => {
     // 悄悄退回本地，而那一档要的是明确报错。
     expect(routing).toMatch(/const sarWorkerVeto: string \| null = !instantChatOn \|\|/);
     // 否决要用到 readiness 的结论，所以 readiness 得先算出来。
-    expect(routing.indexOf('await resolveInstantChatReadiness(char'))
+    expect(routing.indexOf('resolveInstantChatReadiness(char'))
       .toBeLessThan(routing.indexOf('const sarWorkerVeto'));
     // 两档都走那条统一的 instant-chat-veto trace（上面「留痕只此一处」那条钉着），warn 各说各的。
     expect(routing).toContain("skipReason === 'sar-module-worker-outdated'");

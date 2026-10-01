@@ -10,7 +10,7 @@ describe('留言簿定向回复接线', () => {
         const source = read('apps/VRWorldApp.tsx');
         expect(source).toContain('replyToId: replyTo?.id');
         expect(source).toContain('replyToName: replyTo?.authorName');
-        expect(source).toContain('onClick={() => startReply(m)}');
+        expect(source).toContain('onReply={() => startReply(m)}');
         expect(source).toContain('aria-label="取消回复"');
     });
 });

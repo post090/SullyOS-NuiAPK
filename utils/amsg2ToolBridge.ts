@@ -119,6 +119,7 @@ export const AMSG2_TOOL_NAMES = new Set(
 // ─── 执行器 ───
 
 export interface Amsg2ToolDeps {
+  signal?: AbortSignal;
   char: CharacterProfile;
   userProfile: UserProfile;
   groups: GroupProfile[];
@@ -228,6 +229,7 @@ export const executeAmsg2ToolWithOutcome = async (
   args: Record<string, any>,
   deps: Amsg2ToolDeps,
 ): Promise<{ text: string; outcome: Amsg2ToolOutcome }> => {
+  deps.signal?.throwIfAborted();
   const mutating = MUTATING_TOOLS.has(toolName);
   // 同名同参第二次直接打回，一次网络请求都不发。上面那段软提示挡不住时靠它兜底，
   // 与 worker 的 fire 循环同一道闸。只拦**完全一样**的调用——换时间、换方向照常放行，
@@ -266,6 +268,7 @@ export const executeAmsg2ToolWithOutcome = async (
     else outcome = { tool: toolName, status: 'rejected', reason: reason ?? 'no_change' };
     return { text: mutating ? `${result}\n${TOOL_FOLLOW_UP}` : result, outcome };
   } catch (e: any) {
+    deps.signal?.throwIfAborted();
     rejectionReasons.delete(deps);
     return {
       text: `操作失败：${e?.message || String(e)}`,
@@ -373,10 +376,12 @@ async function handleSchedule(args: Record<string, any>, deps: Amsg2ToolDeps): P
     : undefined;
   const selfScheduled = !replaced || replaced.source === 'character';
 
+  deps.signal?.throwIfAborted();
   const result = await ActiveMsgClient.scheduleCharacterTask({
     // selfScheduled：角色自己排的要带标记进任务 metadata——连发上限的到点兜底闸只拦
     // 带它的任务，用户在面板里亲手排的不带、不受限（面板走的是同一个入口但不传这个）。
     char, config, task: { ...taskInput, selfScheduled },
+    ...(deps.signal ? { signal: deps.signal } : {}),
     replaceTaskUuid: args.__replaceTaskUuid,   // renew 内部复用，LLM 不感知
     userProfile, groups, realtimeConfig, apiConfig,
   });

@@ -200,6 +200,15 @@ fire 时的处理规则：
 
 ## 失败路径
 
+- 即时对话的生成失败**不自动重试**，不按 API 的 HTTP 状态或供应商错误码枚举。
+  Worker 通过 `amsg-server 2.6.0-next.31+` 的正式配置 `maxGenerationRetries(task)` 对 instant 返回 `0`，
+  其他任务返回 `undefined` 沿用默认值。上游在 `onBeforeFire` 前解析策略，因此
+  读取上下文失败也会直接结束本轮。`amsgFireSettled` 只在上游报告 `willRetry: false`
+  且内容未入箱时写失败原因、发 error push，状态轮询负责兜底，不再修改错误对象。
+  该行为由真实 `amsg-server.runTask` 集成测试约束，升级依赖时必须继续验证。
+  整批已入 outbox 的推送失败仍可补推原文，不重新生成；定时消息的重试策略不变。
+  此规则针对有明确失败结局的 fire；执行环境中断、没有机会收尾时，租约恢复仍保留。
+
 - 客户端「正在输入」的主判定是**云端任务状态**：还欠着回复时每 60s 查一次
   `GET /message?id=<uuid>`，`pending` 就继续等，行已失败 / 行没了才收尾；
   查询本身失败不立刻下结论，等下一跳。下结论前先拉一次 outbox。
@@ -250,3 +259,13 @@ fire 时的处理规则：
 - 新行为配回归守卫测试（旧行为下会挂、修好后过）。
 - 测试 fixture 里的用户名用「小明」，不写真实姓名。
 - UTF-8；注释密度与风格跟随周边代码。
+
+## 停止契约（2026-10-01）
+
+- `/instant-chat` 加密任务体允许传 `uuid`，由客户端在发请求之前生成。202 仍以服务端回传 UUID 为准。
+- 使用既有 `DELETE /cancel-message?id=<uuid>`。客户端立即停止接收；云端通过 1 秒租约心跳感知取消，实际耗时还受网络影响。早于建行的 DELETE 不能阻止未来建行，因此 POST 收尾仍需再取消一次。
+- `onBeforeFire` / `onLLMOutput` / `executeToolCalls` 的 `ctx.signal` 和 `ctx.throwIfCancelled()` 来自上游。LLM、可取消工具请求共享取消信号；工具 catch 必须先检查取消，禁止误吞。
+- `onFireSettled` 的 `cancelled` 是独立结束原因，不触发 instant 失败消息或生成重试。已完成的副作用不回滚。
+- `amsg:char:<charId>` 新增独立键 `chat_stop:<uuid>`，值为裸 JSON `{ "text": "已显示的正文" }`，空串表示没有正文上屏。客户端停止记录与回执持久化；下一次状态上传会带上回执。Worker 开始 instant 前遇到对应键直接 skip，读取 self_log 时用回执替换/移除对应 `taskUuid` 条目。
+- 聊天气泡 `metadata.activeMsg2.taskUuid` 记录轮次归属，用于停止后的落库清理。停止不新增消息类型，不生成“已停止”气泡。
+- 收件箱遇到已停止的 UUID：丢弃并 ACK，禁止原稿降级、重试与副作用重放。若迟到末段带用量，可补记 API 用量，但不会恢复正文或把停止改成成功。

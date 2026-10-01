@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "versionCode": 30506,
-  "versionName": "3.5.6",
-  "apkUrl": "https://github.com/qegj567-cloud/SullyOS/releases/download/android-v3.5.6/SullyOS-Android-v3.5.6.apk",
-  "sha256": "8d2dbc2313856c1541135a50e5b59ba291b4c363b5f0a546e764ce6afd5cfc49",
-  "sizeBytes": 50590617,
-  "publishedAt": "2026-09-28T13:39:02Z",
+  "versionCode": 30507,
+  "versionName": "3.5.7",
+  "apkUrl": "https://github.com/qegj567-cloud/SullyOS/releases/download/android-v3.5.7/SullyOS-Android-v3.5.7.apk",
+  "sha256": "8c2ba033cd9094a0781e5265e79ab89d8842bf02c3628b31cf0795f613b94da3",
+  "sizeBytes": 50617174,
+  "publishedAt": "2026-10-01T14:41:26Z",
   "releaseNotes": [
-    "同步最新 master 9fe99615，包含相机与查手机对话修复",
-    "优化相机贴纸拖动预览，并确保发送完整分辨率成片",
-    "兼容查手机对话中的数组和对象格式，保留相机横竖屏与权限修复",
-    "保留 UnifiedPush / ntfy、PDF 导入、Umami 和更新器防重复下载，沿用固定签名覆盖升级",
-    "本次未新增跨域处理或 ntfy 推送修复"
+    "同步最新 master ad6d1b34，包含公开装扮库及审核后目录刷新",
+    "恢复见面历史分页，更新见面流程与阅读主题",
+    "支持停止回复并保留已展示内容，同步聊天和记忆维护修复",
+    "主动消息生成重试策略跟随上游；保留 ntfy、相机权限、PDF、Umami 和应用内更新",
+    "沿用固定正式签名，可直接覆盖升级保留数据"
   ]
 }

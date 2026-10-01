@@ -78,8 +78,8 @@ importers:
         specifier: 0.11.0-next.6
         version: 0.11.0-next.6
       '@rei-standard/amsg-shared':
-        specifier: 0.4.0-next.10
-        version: 0.4.0-next.10
+        specifier: 0.4.0-next.11
+        version: 0.4.0-next.11
       '@rei-standard/amsg-sw':
         specifier: 2.4.0-next.6
         version: 2.4.0-next.6
@@ -142,8 +142,8 @@ importers:
         specifier: ^6.0.0
         version: 6.2.1
       '@rei-standard/amsg-server':
-        specifier: 2.6.0-next.30
-        version: 2.6.0-next.30(@neondatabase/serverless@1.1.0)(pg@8.22.0)
+        specifier: 2.6.0-next.32
+        version: 2.6.0-next.32(@neondatabase/serverless@1.1.0)(pg@8.22.0)
       '@types/qrcode':
         specifier: ^1.5.6
         version: 1.5.6
@@ -801,8 +801,8 @@ packages:
     resolution: {integrity: sha512-jpOmxbsVcRejhQLFJ9bJsjvXiO56z7ET95UU3GX3iUY2afVLK4xbdmt0DK0hPKCZlRBBppqMfz2beoutfLBeaQ==}
     engines: {node: '>=20'}
 
-  '@rei-standard/amsg-server@2.6.0-next.30':
-    resolution: {integrity: sha512-YlF8RTBqcjUBvjzu6aZb4HGsMmlL9ENmiz/xoTXCcn/e+/zNWDh9qbsKjzt7YWWk+Htt741K+pwv47lowsx/kg==}
+  '@rei-standard/amsg-server@2.6.0-next.32':
+    resolution: {integrity: sha512-z20oEj+O4NCfxRlB5MrLW5dAqfuTpwbtB83/qPr57JSQRjRCxgjnJ/iDT74isq7U+fMYbCUT5rwilILIH8v9XA==}
     engines: {node: '>=20'}
     peerDependencies:
       '@neondatabase/serverless': '>=0.9.0'
@@ -817,12 +817,8 @@ packages:
     resolution: {integrity: sha512-PxPRSs4yeanpksb0xdjPl4a7cdXMiYesOYCsb0RD4M65HIPQOPxUVpQJGq65/GegIwdNOrl1f/gJBP2CNBUEAg==}
     engines: {node: '>=20'}
 
-  '@rei-standard/amsg-shared@0.4.0-next.8':
-    resolution: {integrity: sha512-jyxIbrNR8XPvVLEu7pAyiDnfECKByOhO0zu3zMtxbN7Jf5Ui1rKpX3qQbWRL6WidOTyXYO8jLjkzrCib4wDkgg==}
-    engines: {node: '>=20'}
-
-  '@rei-standard/amsg-shared@0.4.0-next.9':
-    resolution: {integrity: sha512-Jo3TROPfYoAM4KgV0zcZQkvpvtApA4kj70e9M0TXhgRcn3rsWwbv3nEY+8QM76KsmePrrOY0K5VCKTtxwuWU/w==}
+  '@rei-standard/amsg-shared@0.4.0-next.11':
+    resolution: {integrity: sha512-+siX31oHgdorPql0UHNNESdGfTUwS7hFcpFXzCDPgWIhINe7FFHK/A1ZchXymt1xwPepBre8hs0r1fIHRMzmBA==}
     engines: {node: '>=20'}
 
   '@rei-standard/amsg-sw@2.4.0-next.6':
@@ -3200,16 +3196,16 @@ snapshots:
 
   '@rei-standard/amsg-client@2.9.0-next.14':
     dependencies:
-      '@rei-standard/amsg-shared': 0.4.0-next.9
+      '@rei-standard/amsg-shared': 0.4.0-next.10
 
   '@rei-standard/amsg-instant@0.11.0-next.6':
     dependencies:
-      '@rei-standard/amsg-shared': 0.4.0-next.8
+      '@rei-standard/amsg-shared': 0.4.0-next.10
 
-  '@rei-standard/amsg-server@2.6.0-next.30(@neondatabase/serverless@1.1.0)(pg@8.22.0)':
+  '@rei-standard/amsg-server@2.6.0-next.32(@neondatabase/serverless@1.1.0)(pg@8.22.0)':
     dependencies:
       '@netlify/blobs': 8.2.0
-      '@rei-standard/amsg-shared': 0.4.0-next.10
+      '@rei-standard/amsg-shared': 0.4.0-next.11
       web-push: 3.6.7
     optionalDependencies:
       '@neondatabase/serverless': 1.1.0
@@ -3219,13 +3215,11 @@ snapshots:
 
   '@rei-standard/amsg-shared@0.4.0-next.10': {}
 
-  '@rei-standard/amsg-shared@0.4.0-next.8': {}
-
-  '@rei-standard/amsg-shared@0.4.0-next.9': {}
+  '@rei-standard/amsg-shared@0.4.0-next.11': {}
 
   '@rei-standard/amsg-sw@2.4.0-next.6':
     dependencies:
-      '@rei-standard/amsg-shared': 0.4.0-next.8
+      '@rei-standard/amsg-shared': 0.4.0-next.10
 
   '@rei-standard/blob-store@0.1.0-next.2(react@18.3.1)':
     optionalDependencies:

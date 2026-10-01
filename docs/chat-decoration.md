@@ -34,7 +34,7 @@
 
 ## 数据边界
 
-- 格式为 `sullyos-chat-decoration` version 1，`parts` 包含 layout、bubbles、background、sound、css、psyche。未知版本拒绝导入。
+- 格式为 `sullyos-chat-decoration` version 1，聊天 `parts` 包含 layout、bubbles、background、sound、css、psyche。见面界面／剧情界面使用独立的 date / story 部分，不与聊天部件混装；二者位于提示音后的独立分类，不进入「我的搭配」。未知版本拒绝导入。
 - 使用聊天视觉字段白名单，只导出当前有效的视觉设置，不包含角色人设、API、聊天内容或整机设置。气泡以新 ID 安装，不覆盖已有同 ID 主题。
 - 全局布局继续写 OSTheme；角色整套布局存 `chatAppearance`（运行时只读取白名单），原有 `chatFineTune` 为可视化微调层。关闭角色布局开关会停用布局覆盖并保留数据。
 - `theme.chatDefaultBubbleStyle` 与 `theme.chatBackground` 为全局默认；角色的 `bubbleStyle`、`chatBackground` 优先。角色背景 undefined 表示继承，空字符串表示明确无图片，避免“预设无背景”被接收方旧背景覆盖。

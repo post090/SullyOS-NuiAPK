@@ -8,7 +8,9 @@
   "routes": [{ "pattern": "beauty.friedsully.com", "custom_domain": true }],
   "assets": { "directory": "./admin", "binding": "ASSETS", "run_worker_first": true },
   "d1_databases": [{ "binding": "DB", "database_name": "sullyos-beauty-share", "database_id": "a236aede-d420-4c96-981a-dced147ca8a5", "migrations_dir": "migrations" }],
-  "r2_buckets": [{ "binding": "FILES", "bucket_name": "sullyos-beauty-share-private" }],
+  "r2_buckets": [{ "binding": "FILES", "bucket_name": "sullyos-beauty-share-private" }, { "binding": "CATALOG", "bucket_name": "sullyos-beauty-catalog" }],
+  "durable_objects": { "bindings": [{ "name": "CATALOG_REFRESH", "class_name": "CatalogRefresh" }] },
+  "migrations": [{ "tag": "catalog-refresh-v1", "new_sqlite_classes": ["CatalogRefresh"] }],
   "triggers": { "crons": ["17 19 * * *"] },
   "vars": { "UPLOADS_ENABLED": "true", "DAILY_UPLOAD_BYTES": "268435456", "TOTAL_STORAGE_BYTES": "8589934592" },
   "observability": { "enabled": false }

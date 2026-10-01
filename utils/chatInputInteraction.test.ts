@@ -15,7 +15,7 @@ let container: HTMLDivElement;
 let root: Root;
 let props: React.ComponentProps<typeof ChatInputArea>;
 const textarea = () => container.querySelector('textarea')!;
-const primary = () => container.querySelector<HTMLButtonElement>('button[aria-label="发送文字"], button[aria-label="生成回复"], button[aria-label="正在生成回复"]')!;
+const primary = () => container.querySelector<HTMLButtonElement>('button[aria-label="发送文字"], button[aria-label="生成回复"], button[aria-label="停止回复"]')!;
 const renderInput = (patch: Partial<typeof props> = {}) => {
     props = { ...props, ...patch };
     act(() => root.render(React.createElement(ChatInputArea, props)));
@@ -109,11 +109,12 @@ describe('private chat input controls', () => {
         expect(props.setInput).not.toHaveBeenCalled();
     });
 
-    it('disables generation while replying but still allows sending text', () => {
+    it('offers stop while replying and still allows sending text when editing', () => {
         renderInput({ sendButtonGenerates: true, isTyping: true });
-        expect(primary().disabled).toBe(true);
+        expect(primary().disabled).toBe(false);
+        expect(primary().getAttribute('aria-label')).toBe('停止回复');
         act(() => primary().click());
-        expect(props.onGenerate).not.toHaveBeenCalled();
+        expect(props.onGenerate).toHaveBeenCalledTimes(1);
         act(() => textarea().focus());
         expect(primary().disabled).toBe(false);
         act(() => primary().click());

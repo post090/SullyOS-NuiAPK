@@ -1,6 +1,10 @@
 import { BEAUTY_MAX_BYTES, isRecord, validateBeautyMetadata, validateBeautyPackage, validateBeautyPassword, validateBeautyRepo } from '../../../utils/beautyShareContract';
 import { equal, identity, newSession, passwordHash, randomHex, sha256 } from './auth';
 import type { Env } from './types';
+import { validateCatalogCover, CATALOG_COVER_MAX } from '../../../utils/beautyCatalogContract';
+import { dirtyCatalog } from './catalog';
+import { catalogMutation, catalogJob } from './catalogRefresh';
+export { CatalogRefresh } from './catalogRefresh';
 
 class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
 function fail(status: number, message: string): never { throw new HttpError(status, message); }
@@ -42,9 +46,13 @@ const toSubmission = (row: any, admin = false) => ({
   id: row.id, kind: row.kind, shareCode: row.share_code, publishedRevision: row.published_revision,
   pendingRevision: row.pending_revision, latestRevision: row.latest_revision, status: row.status,
   metadata: JSON.parse(row.metadata), reviewNote: row.review_note, updatedAt: row.updated_at,
+  catalogHidden: !!row.catalog_hidden,
+  catalogPublic: !row.catalog_hidden && !!row.catalog_public,
   ...(admin ? { authorCode: row.author_code } : {}),
 });
-const selectSubmission = `SELECT s.*,r.status,r.metadata,r.review_note FROM submissions s JOIN revisions r ON r.id=s.latest_revision`;
+const selectSubmission = `SELECT s.*,r.status,r.metadata,r.review_note,
+  EXISTS(SELECT 1 FROM revisions pub WHERE pub.id=s.published_revision AND pub.status='approved' AND json_extract(pub.metadata,'$.allowPublicListing')=1) AS catalog_public
+  FROM submissions s JOIN revisions r ON r.id=s.latest_revision`;
 const PAGE_SIZE = 12;
 function pageOffset(url: URL) { return Math.min(100000, Math.max(0, Math.floor(Number(url.searchParams.get('offset')) || 0))); }
 async function listSubmissions(env: Env, url: URL, author?: string) {
@@ -63,13 +71,18 @@ async function listSubmissions(env: Env, url: URL, author?: string) {
   return json({ submissions: results.map(row => toSubmission(row, !author)), total, offset, pageSize: PAGE_SIZE, nextOffset: offset + PAGE_SIZE < total ? offset + PAGE_SIZE : null });
 }
 
-async function submit(request: Request, env: Env, author: string, id?: string) {
+async function submit(request: Request, env: Env, author: string, id?: string, termsOnly = false) {
   if (env.UPLOADS_ENABLED !== 'true') fail(503, '投稿暂未开放，请稍后再试');
-  await limit(env, `upload:${author}`, 6, 3600_000);
-  const body = await readJson(request, BEAUTY_MAX_BYTES + 16384);
+  await limit(env, `${termsOnly?'terms':'upload'}:${author}`, termsOnly?50:6, 3600_000);
+  const body = await readJson(request, BEAUTY_MAX_BYTES + 16384 + CATALOG_COVER_MAX * 2);
   let metadata, pack;
   try { metadata = validateBeautyMetadata(body.metadata); pack = validateBeautyPackage(body.package); }
   catch (error) { return fail(400, (error as Error).message); }
+  let catalogCover='';
+  if(metadata.allowPublicListing){
+    if(!env.CATALOG)fail(503,'装扮库正在准备中，请稍后公开投稿，或取消公开展示后使用分享码');
+    try { catalogCover=validateCatalogCover(body.catalogCover); } catch(error){fail(400,(error as Error).message);}
+  }
   const content = JSON.stringify(pack.data);
   const bytes = new TextEncoder().encode(content).byteLength;
   if (bytes > BEAUTY_MAX_BYTES) fail(413, '分享包最多 20 MB');
@@ -80,6 +93,7 @@ async function submit(request: Request, env: Env, author: string, id?: string) {
     if (work.kind !== pack.kind) fail(400, '更新必须与原作品类型相同');
     if (work.pending_revision) fail(409, '已有待审版本，请等待审核后再更新');
     if (body.expectedRevision !== work.latest_revision) fail(409, '作品状态已变化，请刷新后重试');
+    if (termsOnly && body.expectedCatalogHidden !== work.catalog_hidden) fail(409, '公开设置已变化，请刷新后重试');
   } else {
     const count = await env.DB.prepare('SELECT count(*) AS n FROM submissions WHERE author_code=? AND deleted_at IS NULL').bind(author).first();
     if (Number(count?.n) >= 50) fail(429, '每位作者最多保留 50 份作品');
@@ -101,10 +115,10 @@ async function submit(request: Request, env: Env, author: string, id?: string) {
     // Conditional INSERT plus pointer update in a single D1 transaction prevents concurrent
     // uploads and a simultaneous delete from resurrecting or replacing an unreviewed revision.
     const results = await env.DB.batch([
-      env.DB.prepare(`INSERT INTO revisions(id,submission_id,metadata,blob_key,bytes,sha256,status,created_at)
-        SELECT ?,id,?,?,?,?,'pending',? FROM submissions WHERE id=? AND author_code=? AND deleted_at IS NULL
-        AND pending_revision IS NULL AND COALESCE(latest_revision,'')=?`)
-        .bind(revision, JSON.stringify(metadata), blobKey, bytes, hash, now(), workId, author, id ? body.expectedRevision : ''),
+      env.DB.prepare(`INSERT INTO revisions(id,submission_id,metadata,blob_key,bytes,sha256,status,created_at,catalog_cover)
+        SELECT ?,id,?,?,?,?,'pending',?,? FROM submissions WHERE id=? AND author_code=? AND deleted_at IS NULL
+        AND pending_revision IS NULL AND COALESCE(latest_revision,'')=? AND (?=0 OR catalog_hidden=?)`)
+        .bind(revision, JSON.stringify(metadata), blobKey, bytes, hash, now(), catalogCover, workId, author, id ? body.expectedRevision : '', termsOnly?1:0, termsOnly?body.expectedCatalogHidden:0),
       env.DB.prepare(`UPDATE submissions SET pending_revision=?,latest_revision=?,updated_at=?
         WHERE id=? AND EXISTS(SELECT 1 FROM revisions WHERE id=?)`).bind(revision, revision, now(), workId, revision),
     ]);
@@ -123,10 +137,11 @@ async function remove(env: Env, id: string, author?: string) {
     .bind(...(author ? [id, author] : [id])).first();
   if (!row) fail(404, '作品不存在');
   // Revoke access first, then cleanup. A cleanup failure must never keep a share usable.
-  await env.DB.batch([
+  await catalogMutation(env, () => env.DB.batch([
     env.DB.prepare('UPDATE submissions SET deleted_at=?,updated_at=?,pending_revision=NULL,published_revision=NULL WHERE id=?').bind(now(), now(), id),
     env.DB.prepare("UPDATE revisions SET status='withdrawn' WHERE submission_id=? AND status='pending'").bind(id),
-  ]);
+    dirtyCatalog(env),
+  ]));
   // Access is already revoked. Scheduled cleanup retries storage failures.
   try { await cleanup(env); } catch { /* Keep the successful deletion visible to the author. */ }
   return json({ deleted: true });
@@ -249,6 +264,53 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (!row) fail(404, '文件不存在');
     return download(env, row);
   }
+  const coverMatch=path.match(/^\/api\/revisions\/([a-f0-9]{32})\/cover$/);
+  if(coverMatch&&method==='GET'){
+    await principal(request,env,'admin');
+    const row=await env.DB.prepare('SELECT r.catalog_cover FROM revisions r JOIN submissions s ON s.id=r.submission_id WHERE r.id=? AND s.deleted_at IS NULL').bind(coverMatch[1]).first();
+    if(!row?.catalog_cover)fail(404,'此版本没有公开封面');
+    const cover=validateCatalogCover(row.catalog_cover);
+    return new Response(Uint8Array.from(atob(cover.split(',')[1]),c=>c.charCodeAt(0)),{headers:{'Content-Type':cover.startsWith('data:image/png;')?'image/png':'image/webp'}});
+  }
+  const termsMatch=path.match(/^\/api\/submissions\/([a-f0-9]{32})\/terms$/);
+  if(termsMatch&&method==='POST'){
+    const who=await principal(request,env,'author'),body=await readJson(request,16384);
+    // Metadata-only revisions always use this author's last APPROVED immutable file.
+    // Never substitute a rejected/latest file, or accept a client-supplied public consent.
+    const row=await env.DB.prepare(`SELECT s.latest_revision,s.pending_revision,s.catalog_hidden,r.* FROM submissions s
+      JOIN revisions r ON r.id=s.published_revision
+      WHERE s.id=? AND s.author_code=? AND s.deleted_at IS NULL AND r.status='approved'`).bind(termsMatch[1],who.code).first();
+    if(!row)fail(404,'没有可修改协议的已发布作品');
+    if(row.pending_revision||body.expectedRevision!==row.latest_revision)fail(409,'作品状态已变化或正在审核，请刷新后重试');
+    if(!isRecord(body.terms)||Object.keys(body.terms).some(key=>!['allowRemix','allowRedistribute','bugFeedback','message'].includes(key)))fail(400,'只能修改二改、传播及反馈约定，公开展示请另行提交');
+    let metadata;
+    try{metadata=validateBeautyMetadata({...JSON.parse(row.metadata),...body.terms,...(row.catalog_hidden?{allowPublicListing:false}:{})});}catch(e){fail(400,(e as Error).message);}
+    if(JSON.stringify(metadata)===JSON.stringify(validateBeautyMetadata(JSON.parse(row.metadata))))return json({id:termsMatch[1],revision:row.latest_revision,unchanged:true});
+    const source=await env.FILES.get(row.blob_key);if(!source)fail(404,'原作品文件暂不可用，请稍后重试');
+    const content=await new Response(source.body).text();
+    if(new TextEncoder().encode(content).length!==row.bytes||await sha256(content)!==row.sha256)fail(409,'原作品文件校验失败，请联系管理员');
+    const forwarded=new Request(request.url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({metadata,package:JSON.parse(content),catalogCover:row.catalog_cover,expectedRevision:body.expectedRevision,expectedCatalogHidden:row.catalog_hidden})});
+    return submit(forwarded,env,who.code,termsMatch[1],true);
+  }
+  const visibility=path.match(/^\/api\/submissions\/([a-f0-9]{32})\/hide-catalog$/);
+  if(visibility&&method==='POST'){
+    const who=await principal(request,env,'author');
+    const results=await catalogMutation(env, () => env.DB.batch([
+      env.DB.prepare('UPDATE submissions SET catalog_hidden=1,updated_at=? WHERE id=? AND author_code=? AND deleted_at IS NULL').bind(now(),visibility[1],who.code),
+      env.DB.prepare("UPDATE revisions SET metadata=json_set(metadata,'$.allowPublicListing',json('false')),catalog_cover='' WHERE id=(SELECT pending_revision FROM submissions WHERE id=? AND author_code=? AND deleted_at IS NULL) AND status='pending'").bind(visibility[1],who.code),
+      dirtyCatalog(env),
+    ]));
+    if(!results[0].meta.changes)fail(404,'作品不存在');
+    return json({ok:true});
+  }
+  if (path === '/api/admin/catalog' && (method === 'GET' || method === 'POST')) {
+    await principal(request, env, 'admin');
+    if (method === 'POST') {
+      await catalogMutation(env, () => dirtyCatalog(env).run());
+      return json({ queued: true });
+    }
+    return catalogJob(env, new Request('https://catalog.internal/status'));
+  }
   if (path === '/api/admin/submissions' && method === 'GET') {
     await principal(request, env, 'admin');
     return listSubmissions(env, url);
@@ -299,16 +361,18 @@ async function route(request: Request, env: Env): Promise<Response> {
     const body = await readJson(request, 4096);
     if (!['approved', 'rejected'].includes(body.decision) || typeof body.note !== 'string' || body.note.length > 1000 || (body.decision === 'rejected' && !body.note.trim())) fail(400, '请选择审核结果；退回需要填写原因（最多 1000 字）');
     const revision = review[1]; const code = 'S-' + randomHex(6).toUpperCase();
-    const results = await env.DB.batch([
+    const results = await catalogMutation(env, () => env.DB.batch([
       env.DB.prepare(`UPDATE revisions SET status=?,review_note=?,reviewed_at=? WHERE id=? AND status='pending'
         AND EXISTS(SELECT 1 FROM submissions WHERE pending_revision=? AND deleted_at IS NULL)`)
         .bind(body.decision, body.note.trim(), now(), revision, revision),
       env.DB.prepare(`UPDATE submissions SET pending_revision=NULL,updated_at=?,
+        catalog_hidden=CASE WHEN ?='approved' THEN 0 ELSE catalog_hidden END,
         published_revision=CASE WHEN ?='approved' THEN ? ELSE published_revision END,
         share_code=CASE WHEN ?='approved' THEN COALESCE(share_code,?) ELSE share_code END
         WHERE pending_revision=? AND deleted_at IS NULL AND EXISTS(SELECT 1 FROM revisions WHERE id=? AND status=?)`)
-        .bind(now(), body.decision, revision, body.decision, code, revision, revision, body.decision),
-    ]);
+        .bind(now(), body.decision, body.decision, revision, body.decision, code, revision, revision, body.decision),
+      dirtyCatalog(env),
+    ]));
     if (!results[0].meta.changes) fail(409, '这份提交已处理或被删除，请刷新列表');
     return json({ ok: true });
   }
@@ -354,8 +418,11 @@ export default {
     headers.set('Cache-Control', 'no-store');
     headers.set('X-Content-Type-Options', 'nosniff');
     headers.set('Referrer-Policy', 'no-referrer');
-    headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+    headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     return new Response(response.body, { status: response.status, headers });
   },
-  async scheduled(_event: unknown, env: Env) { await cleanup(env); },
+  async scheduled(event: {cron?:string}, env: Env) {
+    if(event.cron==='17 19 * * *')await cleanup(env);
+
+  },
 };
