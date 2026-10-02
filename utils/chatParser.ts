@@ -462,7 +462,7 @@ export const ChatParser = {
                 const listening = await import('./songListening');
                 if (!listening.isSongListeningAvailable()) return;
                 const [listenChar, listenUser] = await Promise.all([DB.getCharacter(charId), DB.getUserProfile()]);
-                if (!listenChar) return;
+                if (!listenChar || !listening.isListenSongEnabled(listenChar)) return;
                 const candidates = await listening.collectListenCandidates(listenChar, listenUser?.name || '用户');
                 const picked = listening.resolveListenCandidate(candidates, query);
                 if (!picked) {

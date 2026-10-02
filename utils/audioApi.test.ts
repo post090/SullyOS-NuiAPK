@@ -7,6 +7,7 @@ import { normalizeApiConfig } from './apiConfigNormalize';
 import {
   audioFormatFromMime,
   audioMimeFromName,
+  buildListenInstructions,
   buildTestToneWav,
   ensureAudioBlob,
   isAudioApiReady,
@@ -14,7 +15,15 @@ import {
   materializeAudioDescriptions,
   songListenReviewMode,
 } from './audioApi';
-import { buildListenSongGuide, buildRecentListenBlock, resolveListenCandidate, type ListenCandidate } from './songListening';
+import {
+  buildListenSongGuide,
+  buildRecentListenBlock,
+  filterListenSources,
+  isListenSongEnabled,
+  resolveListenCandidate,
+  type ListenCandidate,
+  type ListenSource,
+} from './songListening';
 import type { Song } from '../context/MusicContext';
 
 const config: AudioApiConfig = {
@@ -156,6 +165,36 @@ describe('song listening', () => {
     expect(guide).toContain('《夜曲》— 周杰伦');
     expect(guide).toContain('小明 的歌');
     expect(buildListenSongGuide([], '小明')).toBe('');
+  });
+
+  it('filters listen sources by the per-character selection', () => {
+    const src = (key: string, origin: 'char' | 'user'): ListenSource => ({ key, origin, title: key, label: key, songs: [] });
+    const netease = Array.from({ length: 15 }, (_, i) => src(`user:netease:${i}`, 'user'));
+    const all = [src('char:a', 'char'), src('user:local', 'user'), ...netease];
+    expect(filterListenSources(all).map(s => s.key)).toHaveLength(2 + 12);
+    expect(filterListenSources(all, ['char:a', 'user:netease:14']).map(s => s.key)).toEqual(['char:a', 'user:netease:14']);
+    expect(filterListenSources(all, [])).toEqual([]);
+    expect(isListenSongEnabled({} as CharacterProfile)).toBe(true);
+    expect(isListenSongEnabled({ listenSongConfig: { enabled: false } } as CharacterProfile)).toBe(false);
+  });
+
+  it('samples long candidate lists instead of always showing the first ones', () => {
+    const many: ListenCandidate[] = Array.from({ length: 40 }, (_, i) => ({ song: song(i + 1, `歌${i + 1}`, '某人'), origin: 'user', label: '' }));
+    const guide = buildListenSongGuide(many, '小明', () => 0);
+    expect(guide.match(/《歌\d+》/g)).toHaveLength(15);
+    expect(guide).not.toContain('《歌1》');
+  });
+
+  it('builds a character-voiced listening prompt with the music taste', () => {
+    const char = { id: 'c', name: '阿澈', musicProfile: { bio: '只听后摇和老派爵士', genreTags: ['后摇'], signatureArtists: [{ name: '惘闻', starred: true }] } } as unknown as CharacterProfile;
+    const prompt = buildListenInstructions({
+      char, user: { name: '小明' } as UserProfile, song: song(1, '晴天', '周杰伦'),
+      audio: { base64: '', format: 'mp3', bytes: 0 }, mode: 'together',
+    });
+    expect(prompt).toContain('像 阿澈');
+    expect(prompt).toContain('只听后摇和老派爵士');
+    expect(prompt).toContain('惘闻（最爱）');
+    expect(prompt).toContain('身边的 小明');
   });
 
   it('injects only fresh listening diaries on the next turn', () => {

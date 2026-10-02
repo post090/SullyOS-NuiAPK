@@ -256,20 +256,38 @@ export interface SongListenInput {
   mode: 'together' | 'alone';
 }
 
-const buildListenInstructions = (input: SongListenInput): string => {
+/** 角色自己的音乐口味，给听歌时当「耳朵的偏见」用。 */
+const buildMusicTasteBlock = (char: CharacterProfile): string => {
+  const mp = char.musicProfile;
+  if (!mp) return '';
+  const lines: string[] = [];
+  if (mp.bio?.trim()) lines.push(`你的音乐品味：${mp.bio.trim()}`);
+  if (mp.genreTags?.length) lines.push(`你常听的类型：${mp.genreTags.slice(0, 8).join('、')}`);
+  const artists = (mp.signatureArtists || []).slice(0, 8).map(a => a.starred ? `${a.name}（最爱）` : a.name);
+  if (artists.length) lines.push(`你偏爱的歌手：${artists.join('、')}`);
+  return lines.length ? `\n${lines.join('\n')}\n` : '';
+};
+
+export const buildListenInstructions = (input: SongListenInput): string => {
   const userName = input.user.name || '对方';
+  const charName = input.char.name;
   const scene = input.mode === 'together'
-    ? `${userName} 正在播放这首歌，你戴上了另一只耳机，安安静静地和 ta 一起把它听完。`
+    ? `${userName} 正在播放这首歌，你戴上了另一只耳机，和 ta 一起把它听完。`
     : '你一个人戴着耳机，挑了这首歌从头听到尾，没有人打扰。';
   return `### 【现在：听歌】
 ${scene}
-这是你自己的私人时间。听完以后，用你自己的口吻、第一人称，写下这首歌给你的真实感受——像写给自己看的听歌日记。
+${buildMusicTasteBlock(input.char)}
+听完以后，作为 ${charName} 本人，写一段只给自己看的听歌日记。
 
-要求：
-- 只根据你实际听到的声音和歌词来写：旋律、节奏、编曲、人声、情绪的起伏、某句歌词击中你的地方。听不出来的不要编。
-- 要有你这个人的性格、经历和此刻心情的影子，可以联想到你自己的生活${input.mode === 'together' ? `，也可以想到身边的 ${userName}` : ''}。
-- 不要写成乐评报告，不要列条目，不要打分。150–300 字。
-- 只输出日记正文，不要加标题、引号或任何格式标签。${input.isTrial ? '\n- 注意：你只听到了这首歌的一段试听片段，不是完整的歌。' : ''}`;
+最重要的是「像 ${charName}」，而不是「听得准」：
+- 用 ${charName} 平时说话的方式写：用词、语气、口头禅、句子长短、标点习惯、会不会装酷或嘴硬，都照你的人设来。一个话少的人可以只写几句短句，一个话多的人可以碎碎念。
+- 带着你自己的口味和偏见去听：喜欢就说喜欢，听不惯、觉得吵、觉得矫情、觉得一般也可以直说，不用替这首歌说好话。拿它跟你熟悉的歌或歌手比也行。
+- 让歌勾出你自己的东西：某段旋律、某句歌词让你想起了什么人、什么事、你的经历或你最近的心情${input.mode === 'together' ? `，或者此刻身边的 ${userName}` : ''}。这部分比描述音乐本身更重要。
+- 声音上的细节只挑一两处真正抓住你的写（某个转音、鼓点进来的那一下、哪句歌词），用你自己的话说，不要用专业乐评的术语堆砌。只写你确实听到的，听不出来的别编。
+
+格式：
+- 第一人称，长短按你的性格来，大约 80–300 字。不要列条目，不要打分，不要写成报告。
+- 只输出日记正文，不要加标题、引号或任何格式标签。${input.isTrial ? '\n- 你只听到了一段试听片段，不是完整的歌，可以带一句这件事。' : ''}`;
 };
 
 /** 带着角色本身的人设与世界书，单独听一遍歌，返回角色第一人称的听后感。 */

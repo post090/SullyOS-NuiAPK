@@ -3,7 +3,8 @@ import React, { useRef, useState } from 'react';
 import Modal from '../os/Modal';
 import TokenImg from '../os/TokenImg';
 import NetImg from '../os/NetImg';
-import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig } from '../../types';
+import { CharacterProfile, Message, EmojiCategory, DailySchedule, ScheduleSlot, ApiPreset, APIConfig, ListenSongConfig } from '../../types';
+import ListenSongSettings from './ListenSongSettings';
 import ScheduleCard from '../schedule/ScheduleCard';
 import EmotionSettingsPanel from './EmotionSettingsPanel';
 import ChatInputSettings from './ChatInputSettings';
@@ -112,6 +113,10 @@ interface ChatModalsProps {
     onToggleHtmlMode?: () => void;
     htmlModeCustomPrompt?: string;
     setHtmlModeCustomPrompt?: (v: string) => void;
+    // 角色主动听歌（音频识别 API）
+    listenSongApiReady?: boolean;
+    listenSongUserName?: string;
+    onChangeListenSong?: (config: ListenSongConfig) => void;
     // Voice TTS
     chatVoiceEnabled?: boolean;
     onToggleChatVoice?: () => void;
@@ -272,6 +277,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     translationEnabled, onToggleTranslation, translationExpanded, onToggleTranslationExpanded, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     xhsEnabled, onToggleXhs,
     htmlModeEnabled, onToggleHtmlMode, htmlModeCustomPrompt, setHtmlModeCustomPrompt,
+    listenSongApiReady, listenSongUserName, onChangeListenSong,
     chatVoiceEnabled, onToggleChatVoice, chatVoiceAutoPlay, onToggleChatVoiceAutoPlay, chatVoiceLang, onSetChatVoiceLang,
     memoEnabled, onToggleMemo,
     onGenerateVoice, voiceAvailable, onDownloadVoice, voiceDownloadable, voiceCollectable, onToggleVoiceFavorite, voiceFavorited,
@@ -666,7 +672,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                             )}
                         </div>
                     </ChatSettingsSection>
-                    <ChatSettingsSection title="扩展功能" summary="小红书与 HTML 卡片">
+                    <ChatSettingsSection title="扩展功能" summary="小红书、HTML 卡片与角色主动听歌">
                         {/* XHS Toggle */}
                         <div className="pt-2 border-t border-slate-100">
                             <div className="flex justify-between items-center cursor-pointer" onClick={onToggleXhs}>
@@ -704,6 +710,15 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                                 </div>
                             )}
                         </div>
+
+                        {onChangeListenSong && (listenSongApiReady ? (
+                            <ListenSongSettings char={activeCharacter} userName={listenSongUserName || ''} onChange={onChangeListenSong} />
+                        ) : (
+                            <div className="pt-2 border-t border-slate-100">
+                                <label className="text-xs font-bold text-slate-400 uppercase">角色主动听歌</label>
+                                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">需要先在「设置 → API」里开启并填好音频识别 API。</p>
+                            </div>
+                        ))}
                     </ChatSettingsSection>
                     <ChatSettingsSection title="聊天记录" summary="按范围清理或保留最近消息">
                         {onOpenHistoryCleanup && <div>

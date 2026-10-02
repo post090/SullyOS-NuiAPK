@@ -38,7 +38,7 @@ import { normalizeTranslationLangLabel } from './translationLang';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { materializeVisionDescriptions } from './visionApi';
 import { isAudioApiReady, materializeAudioDescriptions } from './audioApi';
-import { buildListenSongGuide, buildRecentListenBlock, collectListenCandidates } from './songListening';
+import { buildListenSongGuide, buildRecentListenBlock, collectListenCandidates, isListenSongEnabled } from './songListening';
 import type { RecallEntryPoint, RecallTrace } from './memoryPalace/trace';
 import { loadCollaborationFileCabinetBlock } from '../features/collaboration/chatLibrary';
 import { buildSARUserSurfaceRequest, selectSARUserSurfaceTargets } from './vrWorld/sarUserSurface';
@@ -431,7 +431,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // ── 8b. 真的听过的歌：音频识别 API 写下的听后感，下一轮带给主模型 ──
     const recentListenBlock = buildRecentListenBlock(char, userProfile?.name || '用户');
     if (recentListenBlock) volatileTail += `\n${recentListenBlock}`;
-    if (input.recallEntryPoint === 'chat_app' && isAudioApiReady(input.audioApiConfig)) {
+    if (input.recallEntryPoint === 'chat_app' && isAudioApiReady(input.audioApiConfig) && isListenSongEnabled(char)) {
         try {
             const candidates = await collectListenCandidates(char, userProfile?.name || '用户');
             const guide = buildListenSongGuide(candidates, userProfile?.name || '用户');

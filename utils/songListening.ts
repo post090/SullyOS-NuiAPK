@@ -128,34 +128,74 @@ const playlistSongToSong = (s: CharPlaylistSong, localById: Map<number, Song>): 
 
 interface HomeSnapshotLite { playlists?: { id: number; name: string }[] }
 
-/** 角色能主动挑来听的歌：自己的歌单 + 用户的歌（本地专辑、播放队列、已缓存的网易云歌单）。 */
-export async function collectListenCandidates(char: CharacterProfile, userName: string): Promise<ListenCandidate[]> {
-  const out: ListenCandidate[] = [];
-  const seen = new Set<number>();
-  const push = (song: Song, origin: ListenCandidate['origin'], label: string) => {
-    if (!song?.id || !song.name || seen.has(song.id)) return;
-    seen.add(song.id);
-    out.push({ song, origin, label });
-  };
+/** 角色主动听歌的一个歌曲来源（角色的一个歌单 / 用户本地专辑 / 播放列表 / 一个网易云歌单）。 */
+export interface ListenSource {
+  key: string;
+  origin: ListenCandidate['origin'];
+  /** 设置页显示用，例如「《夜路》」 */
+  title: string;
+  /** 给角色看的来源说明 */
+  label: string;
+  songs: Song[];
+}
+
+/** 没手动选过来源时，网易云歌单默认只取前几个，避免候选太杂。 */
+const DEFAULT_NETEASE_PLAYLISTS = 12;
+
+/** 列出这个角色所有可选的听歌来源（不做过滤，设置页和候选收集共用）。 */
+export async function listListenSources(char: CharacterProfile, userName: string): Promise<ListenSource[]> {
+  const out: ListenSource[] = [];
   const localAlbum = loadLocalAlbumStandalone();
   const localById = new Map(localAlbum.map(s => [s.id, s]));
   const who = userName || '对方';
 
   for (const pl of char.musicProfile?.playlists || []) {
-    for (const s of pl.songs) push(playlistSongToSong(s, localById), 'char', `你的歌单《${pl.title}》`);
+    out.push({
+      key: `char:${pl.id}`, origin: 'char', title: `《${pl.title}》`, label: `你的歌单《${pl.title}》`,
+      songs: pl.songs.map(s => playlistSongToSong(s, localById)),
+    });
   }
-  for (const s of localAlbum) push(s, 'user', `${who}的本地专辑`);
+  if (localAlbum.length) out.push({ key: 'user:local', origin: 'user', title: '本地专辑', label: `${who}的本地专辑`, songs: localAlbum });
   try {
     const raw = localStorage.getItem('sully_music_state_v1');
     const queue: Song[] = raw ? (JSON.parse(raw)?.queue || []) : [];
-    for (const s of queue) push(s, 'user', `${who}的播放列表`);
+    if (queue.length) out.push({ key: 'user:queue', origin: 'user', title: '播放列表', label: `${who}的播放列表`, songs: queue });
   } catch { /* ignore */ }
   const uid = loadNeteaseUidStandalone();
   if (uid) {
     const home = await neteaseCacheGet<HomeSnapshotLite>(`home:${uid}`);
-    for (const pl of (home?.data?.playlists || []).slice(0, 12)) {
+    for (const pl of home?.data?.playlists || []) {
       const hit = await neteaseCacheGet<Song[]>(`pl:${pl.id}`);
-      for (const s of (hit?.data || [])) push(s, 'user', `${who}的歌单《${pl.name}》`);
+      if (!hit?.data?.length) continue;
+      out.push({ key: `user:netease:${pl.id}`, origin: 'user', title: `《${pl.name}》`, label: `${who}的歌单《${pl.name}》`, songs: hit.data });
+    }
+  }
+  return out;
+}
+
+/** 按角色的听歌设置筛来源：没选过 = 全部（网易云歌单只取前 12 个）；选过 = 只用勾选的。 */
+export function filterListenSources(sources: ListenSource[], selected?: string[]): ListenSource[] {
+  if (selected) {
+    const allow = new Set(selected);
+    return sources.filter(s => allow.has(s.key));
+  }
+  let netease = 0;
+  return sources.filter(s => !s.key.startsWith('user:netease:') || netease++ < DEFAULT_NETEASE_PLAYLISTS);
+}
+
+/** 角色主动听歌是否开着（默认开）。 */
+export const isListenSongEnabled = (char: CharacterProfile): boolean => char.listenSongConfig?.enabled !== false;
+
+/** 角色能主动挑来听的歌：按设置筛过的来源，跨来源去重。 */
+export async function collectListenCandidates(char: CharacterProfile, userName: string): Promise<ListenCandidate[]> {
+  const sources = filterListenSources(await listListenSources(char, userName), char.listenSongConfig?.sources);
+  const out: ListenCandidate[] = [];
+  const seen = new Set<number>();
+  for (const src of sources) {
+    for (const song of src.songs) {
+      if (!song?.id || !song.name || seen.has(song.id)) continue;
+      seen.add(song.id);
+      out.push({ song, origin: src.origin, label: src.label });
     }
   }
   return out;
@@ -185,11 +225,22 @@ export function resolveListenCandidate(candidates: ListenCandidate[], query: str
 const GUIDE_CHAR_LIMIT = 15;
 const GUIDE_USER_LIMIT = 15;
 
+/** 候选超过上限时每轮随机抽一批，长歌单里靠后的歌也有机会被看到。 */
+const sample = <T,>(items: T[], limit: number, rng: () => number): T[] => {
+  if (items.length <= limit) return items;
+  const pool = [...items];
+  for (let i = pool.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, limit);
+};
+
 /** 音频识别 API 开着时才注入：告诉角色可以挑一首歌真的去听。 */
-export function buildListenSongGuide(candidates: ListenCandidate[], userName: string): string {
+export function buildListenSongGuide(candidates: ListenCandidate[], userName: string, rng: () => number = Math.random): string {
   if (candidates.length === 0) return '';
-  const own = candidates.filter(c => c.origin === 'char').slice(0, GUIDE_CHAR_LIMIT);
-  const theirs = candidates.filter(c => c.origin === 'user').slice(0, GUIDE_USER_LIMIT);
+  const own = sample(candidates.filter(c => c.origin === 'char'), GUIDE_CHAR_LIMIT, rng);
+  const theirs = sample(candidates.filter(c => c.origin === 'user'), GUIDE_USER_LIMIT, rng);
   const fmt = (c: ListenCandidate) => `《${c.song.name}》— ${c.song.artists}`;
   const lines = ['### 【戴上耳机】', `你可以挑一首歌真的去听（会从头听到尾，听完你会有自己的感受）。只能从你自己的歌单或 ${userName || '对方'} 的歌里挑：`];
   if (own.length) lines.push(`你的歌：${own.map(fmt).join('、')}`);

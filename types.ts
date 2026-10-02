@@ -2918,6 +2918,11 @@ export interface CharCurrentListening {
     startedAt: number;
 }
 
+export interface ListenSongConfig {
+    enabled?: boolean;
+    sources?: string[];
+}
+
 export interface CharMusicProfile {
     /** 音乐品味简介（LLM 初始化生成） */
     bio: string;
@@ -3624,6 +3629,8 @@ export interface CharacterProfile {
   htmlModeCustomPrompt?: string;
   /** 可选：在日常 ChatApp 注入任务优先的协同工作规则。提示词较长，默认关闭。 */
   chatCollaborationEnabled?: boolean;
+  /** 角色主动听歌（音频识别 API）：enabled=false 关闭；sources 为允许挑歌的来源 key，undefined=全部来源。 */
+  listenSongConfig?: ListenSongConfig;
   /** 该角色专属的聊天「白框」自定义 CSS（叠加在全局 osTheme.chatChromeCustomCss 之上）。 */
   chromeCustomCss?: string;
   /** 白框「提示音」：仅当 ta 新发的消息成为会话最后一条时播放一次。src 可为内置音效 key / 音频直链 / 上传后内联的 data:audio。

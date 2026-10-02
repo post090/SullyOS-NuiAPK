@@ -4037,6 +4037,9 @@ const Chat: React.FC = () => {
                 onToggleHtmlMode={() => updateCharacter(char.id, { htmlModeEnabled: !((char as any).htmlModeEnabled) } as any)}
                 htmlModeCustomPrompt={settingsHtmlModeCustomPrompt}
                 setHtmlModeCustomPrompt={setSettingsHtmlModeCustomPrompt}
+                listenSongApiReady={isAudioApiReady(apiConfig.audioApi)}
+                listenSongUserName={userProfile?.name || ''}
+                onChangeListenSong={config => updateCharacter(char.id, { listenSongConfig: config })}
                 chatVoiceEnabled={!!char.chatVoiceEnabled}
                 onToggleChatVoice={() => updateCharacter(char.id, { chatVoiceEnabled: !char.chatVoiceEnabled })}
                 memoEnabled={!!char.memoEnabled}
