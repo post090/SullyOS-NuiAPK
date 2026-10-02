@@ -89,7 +89,7 @@ const ListenSongSettings: React.FC<Props> = ({ char, userName, onChange }) => {
                             {renderGroup('user', `${userName || '你'} 的歌`)}
                             <p className="text-[10px] text-slate-400">
                                 已选 {selected.size} 个来源，共 {songTotal} 首（重复的歌只算一次）。
-                                {!config.sources && ' 还没手动选过：默认用全部来源，网易云歌单只取前 12 个。'}
+                                {!config.sources && ' 还没手动选过：默认用全部来源。'}
                             </p>
                         </>
                     )}

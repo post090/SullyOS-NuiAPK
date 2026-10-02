@@ -139,9 +139,6 @@ export interface ListenSource {
   songs: Song[];
 }
 
-/** 没手动选过来源时，网易云歌单默认只取前几个，避免候选太杂。 */
-const DEFAULT_NETEASE_PLAYLISTS = 12;
-
 /** 列出这个角色所有可选的听歌来源（不做过滤，设置页和候选收集共用）。 */
 export async function listListenSources(char: CharacterProfile, userName: string): Promise<ListenSource[]> {
   const out: ListenSource[] = [];
@@ -173,14 +170,11 @@ export async function listListenSources(char: CharacterProfile, userName: string
   return out;
 }
 
-/** 按角色的听歌设置筛来源：没选过 = 全部（网易云歌单只取前 12 个）；选过 = 只用勾选的。 */
+/** 按角色的听歌设置筛来源：没选过 = 全部来源；选过 = 只用勾选的。 */
 export function filterListenSources(sources: ListenSource[], selected?: string[]): ListenSource[] {
-  if (selected) {
-    const allow = new Set(selected);
-    return sources.filter(s => allow.has(s.key));
-  }
-  let netease = 0;
-  return sources.filter(s => !s.key.startsWith('user:netease:') || netease++ < DEFAULT_NETEASE_PLAYLISTS);
+  if (!selected) return sources;
+  const allow = new Set(selected);
+  return sources.filter(s => allow.has(s.key));
 }
 
 /** 角色主动听歌是否开着（默认开）。 */

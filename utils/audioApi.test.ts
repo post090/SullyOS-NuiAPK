@@ -171,7 +171,7 @@ describe('song listening', () => {
     const src = (key: string, origin: 'char' | 'user'): ListenSource => ({ key, origin, title: key, label: key, songs: [] });
     const netease = Array.from({ length: 15 }, (_, i) => src(`user:netease:${i}`, 'user'));
     const all = [src('char:a', 'char'), src('user:local', 'user'), ...netease];
-    expect(filterListenSources(all).map(s => s.key)).toHaveLength(2 + 12);
+    expect(filterListenSources(all).map(s => s.key)).toHaveLength(2 + 15);
     expect(filterListenSources(all, ['char:a', 'user:netease:14']).map(s => s.key)).toEqual(['char:a', 'user:netease:14']);
     expect(filterListenSources(all, [])).toEqual([]);
     expect(isListenSongEnabled({} as CharacterProfile)).toBe(true);
