@@ -103,13 +103,12 @@ describe('凭据行取值', () => {
     });
   });
 
-  it('定时消息那行：开了单独 API → 写单独 API 的值（绝不能被全局盖掉）', () => {
+  it('定时消息那行：开了单独 API → 写单独 API 的值（Fork 保留主动消息单独 API）', () => {
     const row = buildCharChatCredRow(
       CHAR, { enabled: true, useSecondaryApi: true, secondaryApi: SECONDARY } as any, API,
     );
-    expect(row?.value).toEqual({
-      apiUrl: 'https://alt.example.dev/v1/chat/completions', apiKey: 'sk-alt', primaryModel: 'gpt-alt',
-    });
+    expect(row?.value.primaryModel).toBe(SECONDARY.model);
+    expect(row?.value.apiKey).toBe(SECONDARY.apiKey);
   });
 
   it('定时消息那行：开关开着但单独 API 没填地址 → 回落全局（口径同排程时的 resolveApiConfig）', () => {

@@ -190,7 +190,7 @@ describe('GitHub 备份 · 原生 + 应用内中转', () => {
 
         const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
             const raw = String(input);
-            if (!raw.startsWith('https://sullymeow.ccwu.cc/github?url=')) {
+            if (!raw.startsWith('https://proxy.friedsully.com/github?url=')) {
                 throw new Error(`unexpected non-proxied fetch on native proxy mode: ${raw}`);
             }
             const target = new URL(decodeURIComponent(raw.split('?url=')[1]));
@@ -218,7 +218,7 @@ describe('GitHub 备份 · 原生 + 应用内中转', () => {
         const proxiedUploads = (): [string, RequestInit & { headers: Record<string, string> }][] =>
             (fetchMock.mock.calls as unknown as [string, RequestInit & { headers: Record<string, string> }][]).filter(([url]) => {
                 const raw = String(url);
-                if (!raw.startsWith('https://sullymeow.ccwu.cc/github?url=')) return false;
+                if (!raw.startsWith('https://proxy.friedsully.com/github?url=')) return false;
                 return decodeURIComponent(raw.split('?url=')[1]).includes('uploads.github.com');
             });
 

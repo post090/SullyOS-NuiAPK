@@ -25,8 +25,11 @@ import {
   AMSG_FIRE_PACK_KEY,
   AMSG_LAST_SKIP_KEY,
   AMSG_SELF_LOG_KEY,
+  AMSG_SILENT_MARK,
   AMSG_SLOT_CURRENT_TIME,
+  AMSG_SLOT_LIVE_CHAT,
   AMSG_SLOT_SELF_LOG,
+  AMSG_SLOT_TIME_SINCE_USER,
   AMSG_SLOT_TASK_INSTRUCTION,
   AMSG2_INSTANT_STUB_TEMPLATE,
   amsgStateNamespace,
@@ -324,12 +327,18 @@ describe('onBeforeFire 四道门', () => {
     expect((scratch.fire as any).occurrenceMs).toBe(Date.parse('2026-07-25T12:00:00.000Z'));
   });
 
-  it('活跃会话租约新鲜 → skip，而且排在 fire_pack 检查之前（缺 fire_pack 也照样 skip）', async () => {
-    const { ctx } = makeCtx({
-      // 故意不给 fire_pack：如果 presence 门被挪到后面，这里会变成抛错而不是 skip
+  // 页面正在本地生成一轮回复时，这次触发推迟一会儿再来：不消费任务、不留跳过记录，
+  // 等那一轮结束再生成。直接跳过的话，用户说「我等着你八点的消息」就等不到那条消息了。
+  it('活跃会话租约新鲜 → 推迟，而且排在 fire_pack 检查之前（缺 fire_pack 也照样推迟）', async () => {
+    const { ctx, writeState } = makeCtx({
+      // 故意不给 fire_pack：如果 presence 门被挪到后面，这里会变成抛错而不是推迟
       charRows: [{ key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 5_000) }],
     });
-    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
+    ctx.emitResult = vi.fn();
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ defer: { afterMs: 45_000 } });
+    // 推迟不是「没发」：面板不该多一条解释，角色也不该收到回执。
+    expect(writeState).not.toHaveBeenCalled();
+    expect(ctx.emitResult).not.toHaveBeenCalled();
   });
 
   it('force 策略不吃活跃租约这道门（闹钟型照发）', async () => {
@@ -359,57 +368,66 @@ describe('onBeforeFire 四道门', () => {
     expect(fired(result).messages).toHaveLength(1);
   });
 
-  it('防穿帮闸：到点前十分钟内用户还在聊 → skip', async () => {
+  // 到点时对方在不在聊天不拦发送：说不说由角色看着最新对话自己判，代码只把
+  // 「对方多久前说过话」这个事实填进提示词。
+  const LIVE_TEMPLATE = `距离：${AMSG_SLOT_TIME_SINCE_USER}\n开口之前：${AMSG_SLOT_LIVE_CHAT}\n${AMSG_SLOT_TASK_INSTRUCTION}`;
+
+  it('到点前一分钟用户还在聊 → 照常生成，提示词里写明你们正聊着', async () => {
     const { ctx } = makeCtx({
-      // 到点（= NOW）前一分钟用户刚说过话，正撞在对话上
       charRows: [
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 60_000, { template: LIVE_TEMPLATE }) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
-    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
+    const content = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
+    expect(content).toContain('你们此刻正聊着');
+    expect(content).toContain('1 分钟前');
+    expect(content).not.toContain(AMSG_SLOT_LIVE_CHAT);
   });
 
   // presence 行是每轮聊天一开场就写的小值，几十字节就发完了；fire_pack 是整包几十 KB，
   // 同样是打脏即发，但传完总要慢一截。只看 fire_pack 的话，用户刚说完话、包还在路上的
-  // 那几秒里任务照发，正撞在对话上。
-  it('防穿帮闸：presence 记的用户开口时刻比 fire_pack 新 → 用新的那份判，作废', async () => {
+  // 那几秒里，角色会以为对方半小时没说话了。
+  it('presence 记的用户开口时刻比 fire_pack 新 → 提示词按新的那份写', async () => {
     const { ctx } = makeCtx({
       charRows: [
-        // 租约本身已经过期（不吃第一道门），但它记着的「最后一条用户消息」仍然算数：
-        // 落在热聊窗内 → 作废。fire_pack 那份是半小时前的，只看它就会误放行。
+        // 租约本身已经过期（不吃第一道门），但它记着的「最后一条用户消息」仍然算数。
         { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: NOW.getTime() - 60_000 }) },
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000, { template: LIVE_TEMPLATE }) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
-    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
+    const content = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
+    expect(content).toContain('你们此刻正聊着');
+    expect(content).toContain('大约 1 分钟');
   });
 
-  it('防穿帮闸：presence 是别的角色的 → 不拿来当判定材料', async () => {
+  it('presence 是别的角色的 → 不拿来当判定材料', async () => {
     const { ctx } = makeCtx({
       charRows: [
         {
           key: AMSG_CHAT_PRESENCE_KEY,
           value: presenceValue(NOW.getTime() - 120_000, { lastUserMessageAt: NOW.getTime() - 60_000, charId: 'other-char' }),
         },
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000, { template: LIVE_TEMPLATE }) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
-    const result = await amsgHooks.onBeforeFire(ctx);
-    expect(fired(result).messages).toHaveLength(1);
+    const content = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
+    expect(content).not.toContain('你们此刻正聊着');
+    expect(content).toContain('大约 30 分钟');
   });
 
-  it('防穿帮闸：到点前十分钟内没人说话 → 照发（半小时前聊过不算）', async () => {
+  it('半小时前聊过 → 不算正聊着，那一行连带消失', async () => {
     const { ctx } = makeCtx({
       charRows: [
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000) },
+        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 30 * 60_000, { template: LIVE_TEMPLATE }) },
         { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
       ],
     });
-    const result = await amsgHooks.onBeforeFire(ctx);
-    expect(fired(result).messages).toHaveLength(1);
+    const content = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
+    expect(content).toContain('开口之前：\n');
+    expect(content).not.toContain('你们此刻正聊着');
   });
 
   // ─── 不降级：状态不完整一律抛错，不再退回排程时冻结的 prompt ───
@@ -437,56 +455,12 @@ describe('onBeforeFire 四道门', () => {
   // 闸判定该让路就直接跳过，一条 push 都不发，而远端那行任务照样被消费掉——客户端事后
   // 看到的跟「发出去了但没收到」一模一样，用户只会觉得功能坏了。这几条钉住那句解释。
 
-  it('用户正在聊天被拦下 → 写下原因，说明是让路了', async () => {
-    const { ctx, writeState } = makeCtx({
-      charRows: [
-        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 5_000) },
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue() },
-        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
-      ],
-    });
-    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
-
-    const call = writeState.mock.calls.find(([, entries]) =>
-      entries.some((e: { key: string }) => e.key === AMSG_LAST_SKIP_KEY));
-    expect(call, '应该写过 last_skip').toBeTruthy();
-    const skip = JSON.parse(String(call![1][0].value));
-    expect(skip.reason).toBe('active-chat-presence');
-    expect(skip.taskUuid).toBe(TASK_UUID);
-  });
-
-  it('对话已经聊到别处被作废 → 原因写成另一种，两者能分开', async () => {
-    const { ctx, writeState } = makeCtx({
-      charRows: [
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue(NOW.getTime() - 60_000) },
-        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
-      ],
-    });
-    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
-
-    const call = writeState.mock.calls.find(([, entries]) =>
-      entries.some((e: { key: string }) => e.key === AMSG_LAST_SKIP_KEY));
-    expect(JSON.parse(String(call![1][0].value)).reason).toBe('conversation-moved-on');
-  });
-
   it('正常触发不留跳过记录（别让上一次的解释赖着不走）', async () => {
     const { ctx, writeState } = makeCtx({});
     await amsgHooks.onBeforeFire(ctx);
     const call = writeState.mock.calls.find(([, entries]) =>
       entries.some((e: { key: string }) => e.key === AMSG_LAST_SKIP_KEY));
     expect(call).toBeUndefined();
-  });
-
-  it('原因写失败照样把这次拦下来——闸的效果不能取决于能不能写日志', async () => {
-    const { ctx } = makeCtx({
-      writeStateFails: true,
-      charRows: [
-        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(NOW.getTime() - 5_000) },
-        { key: AMSG_FIRE_PACK_KEY, value: firePackValue() },
-        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
-      ],
-    });
-    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
   });
 
   // ─── 值压缩：前端压过的 fire_pack 要能读出来，没压过的老数据也要照常读 ───
@@ -772,6 +746,42 @@ describe('频率与额度（到点兜底闸）', () => {
     return call ? JSON.parse(String(call[1][0].value)).reason : undefined;
   };
 
+  // 被频率规矩拦下的那次也要告诉角色：它许过「明早叫你」，得知道这条没响。
+  it('被每日上限拦下 → 回一条「这次没发」的结果，带上这条任务要说什么', async () => {
+    const { ctx } = makeCtx({
+      charRows: rows({
+        settings: { dailySendCap: 2 },
+        daily: { day: '2026-07-25', sends: 2 },
+        pack: { pendingTasks: [{
+          taskUuid: TASK_UUID, clientTaskId: 'ctid-1', status: 'scheduled', mode: 'prompted',
+          promptHint: '问问对方吃了没', recurrenceType: 'none', expirePolicy: 'expire',
+          firstSendTime: '2026-07-25T12:00:00.000Z', createdAt: 1,
+        }] },
+      }),
+    });
+    ctx.emitResult = vi.fn(async () => ({ messageId: 'm', pushed: false }));
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
+    expect(ctx.emitResult).toHaveBeenCalledTimes(1);
+    expect(ctx.emitResult.mock.calls[0][0]).toMatchObject({
+      resultKind: 'fire-skipped',
+      taskUuid: TASK_UUID,
+      reason: 'daily-limit',
+      task: { mode: 'prompted', promptHint: '问问对方吃了没', recurrenceType: 'none' },
+      notification: { show: false },
+    });
+  });
+
+  // 用户自己关掉的不用再告诉角色：取消那一刻面板已经留过「已被手动取消」的回执。
+  it('用户关掉了这类消息（schedule-off）→ 不回结果', async () => {
+    const { ctx } = makeCtx({
+      metadata: { amsgSelfScheduled: true },
+      charRows: rows({ selfScheduleEnabled: false }),
+    });
+    ctx.emitResult = vi.fn();
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
+    expect(ctx.emitResult).not.toHaveBeenCalled();
+  });
+
   it('关 2.0 时先写的那份 limits 说关了 → 自排任务跳过（schedule-off），不等 fire_pack 更新', async () => {
     const { ctx, writeState } = makeCtx({
       metadata: { amsgSelfScheduled: true },
@@ -939,14 +949,13 @@ describe('频率与额度（到点兜底闸）', () => {
     fired(await amsgHooks.onBeforeFire(uncapped.ctx));
   });
 
-  it('角色自排的「到点必发」在用户没放开时按普通的处理：用户正在聊天就让路', async () => {
+  it('角色自排的「到点必发」在用户没放开时按普通的处理：有回复正在生成就等它结束', async () => {
     const presence = presenceValue(NOW.getTime() - 5_000);
     const locked = makeCtx({
       metadata: { amsgSelfScheduled: true, amsgExpirePolicy: 'force' },
       charRows: rows({ presence }),
     });
-    await expect(amsgHooks.onBeforeFire(locked.ctx)).resolves.toEqual({ skip: true });
-    expect(skipReason(locked.writeState)).toBe('active-chat-presence');
+    await expect(amsgHooks.onBeforeFire(locked.ctx)).resolves.toEqual({ defer: { afterMs: 45_000 } });
 
     const allowed = makeCtx({
       metadata: { amsgSelfScheduled: true, amsgExpirePolicy: 'force' },
@@ -3272,7 +3281,11 @@ describe('fire 侧取消 / 改期任务', () => {
 // ⑤ 没发出去也留痕：模型返回空 / 纯拒答、或者只做了副作用没说话时，上游都把任务当成功
 // 消费，面板过去无从解释。现在 skip-push 分支写一条 last_skip，两种成因分开记。
 describe('没发出去时写 last_skip', () => {
-  const runEmptyFire = async (opts: { writeStateFails?: boolean; llmOutputText?: string } = {}) => {
+  const runEmptyFire = async (opts: {
+    writeStateFails?: boolean;
+    llmOutputText?: string;
+    emitResult?: (payload: Record<string, unknown>) => Promise<{ messageId: string; pushed: boolean }>;
+  } = {}) => {
     const { ctx, scratch, writeState } = makeCtx({ writeStateFails: opts.writeStateFails });
     await amsgHooks.onBeforeFire(ctx);
     const decision = await amsgHooks.onLLMOutput({
@@ -3283,6 +3296,7 @@ describe('没发出去时写 last_skip', () => {
       metadata: { charId: CHAR_ID, amsgClientTaskId: 'client-task-1', amsgMode: 'auto' },
       scratch,
       writeState,
+      ...(opts.emitResult ? { emitResult: opts.emitResult } : {}),
     } as any);
     return { decision: decision as any, writeState };
   };
@@ -3314,6 +3328,39 @@ describe('没发出去时写 last_skip', () => {
 
   it('留痕写失败不影响 skip 本身（best-effort）', async () => {
     const { decision } = await runEmptyFire({ writeStateFails: true });
+    expect(decision.decision).toBe('skip-push');
+  });
+
+  // 角色看了对话决定不说：跟「没写出来」分开记，面板和角色下一轮聊天才说得出是哪种。
+  it('只输出不发标记 → skip-push（reason: declined），标记旁边多写的解释也不发', async () => {
+    for (const llmOutputText of [AMSG_SILENT_MARK, `${AMSG_SILENT_MARK}\n这件事刚才已经聊过了。`]) {
+      const { decision, writeState } = await runEmptyFire({ llmOutputText });
+      expect(decision.decision).toBe('skip-push');
+      const call = writeState.mock.calls.find(([, entries]) =>
+        entries.some((e: { key: string }) => e.key === AMSG_LAST_SKIP_KEY));
+      expect(JSON.parse(String(call![1][0].value)).reason).toBe('declined');
+    }
+  });
+
+  // 没发的那次由云端告诉客户端：不弹通知，带上是哪条任务、哪一次、为什么。
+  it('没发 → 回一条「这次没发」的结果，不弹通知', async () => {
+    const emitResult = vi.fn(async (_payload: Record<string, unknown>) => ({ messageId: 'm', pushed: false }));
+    const { decision } = await runEmptyFire({ llmOutputText: AMSG_SILENT_MARK, emitResult });
+    expect(decision.decision).toBe('skip-push');
+    expect(emitResult).toHaveBeenCalledTimes(1);
+    expect(emitResult.mock.calls[0][0]).toMatchObject({
+      resultKind: 'fire-skipped',
+      charId: CHAR_ID,
+      taskUuid: TASK_UUID,
+      occurrenceMs: Date.parse('2026-07-25T12:00:00.000Z'),
+      reason: 'declined',
+      notification: { show: false },
+    });
+  });
+
+  it('「这次没发」送不出去不影响 skip 本身（best-effort）', async () => {
+    const emitResult = vi.fn(async () => { throw new Error('outbox down'); });
+    const { decision } = await runEmptyFire({ emitResult });
     expect(decision.decision).toBe('skip-push');
   });
 
@@ -3502,6 +3549,24 @@ describe('stale 跳过留痕（onStaleSkip）', () => {
     expect(written!.skip.reason).toBe('stale');
     expect(written!.skip.occurrenceMs).toBe(Date.parse(occurrence));
     expect(written!.skip.staleAction).toBe('expired');
+  });
+
+  it('过期没补发的那次也回一条「这次没发」的结果', async () => {
+    const emitResult = vi.fn(async (_payload: Record<string, unknown>) => ({ messageId: 'm', pushed: false }));
+    const occurrenceMs = Date.parse('2026-07-25T09:00:00.000Z');
+    await amsgStaleSkip(
+      { id: 101, uuid: TASK_ROW_UUID },
+      {
+        reason: 'stale', action: 'expired', metadata: { charId: CHAR_ID },
+        occurrenceMs, skippedCount: 1, nextSendAt: null,
+        writeState: makeWriteState(), emitResult,
+      },
+    );
+    expect(emitResult).toHaveBeenCalledTimes(1);
+    expect(emitResult.mock.calls[0][0]).toMatchObject({
+      resultKind: 'fire-skipped', charId: CHAR_ID, taskUuid: TASK_ROW_UUID,
+      occurrenceMs, reason: 'stale', notification: { show: false },
+    });
   });
 
   // 循环任务的快进跳过也会调这个 hook。跟一次性任务的过期混为一谈的话，每日提醒断更

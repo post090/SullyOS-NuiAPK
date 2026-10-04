@@ -34,7 +34,7 @@
 
 - 生产：`utils/activeMsgClient.ts` 的 `payload.metadata` 字面量（类型是 `Record<string, any>`）
 - 消费：`worker/amsg/src/index.ts` 的 `onBeforeFire`
-- 消费：`utils/activeMsgRuntime.ts` 的送达兜底闸
+- 消费：`utils/amsg2TaskContext.ts` 的排程现状块（靠气泡上的 `amsgClientTaskId` / `amsgOccurrenceMs` 认送达）
 
 生产方少写一个键、拼错一个字母，编译器不会吭声，要到点了才在 worker 里拿到 `undefined`。
 

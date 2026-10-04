@@ -55,7 +55,7 @@ describe('processLLMRound — 纯文本 finish', () => {
       avatarUrl: 'https://example.com/a.png',
       messageSubtype: 'chat',
       taskId: '42',
-      // 每条 push 都带触发时刻——客户端兜底闸的循环判定与吞放缓存键都靠它。
+      // 每条 push 都带触发时刻——客户端靠它认「这次触发送达过」。
       metadata: { charId: 'char-1', amsgMode: 'auto', amsgOccurrenceMs: build.occurrenceMs },
       notification: { title: '来自 小鹿', body: '想你了。' },
     });

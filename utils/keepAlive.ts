@@ -10,6 +10,8 @@
  *   KeepAlive.stop();    // after API call completes
  */
 
+import { changeWebUpdateActivity, watchWebUpdates } from './webUpdateSession';
+
 let registered = false;
 
 async function ensureRegistered(): Promise<void> {
@@ -17,7 +19,8 @@ async function ensureRegistered(): Promise<void> {
   try {
     const base = import.meta.env.BASE_URL || '/';
     const scriptUrl = base + 'sw-keep-alive.js';
-    const reg = await navigator.serviceWorker.register(scriptUrl, { scope: base });
+    const reg = await navigator.serviceWorker.register(scriptUrl, { scope: base, updateViaCache: 'none' });
+    watchWebUpdates(reg);
     await navigator.serviceWorker.ready;
     registered = true;
     console.log('[KeepAlive] Service Worker registered', reg.scope);
@@ -37,12 +40,14 @@ export const KeepAlive = {
 
   /** Signal that a long-running request is starting. */
   async start() {
+    changeWebUpdateActivity(1);
     await ensureRegistered();
     postToSW({ type: 'keepalive-start' });
   },
 
   /** Signal that the request has finished. */
   stop() {
+    changeWebUpdateActivity(-1);
     postToSW({ type: 'keepalive-stop' });
   },
 

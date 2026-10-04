@@ -1,3 +1,6 @@
+import ApiPresetGroups from '../components/settings/ApiPresetGroups';
+import ModelPicker from '../components/settings/ModelPicker';
+import { buildModelPickerView } from '../utils/modelPickerView';
 
 import { useFirstUseGuideStep } from '../utils/firstUseGuide';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
@@ -42,6 +45,7 @@ import VersionInfo from '../components/settings/VersionInfo';
 import { isPushVapidReady } from '../utils/pushVapid';
 import ApiCallLogModal from '../components/settings/ApiCallLogModal';
 import StorageUsagePanel from '../components/settings/StorageUsagePanel';
+import WebCacheControl from '../components/settings/WebCacheControl';
 import McpConnectionConsole from '../components/settings/McpConnectionConsole';
 import { DB } from '../utils/db';
 import { deriveStations, findActiveStation, stationKey, presetNameFor, renameStationInMeta, loadStationMeta, saveStationMeta, isStationViewConfirmed, markStationViewConfirmed, loadFloatBallConfig, saveFloatBallConfig, type FloatBallConfig, type Station } from '../utils/apiStations';
@@ -109,27 +113,6 @@ const readStoredVisionModels = (): string[] => {
     } catch {
         return [];
     }
-};
-
-const buildModelPickerView = (models: unknown[], filter: string) => {
-    const q = filter.trim().toLowerCase();
-    const safeModels = normalizeModelIds(models);
-    const filtered = q ? safeModels.filter(model => model.toLowerCase().includes(q)) : safeModels;
-    let commonPrefix = '';
-    if (filtered.length >= 2) {
-        let prefix = filtered[0];
-        for (let index = 1; index < filtered.length; index += 1) {
-            const candidate = filtered[index];
-            let cursor = 0;
-            while (cursor < prefix.length && cursor < candidate.length && prefix[cursor] === candidate[cursor]) cursor += 1;
-            prefix = prefix.slice(0, cursor);
-            if (!prefix) break;
-        }
-        const cut = Math.max(prefix.lastIndexOf('/'), prefix.lastIndexOf('-'));
-        if (cut > 3) prefix = prefix.slice(0, cut + 1);
-        if (prefix.length >= 4) commonPrefix = prefix;
-    }
-    return { filtered, commonPrefix };
 };
 
 const DiagRow: React.FC<{ label: string; value: string; bad?: boolean }> = ({ label, value, bad }) => (
@@ -580,6 +563,8 @@ const Settings: React.FC = () => {
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [isLoadingVisionModels, setIsLoadingVisionModels] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetGroup, setNewPresetGroup] = useState('');
+  const [editPresetGroup, setEditPresetGroup] = useState('');
   // 就地编辑某条预设：只改预设本身；改的正好是当前生效那条时，生效配置一并跟着走
   const [editingPresetId, setEditingPresetId] = useState<string | null>(null);
   // 保存前在用某条预设、保存后跟它对不上了：记下是哪条和刚存的配置，弹窗问要不要存回去
@@ -597,7 +582,6 @@ const Settings: React.FC = () => {
   const [showModelModal, setShowModelModal] = useState(false);
   // 打开模型弹窗那一刻的模型名：点 × 关掉时退回它，只有「确定」/点选列表才算数。
   const modelBeforePickerRef = useRef('');
-  const [modelFilter, setModelFilter] = useState('');
   const [showVisionModelModal, setShowVisionModelModal] = useState(false);
   const [visionModelFilter, setVisionModelFilter] = useState('');
   const [showExportModal, setShowExportModal] = useState(false); // Used for completion now
@@ -830,10 +814,6 @@ const Settings: React.FC = () => {
   const [vapidReadyTick, setVapidReadyTick] = useState(0); // 关闭 VAPID 弹窗后刷新顶层徽标
 
   // 模型选择 Modal 的过滤 + 公共前缀（memo 掉，避免每次 Settings 重渲染都重算）
-  const modelPickerView = useMemo(
-      () => buildModelPickerView(availableModels, modelFilter),
-      [modelFilter, availableModels],
-  );
   const visionModelPickerView = useMemo(
       () => buildModelPickerView(availableVisionModels, visionModelFilter),
       [visionModelFilter, availableVisionModels],
@@ -1103,24 +1083,8 @@ const Settings: React.FC = () => {
    */
   const commitApiConfig = (patch: PresetSwitchPatch | Partial<APIConfig>) => {
     updateApiConfig(patch);
-    // 支持凭据表的 Worker 上，任务只带引用，换 Key 只要覆盖云端那几行——不用逐条改任务。
-    // 老 Worker 上这句是 no-op，凭据靠下面那条逐条补刷的老路续命。
+    // 凭据行与存量任务统一从同步队列更新，失败自动重试并留底账供下次启动补传。
     syncAmsgLlmCredentials({ ...apiConfig, ...patch });
-    // 已排程的主动消息 2.0 AI 任务里冻结的是排程那一刻的凭据——换 Key / 换模型后
-    // 不重传的话，到点全拿旧凭据打请求（旧 Key 一吊销就是连环 401）。best-effort：
-    // 保存本身不等它，失败只提示；没配 2.0 / 没有 pending AI 任务时它是 no-op。
-    // 存量的内联任务还靠它，所以走引用那条路的用户这里照跑（带 credRefs 的任务
-    // 到点只认引用，这一份补刷落在它们身上是无害的空转）。
-    void ActiveMsgClient.refreshApiCredentialsForPendingTasks({ ...apiConfig, ...patch })
-      .then((result) => {
-        if (result.status === 'partial') {
-          addToast(`API 已保存，但有 ${result.failed} 条已排程的主动消息没换上新凭据，稍后再保存一次可重试。`, 'error');
-        }
-      })
-      .catch((error) => {
-        console.warn('[Settings] 刷新已排程任务的 API 凭据失败', error);
-        addToast('API 已保存，但已排程的主动消息凭据刷新失败，稍后再保存一次可重试。', 'error');
-      });
   };
 
   /**
@@ -1140,6 +1104,7 @@ const Settings: React.FC = () => {
       const isActive = activePresetId === preset.id;
       setEditingPresetId(preset.id);
       setEditPresetName(preset.name);
+      setEditPresetGroup(preset.group || '');
       setEditPresetUrl(preset.config.baseUrl || '');
       setEditPresetKey(preset.config.apiKey || '');
       setEditPresetModel(preset.config.model || '');
@@ -1173,7 +1138,7 @@ const Settings: React.FC = () => {
       };
       // 「正在用的就是这条」要在改之前问，改完值就对不上了
       const wasActive = activePresetId === preset.id;
-      updateApiPreset(preset.id, name, nextConfig);
+      updateApiPreset(preset.id, name, nextConfig, { group: editPresetGroup });
       // 改的正好是当前生效那条 → 生效配置跟着走，否则界面写着新 Key、请求还在用旧的
       if (wasActive) commitApiConfig(configFromPreset({ ...preset, name, config: nextConfig }));
       setEditingPresetId(null);
@@ -1223,8 +1188,9 @@ const Settings: React.FC = () => {
         model: normalizeApiModel(localModel),
         stream: localStream,
         temperature: localTemperature,
-      });
+      }, { group: newPresetGroup });
       setNewPresetName('');
+      setNewPresetGroup('');
       setShowPresetModal(false);
       addToast('预设已保存', 'success');
   };
@@ -1297,7 +1263,7 @@ const Settings: React.FC = () => {
           baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), model: model.trim(),
           stream: apiConfig.stream === true,
           temperature: typeof apiConfig.temperature === 'number' ? apiConfig.temperature : 0.85,
-      }, lbl);
+      }, { label: lbl });
       renameStationInMeta(stationKey(baseUrl, apiKey), name.trim());
       updateApiConfig({ baseUrl: baseUrl.trim(), apiKey: apiKey.trim(), model: model.trim() });
       setShowNewStation(false);
@@ -1318,7 +1284,7 @@ const Settings: React.FC = () => {
           baseUrl: st.baseUrl, apiKey: st.apiKey, model: model.trim(),
           stream: first ? first.stream : false, // 继承站内既有模型的流式/温度习惯
           temperature: first ? first.temperature : 0.85,
-      }, lbl);
+      }, { label: lbl });
       setNewModel({ model: '', label: '' });
       addToast('模型已加入站点', 'success');
   };
@@ -2457,6 +2423,7 @@ const Settings: React.FC = () => {
             }
         >
             <StorageUsagePanel />
+            <WebCacheControl />
 
             <label className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 cursor-pointer">
                 <input
@@ -3088,8 +3055,7 @@ const Settings: React.FC = () => {
             {apiPresets.length > 0 && (
                 <div className="mb-4">
                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block pl-1">我的预设 (Presets)</label>
-                    <div className="flex gap-2 flex-wrap">
-                        {apiPresets.map(preset => (
+                    <ApiPresetGroups presets={apiPresets}>{preset => (
                             <div key={preset.id} className={`flex items-center rounded-lg pl-3 pr-1 py-1 shadow-sm border transition-colors ${
                                 activePresetId === preset.id
                                     ? 'bg-primary/5 border-primary/30'
@@ -3129,8 +3095,7 @@ const Settings: React.FC = () => {
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3"><path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z" /></svg>
                                 </button>
                             </div>
-                        ))}
-                    </div>
+                        )}</ApiPresetGroups>
                     <p className="text-[9px] text-slate-300 mt-1.5 pl-1">点名称直接切换并生效；铅笔改这条预设的内容；长按或双击 × 才会删除。</p>
                 </div>
             )}
@@ -4872,82 +4837,7 @@ const Settings: React.FC = () => {
 
       {/* 模型选择 Modal */}
       <Modal isOpen={showModelModal} title="选择模型" onClose={cancelModelPicker}>
-        {(() => {
-            const { filtered, commonPrefix } = modelPickerView;
-            return (
-                <div className="space-y-3 p-1">
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={localModel}
-                            onChange={(e) => setLocalModel(e.target.value)}
-                            placeholder="手动输入模型名称..."
-                            className="flex-1 bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-primary focus:bg-white transition-all"
-                        />
-                        <button
-                            onClick={() => confirmModelPicker(localModel)}
-                            className="px-4 py-2.5 bg-primary text-white text-sm font-bold rounded-xl active:scale-95 transition-all"
-                        >
-                            确定
-                        </button>
-                    </div>
-                    {availableModels.length > 0 && (
-                        <div className="relative">
-                            <input
-                                type="text"
-                                value={modelFilter}
-                                onChange={(e) => setModelFilter(e.target.value)}
-                                placeholder={`🔍 搜索 ${availableModels.length} 个模型...`}
-                                className="w-full bg-slate-50 border border-slate-200/60 rounded-xl px-4 py-2 text-xs focus:outline-primary focus:bg-white transition-all"
-                            />
-                            {modelFilter && (
-                                <button
-                                    onClick={() => setModelFilter('')}
-                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs px-2"
-                                >
-                                    ×
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    {commonPrefix && (
-                        <div className="text-[10px] text-slate-400 px-1 flex items-center gap-1 flex-wrap">
-                            <span>共同前缀:</span>
-                            <code className="font-mono bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded break-all">{commonPrefix}</code>
-                            <span className="text-slate-300">(下方已弱化显示)</span>
-                        </div>
-                    )}
-                    <div className="max-h-[40vh] overflow-y-auto no-scrollbar space-y-2">
-                        {filtered.length > 0 ? filtered.map(m => {
-                            const suffix = commonPrefix && m.startsWith(commonPrefix) ? m.slice(commonPrefix.length) : m;
-                            const selected = m === localModel;
-                            return (
-                                <button
-                                    key={m}
-                                    onClick={() => confirmModelPicker(m)}
-                                    title={m}
-                                    className={`w-full text-left px-4 py-3 rounded-xl text-sm font-mono flex justify-between items-start gap-2 ${selected ? 'bg-primary/10 text-primary font-bold ring-1 ring-primary/20' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
-                                >
-                                    <span className="break-all min-w-0 flex-1 leading-relaxed">
-                                        {commonPrefix && suffix !== m && (
-                                            <span className={selected ? 'text-primary/40 font-normal' : 'text-slate-400 font-normal'}>{commonPrefix}</span>
-                                        )}
-                                        <span>{suffix}</span>
-                                    </span>
-                                    {selected && <div className="w-2 h-2 rounded-full bg-primary mt-1.5 flex-shrink-0"></div>}
-                                </button>
-                            );
-                        }) : (
-                            <div className="text-center text-slate-400 py-8 text-xs">
-                                {availableModels.length === 0
-                                    ? '列表为空，可手动输入或点击"刷新模型列表"拉取'
-                                    : `没有匹配 "${modelFilter}" 的模型`}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
-        })()}
+        <ModelPicker availableModels={availableModels} localModel={localModel} setLocalModel={setLocalModel} confirmModelPicker={confirmModelPicker} />
       </Modal>
 
       {/* 识图 API 使用独立模型列表，避免覆盖主 API 的模型选择。 */}
@@ -5045,6 +4935,9 @@ const Settings: React.FC = () => {
           <div className="space-y-2">
               <label className="text-[10px] font-bold text-slate-400 uppercase">预设名称 (例如: DeepSeek)</label>
               <input value={newPresetName} onChange={e => setNewPresetName(e.target.value)} className="w-full bg-slate-100 rounded-xl px-4 py-3 text-sm focus:outline-primary" autoFocus placeholder="Name..." />
+              <label className="text-[10px] font-bold text-slate-400 block">API 预设分组（选填）</label>
+              <input aria-label="API 预设分组" value={newPresetGroup} onChange={e => setNewPresetGroup(e.target.value)} list="newPresetGroup-options" placeholder="例如：日常聊天 / 写作" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+              <datalist id="newPresetGroup-options">{[...new Set(apiPresets.map(p => p.group).filter(Boolean))].map(group => <option key={group} value={group} />)}</datalist>
               <p className="text-[10px] text-slate-400 leading-relaxed pt-1">会保存上面表单里的 URL / Key / Model，以及高级设置中的流式与温度。</p>
           </div>
       </Modal>
@@ -5060,6 +4953,9 @@ const Settings: React.FC = () => {
               <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">名称</label>
                   <input value={editPresetName} onChange={e => setEditPresetName(e.target.value)} placeholder="预设名称" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+                  <label className="text-[10px] font-bold text-slate-400 block">API 预设分组（选填）</label>
+              <input aria-label="API 预设分组" value={editPresetGroup} onChange={e => setEditPresetGroup(e.target.value)} list="editPresetGroup-options" placeholder="例如：日常聊天 / 写作" className="w-full bg-slate-100 rounded-xl px-4 py-2.5 text-sm focus:outline-primary" />
+              <datalist id="editPresetGroup-options">{[...new Set(apiPresets.map(p => p.group).filter(Boolean))].map(group => <option key={group} value={group} />)}</datalist>
               </div>
               <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">URL</label>

@@ -32,6 +32,12 @@ export const ROOM_CONFIGS: Record<MemoryRoom, RoomConfig> = {
     windowsill:  { capacity: null, decayRate: null,   description: '期盼、目标、憧憬' },
 };
 
+/** 检索读到旧档/远程异常房间时沿用提取入口的客厅兜底，不改写原始记录。 */
+export function resolveMemoryScoringRoom(room: unknown): MemoryRoom {
+    return typeof room === 'string' && Object.prototype.hasOwnProperty.call(ROOM_CONFIGS, room)
+        ? room as MemoryRoom : 'living_room';
+}
+
 export const ROOM_LABELS: Record<MemoryRoom, string> = {
     living_room: '客厅',
     bedroom:     '卧室',

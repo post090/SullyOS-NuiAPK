@@ -35,6 +35,8 @@ interface ChatInputAreaProps {
     onInputFocusChange?: (focused: boolean) => void;
     onDeleteSelected: () => void;
     onForwardSelected?: () => void;
+    onFavoriteSelected?: () => void;
+    favoriteSelectedCount?: number;
     selectedCount: number;
     emojis: Emoji[];
     emojiSuggestionsEnabled?: boolean;
@@ -87,7 +89,7 @@ interface ChatInputAreaProps {
 
 const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     input, setInput, isTyping, selectionMode,
-    showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, selectedCount,
+    showPanel, setShowPanel, onSend, onDeleteSelected, onForwardSelected, onFavoriteSelected, favoriteSelectedCount = 0, selectedCount,
     sendButtonGenerates = false, enterToSend = true, onGenerate,
     autoReplyEnabled = false, autoReplySeconds = null, onCancelAutoReply, onInputFocusChange,
     emojis, characters = [], activeCharacterId = '', onCharSelect = () => {},
@@ -761,6 +763,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
         <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
+                    {onFavoriteSelected && <button type="button" onClick={onFavoriteSelected} disabled={!favoriteSelectedCount}
+                        className="flex-1 min-w-0 py-3 text-xs font-bold rounded-xl bg-amber-100 text-amber-900 disabled:opacity-40 flex flex-col items-center justify-center gap-1">
+                        <Star size={18} weight="bold" />合并收藏 ({favoriteSelectedCount})
+                    </button>}
                     {onForwardSelected && (
                         <button
                             onClick={() => { onForwardSelected?.(); trackEvent('转发选中的消息'); }}

@@ -123,6 +123,7 @@ import {
 } from '../../utils/builtinSullyLive2D';
 import {
   companionAvatarSource,
+  companionPortraitConfig,
   companionSkinSetPatchValue,
   listCompanionDateOutfits,
   normalizeCompanionSkinSetId,
@@ -419,6 +420,9 @@ const CompanionHome: React.FC = () => {
   );
   const activeCompanionSource = companionAvatarSource(character);
   const staticCompanionActive = activeCompanionSource === 'upload' || activeCompanionSource === 'date';
+  const [portraitConfigDraft, setPortraitConfigDraft] = useState(() => companionPortraitConfig(character));
+  const [portraitPerformance, setPortraitPerformance] = useState(DEFAULT_AVATAR_PERFORMANCE);
+  useEffect(() => { setPortraitPerformance(DEFAULT_AVATAR_PERFORMANCE); }, [character?.id, activeCompanionSource]);
   const [motionState, setMotionState] = useState<AvatarMotionState>('idle');
   const startupAlreadyPlayed = Boolean(character && companionStartupPlayedThisSession.has(character.id));
   const [performance, setPerformance] = useState<AvatarPerformanceDirection>(() => (
@@ -819,7 +823,7 @@ const CompanionHome: React.FC = () => {
     durationMs: number,
   ) => {
     clearCompanionPerformanceCues();
-    if (!cues?.length) return;
+    if (!cues?.length || staticCompanionActive) return;
     expandAvatarPerformanceCueBeats(cues, durationMs).forEach(beat => {
       const direction = normalizeCompanionStartupPerformance(beat.direction);
       if (beat.delayMs <= 40) {
@@ -871,6 +875,7 @@ const CompanionHome: React.FC = () => {
         return;
       }
       setStartupHeadLocked(true);
+      setPortraitPerformance(normalizeCompanionStartupPerformance(cues?.[0]?.direction || startup.performance));
       setLine({ text, translation: translation || undefined, label: '开场演出', kind: 'startup' });
       setPerformance(normalizeCompanionStartupPerformance(cues?.[0]?.direction || startup.performance));
       setMotionState('speaking');
@@ -889,8 +894,8 @@ const CompanionHome: React.FC = () => {
 
   const accentColor = palette.accent;
   const staticPortraitValue = useMemo(
-    () => character ? resolveCompanionPortrait(character, performance.emotion, performance.faces || []) : undefined,
-    [character, performance.emotion, performance.faces],
+    () => character ? resolveCompanionPortrait(character, portraitPerformance.emotion, portraitPerformance.faces || []) : undefined,
+    [character, portraitPerformance],
   );
   const touchPackContentLabel = activeCompanionSource === 'upload'
     ? '台词'
@@ -1162,7 +1167,8 @@ const CompanionHome: React.FC = () => {
     setLine(null);
     setPerformance(DEFAULT_AVATAR_PERFORMANCE);
     setMotionState('idle');
-    setEditingPanel(staticCompanionActive ? 'stage' : 'character');
+    setPortraitConfigDraft(companionPortraitConfig(character));
+    setEditingPanel('character');
     setCompositionFramingMode('base');
     setFramingDraft(companionFraming || defaultCompanionFraming);
     setFaceFramingDraft(makeFaceFramingSeed());
@@ -1186,6 +1192,19 @@ const CompanionHome: React.FC = () => {
   };
   const saveCompositionEditor = () => {
     if (!character) return;
+    if (staticCompanionActive) {
+      const source = activeCompanionSource as 'upload' | 'date';
+      updateCharacter(character.id, prev => ({
+        companionAvatar: {
+          version: 1, source, ...prev.companionAvatar,
+          portraitConfigs: { ...prev.companionAvatar?.portraitConfigs, [source]: portraitConfigDraft },
+        },
+      }));
+      setEditing(false);
+      setCompositionEditorCollapsed(false);
+      addToast('当前形象模式的位置已保存', 'success');
+      return;
+    }
     updateCharacter(character.id, prev => (
       prev.videoAvatar ? {
         videoAvatar: {
@@ -1559,6 +1578,7 @@ const CompanionHome: React.FC = () => {
       startupPerformanceCueText,
       startupPerformanceCues,
     ) ? startupPerformanceCues : [];
+    setPortraitPerformance(normalizeCompanionStartupPerformance(cues[0]?.direction || startupPerformance));
     setPerformance(normalizeCompanionStartupPerformance(cues[0]?.direction || startupPerformance));
     setMotionState('speaking');
     scheduleCompanionPerformanceCues(cues, companionLineFallbackDuration(text.length));
@@ -1912,6 +1932,7 @@ const CompanionHome: React.FC = () => {
     // over. This timer never calls the API; repeated taps simply replace it.
     touchDialogueTimerRef.current = window.setTimeout(() => {
       if (!mountedRef.current) return;
+      setPortraitPerformance(reaction.performance || buildImmediateTouchPerformance(hit.zone));
       setLine({ text, translation: translation || undefined, label: `触摸 · ${avatarTouchZoneLabel(hit.zone)}`, kind: 'touch' });
       setPerformance(applyAvatarTouchForce(
         keepBuiltinSullyHeadClose(reaction.performance || buildImmediateTouchPerformance(hit.zone)),
@@ -1956,7 +1977,7 @@ const CompanionHome: React.FC = () => {
   const activeCompanionFraming = editing ? compositionFramingDraft : (companionFraming || defaultCompanionFraming);
   const activeCompanionCrop = editing ? cropDraft : (companionCrop || DEFAULT_STAGE_CROP);
   const cropAdjusted = !cropIsDefault(activeCompanionCrop);
-  const framingScaleMin = character.videoAvatar?.format === 'live2d' ? 0.55 : 0.5;
+  const framingScaleMin = character.videoAvatar?.format === 'live2d' ? 0.55 : 0.1;
   const framingScaleMax = character.videoAvatar?.format === 'live2d' ? 6 : 4;
   const framingOffsetXMax = character.videoAvatar?.format === 'live2d' ? 1.4 : 0.9;
   const framingOffsetYMax = character.videoAvatar?.format === 'live2d' ? 3.2 : 0.9;
@@ -2355,7 +2376,7 @@ const CompanionHome: React.FC = () => {
           <StaticCompanionPortrait
             value={staticPortraitValue}
             characterName={character.name}
-            spriteConfig={character.spriteConfig}
+            spriteConfig={editing ? portraitConfigDraft : companionPortraitConfig(character)}
             touchEnabled={!editing && !touchSettingsOpen && !wardrobeOpen}
             onAvatarTouch={hit => { void respondToTouch(hit); }}
           />
@@ -3559,7 +3580,17 @@ const CompanionHome: React.FC = () => {
 
               {editingPanel === 'character' && (
                 <div className="mt-3" data-testid="companion-character-crop-editor">
-                  {!character.videoAvatar ? (
+                  {staticCompanionActive ? (
+                    <div className="space-y-4 rounded-2xl border border-white/15 p-4" data-testid="companion-portrait-composition">
+                      <p className="text-xs text-white/70">{activeCompanionSource === 'upload' ? '图片 / GIF' : '见面立绘'}的位置独立保存，不影响其他模式。</p>
+                      {([['scale', '大小', .25, 3, .01], ['x', '左右位置', -100, 100, 1], ['y', '上下位置', -100, 100, 1]] as const).map(([key, label, min, max, step]) => (
+                        <label key={key} className="block text-xs text-white/70">{label} · {portraitConfigDraft[key].toFixed(key === 'scale' ? 2 : 0)}
+                          <input aria-label={label} className="mt-2 block w-full" type="range" min={min} max={max} step={step} value={portraitConfigDraft[key]} onChange={event => setPortraitConfigDraft(current => ({ ...current, [key]: Number(event.target.value) }))} />
+                        </label>
+                      ))}
+                      <button className="rounded-xl border border-white/20 px-3 py-2 text-xs" onClick={() => setPortraitConfigDraft({ scale: 1, x: 0, y: 0 })}>重置当前模式位置</button>
+                    </div>
+                  ) : !character.videoAvatar ? (
                     <div className="rounded-2xl border border-dashed border-white/15 px-4 py-5 text-center">
                       <div className="text-[11px] text-white/70">还没有可裁剪的视频角色</div>
                       <button onClick={() => openApp(AppID.Call)} className="mt-2 rounded-full border border-white/15 px-3 py-1.5 text-[10px] text-white/55">去导入 VRM / Live2D</button>

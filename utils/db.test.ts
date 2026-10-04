@@ -128,3 +128,36 @@ describe('openDB blocked-then-unblocked 不泄漏连接', () => {
     })).resolves.toBeUndefined();
   });
 });
+
+it('times out a silent open, allows retry, and closes a late orphan connection', async () => {
+  await DB.deleteDB();
+  const request = { onsuccess:null as any, onerror:null as any, result:{close:vi.fn()} };
+  const spy=vi.spyOn(indexedDB,'open').mockReturnValueOnce(request as any);
+  vi.useFakeTimers();
+  try {
+    const result=openDB(); const assertion=expect(result).rejects.toThrow('连接超时');
+    await vi.advanceTimersByTimeAsync(20_000); await assertion;
+    request.onsuccess(); expect(request.result.close).toHaveBeenCalledOnce();
+  } finally {vi.useRealTimers();spy.mockRestore();}
+  expect(await openDB()).toBeTruthy();
+});
+
+it('upgrades v71 delivery metadata into the index without changing stored records', async () => {
+  await DB.deleteDB();
+  const original={id:7,charId:'legacy-delivery',role:'assistant',type:'text',content:'旧正文保留',timestamp:42,metadata:{deliveryId:'old-delivery',custom:'keep'}};
+  const old=await new Promise<IDBDatabase>((resolve,reject)=>{
+    const request=indexedDB.open('AetherOS_Data',71);
+    request.onupgradeneeded=()=>{
+      const messages=request.result.createObjectStore('messages',{keyPath:'id',autoIncrement:true});
+      messages.createIndex('charId','charId');messages.add(original);
+      request.result.createObjectStore('assets',{keyPath:'id'}).put({id:'wallpaper',data:'kept-image'});
+    };
+    request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);
+  });
+  old.close();
+  const upgraded=await openDB();
+  expect(upgraded.transaction('messages').objectStore('messages').indexNames.contains('charId_deliveryId')).toBe(true);
+  expect(await DB.saveMessageOnce('old-delivery',{charId:'legacy-delivery',role:'assistant',type:'text',content:'不应覆盖'})).toBe(7);
+  expect(await DB.getMessagesByCharId('legacy-delivery',true)).toEqual([original]);
+  expect(await DB.getAsset('wallpaper')).toBe('kept-image');
+});

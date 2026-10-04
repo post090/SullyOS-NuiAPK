@@ -612,7 +612,7 @@ describe('buildFireTaskListBlock', () => {
   });
 
   // 回归守卫：这一块以前只说「别重复排、也别当它们不存在」，没说「别念出来」。
-  // 短 id 和「遇忙作废」是纯系统腔，被角色照着复述出来就是当场穿帮。
+  // 短 id 和「到点看情况」是纯系统腔，被角色照着复述出来就是当场穿帮。
   it('带防复述约束（跟平时聊天那份共用同一句）', () => {
     const block = buildFireTaskListBlock([fireTask()], { nowMs: NOW, tzId: 'UTC' });
     expect(block).toContain(AMSG2_SCHEDULE_SECRECY_NOTE);
@@ -626,11 +626,11 @@ describe('buildFireTaskListBlock', () => {
     })).toBe('');
   });
 
-  it('带上模式与防穿帮策略——角色要据此判断这条会不会被让路', () => {
+  it('带上模式与到点策略——角色要据此判断这条到点会不会照发', () => {
     const block = buildFireTaskListBlock([fireTask({ expirePolicy: 'force', mode: 'prompted', promptHint: '叫他起床' })], {
       nowMs: NOW, tzId: 'UTC',
     });
-    expect(block).toContain('强制发送');
+    expect(block).toContain('到点必发');
     expect(block).toContain('叫他起床');
   });
 });

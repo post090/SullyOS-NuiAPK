@@ -338,7 +338,8 @@ describe('CompanionHome touch request boundaries', () => {
     expect(source).toContain("const COMPANION_WARDROBE_DISCOVERY_KEY = 'sully-companion-wardrobe-discovery-v1'");
     expect(source).toContain('data-wardrobe-hint-active={wardrobeDiscoveryActive');
     expect(source).toContain('data-testid="companion-wardrobe-discovery-nudge"');
-    expect(source).toContain("setEditingPanel(staticCompanionActive ? 'stage' : 'character')");
+    expect(source).toContain("setEditingPanel('character')");
+    expect(source).toContain('data-testid="companion-portrait-composition"');
     expect(source).toContain('staticMode={staticCompanionActive}');
     expect(wardrobeSource).toContain('data-testid="companion-wardrobe-discovery-tip"');
     expect(wardrobeSource).toContain('场景与构图');

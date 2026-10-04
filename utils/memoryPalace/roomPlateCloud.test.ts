@@ -501,3 +501,72 @@ describe('问「还在飞吗」不该动任何状态', () => {
     expect(settleCloudApiCall).toHaveBeenCalledWith(expect.objectContaining({ ok: false }));
   });
 });
+
+// 用真实提交和超时清理走到记号丢失，不直接删除 localStorage 来制造缺口。
+describe('迟到结果仍能找到自己的快照时间', () => {
+  const startedAt = 1_800_000_000_000;
+
+  const prepareLateResult = async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(startedAt);
+    const original = plate('user_room', ['旧居住信息']);
+    // 之前的自动整理改写过这条，但本次提交以后没有改过。
+    original.entries[0].updatedAt = startedAt - 10_000;
+    plateStore.plates.set('user_room', original);
+    await submit({ plates: [original], snapshotAt: startedAt });
+    const [params] = scheduleBackgroundJob.mock.calls.at(-1) as unknown as [any];
+    const { parsePlateJobInput, buildPlateConsolidateResult } = await import('../amsgPlateJob');
+    const job = parsePlateJobInput(JSON.stringify(params.jobInput))!;
+    // 与 Worker 一样，先解析上传的输入，再构造返回结果。
+    return buildPlateConsolidateResult({
+      ...job,
+      jobId: params.jobId,
+      items: [{ room: 'user_room', text: '搬家后的新居住信息', basedOn: 'U0' }],
+    });
+  };
+
+  it('只晚到、未触发下一轮整理时，过了 30 分钟仍可用原记号更新', async () => {
+    const result = await prepareLateResult();
+    delete result.snapshotAt; // 旧 Worker 没回传时间，仍应兼容本地记号。
+    vi.mocked(Date.now).mockReturnValue(startedAt + 31 * 60_000);
+    await applyPlateConsolidateResult(result);
+    expect(plateStore.plates.get('user_room').entries[0].text).toBe('搬家后的新居住信息');
+  });
+
+  it.each([false, true])('下一轮清理过期记号后，旧结果照常更新（已提交新任务：%s）', async (submitNext) => {
+    const result = await prepareLateResult();
+    vi.mocked(Date.now).mockReturnValue(startedAt + 31 * 60_000);
+    expect(await plateCloudGate({ charId: 'c1', lightLLM: LIGHT_LLM })).toBe('submit');
+    expect(readPlateJobInFlightRaw('c1')).toBeNull();
+    if (submitNext) await submit({ snapshotAt: Date.now() });
+    const nextJobId = readPlateJobInFlightRaw('c1')?.jobId;
+
+    await applyPlateConsolidateResult(result);
+
+    expect(plateStore.plates.get('user_room').entries[0].text).toBe('搬家后的新居住信息');
+    expect(readPlateJobInFlightRaw('c1')?.jobId).toBe(nextJobId);
+  });
+
+  it('记号过期以后，提交后真实发生的编辑仍然保留', async () => {
+    const result = await prepareLateResult();
+    const current = plateStore.plates.get('user_room');
+    current.entries[0].text = '提交后用户纠正的居住信息';
+    current.entries[0].updatedAt = startedAt + 60_000;
+    vi.mocked(Date.now).mockReturnValue(startedAt + 31 * 60_000);
+    await plateCloudGate({ charId: 'c1', lightLLM: LIGHT_LLM });
+
+    await applyPlateConsolidateResult(result);
+
+    expect(plateStore.plates.get('user_room').entries[0].text).toBe('提交后用户纠正的居住信息');
+  });
+
+  it('旧结果和本地记号都没有快照时间时，不猜测时间或放开编辑保护', async () => {
+    const result = await prepareLateResult();
+    delete result.snapshotAt;
+    vi.mocked(Date.now).mockReturnValue(startedAt + 31 * 60_000);
+    await plateCloudGate({ charId: 'c1', lightLLM: LIGHT_LLM });
+
+    await applyPlateConsolidateResult(result);
+
+    expect(plateStore.plates.get('user_room').entries[0].text).toBe('旧居住信息');
+  });
+});

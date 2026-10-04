@@ -174,12 +174,13 @@ purpose」的组合，会产出既无引用可解析、又无内联凭据的空�
 
 ## SullyOS 侧落地（2026-08-10 完成）
 
-- 凭据行**每角色三份**（比上文约定多一份，原因见下）：`char:<id>/chat`（排程任务，
-  开了角色单独 API 就是那一份，否则是全局 API 的拷贝）、`char:<id>/instant`（即时
-  对话，值是当轮请求的终值——含开思考时拼出的 `-thinking` 模型名，每轮指纹门控覆盖，
-  值没变零请求）、`char:<id>/emotion`（情绪评估，`emotionConfig.api` 缺省时回落全局
-  API）。拆开 chat / instant 是因为即时对话固定走全局 API、排程可走角色单独 API，
-  共用一行会让开单独 API 的角色被静默换模型。
+- 凭据行分用途：`char:<id>/chat`（排程任务，使用当前聊天主 API）、
+  `char:<id>/instant`（即时对话，当轮请求终值，含思考模式的 `-thinking` 模型名）、
+  `char:<id>/emotion`（情绪评估，`emotionConfig.api` 缺省时回落主 API）。
+  chat / instant 仍分行，避免配置同步覆盖正在生成的即时回复。
+  **2026-10-02：主动消息单独 API 已下线**，旧角色 / 旧备份的副 API 字段不再生效。
+  页面内定时主动消息（1.0）同时移除独立 API 开关，使用实时的聊天主 API。
+  两处设置面板都说明调用使用主 API；情绪和记忆整理的独立 API 不变。
 - 构建与命名住 `utils/amsgLlmCredentials.ts`；上云的指纹门控、退避、底账在
   `utils/amsgStateSync.ts`（与 tool_config 同款）；排程 / 即时对话带 `credRefs` 与
   `CREDENTIAL_NOT_FOUND` 当场补传自愈在 `utils/activeMsgClient.ts`。
@@ -192,6 +193,9 @@ purpose」的组合，会产出既无引用可解析、又无内联凭据的空�
   在那之前表里只有 `chat` / `instant` 两行——排查时见不到 `emotion` 行属正常，
   不代表没实现。
 - 「清空云端数据」第四样 `deleteLlmCredentials({ all: true })`，与前三样互不短路。
-- 补刷函数（`refreshCharPendingAiTaskCredentials` / `refreshApiCredentialsForPendingTasks`）
-  混合期保留照跑，存量内联任务消亡后自然 no-op，届时可退役，「API 凭据没刷新成功」
-  toast 一并消失。
+- 启动和主 API 切换都走凭据同步队列，失败退避重试、保留跨会话欠账。
+  即使没有本地凭据指纹底账，也为启用角色同步 chat 行，覆盖旧副 API。
+- 补刷函数同时读取本地任务和远端清单，覆盖页面关闭期间的自排任务。
+  内联任务更新主 API 三字段；引用任务先登记主 API 行，再更新 chat 引用，保留其它 purpose。
+  继承 `instant-chat` 标签的自排任务通过详情的 `amsgSelfScheduled` 确认；真正的即时回复、
+  fixed 和后台作业不参与迁移。迁移需用户打开新版应用并成功连接其 Worker 后才会生效。

@@ -24,3 +24,16 @@ it('transaction abort rejects delivery and lets the same event retry later',asyn
     expect(await DB.getMessagesByCharId(id,true)).toHaveLength(0);
     await DB.saveMessageOnce(id,message);expect(await DB.getMessagesByCharId(id,true)).toHaveLength(1);
 });
+
+it('uses the delivery index even with long histories and deduplicates restored messages',async()=>{
+    const charId='indexed-'+crypto.randomUUID();
+    const message={charId,role:'assistant' as const,type:'text' as const,content:'回执'};
+    const legacyId=await DB.saveMessage({...message,metadata:{deliveryId:'restored-event'}});
+    const openCursor=vi.spyOn(IDBIndex.prototype,'openCursor');
+    try {
+        expect(await DB.saveMessageOnce('restored-event',message)).toBe(legacyId);
+        const fresh=await DB.saveMessageOnce('fresh-event',message);
+        expect(await DB.saveMessageOnce('fresh-event',message)).toBe(fresh);
+        expect(openCursor.mock.contexts.every(index=>(index as unknown as IDBIndex).name==='charId_deliveryId')).toBe(true);
+    } finally {openCursor.mockRestore();}
+});

@@ -48,6 +48,8 @@ export interface PlateJobRoom {
 export interface PlateJobInput {
   v: 1;
   charId: string;
+  /** 客户端读取门牌的绝对时间戳；旧任务没有此字段。随结果返回，不依赖短期在飞记号。 */
+  snapshotAt?: number;
   charName: string;
   userName: string;
   /** ContextBuilder.buildCoreContext 的产出；拿不到就是空串，提示词里仍有名字与身份确认段 */
@@ -65,6 +67,12 @@ const isPlateRoomValue = (v: unknown): v is PlateRoom => (PLATE_ROOMS as readonl
 
 const asStringArray = (v: unknown): string[] | null =>
   Array.isArray(v) && v.every((x) => typeof x === 'string') ? (v as string[]) : null;
+
+/** 无效或旧版缺失的时间不参与比较，落地侧继续采用保守保护。 */
+const snapshotTimeFields = (value: unknown): { snapshotAt?: number } =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+    ? { snapshotAt: value }
+    : {};
 
 /**
  * 读回 job 输入。形状对不上一律返回 null——worker 那边据此硬失败，
@@ -111,6 +119,7 @@ export function parsePlateJobInput(raw: unknown): PlateJobInput | null {
     identityContext: o.identityContext,
     rooms,
     materials,
+    ...snapshotTimeFields(o.snapshotAt),
   };
 }
 
@@ -138,6 +147,8 @@ export interface PlateConsolidateResult {
   v: 1;
   jobId: string;
   charId: string;
+  /** 原样带回客户端读快照的时刻；旧 Worker 的结果可能缺失。 */
+  snapshotAt?: number;
   /** LLM 给出的完整新条目列表（未合并，合并语义留在客户端） */
   items: PlateLLMItem[];
   /**
@@ -155,6 +166,7 @@ export function buildPlateConsolidateResult(args: {
   charId: string;
   items: PlateLLMItem[];
   rooms: PlateJobRoom[];
+  snapshotAt?: number;
 }): PlateConsolidateResult {
   return {
     resultKind: PLATE_CONSOLIDATE_RESULT_KIND,
@@ -163,6 +175,7 @@ export function buildPlateConsolidateResult(args: {
     charId: args.charId,
     items: args.items,
     rooms: args.rooms.map((r) => ({ room: r.room, entryIds: r.entryIds })),
+    ...snapshotTimeFields(args.snapshotAt),
   };
 }
 
@@ -187,5 +200,8 @@ export function parsePlateConsolidateResult(raw: unknown): PlateConsolidateResul
     (i): i is PlateLLMItem => !!i && typeof i === 'object' && typeof (i as PlateLLMItem).text === 'string',
   );
 
-  return { resultKind: PLATE_CONSOLIDATE_RESULT_KIND, v: 1, jobId: o.jobId, charId: o.charId, items, rooms };
+  return {
+    resultKind: PLATE_CONSOLIDATE_RESULT_KIND, v: 1, jobId: o.jobId, charId: o.charId, items, rooms,
+    ...snapshotTimeFields(o.snapshotAt),
+  };
 }

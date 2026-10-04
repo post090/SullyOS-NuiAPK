@@ -1,68 +1,30 @@
 // utils/amsg2TaskContext.ts
 /**
- * 排程现状块（防穿帮闸·下轮告知，浏览器侧编排；纯判定在 amsg2ExpireGuard）。
+ * 排程现状块（浏览器侧编排）。
  *
- * useChatAI 每轮组请求时调 collectAmsg2TaskContext：
- *   1. 检出该角色回看期内已作废的排程（每任务独立判定）→ 落台账去重；
- *   2. 把「常驻能力简介 + 进行中任务 + 未告知的回执」拼成一段 system 背景块。
- * 回执有两种来源：闸自动作废（这里检出）、用户在面板手动取消 / 关掉 2.0
- * （面板调 buildUserCancelledNotices 写进同一本台账）。
+ * useChatAI 每轮组请求时调 collectAmsg2TaskContext，把「常驻能力简介 + 进行中任务 +
+ * 未告知的回执」拼成一段 system 背景块。
+ * 回执有两种来源，都记在同一本台账（ActiveMsgStore 的 expiredNotices）上：
+ *   - 到点没发：云端回的「这次没发」结果，由 amsgFireSkipResultApply 写进来；
+ *   - 用户在面板手动取消 / 关掉 2.0：面板调 buildUserCancelledNotices 写进来。
  * 常驻简介总在（角色得随时知道自己能给未来排消息），进行中/回执两段有料才出现。
  * 发送成功后调 ActiveMsgStore.markExpiredNoticesNotified 标记，失败下轮重注（回执不丢）。
  */
 
 import { ActiveMsg2TaskRecord, Amsg2ExpiredNoticeRecord, CharacterProfile } from '../types';
 import { ActiveMsgStore } from './activeMsgStore';
-import { DB } from './db';
 import { resolveCharTimeZone } from './timezone';
-import { detectExpiredOccurrences, hasDeliveredProactiveNear } from './amsg2ExpireGuard';
 import {
-  AMSG2_SCHEDULE_NOT_YET_NOTE, AMSG2_SCHEDULE_SECRECY_NOTE, canExpire, currentOccurrenceMs, describeExpirePolicy,
+  AMSG2_SCHEDULE_NOT_YET_NOTE, AMSG2_SCHEDULE_SECRECY_NOTE, currentOccurrenceMs, describeExpirePolicy,
   describeRecurrence, describeTaskMode, formatTaskTime, getPendingTasks, isPendingTask,
   shortTaskId,
 } from './amsg2Tasks';
 
 /**
- * 排程现状块回看多久内的触发时刻。
- *
- * 必须**明确短于**作废回执台账的 TTL（48h）：两者一样长的话，边界那天的触发会在台账
- * 刚清掉它的下一轮被重新检出，同一件事再给角色说一遍。40h 留出的这 8 小时就是给
- * 「清账」和「重检」拉开距离用的。
- */
-export const AMSG2_TASK_LOOKBACK_MS = 40 * 3600_000;
-
-/** 每次向 DB 要多少条历史；不够覆盖回看期就翻倍再要一次。 */
-const MESSAGE_PAGE_SIZE = 200;
-/** 单轮检出最多读这么多条，兜住「一天几千条」的极端聊天量。 */
-const MESSAGE_FETCH_LIMIT = 2000;
-
-/**
- * 取够「覆盖整个回看期」的近史。
- *
- * 按条数取是不行的：重度用户 48 小时能聊出好几百条，固定 200 条窗口会把已送达的
- * 那条主动消息挤到窗外——检出侧看不到送达证据，就把一条**已经发出去**的触发判成
- * 作废，角色于是把发过的事再来一遍。DB 只提供「最近 N 条」，所以这里按需翻倍地要，
- * 直到最老一条早于回看起点（窗口盖住了）或历史见底为止。
- */
-const loadMessagesCoveringLookback = async (charId: string, sinceMs: number) => {
-  let limit = MESSAGE_PAGE_SIZE;
-  let messages = await DB.getRecentMessagesByCharId(charId, limit);
-  while (
-    messages.length >= limit               // 要多少给多少 = 后面可能还有
-    && limit < MESSAGE_FETCH_LIMIT
-    && (messages[0]?.timestamp ?? 0) > sinceMs   // 最老一条还没退到回看起点之前
-  ) {
-    limit = Math.min(limit * 2, MESSAGE_FETCH_LIMIT);
-    messages = await DB.getRecentMessagesByCharId(charId, limit);
-  }
-  return messages;
-};
-
-/**
  * 用户在面板里手动取消任务 / 关掉 2.0 时，给角色留的交代。
  *
  * 不留的话，聊天里那句「明早八点叫你～」就永远停在承诺状态：任务其实早没了，角色
- * 下次还接着说「放心我叫你」。所以手动取消也走作废回执那条路，角色下一轮就知道黄了。
+ * 下次还接着说「放心我叫你」。所以手动取消也记一条回执，角色下一轮就知道黄了。
  * 只给「还会响」的任务写——已经发过的一次性任务没有承诺可撤，写了纯属噪音。
  */
 export function buildUserCancelledNotices(
@@ -73,7 +35,7 @@ export function buildUserCancelledNotices(
   return tasks
     .filter((t) => isPendingTask(t, nowMs))
     .map((t) => ({
-      // 编号跟作废回执分开：同一条任务可能先攒了一次作废、之后才被手动取消，两件事都得说。
+      // 编号跟「到点没发」的回执分开：同一条任务可能先有一次没发、之后才被手动取消，两件事都得说。
       // 同一条任务重复取消只会命中同一个 id，台账按 id 去重，天然幂等。
       id: `${t.taskUuid}:cancelled`,
       charId,
@@ -110,33 +72,60 @@ const buildAmsg2ChatScheduleBrief = (targetName?: string): string => {
   ].join('\n');
 };
 
-/** 回执条目那一行（自动作废和手动取消长一个样，只是所在的段落不同）。 */
-const describeNoticeLine = (r: Amsg2ExpiredNoticeRecord, charTz: string | undefined): string => {
+/** 「到点没发」那一行末尾补的原因。角色自己决定不说的不用再解释。 */
+const describeSkipReason = (reason: Amsg2ExpiredNoticeRecord['reason'], target: string): string => {
+  switch (reason) {
+    case 'declined':
+      return '你当时看了对话，决定不说';
+    case 'empty-generation':
+    case 'side-effects-only':
+      return '当时没写出要说的话';
+    case 'stale':
+      return '到点时服务中断了，过去太久没再补发';
+    case 'unanswered-limit':
+    case 'min-gap':
+    case 'recurring-unanswered':
+    case 'daily-limit':
+      return `被${target}定的主动消息频率规矩拦下了`;
+    default:
+      return '';
+  }
+};
+
+/** 回执条目那一行（到点没发和手动取消长一个样，只是所在的段落不同）。 */
+const describeNoticeLine = (
+  r: Amsg2ExpiredNoticeRecord,
+  charTz: string | undefined,
+  target: string,
+): string => {
   const recurrence = r.recurrenceType === 'daily' ? '（每日循环的当次）'
     : r.recurrenceType === 'weekly' ? '（每周循环的当次）' : '';
-  return `- [${shortTaskId(r.id)}] 原定 ${formatTaskTime(r.occurrenceMs, charTz)}，${describeTaskMode(r)}${recurrence}`;
+  const reason = r.kind === 'user-cancelled' ? '' : describeSkipReason(r.reason, target);
+  return `- [${shortTaskId(r.id)}] 原定 ${formatTaskTime(r.occurrenceMs, charTz)}，${describeTaskMode(r)}${recurrence}`
+    + (reason ? `——${reason}` : '');
 };
 
 /**
- * 回执的两个段落（闸自动作废 / 用户手动取消）。给角色的交代完全不同（前者可以续期
- * 补上，后者是用户不要了），分成两段说；没有 kind 的老记录按自动作废处理。
+ * 回执的两个段落（到点没发 / 用户手动取消）。给角色的交代完全不同（前者可以续期
+ * 补上，后者是用户不要了），分成两段说。
  * 完整排程现状块和「回执单独成块」（即时对话云端路径）共用这一份文案。
  */
 const buildNoticeSections = (
   expired: Amsg2ExpiredNoticeRecord[],
   charTz: string | undefined,
+  target: string,
 ): string[] => {
   const parts: string[] = [];
-  const autoExpired = expired.filter((r) => r.kind !== 'user-cancelled');
+  const skipped = expired.filter((r) => r.kind !== 'user-cancelled');
   const userCancelled = expired.filter((r) => r.kind === 'user-cancelled');
 
-  if (autoExpired.length) {
-    parts.push('已作废（到点时对话正在进行，为避免撞车自动取消）：');
-    for (const r of autoExpired) {
-      parts.push(describeNoticeLine(r, charTz));
+  if (skipped.length) {
+    parts.push('到点没发出去：');
+    for (const r of skipped) {
+      parts.push(describeNoticeLine(r, charTz, target));
     }
     parts.push([
-      '作废条目的处理由你判断，三选一：',
+      '这几条的处理由你判断，三选一：',
       '1. 就地消化：只在当前时间与话题都合适时自然带进对话——先想「现在提这个还合不合适」（早安任务拖到晚上就别再道早安），不要因为看到这份回执就强行转移当前话题。',
       '2. 续期：还想之后专门说，用 renew_active_message 换个时间（循环任务续期只补当次，原来的节奏照旧）；内容或方向变了，改用 cancel_active_message + schedule_active_message 重新创建。',
       '3. 放弃：已经没意义就只字不提。',
@@ -146,7 +135,7 @@ const buildNoticeSections = (
   if (userCancelled.length) {
     parts.push('已被手动取消：');
     for (const r of userCancelled) {
-      parts.push(describeNoticeLine(r, charTz));
+      parts.push(describeNoticeLine(r, charTz, target));
     }
     parts.push('这几条是用户直接取消的，相关约定不再生效，自然接受即可、不必向用户求证，也别再拿它们许诺。还想在别的时间说的话，用 schedule_active_message 重新排一条。');
   }
@@ -155,7 +144,7 @@ const buildNoticeSections = (
 };
 
 /**
- * 作废回执单独成块（即时对话云端路径用）。
+ * 回执单独成块（即时对话云端路径用）。
  *
  * 云端到点会自己渲染排程清单和「给自己排下一条」（instant timely block），chat 段里
  * 只欠回执这一样——所以这里不带常驻简介、不带进行中清单，避免和到点渲染的那份撞车。
@@ -170,7 +159,7 @@ export function buildAmsg2NoticesText(
   const target = targetName?.trim() || '对方';
   return [
     '【你的主动消息排程·仅你可见】',
-    ...buildNoticeSections(expired, charTz),
+    ...buildNoticeSections(expired, charTz, target),
     AMSG2_SCHEDULE_SECRECY_NOTE.replace('用户', target),
   ].join('\n');
 }
@@ -221,10 +210,10 @@ export function buildAmsg2TaskContextText(
     parts.push(AMSG2_SCHEDULE_NOT_YET_NOTE);
   }
 
-  parts.push(...buildNoticeSections(expired, charTz));
+  parts.push(...buildNoticeSections(expired, charTz, target));
 
   // 约束放在块尾，管住上面每一种形态。挂在某一段里的话，只有进行中任务的那次就是裸奔的：
-  // 短 id、「遇忙作废」这些系统腔会被角色当成可以复述的内容念出来。
+  // 短 id、「到点看情况」这些系统腔会被角色当成可以复述的内容念出来。
   parts.push(AMSG2_SCHEDULE_SECRECY_NOTE.replace('用户', target));
 
   return parts.join('\n');
@@ -253,14 +242,14 @@ export function insertAmsg2TaskContextBlock<T>(
 
 export interface Amsg2TaskContextResult {
   text: string;
-  /** 本轮注入的回执 id（闸作废的 + 用户手动取消的），发送成功后 markExpiredNoticesNotified。 */
+  /** 本轮注入的回执 id（到点没发的 + 用户手动取消的），发送成功后 markExpiredNoticesNotified。 */
   expiredIds: string[];
   /**
    * 本轮要告知的回执原始记录。
    *
-   * 工具循环里每发一次请求都要按最新任务清单重渲染这一块，但回执这半边是「检出 + 落台账」
-   * 的结果、带副作用，一轮只该算一次。把记录交出去，后续轮次直接拿它配上新的 pending 调
-   * buildAmsg2TaskContextText 就行，不用再碰 DB 和台账。
+   * 工具循环里每发一次请求都要按最新任务清单重渲染这一块，而回执这半边一轮只该读
+   * 一次（同一轮里中途新到的回执留给下一轮）。把记录交出去，后续轮次直接拿它配上新的
+   * pending 调 buildAmsg2TaskContextText 就行，不用再碰台账。
    */
   notices: Amsg2ExpiredNoticeRecord[];
 }
@@ -270,32 +259,7 @@ export async function collectAmsg2TaskContext(
   targetName?: string,
 ): Promise<Amsg2TaskContextResult> {
   const config = char.activeMsg2Config;
-  const tasks = config?.tasks ?? [];
   const now = Date.now();
-
-  // 逐任务检出作废（AI 任务且 expire 策略才判；force / fixed 不作废）。
-  if (config?.enabled && tasks.length) {
-    // 取够整个回看期的历史再判：证据（那条已送达的主动消息）落在窗外的话，
-    // 检出侧会把一条发过的触发当成作废，角色接着把同一件事再说一遍。
-    const messages = await loadMessagesCoveringLookback(char.id, now - AMSG2_TASK_LOOKBACK_MS);
-    const candidates = tasks
-      .filter(canExpire)
-      .flatMap((t) => detectExpiredOccurrences({
-        taskUuid: t.taskUuid,
-        policy: t.expirePolicy,
-        recurrenceType: t.recurrenceType,
-        firstSendTime: t.firstSendTime,
-        messages,
-        nowMs: now,
-        lookbackMs: AMSG2_TASK_LOOKBACK_MS,
-      }).filter((c) => !hasDeliveredProactiveNear(messages, c.occurrenceMs, t.clientTaskId))
-        .map((c) => ({
-          id: c.id, charId: char.id, occurrenceMs: c.occurrenceMs,
-          mode: t.mode, promptHint: t.promptHint, recurrenceType: t.recurrenceType,
-          kind: 'expired', createdAt: now,
-        } satisfies Amsg2ExpiredNoticeRecord)));
-    if (candidates.length) await ActiveMsgStore.upsertExpiredNotices(char.id, candidates);
-  }
 
   const unnotified = (await ActiveMsgStore.getExpiredNotices(char.id)).filter((r) => !r.notifiedAt);
   const pending = getPendingTasks(config, now);

@@ -104,3 +104,12 @@ export const findCompanionDateSkin = (
   character: CharacterProfile,
   outfitId: string,
 ): SkinSet | undefined => character.dateSkinSets?.find(skin => skin.id === outfitId);
+
+/** Date mode keeps its existing framing; uploaded images no longer inherit it. */
+export const companionPortraitConfig = (character?: CharacterProfile | null) => {
+  const source = companionAvatarSource(character);
+  if (source === 'model') return { scale: 1, x: 0, y: 0 };
+  return character?.companionAvatar?.portraitConfigs?.[source]
+    || (source === 'date' ? character?.spriteConfig : undefined)
+    || { scale: 1, x: 0, y: 0 };
+};

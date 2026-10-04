@@ -1,3 +1,23 @@
 # Cloudflare static assets / Netlify: keep public pages and assets out of search indexes.
 /*
   X-Robots-Tag: noindex
+
+# Only content-hashed Vite output; public/assets is deliberately outside this directory.
+/assets/build/*
+  Cache-Control: public, max-age=31536000, immutable
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/sw-keep-alive.js
+  Cache-Control: no-cache
+/sullyos-update.json
+  Cache-Control: no-store
+/themes/*
+  Cache-Control: public, max-age=3600
+/sully/*
+  Cache-Control: public, max-age=3600
+/mediapipe/*
+  Cache-Control: public, max-age=86400
+/vendor/*
+  Cache-Control: public, max-age=86400

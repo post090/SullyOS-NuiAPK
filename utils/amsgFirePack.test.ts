@@ -13,6 +13,7 @@ import {
   describeFirePackVersion,
   SELF_LOG_MAX_ENTRIES,
   SELF_LOG_TEXT_MAX,
+  AMSG_SLOT_LIVE_CHAT,
   appendSelfLogEntry,
   buildAwayHint,
   buildUserClockHint,
@@ -466,6 +467,61 @@ describe('self_log', () => {
     });
   });
 
+  // 即时回复结束后、客户端还没把聊天记录传上来的那段时间里，下一条定时消息只能从这里
+  // 读到角色刚说过什么。回复挂在「对方还没回」的标题下、或者被截到两百字，角色就接不上话。
+  describe('即时回复的条目', () => {
+    const now = Date.UTC(2026, 6, 30, 23, 0);
+    const reply = (text: string, at = now - 2 * 60_000) => ({ ...entry('instant@1', text, at), reply: true });
+
+    it('回复单独一个标题，不跟「对方还没回」的主动消息混在一起', () => {
+      const log = appendSelfLogEntry(createSelfLog(packAt), reply('好，那我八点叫你'));
+      const block = renderSelfLogBlock(log, now, { tzId: 'UTC' });
+      expect(block).toContain('【这之后你回了对方】');
+      expect(block).toContain('2分钟前　好，那我八点叫你');
+      expect(block).not.toContain('对方还没回');
+    });
+
+    it('回复之后又主动发过 → 两段各说各的，连发计数只挂在主动那段', () => {
+      let log = appendSelfLogEntry(createSelfLog(packAt), reply('好，那我八点叫你', now - 30 * 60_000));
+      log = appendSelfLogEntry(log, entry('t1@1', '起床啦', now - 3 * 60_000));
+      const block = renderSelfLogBlock(log, now, { tzId: 'UTC' });
+      expect(block.indexOf('【这之后你回了对方】')).toBeLessThan(block.indexOf('【这之后你又发过（对方还没回）】'));
+      expect(block).toContain('已连着主动找了对方 1 次');
+    });
+
+    it('回复留够长度：超过主动消息那条两百字的线也不截', () => {
+      const long = '长'.repeat(SELF_LOG_TEXT_MAX + 300);
+      const log = appendSelfLogEntry(createSelfLog(packAt), reply(long));
+      expect(log.entries[0].text).toHaveLength(SELF_LOG_TEXT_MAX + 300);
+      // 主动消息照旧按两百字截。
+      const proactive = appendSelfLogEntry(createSelfLog(packAt), entry('t1@1', long));
+      expect(proactive.entries[0].text).toHaveLength(SELF_LOG_TEXT_MAX);
+    });
+  });
+
+  describe('「你们此刻正聊着」那一行', () => {
+    const now = Date.UTC(2026, 6, 30, 23, 0);
+    const live: AmsgFirePack = {
+      ...pack,
+      template: `【开口之前】\n先对照上面的对话。${AMSG_SLOT_LIVE_CHAT}\n默认是说。`,
+    };
+
+    it('对方刚说过话 → 写明正聊着；过了十分钟这一行连带消失', () => {
+      expect(renderFirePack({ ...live, lastUserMessageAt: now - 3 * 60_000 }, now, '指令'))
+        .toContain('先对照上面的对话。\n你们此刻正聊着：小明同学3 分钟前还在跟你说话。\n默认是说。');
+      expect(renderFirePack({ ...live, lastUserMessageAt: now - 20_000 }, now, '指令')).toContain('小明同学刚刚还在跟你说话');
+      expect(renderFirePack({ ...live, lastUserMessageAt: now - 11 * 60_000 }, now, '指令'))
+        .toBe('【开口之前】\n先对照上面的对话。\n默认是说。');
+      expect(renderFirePack({ ...live, lastUserMessageAt: null }, now, '指令')).not.toContain('正聊着');
+    });
+
+    it('调用方给了更新的开口时刻（包还没传完）→ 按新的那份算', () => {
+      const stale = { ...live, lastUserMessageAt: now - 30 * 60_000 };
+      expect(renderFirePack(stale, now, '指令')).not.toContain('正聊着');
+      expect(renderFirePack(stale, now, '指令', { lastUserMessageAt: now - 60_000 })).toContain('1 分钟前还在跟你说话');
+    });
+  });
+
   it('renderSelfLogBlock 空日志返回空串', () => {
     const now = Date.UTC(2026, 6, 30, 23, 0);
     expect(renderSelfLogBlock(null, now, { tzId: 'UTC' })).toBe('');
@@ -584,8 +640,7 @@ describe('last_skip 新原因', () => {
   it('describeLastSkip 对每个原因都有人话（面板一行说明）', () => {
     expect(describeLastSkip({ ...base, reason: 'empty-generation' }, fmt)).toContain('没写出要说的话');
     expect(describeLastSkip({ ...base, reason: 'stale' }, fmt)).toContain('过去太久');
-    expect(describeLastSkip({ ...base, reason: 'active-chat-presence' }, fmt)).toContain('让路');
-    expect(describeLastSkip({ ...base, reason: 'conversation-moved-on' }, fmt)).toContain('过时');
+    expect(describeLastSkip({ ...base, reason: 'declined' }, fmt)).toContain('不用再说');
     expect(describeLastSkip({ ...base, reason: 'unanswered-limit' }, fmt)).toContain('连发上限');
   });
 

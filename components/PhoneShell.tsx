@@ -283,17 +283,20 @@ const DisclaimerPopup: React.FC<{ onAccept: () => void }> = ({ onAccept }) => (
       {/* Header */}
       <div className="pt-7 pb-3 px-6 text-center">
         <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f4e2.png" alt="announcement" className="w-8 h-8 mb-2" />
-        <h2 className="text-lg font-extrabold text-slate-800">免责声明</h2>
-        <p className="text-[11px] text-slate-400 mt-1">Disclaimer · SullyOS·糯米机</p>
+        <h2 className="text-lg font-extrabold text-slate-800">使用与授权说明</h2>
+        <p className="text-[11px] text-slate-400 mt-1">Usage & License · SullyOS·糯米机</p>
       </div>
 
       {/* Content */}
       <div className="px-6 pb-4 max-h-[55vh] overflow-y-auto no-scrollbar space-y-3">
         <p className="text-[13px] text-slate-600 leading-relaxed">
-          本项目「SullyOS·糯米机」是一个<strong className="text-slate-800">完全开源、免费</strong>的软件，仅供个人学习、研究与技术交流使用。
+          本项目「SullyOS·糯米机」是一个<strong className="text-slate-800">源码可见、免费使用</strong>的项目。源码供学习与参考，不代表授予二改、再分发或官方服务的访问权限。
         </p>
+        <p className="text-[13px] text-slate-600 leading-relaxed">二改授权通过官方 DC 社区提供，具体范围以社区授权说明为准。社区不定期开放；未经另行许可，不得对外分发原版、修改版或整合包。</p>
+        <p className="text-[13px] text-slate-600 leading-relaxed">官方服务受后端容量限制，请勿向社区外转发访问入口、邀请信息或下载资源，也请勿自行组织对外推广。二改授权不包含共享官方后端资源。</p>
+        <p className="text-[13px] text-slate-600 leading-relaxed">完整规则以随版本提供的源码许可与社区授权说明为准；旧版本既有许可及第三方许可分别适用。</p>
         <ul className="text-[12px] text-slate-500 leading-relaxed space-y-1.5 list-none">
-          <li className="flex gap-2"><span className="shrink-0">•</span><span>本软件不提供任何明示或暗示的担保，作者不对使用本软件产生的任何后果承担责任。</span></li>
+          <li className="flex gap-2"><span className="shrink-0">•</span><span>在法律允许的范围内，本软件按现状提供，不附带保证；法律规定不得排除或限制的责任除外。</span></li>
           <li className="flex gap-2"><span className="shrink-0">•</span><span>用户应自行承担使用本软件的一切风险，包括但不限于数据丢失、设备损坏等。</span></li>
           <li className="flex gap-2"><span className="shrink-0">•</span><span>本软件生成的任何 AI 内容均不代表作者立场，用户需自行判断内容的准确性与合规性。</span></li>
           <li className="flex gap-2"><span className="shrink-0">•</span><span>禁止将本软件用于任何违反当地法律法规的用途。</span></li>

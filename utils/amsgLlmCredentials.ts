@@ -56,12 +56,11 @@ export const normalizeChatApiUrl = (baseUrl: string): string =>
   `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
 
 /**
- * 一个角色名下的三种凭据。**引用一经写进任务就不再改**，配置变了只覆盖行的值。
+ * 一个角色名下的凭据用途。配置变更时覆盖行，存量排程迁移时可调整 chat 引用。
  *
- *   chat     定时主动消息用的那份（角色开了「单独 API」就是单独那份，否则是全局聊天 API）
- *   instant  即时对话用的那份（= 本地生成那一轮真正会用的凭据，含 -thinking 后缀之类的
- *            当轮终值）。和 chat 分开是因为两者本来就可能不是同一个模型：开了单独 API
- *            的角色，主动消息走单独 API，而用户按下发送的这一句必须还由聊天那个模型来答。
+ *   chat     定时主动消息，使用角色默认对话 API；未设置则使用全局。
+ *   instant  即时对话，使用当轮请求终值（包括 -thinking 模型后缀）。
+ *            与 chat 分开，防止刷新配置时覆盖正在生成的这一轮请求。
  *   emotion  即时对话那一轮的情绪评估（副 API；没单独配就回落到全局聊天 API）
  *   memory   记忆宫殿的后台活儿（门牌整理这类）。用的是记忆宫殿副 API
  *            （memoryPalaceConfig.lightLLM），跟上面三份都不是同一个——它现在是全局
@@ -108,8 +107,7 @@ export const toCredentialValue = (
 
 /**
  * 定时主动消息那一行的值：角色开了「单独 API」就用单独那份，否则用全局聊天 API。
- * 算法与排程时的 resolveApiConfig 同一份口径——凭据行绝不能把单独 API 的角色写成全局凭据。
- * 配不齐（多半是单独 API 缺字段）返回 null。
+ * 与排程时 activeMsgClient.resolveApiConfig 同一口径（Fork 保留主动消息单独 API）。
  */
 export const buildCharChatCredRow = (
   char: Pick<CharacterProfile, 'id'>,

@@ -32,7 +32,8 @@ import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/to
 import { toolCallFingerprint } from '../utils/agenticToolFeedback';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 import { acquireChatReply, isChatReplyActive, subscribeChatReplies } from '../utils/chatReplyLock';
-import { withChatContinuation } from '../utils/chatContinuation';
+import { prepareInboxBeforeChat } from '../utils/activeMsgRuntime';
+import { hasUnansweredUserTurn, withChatContinuation } from '../utils/chatContinuation';
 import { assertChatHasDialogue } from '../utils/chatRequestGuard';
 import { applyAssistantPostProcessing, type XhsCaches } from '../utils/applyAssistantPostProcessing';
 import { markChatJobConsumed } from '../utils/runtime/chatJobs';
@@ -538,6 +539,8 @@ export const useChatAI = ({
     // 预览仍在场时，这些已落库消息暂不上屏；每轮单独记录，避免隐藏以前的回复。
     const [streamingHandoverIds, setStreamingHandoverIds] = useState<number[]>([]);
     const [recallStatus, setRecallStatus] = useState<string>('');
+    const [inboxWait, setInboxWait] = useState<{ charId: string; token: object } | null>(null);
+    const inboxStatus = inboxWait && inboxWait.charId === char?.id ? '正在接收刚到的消息…' : '';
     const [searchStatus, setSearchStatus] = useState<string>('');
     const [diaryStatus, setDiaryStatus] = useState<string>('');
     const [xhsStatus, setXhsStatus] = useState<string>('');
@@ -750,6 +753,19 @@ export const useChatAI = ({
                 try { return await replyStep(async () => p); }
                 finally { perfStages[label] = Math.round(performance.now() - t0); }
             };
+
+            // 用户消息已经显示。先接收本机已到消息，再读历史；正常处理不闪提示，
+            // 真等起来再说明原因。最多等 30 秒，超时后原收件管线继续，不等待重试周期。
+            const inboxWaitToken = {};
+            const inboxHintTimer = setTimeout(() => setInboxWait({ charId: char.id, token: inboxWaitToken }), 300);
+            try {
+                const received = await replyStep(async () => stageT('inbox', prepareInboxBeforeChat(char.id)));
+                // stalled 不再提示：同一趟收件已经在上一次生成时提示过了。
+                if (received === 'pending' || received === 'timeout') addToast('消息接收较慢，先继续回复，收到后会自动补上', 'info');
+            } finally {
+                clearTimeout(inboxHintTimer);
+                setInboxWait(previous => previous?.token === inboxWaitToken ? null : previous);
+            }
 
             // 0.9 历史消息加载：最大范围与记忆宫殿水位线彻底解耦。
             // adaptive 从 HWM 之后开始；manual 忽略 HWM 读取最近 N 条完整原文；
@@ -964,7 +980,10 @@ export const useChatAI = ({
             assertChatHasDialogue(payload.fullMessages);
             const fullMessages = payload.flags.promptBuildSkipped
                 ? payload.fullMessages
-                : withChatContinuation(payload.fullMessages, userProfile.name);
+                : withChatContinuation(payload.fullMessages, userProfile.name, {
+                    // 生成前收进来的主动消息落在用户刚发的那句之后：该回的是用户那句。
+                    unansweredUserTurn: hasUnansweredUserTurn(currentMsgs, contextMsgs),
+                });
             const promptBuildSkipped = payload.flags.promptBuildSkipped;
             if (payload.flags.mcdActive) {
                 console.log(`🍔 [MCD-MiniApp] 注入协同点餐上下文 step=${mcdMiniSnap?.step} cartItems=${mcdMiniSnap?.cart?.length || 0} menuItems=${mcdMiniSnap?.menuMeals ? Object.keys(mcdMiniSnap.menuMeals).length : 0} nutrition=${mcdMiniSnap?.nutritionData ? mcdMiniSnap.nutritionData.length : 0}字`);
@@ -995,7 +1014,7 @@ export const useChatAI = ({
             //    再判一次，否则可能「按上云把评估打包走了，实际却走本地」，情绪底色悄悄停更。
             const emotionEvalEnabled = !!(!promptBuildSkipped && !isEmotionEvalSkipped() && isScheduleFeatureOn(char) && char.emotionConfig?.enabled);
             // 评估跟随全局流式开关（专用情绪 API 自带 stream 字段时以它为准）
-            const evalStream: boolean = !!((effectiveApi as any).stream ?? apiConfig.stream ?? false);
+            const evalStream: boolean = !!(apiConfig.stream ?? false);
             const emotionApi = emotionEvalEnabled
                 ? ((char.emotionConfig!.api?.baseUrl)
                     ? { ...char.emotionConfig!.api!, stream: (char.emotionConfig!.api as any).stream ?? evalStream }
@@ -1193,7 +1212,7 @@ export const useChatAI = ({
                 }
             }
             // 主动消息 2.0 本地工具：worker 已配置 + 角色没关掉时注入 schedule/cancel/renew/list，
-            // 并注入「排程现状」背景块（常驻能力简介 + 进行中任务 + 作废待处理，角色自行判断怎么接）。
+            // 并注入「排程现状」背景块（常驻能力简介 + 进行中任务 + 到点没发的回执，角色自行判断怎么接）。
             // 是否注入在上面 thinking 门那里就算好了（amsg2ToolsInjected）。
             let amsg2ExpiredIds: string[] = [];
             let amsg2Notices: Amsg2ExpiredNoticeRecord[] = [];
@@ -1201,16 +1220,16 @@ export const useChatAI = ({
                 baseReqBody.tools = [...(baseReqBody.tools || []), ...buildAmsg2Tools(resolveAmsgLimits(char.activeMsg2Config))];
                 if (!baseReqBody.tool_choice) baseReqBody.tool_choice = 'auto';
                 try {
-                    // 回执这半边是「检出 + 落台账」的结果，带副作用，一轮只算一次；
+                    // 回执这半边一轮只读一次台账；
                     // 进行中任务那半边每次发请求现取（见下面的 withAmsg2TaskContext）。
                     const taskContext = await replyStep(async () => collectAmsg2TaskContext(char, userProfile.name));
                     amsg2ExpiredIds = taskContext.expiredIds;
                     amsg2Notices = taskContext.notices;
                 } catch (e) {
                     replyRun.check();
-                    // 挂掉的只是作废回执这半边（它要读历史消息和台账）。进行中清单在内存里，
+                    // 挂掉的只是回执这半边（它要读台账）。进行中清单在内存里，
                     // 照常渲染——角色至少知道自己名下有哪些任务，不至于一问三不知再排一条。
-                    console.warn('[amsg2] 作废回执检出失败，本轮只带进行中清单', e);
+                    console.warn('[amsg2] 回执读取失败，本轮只带进行中清单', e);
                 }
             }
 
@@ -1267,9 +1286,9 @@ export const useChatAI = ({
             // 一台 enabled 的 MCP 服务器，即时对话就永远静默走回本地——设置页亮着
             // 「已开启」、界面毫无异样，用户查无可查。
             if (instantChatRoute) {
-                // 作废回执跟着 chat 段上云：检出（collectAmsg2TaskContext，带落台账的副作用）
-                // 在上面已经跑过了，本地路径靠 withAmsg2TaskContext 注入的排程清单和能力
-                // 简介到点由 worker 的 instant timely block 现算现渲，唯独回执云端没有——
+                // 回执跟着 chat 段上云：台账（collectAmsg2TaskContext）在上面已经读过了。
+                // 本地路径靠 withAmsg2TaskContext 注入的排程清单和能力简介，
+                // 到点由 worker 的 instant timely block 现算现渲，唯独回执云端没有——
                 // 只把这一样单独成块贴上，不带清单不带简介，别和到点渲染的那份撞车。
                 const amsg2NoticesBlock = amsg2ToolsInjected && amsg2Notices.length
                     ? buildAmsg2NoticesText(amsg2Notices, resolveCharTimeZone(char), userProfile.name)
@@ -2359,6 +2378,7 @@ export const useChatAI = ({
         streamingBubbles,
         streamingThinking,
         streamingHandoverIds,
+        inboxStatus,
         recallStatus,
         searchStatus,
         diaryStatus,

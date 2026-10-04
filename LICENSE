@@ -1,133 +1,104 @@
-# PolyForm Noncommercial License 1.0.0
+# SullyOS 源码可见许可 1.0
+# SullyOS Source-Available License 1.0
 
-<https://polyformproject.org/licenses/noncommercial/1.0.0>
+Copyright (c) 2024-2026 NMJ (SullyOS / 手抓糯米机)
+保留未明确授予的权利。
 
-## Acceptance
+本许可是 SullyOS 的项目专用许可，不是开放源代码许可证，也不是
+PolyForm Noncommercial License 的继续适用或更名版本。
 
-In order to get any license under these terms, you must agree
-to them as both strict obligations and conditions to all
-your licenses.
+## 1. 适用范围与生效版本
 
-## Copyright License
+“本项目”指随本许可提供、且许可人有权按本许可授权的 SullyOS
+代码、文档及原创资源。“许可人”指对相应内容拥有授权权利的权利人。
+本许可不主张许可人拥有第三方内容的版权。
 
-The licensor grants you a copyright license for the software
-to do everything you might do with the software that would
-otherwise infringe the licensor's copyright in it for any
-permitted purpose. However, you may only distribute the
-software according to [Distribution License](#distribution-license)
-and make changes or new works based on the software according
-to [Changes and New Works License](#changes-and-new-works-license).
+本许可自官方仓库首次纳入本许可的提交起，适用于采用本许可发布的版本。
+此前已按其他许可发布的版本，以及依法取得的既有授权，仍按其原有条款
+处理；本许可不追溯撤销这些权利。旧版本中已获授权的内容，不会仅因被
+收入新版本而使既有授权失效。不能据此推定后续新增内容也按旧许可授权。
 
-## Distribution License
+第三方依赖、第三方素材、贡献者保留版权的内容及另有许可声明的文件，
+遵循各自有效的许可或授权。本许可不替代、撤销或扩大这些许可；许可人
+无权重新许可的部分不因本文件而被重新许可。
 
-The licensor grants you an additional copyright license to
-distribute copies of the software. Your license to distribute
-covers distributing the software with changes and new works
-permitted by [Changes and New Works License](#changes-and-new-works-license).
+## 2. 默认授予的有限权限
 
-## Notices
+在遵守本许可的前提下，许可人授予你非独占、不可转让的有限许可，允许：
 
-You must ensure that anyone who gets a copy of any part of
-the software from you also gets a copy of these terms or the
-URL for them above, as well as copies of any plain-text lines
-beginning with `Required Notice:` that the licensor provided
-with the software. For example:
+- 查看、阅读源码，并为个人非商业学习、研究和参考保存必要副本；
+- 为上述目的，在自己控制的环境中构建、运行未经修改的版本；
+- 在官方服务允许的范围内，个人非商业使用合法取得的官方版本。
 
-> Required Notice: Copyright (c) 2024-2026 NMJ (SullyOS / 手抓糯米机)
+参考学习不等于获准复制代码或素材到其他项目并发布。修改、改编、制作
+衍生版本及超出本条范围的使用，需要取得第 3 条所述的额外授权。
+本许可不限制适用法律规定的不依赖许可即可行使的权利。
 
-## Changes and New Works License
+在 GitHub 等平台公开托管时，本许可不限制许可人依平台条款已授予的
+平台内查看、Fork 等权限。平台功能产生的权限不应被理解为额外授予
+站外再分发、发布构建产物、运营镜像或使用官方后端的权限。
 
-The licensor grants you an additional copyright license to
-make changes and new works based on the software for any
-permitted purpose.
+## 3. DC 社区二改授权
 
-## Patent License
+二次修改授权通过项目官方 Discord（DC）社区提供。社区不定期开放，
+开放安排和授权条件以官方公告为准。
 
-The licensor grants you a patent license for the software that
-covers patent claims the licensor can license, or becomes able
-to license, that you would infringe by using the software.
+社区成员符合官方公布的授权条件后，可在该授权明确的范围内进行个人
+非商业修改、自行构建及部署自用。授权可以采用面向符合条件成员的
+官方书面公告或单独书面许可，具体对象、用途和范围以相应记录为准。
+仅持有源码、Fork 仓库或获得他人转发的信息，不代表已获得二改授权。
 
-## Noncommercial Purposes
+除非额外授权明确允许，否则二改授权不包含：对外发布修改版、向他人
+分发文件、转授权限、运营公共实例，或共享官方服务资源。修改程度、
+是否免费、是否保留署名，均不能替代所需的授权。
 
-Any noncommercial purpose is a permitted purpose.
+## 4. 再分发、商用及品牌限制
 
-## Personal Uses
+除第 1、2 条保留的权利或许可人的明确书面许可外，不得：
 
-Personal use for research, experiment, and testing for
-the benefit of public knowledge, personal study, private
-entertainment, hobby projects, amateur pursuits, or religious
-observance, without any anticipated commercial application,
-is use for a permitted purpose.
+- 向他人再分发本项目或其修改版本的源码包、构建产物、APK、安装包、
+  容器镜像、整合包、网盘副本或其他包含本项目内容的副本；
+- 以镜像站、第三方托管实例、一键部署服务等形式向他人提供本项目；
+- 将本项目用于销售、收费服务、商业产品、广告变现或其他商业用途；
+- 删除、隐去或误述版权、许可及来源声明；
+- 冒充官方，或使用项目名称、标识及宣传使人误认为获得官方认可。
 
-## Noncommercial Organizations
+免费分享、群内分享、换名、换图标、重新编译或增加功能，均不自动
+豁免上述限制。普通讨论本身不构成官方授权，也不应被误述为官方活动。
 
-Use by any charitable organization, educational institution,
-public research organization, public safety or health
-organization, environmental protection organization,
-or government institution is use for a permitted purpose
-regardless of the source of funding or obligations resulting
-from the funding.
+## 5. 原创资源与用户内容
 
-## Fair Use
+对许可人有权控制的角色设定文本、台词、美术、模型、音频等原创资源，
+本许可仅允许在已获许可的项目使用范围内使用，不默认允许将其单独
+提取、移植或制作成角色包、素材包向他人提供。另有授权的按该授权处理。
 
-You may have "fair use" rights for the software under the
-law. These terms do not limit them.
+本许可不主张对抽象创意、通用风格或依法不受保护的内容享有排他权。
+用户自行创作或合法导入的内容不因进入本项目而转移版权；其中包含的
+项目资源及第三方内容仍分别受其适用许可约束。
 
-## No Other Rights
+## 6. 官方服务与社区传播规则
 
-These terms do not allow you to sublicense or transfer any of
-your licenses to anyone else, or prevent the licensor from
-granting licenses to anyone else.  These terms do not imply
-any other licenses.
+代码许可与官方在线服务的访问资格相互独立。取得代码或二改授权，不
+代表获准使用官方 Worker、代理、存储、API 额度或其他后端为第三方
+提供服务。未经单独许可，二改部署须替换为自己的后端，或禁用依赖
+官方后端的功能，不得借官方服务承载外部用户。
 
-## Patent Defense
+官方在线服务受容量与资源限制，社区入口、服务入口及下载资源的传播
+安排见 docs/community-authorization.md。该文件中的社区管理及服务
+规则与本许可的著作权授权范围分别适用，不将单纯转发链接当然视作
+复制软件或侵犯著作权，也不以这些规则撤销第 1 条保留的既有权利。
 
-If you make any written claim that the software infringes or
-contributes to infringement of any patent, your patent license
-for the software granted under these terms ends immediately. If
-your company makes such a claim, your patent license ends
-immediately for work on behalf of your company.
+## 7. 违反许可
 
-## Violations
+超出本许可或额外授权范围的行为未获许可。违反本许可条件时，本许可
+授予的相应权限终止；应停止相应行为并停止提供未经授权的副本或服务。
+依法享有、依第三方许可享有及第 1 条保留的既有权利不因此被撤销。
+恢复本许可项下的授权须经许可人书面确认。
 
-The first time you are notified in writing that you have
-violated any of these terms, or done anything with the software
-not covered by your licenses, your licenses can nonetheless
-continue if you come into full compliance with these terms,
-and take practical steps to correct past violations, within
-32 days of receiving notice.  Otherwise, all your licenses
-end immediately.
+## 8. 按现状提供
 
-## No Liability
+在适用法律允许的范围内，本项目按现状提供，不附带适销性、特定用途
+适用性、持续可用性或其他保证。许可人不对因使用本项目产生的损失
+承担责任，但法律规定不得排除或限制的责任除外。
 
-***As far as the law allows, the software comes as is, without
-any warranty or condition, and the licensor will not be liable
-to you for any damages arising out of these terms or the use
-or nature of the software, under any kind of legal claim.***
-
-## Definitions
-
-The **licensor** is the individual or entity offering these
-terms, and the **software** is the software the licensor makes
-available under these terms.
-
-**You** refers to the individual or entity agreeing to these
-terms.
-
-**Your company** is any legal entity, sole proprietorship,
-or other kind of organization that you work for, plus all
-organizations that have control over, are under the control of,
-or are under common control with that organization.  **Control**
-means ownership of substantially all the assets of an entity,
-or the power to direct its management and policies by vote,
-contract, or otherwise.  Control can be direct or indirect.
-
-**Your licenses** are all the licenses granted to you for the
-software under these terms.
-
-**Use** means anything you do with the software requiring one
-of your licenses.
-
----
-
-Required Notice: Copyright (c) 2024-2026 NMJ (SullyOS / 手抓糯米机)
+未明确授予的权利均予保留。额外书面授权仅在其明确约定的范围内优先。

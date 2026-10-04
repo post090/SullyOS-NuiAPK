@@ -1578,8 +1578,296 @@ async function removeQueuedRequest(id) {
   });
 }
 
+// worker/staticCache.ts
+var MAX_FILE_BYTES = 16 * 1024 * 1024;
+var MAX_AGE = 30 * 24 * 60 * 60 * 1e3;
+var REFRESH_MS = 24 * 60 * 60 * 1e3;
+var SIZE_HEADER = "X-Sully-Cache-Bytes";
+var SAVED_HEADER = "X-Sully-Cache-Saved";
+var immutablePath = (path) => /^assets\/build\/[^/]+-[\w-]{8,}\.[\w]+$/.test(path);
+function isPublicExternalAsset(url) {
+  if (url.protocol !== "https:") return false;
+  if (url.hostname === "fonts.googleapis.com") return url.pathname === "/css2";
+  if (url.hostname === "fonts.gstatic.com") return url.pathname.startsWith("/s/");
+  if (["cdn.jsdelivr.net", "fastly.jsdelivr.net", "gcore.jsdelivr.net"].includes(url.hostname)) {
+    return url.pathname.startsWith("/gh/qegj567-cloud/SullyOS-assets@") || /^\/npm\/katex@0\.16\.(9|11)\/dist\//.test(url.pathname);
+  }
+  if (url.hostname === "raw.githubusercontent.com") return url.pathname.startsWith("/qegj567-cloud/SullyOS-assets/");
+  if (url.hostname === "cdn.statically.io") return url.pathname.startsWith("/gh/qegj567-cloud/SullyOS-assets/");
+  return url.hostname === "unpkg.com" && url.pathname.startsWith("/katex@0.16.9/dist/");
+}
+function createStaticCache(deps) {
+  const { manifest, caches } = deps;
+  const scope = new URL(deps.scope);
+  const prefix = `sully-static-${encodeURIComponent(scope.pathname)}-v1-`;
+  const shellName = `${prefix}shell-${manifest.buildId}`;
+  const runtimeName = `${prefix}runtime`;
+  const now = deps.now || Date.now;
+  const entries = new Map(manifest.entries.map((entry) => [new URL(entry.url, scope).href, entry]));
+  const shellPaths = new Set(manifest.shell.map((path) => new URL(path, scope).href));
+  let writeQueue = Promise.resolve();
+  const absolute = (path) => new URL(path, scope).href;
+  const staleKey = absolute("__sully_shell_stale__");
+  const keyFor = (entry) => immutablePath(entry.url) ? absolute(entry.url) : `${absolute(entry.url)}?__sully_revision=${entry.revision}`;
+  const serial = (job) => {
+    const next = writeQueue.catch(() => {
+    }).then(job);
+    writeQueue = next.catch(() => {
+    });
+    return next;
+  };
+  const safeMatch = async (name, key) => {
+    try {
+      return await (await caches.open(name)).match(key);
+    } catch {
+      return void 0;
+    }
+  };
+  const findOwned = async (key) => {
+    const names = await caches.keys();
+    for (const name of names.filter((name2) => name2.startsWith(prefix)).reverse()) {
+      const hit = await safeMatch(name, key);
+      if (hit) return hit;
+    }
+    return void 0;
+  };
+  const sameBuildPage = (html) => {
+    const references = [...html.matchAll(/assets\/build\/[^"'\s<>)]+/g)];
+    return references.length > 0 && references.every((match) => entries.has(absolute(match[0])));
+  };
+  async function cacheable(response, entry) {
+    if (response.status !== 200 || response.type === "opaque" || response.redirected || /\b(no-store|private)\b/i.test(response.headers.get("Cache-Control") || "") || response.headers.get("Vary") === "*" || entry && entry.bytes > MAX_FILE_BYTES) {
+      void response.body?.cancel().catch(() => {
+      });
+      return;
+    }
+    const reader = response.body?.getReader();
+    if (!reader) return;
+    const chunks = [];
+    let size = 0;
+    for (; ; ) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_FILE_BYTES) {
+        void reader.cancel().catch(() => {
+        });
+        return;
+      }
+      chunks.push(value);
+    }
+    const body = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    if (entry && (size !== entry.bytes || await deps.digest(body.buffer) !== entry.revision) && !(entry.url === "index.html" && sameBuildPage(new TextDecoder().decode(body)))) return;
+    const headers = new Headers(response.headers);
+    headers.delete("Content-Encoding");
+    headers.set("Content-Length", String(size));
+    headers.set(SIZE_HEADER, String(size));
+    headers.set(SAVED_HEADER, String(now()));
+    return new Response(body, { headers });
+  }
+  let runtimeIndex;
+  const describe = (response) => ({
+    size: Number(response.headers.get(SIZE_HEADER)) || 0,
+    saved: Number(response.headers.get(SAVED_HEADER)) || 0
+  });
+  const indexOf = (cache) => runtimeIndex ??= (async () => {
+    const items = /* @__PURE__ */ new Map();
+    for (const key of await cache.keys()) {
+      const response = await cache.match(key);
+      if (response) items.set(key.url, describe(response));
+    }
+    return items;
+  })().catch((error) => {
+    runtimeIndex = void 0;
+    throw error;
+  });
+  async function prune(cache) {
+    const items = await indexOf(cache);
+    let bytes = 0;
+    for (const item of items.values()) bytes += item.size;
+    for (const [key, item] of [...items].sort((a, b) => a[1].saved - b[1].saved)) {
+      const expired = !item.saved || now() - item.saved > MAX_AGE;
+      if (!expired && items.size <= (deps.maxEntries ?? 256) && bytes <= (deps.maxBytes ?? 96 * 1024 * 1024)) break;
+      await cache.delete(key);
+      items.delete(key);
+      bytes -= item.size;
+    }
+  }
+  const store = (key, response) => serial(async () => {
+    const cache = await caches.open(runtimeName);
+    const items = await indexOf(cache);
+    const item = describe(response);
+    await cache.put(key, response);
+    items.set(key, item);
+    await prune(cache);
+  });
+  const remember = async (key, response, entry) => {
+    try {
+      const stored = await cacheable(response, entry);
+      if (stored) await store(key, stored);
+    } catch {
+    }
+  };
+  const touch = async (key) => {
+    try {
+      const current = await safeMatch(runtimeName, key);
+      if (!current) return;
+      const headers = new Headers(current.headers);
+      headers.set(SAVED_HEADER, String(now()));
+      await store(key, new Response(current.body, { headers }));
+    } catch {
+    }
+  };
+  let shellStale;
+  const isShellStale = () => shellStale ??= safeMatch(shellName, staleKey).then(Boolean);
+  const markShellStale = async () => {
+    shellStale = Promise.resolve(true);
+    try {
+      await (await caches.open(shellName)).put(staleKey, new Response(null));
+    } catch {
+    }
+  };
+  const refreshing = /* @__PURE__ */ new Set();
+  const missing = (response) => response.status === 404 || response.status === 410 || response.ok && /^text\/html\b/i.test(response.headers.get("Content-Type") || "");
+  async function install() {
+    try {
+      const cache = await caches.open(shellName);
+      async function prepare(path) {
+        const entry = entries.get(absolute(path));
+        if (!entry) throw new Error(`Missing shell entry: ${path}`);
+        const old = await findOwned(keyFor(entry));
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 2e4);
+        try {
+          const request = new Request(
+            path === "index.html" ? scope.href : absolute(path),
+            { cache: immutablePath(path) ? "default" : "no-cache", signal: controller.signal }
+          );
+          const response = old || await cacheable(await deps.fetch(request), entry);
+          if (!response) throw new Error(`Resource changed during deployment: ${path}`);
+          await cache.put(keyFor(entry), response);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      const paths = manifest.shell.filter((path) => path !== "index.html");
+      let failed = false;
+      const jobs = await Promise.allSettled(Array.from({ length: Math.min(4, paths.length) }, async () => {
+        while (paths.length && !failed) {
+          try {
+            await prepare(paths.shift());
+          } catch (error) {
+            failed = true;
+            throw error;
+          }
+        }
+      }));
+      const failure = jobs.find((job) => job.status === "rejected");
+      if (failure) throw failure.reason;
+      await prepare("index.html");
+    } catch (error) {
+      await caches.delete(shellName).catch(() => {
+      });
+      throw error;
+    }
+  }
+  async function activate(inUseBuilds = []) {
+    const old = (await caches.keys()).filter((name) => name.startsWith(`${prefix}shell-`) && name !== shellName);
+    if (inUseBuilds) {
+      const protectedNames = new Set(inUseBuilds.map((build) => `${prefix}shell-${build}`));
+      for (const name of old.slice(0, -1)) if (!protectedNames.has(name)) await caches.delete(name);
+    }
+    await serial(async () => prune(await caches.open(runtimeName)));
+  }
+  function handle(request, waitUntil = deps.waitUntil) {
+    if (request.method !== "GET" || request.headers.has("Authorization") || request.headers.has("Range") || request.cache === "no-store") return;
+    const url = new URL(request.url);
+    const local = url.origin === scope.origin && url.pathname.startsWith(scope.pathname);
+    const pathname = local ? url.pathname.slice(scope.pathname.length) : "";
+    const isShell = local && (pathname === "" || pathname === "index.html");
+    if (local && !isShell && [...url.searchParams.keys()].some((key2) => key2 !== "v")) return;
+    const canonical = `${url.origin}${url.pathname}`;
+    const entry = entries.get(isShell ? absolute("index.html") : canonical);
+    const external = !local && isPublicExternalAsset(url) && request.mode !== "no-cors" && request.credentials !== "include";
+    const hashed = local && immutablePath(pathname);
+    if (!entry && !external && !hashed) return;
+    const key = entry ? keyFor(entry) : request.url;
+    return (async () => {
+      const shell = entry && shellPaths.has(absolute(entry.url));
+      if (entry && !hashed && await isShellStale()) {
+        try {
+          const fresh = await deps.fetch(isShell ? request : new Request(request, { cache: "no-cache" }));
+          if (fresh.ok || fresh.type === "opaqueredirect") return fresh;
+        } catch {
+        }
+      }
+      const stored = await safeMatch(shell ? shellName : runtimeName, key);
+      let hit = stored;
+      if (!hit && (shell || hashed)) {
+        try {
+          hit = await findOwned(key);
+        } catch {
+        }
+      }
+      const age = hit ? now() - Number(hit.headers.get(SAVED_HEADER)) : 0;
+      if (hit && !shell && age > MAX_AGE) hit = void 0;
+      if (hit) {
+        if (stored && !shell && age > REFRESH_MS && !refreshing.has(key)) {
+          refreshing.add(key);
+          waitUntil((external ? deps.fetch(request).then((response2) => remember(key, response2)) : touch(key)).catch(() => {
+          }).finally(() => refreshing.delete(key)));
+        }
+        return hit;
+      }
+      let response = await deps.fetch(entry && !hashed ? new Request(request, { cache: "no-cache" }) : request);
+      if (entry && hashed && missing(response)) {
+        void response.body?.cancel().catch(() => {
+        });
+        response = await deps.fetch(new Request(request, { cache: "reload" }));
+        if (missing(response)) waitUntil(markShellStale());
+      }
+      if (!isShell && (entry || external)) waitUntil(remember(key, response.clone(), entry));
+      return response;
+    })();
+  }
+  async function stats() {
+    let shellBytes = 0, runtimeBytes = 0, runtimeEntries = 0;
+    for (const name of (await caches.keys()).filter((name2) => name2.startsWith(prefix))) {
+      const cache = await caches.open(name);
+      for (const request of await cache.keys()) {
+        const response = await cache.match(request);
+        const size = Number(response?.headers.get(SIZE_HEADER)) || 0;
+        if (name === runtimeName) {
+          runtimeBytes += size;
+          runtimeEntries++;
+        } else shellBytes += size;
+      }
+    }
+    const index = entries.get(absolute("index.html"));
+    return {
+      buildId: manifest.buildId,
+      appVersion: manifest.appVersion,
+      shellBytes,
+      runtimeBytes,
+      runtimeEntries,
+      offlineReady: Boolean(index && await safeMatch(shellName, keyFor(index)))
+    };
+  }
+  const clearRuntime = () => serial(() => {
+    runtimeIndex = void 0;
+    return caches.delete(runtimeName);
+  });
+  return { install, activate, handle, stats, clearRuntime, markReplaced: markShellStale };
+}
+
 // worker/sw-keep-alive.ts
-var SW_VERSION = "1.19.0";
+var staticManifest = typeof __STATIC_CACHE_MANIFEST__ === "undefined" ? void 0 : __STATIC_CACHE_MANIFEST__;
+var SW_VERSION = "1.20.0";
 var PING_INTERVAL = 15e3;
 var MAX_MANUAL_ALIVE_MS = 5 * 6e4;
 var ACTIVE_MSG_DB_NAME = "ActiveMsg";
@@ -1596,6 +1884,44 @@ var manualKeepAliveStartedAt = 0;
 var proactiveSchedules = /* @__PURE__ */ new Map();
 var proactiveTimers = /* @__PURE__ */ new Map();
 var sw = self;
+var resourceCache = staticManifest && createStaticCache({
+  manifest: staticManifest,
+  scope: sw.registration.scope,
+  caches: sw.caches,
+  fetch: (request) => fetch(request),
+  waitUntil: () => {
+  },
+  digest: async (bytes) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((byte) => byte.toString(16).padStart(2, "0")).join("")
+});
+if (resourceCache) {
+  sw.addEventListener("fetch", (event) => {
+    const result = resourceCache.handle(event.request, (promise) => event.waitUntil(promise));
+    if (result) event.respondWith(result.catch(() => Response.error()));
+  });
+}
+async function tidyResourceCache(cache) {
+  const clients = await sw.clients.matchAll({ type: "window", includeUncontrolled: true });
+  const scope = new URL(sw.registration.scope);
+  const pages = clients.filter((client) => new URL(client.url).pathname.startsWith(scope.pathname));
+  const builds = await Promise.all(pages.map((client) => new Promise((resolve) => {
+    const channel = new MessageChannel();
+    const finish = (build) => {
+      clearTimeout(timer);
+      channel.port1.close();
+      channel.port2.close();
+      resolve(build);
+    };
+    const timer = setTimeout(() => finish(null), 1500);
+    channel.port1.onmessage = (message) => finish(typeof message.data?.buildId === "string" ? message.data.buildId : null);
+    try {
+      client.postMessage({ type: "SULLY_GET_PAGE_BUILD" }, [channel.port2]);
+    } catch {
+      finish(null);
+    }
+  })));
+  await cache.activate(builds.includes(null) ? null : builds).catch(() => {
+  });
+}
 function summarizeAmsgPayload(payload) {
   return {
     messageKind: payload?.messageKind ?? "content",
@@ -2058,6 +2384,33 @@ sw.addEventListener("notificationclick", (event) => {
 sw.addEventListener("message", (event) => {
   const { type } = event.data || {};
   switch (type) {
+    case "SULLY_CACHE_STATUS":
+    case "SULLY_CACHE_PREPARE":
+    case "SULLY_CACHE_CLEAR": {
+      if (!resourceCache) {
+        event.ports[0]?.postMessage({ error: "\u8D44\u6E90\u7F13\u5B58\u5C1A\u672A\u542F\u7528" });
+        break;
+      }
+      event.waitUntil((async () => {
+        try {
+          if (type === "SULLY_CACHE_CLEAR") await resourceCache.clearRuntime();
+          if (type === "SULLY_CACHE_PREPARE") await resourceCache.install();
+          event.ports[0]?.postMessage(await resourceCache.stats());
+        } catch {
+          event.ports[0]?.postMessage({ error: "\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u8D44\u6E90\u7F13\u5B58" });
+        }
+      })());
+      break;
+    }
+    case "SULLY_ACTIVATE_UPDATE":
+      event.waitUntil(sw.skipWaiting());
+      break;
+    case "SULLY_RELEASE_READY":
+      if (resourceCache && event.data.appVersion === staticManifest.appVersion) event.waitUntil(resourceCache.markReplaced());
+      break;
+    case "SULLY_CACHE_TIDY":
+      if (resourceCache) event.waitUntil(tidyResourceCache(resourceCache));
+      break;
     case "GET_SW_VERSION":
       event.ports[0]?.postMessage({ version: SW_VERSION });
       break;
@@ -2092,8 +2445,20 @@ sw.addEventListener("message", (event) => {
       break;
   }
 });
-sw.addEventListener("install", () => {
-  void sw.skipWaiting();
+sw.addEventListener("install", (event) => {
+  if (!resourceCache) {
+    void sw.skipWaiting();
+    return;
+  }
+  const previous = sw.registration.active;
+  if (previous) event.waitUntil(resourceCache.install().catch((error) => {
+    console.warn("[StaticCache] Offline shell not stored; the page will retry after the update", error);
+  }).then(() => {
+    try {
+      previous.postMessage({ type: "SULLY_RELEASE_READY", appVersion: staticManifest.appVersion });
+    } catch {
+    }
+  }));
 });
 sw.addEventListener("activate", (event) => {
   event.waitUntil(sw.clients.claim());

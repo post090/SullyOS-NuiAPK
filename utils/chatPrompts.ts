@@ -1165,7 +1165,12 @@ ${voiceActingGuide()}`;
         userProfile: UserProfile,
         emojis: Emoji[],
         processedExcludeIds?: Set<number>,
-        options?: { useVisionDescriptions?: boolean; contextHighWaterMark?: number },
+        options?: {
+            useVisionDescriptions?: boolean;
+            contextHighWaterMark?: number;
+            /** 默认使用聊天时间感知；见面入口传线下开关，控制时间戳与互动间隔。 */
+            timeAwarenessEnabled?: boolean;
+        },
     ) => {
         // Filter Logic
         // 新版上下文范围由 chatContextRange 先按「自适应/拉杆最大范围」取窗；
@@ -1177,6 +1182,7 @@ ${voiceActingGuide()}`;
         }
         const historySlice = effectiveHistory.slice(-limit);
         const charTz = resolveCharTimeZone(char);
+        const timeAwarenessOn = options?.timeAwarenessEnabled ?? (char.timeAwarenessEnabled !== false);
 
         let timeGapHint = "";
         if (historySlice.length >= 2) {
@@ -1190,14 +1196,14 @@ ${voiceActingGuide()}`;
                     break;
                 }
             }
-            // 时间感知强化开关：默认开启（undefined 视为 true），显式关掉后不再注入「距离上次聊天多久」提示
-            if (lastRealMsg && currentMsg && char.timeAwarenessEnabled !== false) timeGapHint = ChatPrompts.getTimeGapHint(lastRealMsg, currentMsg.timestamp, charTz);
+            // 时间感知关闭时，互动间隔与现实消息时间戳一起遮住。
+            if (lastRealMsg && currentMsg && timeAwarenessOn) timeGapHint = ChatPrompts.getTimeGapHint(lastRealMsg, currentMsg.timestamp, charTz);
         }
 
         return {
             apiMessages: historySlice.map((m, index) => {
                 let content: any = m.content;
-                const timeStr = `[${ChatPrompts.formatDate(m.timestamp, charTz)}]`;
+                const timeStr = timeAwarenessOn ? `[${ChatPrompts.formatDate(m.timestamp, charTz)}]` : '';
                 const sourceTag = (() => {
                     const source = m.metadata?.source;
                     if (source === 'call') return '[通话]';
@@ -1243,7 +1249,7 @@ ${voiceActingGuide()}`;
                      if (visionDescription) {
                          let textPart = `${timeStr} [图片：${visionDescription}]`;
                          if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
-                         return { role: m.role, content: textPart };
+                         return { role: m.role, content: textPart.trimStart() };
                      }
                      // 向下兼容：如果图片数据缺失（例如只导入了文字备份），不要把空 URL 发给 API，否则会报错无法回应
                      // 图片有三种形态：base64 data URL、外链 http(s)、本机的 blobref 令牌
@@ -1257,9 +1263,9 @@ ${voiceActingGuide()}`;
                          : `${timeStr} [User sent an image, but the image data is no longer available]`;
                      if (index === historySlice.length - 1 && timeGapHint && m.role === 'user') textPart += `\n\n${timeGapHint}`;
                      if (!hasImageData) {
-                         return { role: m.role, content: textPart };
+                         return { role: m.role, content: textPart.trimStart() };
                      }
-                     return { role: m.role, content: [{ type: "text", text: textPart }, { type: "image_url", image_url: { url: m.content } }] };
+                     return { role: m.role, content: [{ type: "text", text: textPart.trimStart() }, { type: "image_url", image_url: { url: m.content } }] };
                 }
                 
                 if (m.type === 'audio') {
@@ -1334,22 +1340,8 @@ ${voiceActingGuide()}`;
 
                     content = `${timeStr} [用户分享了 Spark 笔记]\n楼主: ${postAuthorTag}\n标题: ${post.title}\n内容: ${post.content}\n热评: ${commentsSample}${identityHint}${authorshipLine}\n(请根据你的性格对这个帖子发表看法，比如吐槽、感兴趣或者不屑)`;
                 }
-                else if ((m.type as string) === 'xhs_card') {
-                    const note = m.metadata?.xhsNote || {};
-                    const sender = m.role === 'user' ? '用户' : '你';
-                    // 评论区：user 分享笔记时也带上评论（抓取于建卡时），让角色像浏览笔记一样能看到评论，
-                    // 不再出现「char 分享的能看评论、user 分享的看不到」的不对称。
-                    const noteComments = Array.isArray(note.comments) ? note.comments : [];
-                    const commentsLine = noteComments.length
-                        ? `\n热评: ${noteComments.slice(0, 15).map((c: any) => `${c.author || '匿名'}: ${c.content}`).join(' | ')}`
-                        : '';
-                    const interactions = [
-                        `${note.likes ?? 0}赞`,
-                        note.collects != null ? `${note.collects}收藏` : '',
-                        note.commentCount != null ? `${note.commentCount}评论` : '',
-                        note.shareCount != null ? `${note.shareCount}分享` : '',
-                    ].filter(Boolean).join(' ');
-                    content = `${timeStr} [${sender}分享了小红书笔记]\n标题: ${note.title || '无标题'}\n作者: ${note.author || '未知'}\n互动: ${interactions}\n简介: ${note.desc || '无'}${commentsLine}\n${m.role === 'user' ? '(请根据你的性格对这个帖子发表看法)' : ''}`;
+                else if ((m.type as string) === 'xhs_card' || (m.type as string) === 'webpage_card') {
+                    content = `${timeStr} ${normalizeMessageContent(m, char?.name || '你', userProfile?.name || '用户')}`;
                 }
                 else if ((m.type as string) === 'vr_card') {
                     // vr_card：你自己进入 VR 社交游戏《彼方》时留下的动态。
@@ -1508,7 +1500,7 @@ ${voiceActingGuide()}`;
                 }
                 else content = `${timeStr} ${sourceTag} ${content}`;
 
-                return { role: m.role, content };
+                return { role: m.role, content: typeof content === 'string' ? content.trimStart() : content };
             }),
             historySlice // Return original slice for Quote lookup
         };

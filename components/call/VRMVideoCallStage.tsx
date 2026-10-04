@@ -79,7 +79,7 @@ interface VRMVideoCallStageProps {
 
 // 两种渲染器的构图范围：Live2D 与设置面板滑杆一致，VRM 是相机距离/视野平移的安全区。
 const FRAMING_LIMITS = {
-  vrm: { scale: [0.5, 4] as [number, number], offsetX: [-0.9, 0.9] as [number, number], offsetY: [-0.9, 0.9] as [number, number] },
+  vrm: { scale: [0.1, 4] as [number, number], offsetX: [-0.9, 0.9] as [number, number], offsetY: [-0.9, 0.9] as [number, number] },
   live2d: { scale: [0.55, 6] as [number, number], offsetX: [-1.4, 1.4] as [number, number], offsetY: [-3.2, 3.2] as [number, number] },
 };
 

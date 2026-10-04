@@ -1,3 +1,4 @@
+import { MEMORY_GUIDE_SECTIONS } from '../utils/memoryGuide';
 import { SAR_CHANGELOG } from '../utils/sarUpdate';
 
 import React, { useEffect, useState } from 'react';
@@ -23,6 +24,13 @@ import {
 import { trackEvent } from '../utils/analytics';
 
 const FAQ_DATA = [
+    {
+        q: '角色的记忆如何互通？自动与手动整理怎么选？',
+        reason: '聊天、通话、见面与其他 App 的记忆说明。',
+        solution: MEMORY_GUIDE_SECTIONS.map(([title, text]) => '**' + title + '**\n' + text).join('\n\n'),
+        icon: 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f9e0.png',
+        color: 'bg-violet-50 text-violet-700',
+    },
     {
         q: "1. 进不去网页 / 白屏 / 点了没反应",
         reason: "网络有点小脾气，不够通畅。",

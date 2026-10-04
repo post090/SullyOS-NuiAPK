@@ -2,7 +2,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { applyMarketPlan, buildMarketTurn, flushMarketReceipts, marketReceiptContent, parseFishingReaction, parseMarketPlan } from './fishingCharacter';
 import { addCatchToState, createListing, createRequest, createFishingMarketState, ensureActorAccounts, logMarketEvent, readFishingMarketState, saveFishingMarketState } from './fishingMarket';
 import { DB } from '../db';
-vi.mock('../db',()=>({DB:{getVRCardsByCharId:vi.fn(async()=>[]),saveMessageOnce:vi.fn(async()=>1)}}));
+vi.mock('../db',()=>({DB:{getVRMarketEventIds:vi.fn(async()=>[]),saveMessageOnce:vi.fn(async()=>1)}}));
 beforeEach(()=>{localStorage.clear();vi.clearAllMocks();});
 it('requires structured reaction; missing content never becomes fabricated action',()=>{
     expect(parseFishingReaction('我钓到太阳了')).toBeNull();expect(parseMarketPlan('<PRICE>NaN</PRICE><NOTE>看板</NOTE>')).toBeNull();

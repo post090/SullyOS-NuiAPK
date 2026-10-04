@@ -31,7 +31,7 @@ describe('instantTraceLog 导出', () => {
   });
 
   it('导出文本能解析回来，带着构建版本和全部条目', () => {
-    appendInstantTraceEntry({ ts: '2026-08-20T01:32:00.000Z', event: 'runtime-expire-decision-swallow', anchorMs: 1 });
+    appendInstantTraceEntry({ ts: '2026-08-20T01:32:00.000Z', event: 'runtime-scheduled-delivery-accepted', anchorMs: 1 });
     appendInstantTraceEntry({ ts: '2026-08-20T01:33:00.000Z', event: 'runtime-flush-start' });
 
     const parsed = JSON.parse(formatInstantTraceLog());

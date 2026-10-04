@@ -16,6 +16,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+const modelPicker = readFileSync(fileURLToPath(new URL('../components/settings/ModelPicker.tsx', import.meta.url)), 'utf8');
+const stateSync = readFileSync(fileURLToPath(new URL('./amsgStateSync.ts', import.meta.url)), 'utf8');
 const settings = readFileSync(fileURLToPath(new URL('../apps/Settings.tsx', import.meta.url)), 'utf8');
 
 /** 截出某个顶层箭头函数的函数体（这些函数在文件里都是两空格缩进 + `};` 收尾）。 */
@@ -66,7 +68,7 @@ describe('保存配置不反写预设', () => {
 
   it('改预设只有两个入口：编辑弹窗，和保存后用户点头的「存回预设」', () => {
     expect(settings.match(/updateApiPreset\(/g) ?? []).toHaveLength(2);
-    expect(bodyOf('handleUpdatePreset')).toMatch(/updateApiPreset\(preset\.id, name, nextConfig\)/);
+    expect(bodyOf('handleUpdatePreset')).toMatch(/updateApiPreset\(preset\.id, name, nextConfig, \{ group: editPresetGroup \}\)/);
     expect(bodyOf('confirmPresetWriteback')).toMatch(/updateApiPreset\(preset\.id, preset\.name, /);
   });
 
@@ -117,15 +119,16 @@ describe('换 API 一定连着换云端凭据', () => {
     const commitApiConfig = bodyOf('commitApiConfig');
     expect(commitApiConfig).toMatch(/updateApiConfig\(patch\)/);
     expect(commitApiConfig).toMatch(/syncAmsgLlmCredentials\(\{ \.\.\.apiConfig, \.\.\.patch \}\)/);
-    expect(commitApiConfig).toMatch(/refreshApiCredentialsForPendingTasks\(\{ \.\.\.apiConfig, \.\.\.patch \}\)/);
+    expect(stateSync).toMatch(/refreshApiCredentialsForPendingTasks\(snapshot\)/);
   });
 });
 
 describe('模型弹窗选定即生效', () => {
   it('「确定」和点列表项都走 confirmModelPicker，它会直接保存', () => {
     expect(bodyOf('confirmModelPicker')).toMatch(/handleSaveApi\(model\)/);
-    expect(settings).toMatch(/onClick=\{\(\) => confirmModelPicker\(localModel\)\}/);
-    expect(settings).toMatch(/onClick=\{\(\) => confirmModelPicker\(m\)\}/);
+    expect(settings).toMatch(/confirmModelPicker=\{confirmModelPicker\}/);
+    expect(modelPicker).toMatch(/onClick=\{\(\) => confirmModelPicker\(localModel\)\}/);
+    expect(modelPicker).toMatch(/onClick=\{\(\) => confirmModelPicker\(m\)\}/);
   });
 
   it('刚选的模型直接递给保存，不等 setLocalModel 下一轮渲染', () => {

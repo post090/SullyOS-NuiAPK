@@ -137,8 +137,7 @@ export const flushMarketReceipts = (characters: CharacterProfile[]): Promise<voi
             const tripEvents = new Set((state.fishingTrips || []).flatMap(t => ['caught_' + t.catch.id, 'fishing_result_' + t.catch.id, 'fishing_release_' + t.catch.id, 'aiven_fish_sale_' + t.catch.id]));
             const pending=state.ledger.filter(e=>!tripEvents.has(e.id)&&e.participants.includes(char.id)&&!e.deliveredTo.includes(char.id));
             if(!pending.length)continue;
-            const existing=await DB.getVRCardsByCharId(char.id);
-            const known=new Set(existing.map(m=>m.metadata?.marketEventId).filter(Boolean));
+            const known=new Set(await DB.getVRMarketEventIds(char.id));
             for(const e of pending) {
                 if(!known.has(e.id))await DB.saveMessageOnce('market_receipt_' + e.id, {charId:char.id,role:'assistant',type:'vr_card',content:marketReceiptContent(e),metadata:{vrCard:true,room:'sar',activity:e.text,marketEventId:e.id}});
                 await mutateFishingMarket(s=>({...s,ledger:s.ledger.map(item=>item.id===e.id?{...item,deliveredTo:[...new Set([...item.deliveredTo,char.id])]}:item)}));

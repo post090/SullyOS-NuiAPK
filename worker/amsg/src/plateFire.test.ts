@@ -108,6 +108,19 @@ const REPLY = JSON.stringify([
   { room: 'user_room', text: '小明在读研，最近搬去和同学合租', basedOn: 'U0', tag: '居住' },
 ]);
 
+describe('门牌结果携带原始快照时间', () => {
+  it('输入解析、生成与 emitResult 全程保留客户端快照时间', async () => {
+    const snapshotAt = NOW.getTime() - 40 * 60_000;
+    const { ctx, scratch } = makeCtx({
+      jobValue: await packStateValue(JSON.stringify(jobInput({ snapshotAt }))),
+    });
+    await amsgHooks.onBeforeFire(ctx);
+    const session = makeSessionCtx(scratch, REPLY);
+    await amsgHooks.onLLMOutput(session.ctx);
+    expect(session.emitResult).toHaveBeenCalledWith(expect.objectContaining({ snapshotAt }));
+  });
+});
+
 describe('后台任务分派：聊天那几道门一道都不该拦它', () => {
   it('没有 fire_pack 也照跑（聊天那条路在这儿是硬失败）', async () => {
     const { ctx } = makeCtx({ jobValue: await packStateValue(JSON.stringify(jobInput())) });

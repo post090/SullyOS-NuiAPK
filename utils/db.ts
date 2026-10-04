@@ -1,3 +1,4 @@
+import { readLocalCursor } from './localRead';
 import {migrateLegacyWhiteboxPresets} from './legacyWhiteboxPresets';
 import {restoreDecorationMedia} from './decorationMediaBackup';
 import {exportBeautyPreferences,importBeautyPreferences} from './beautyPreferencesBackup';
@@ -40,7 +41,9 @@ const DB_NAME = 'AetherOS_Data';
 // v71：上岸计划·竞争力档案（job_profile，用户级单份 id='main'，见 types.ts JobProfile）。
 // v72：story theater —— story_theaters / story_theater_presets / story_theater_masks
 // v73：合并上游见面剧情/面具箱/小红书伪主页（建表幂等，老库补建）
-const DB_VERSION = 73;
+// v74：合并上游 v72——messages 加 [charId, metadata.deliveryId] 索引，回执查重不扫整段聊天。
+//      （上游编号 72 已被本 Fork 占用，统一升到 74；建索引是幂等的，老库新库都会补上。）
+const DB_VERSION = 74;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -164,8 +167,14 @@ export const openDB = (): Promise<IDBDatabase> => {
     // 清缓存一律先比对 dbPromise === promise: onclose/onerror 等都是异步回调, 期间若已
     // 重开并缓存了新 promise, 陈旧连接的回调不能误清新单例 (否则又凭空多开一条连接)。
     let settled = false;
+    const openTimer = setTimeout(() => {
+        settled = true;
+        if (dbPromise === promise) dbPromise = null;
+        reject(new Error('本地数据库连接超时，请关闭其他糯米机页面后重试；无需清理数据'));
+    }, 20_000);
 
     request.onerror = () => {
+        if (settled) return;
         const err = request.error;
         // 版本回退兜底: 浏览器里已存在「比当前 build 的 DB_VERSION 更高」的版本时
         // (用户先跑过更新的 build / 另一个 tab 升过级 / SW 缓存了更新的 bundle),
@@ -176,10 +185,13 @@ export const openDB = (): Promise<IDBDatabase> => {
         // 不需要也不能降级建表。所以这里回退到「不带版本号 open」一次而不是报死。
         if (err?.name === 'VersionError') {
             console.warn('[DB] open VersionError —— 现有版本高于当前 build, 回退到不带版本号打开');
-            settled = true; // 原 request 已终结 (VersionError 后不会再 onsuccess), 标记以防迟到回调
+            // Keep the timeout active until the versionless request settles.
+            // 原 request 已终结 (VersionError 后不会再 onsuccess)，由 fallback 负责结算。
             const fb = indexedDB.open(DB_NAME); // 不带版本号 = 连到现有(更高)版本, 不触发 upgrade
             fb.onsuccess = () => {
                 const db = fb.result;
+                if (settled) { db.close(); return; }
+                clearTimeout(openTimer);
                 // 与正常路径一致地挂上失效自愈回调 (另一 tab 升级 / 浏览器强关连接)。
                 db.onversionchange = () => {
                     db.close();
@@ -191,12 +203,15 @@ export const openDB = (): Promise<IDBDatabase> => {
                 resolve(db);
             };
             fb.onerror = () => {
+                clearTimeout(openTimer);
+                settled = true;
                 console.error("DB Open Error (versionless fallback):", fb.error);
                 if (dbPromise === promise) dbPromise = null;
                 reject(fb.error);
             };
             return;
         }
+        clearTimeout(openTimer);
         console.error("DB Open Error:", err);
         if (dbPromise === promise) dbPromise = null; // 打开失败别把 rejected promise 缓存住
         settled = true;
@@ -204,6 +219,7 @@ export const openDB = (): Promise<IDBDatabase> => {
     };
 
     request.onsuccess = () => {
+        clearTimeout(openTimer);
         const db = request.result;
         // 已经 reject 过 (onblocked / onerror): 这条迟到的连接没人接收, 直接 close,
         // 否则它开着会 block 后续的版本升级 / deleteDatabase。
@@ -234,6 +250,7 @@ export const openDB = (): Promise<IDBDatabase> => {
     };
 
     request.onblocked = () => {
+        clearTimeout(openTimer);
         // 另一个 tab 仍持有旧版本连接, 升级被挡。清缓存 + reject, 别让调用方无限挂着;
         // 与 activeMsgStore / sw-keep-alive 的 openDB 一致, 对方 tab 关闭后下次调用可重试。
         console.warn('[DB] open blocked —— 另一个 tab 仍持有旧版本连接未关闭');
@@ -243,6 +260,8 @@ export const openDB = (): Promise<IDBDatabase> => {
     };
 
     request.onupgradeneeded = (event) => {
+      // A legitimate schema migration may be slow; never cancel it halfway.
+      clearTimeout(openTimer);
       const db = (event.target as IDBOpenDBRequest).result;
 
       const createStore = (name: string, options?: IDBObjectStoreParameters) => {
@@ -276,6 +295,11 @@ export const openDB = (): Promise<IDBDatabase> => {
               msgStore.createIndex('charId_type', ['charId', 'type'], { unique: false });
           }
       } catch (e) { console.log('charId_type index migration skipped', e); }
+
+      const deliveryStore = (event.target as IDBOpenDBRequest).transaction!.objectStore(STORE_MESSAGES);
+      if (!deliveryStore.indexNames.contains('charId_deliveryId')) {
+          deliveryStore.createIndex('charId_deliveryId', ['charId', 'metadata.deliveryId'], { unique: false });
+      }
 
       createStore(STORE_EMOJIS, { keyPath: 'name' });
       createStore(STORE_EMOJI_CATEGORIES, { keyPath: 'id' });
@@ -750,35 +774,25 @@ export const DB = {
   // 跟总消息量无关——上万条聊天的用户也不会把整段历史读进内存。
   getVRCardsByCharId: async (charId: string, limit?: number, accept: (message: Message) => boolean = () => true): Promise<Message[]> => {
     const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const transaction = db.transaction(STORE_MESSAGES, 'readonly');
-      const store = transaction.objectStore(STORE_MESSAGES);
-      if (store.indexNames.contains('charId_type') && limit === undefined) {
-          const idx = store.index('charId_type');
-          const req = idx.getAll(IDBKeyRange.only([charId, 'vr_card']));
-          req.onsuccess = () => {
-              const results = (req.result || []).filter((m: Message) => !m.groupId && (m as any).metadata?.vrCard && accept(m));
-              resolve(results);
-          };
-          req.onerror = () => reject(req.error);
-          return;
-      }
-      // 首页限量读取走倒序游标；旧库缺复合索引时回退 charId，默认最多 80 条。
-      const indexed = store.indexNames.contains('charId_type');
-      const index = store.index(indexed ? 'charId_type' : 'charId');
-      const collected: Message[] = [];
-      const cursorReq = index.openCursor(IDBKeyRange.only(indexed ? [charId, 'vr_card'] : charId), 'prev');
-      cursorReq.onsuccess = () => {
-          const cursor = cursorReq.result;
-          if (cursor && collected.length < (limit ?? 80)) {
-              const m = cursor.value as Message;
-              if (!m.groupId && m.type === 'vr_card' && (m as any).metadata?.vrCard && accept(m)) collected.push(m);
-              cursor.continue();
-          } else {
-              resolve(collected);
-          }
-      };
-      cursorReq.onerror = () => reject(cursorReq.error);
+    const indexed = db.transaction(STORE_MESSAGES, 'readonly').objectStore(STORE_MESSAGES).indexNames.contains('charId_type');
+    return readLocalCursor<Message>(db, STORE_MESSAGES, {
+      index: indexed ? 'charId_type' : 'charId',
+      query: IDBKeyRange.only(indexed ? [charId, 'vr_card'] : charId),
+      direction: limit === undefined && indexed ? 'next' : 'prev',
+      limit: limit ?? (indexed ? undefined : 80),
+      accept: m => !m.groupId && m.type === 'vr_card' && m.metadata?.vrCard && accept(m),
+    });
+  },
+
+  /** Legacy market deduplication only needs IDs, never retain every card body. */
+  getVRMarketEventIds: async (charId: string): Promise<string[]> => {
+    const db = await openDB();
+    const indexed = db.transaction(STORE_MESSAGES, 'readonly').objectStore(STORE_MESSAGES).indexNames.contains('charId_type');
+    return readLocalCursor<string>(db, STORE_MESSAGES, {
+      index: indexed ? 'charId_type' : 'charId',
+      query: IDBKeyRange.only(indexed ? [charId, 'vr_card'] : charId),
+      accept: m => !m.groupId && m.type === 'vr_card' && m.metadata?.vrCard && typeof m.metadata.marketEventId === 'string',
+      map: m => m.metadata.marketEventId,
     });
   },
 
@@ -899,7 +913,10 @@ export const DB = {
       const store = tx.objectStore(STORE_MESSAGES);
       let savedId = 0;
       let inserted = false;
-      const cursorRequest = store.index('charId').openCursor(IDBKeyRange.only(msg.charId), 'prev');
+      const indexed = store.indexNames.contains('charId_deliveryId');
+      const cursorRequest = store.index(indexed ? 'charId_deliveryId' : 'charId').openCursor(
+        IDBKeyRange.only(indexed ? [msg.charId, deliveryId] : msg.charId), 'prev',
+      );
       cursorRequest.onsuccess = () => {
         const cursor = cursorRequest.result;
         if (cursor) {
@@ -2928,11 +2945,8 @@ export const DB = {
   // --- VR World 「彼方」 全局小说库 ---
   getVRLibraryCategories: async (): Promise<VRLibraryCategory[]> => {
       const db = await openDB();
-      return new Promise((resolve, reject) => {
-          const req = db.transaction(STORE_VR_SETTINGS, 'readonly').objectStore(STORE_VR_SETTINGS).get(VR_LIBRARY_RECORD);
-          req.onsuccess = () => resolve(req.result?.categories || []);
-          req.onerror = () => reject(req.error);
-      });
+      const rows = await readLocalCursor<{ categories?: VRLibraryCategory[] }>(db, STORE_VR_SETTINGS, { query: VR_LIBRARY_RECORD, limit: 1 });
+      return rows[0]?.categories || [];
   },
 
   editVRLibrary: async (edit: LibraryEdit): Promise<void> => {
@@ -2955,6 +2969,29 @@ export const DB = {
           novelRequest.onsuccess = apply;
           tx.oncomplete = () => resolve();
           tx.onerror = tx.onabort = () => reject(failure || tx.error || new Error('书库分类保存失败'));
+      });
+  },
+
+  getVRNovelSummaries: async (): Promise<import('../types').VRWorldNovelSummary[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_VR_NOVELS)) return [];
+      return readLocalCursor<import('../types').VRWorldNovelSummary>(db, STORE_VR_NOVELS, {
+          map: (book: VRWorldNovel) => {
+              if (!book || !Array.isArray(book.segments)) throw new Error('书库中有无法读取的旧书目，请保留备份后重试');
+              const { segments, ...metadata } = book;
+              return { ...metadata, segmentCount: segments.length };
+          },
+      });
+  },
+
+  getVRNovel: async (id: string): Promise<VRWorldNovel | undefined> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_VR_NOVELS, 'readonly');
+          const request = tx.objectStore(STORE_VR_NOVELS).get(id);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+          tx.onabort = () => reject(tx.error || new Error('书籍读取中断'));
       });
   },
 
@@ -3200,12 +3237,8 @@ export const DB = {
   getVRLetters: async (): Promise<VRLetter[]> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_VR_LETTERS)) return [];
-      return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_VR_LETTERS, 'readonly');
-          const request = transaction.objectStore(STORE_VR_LETTERS).getAll();
-          request.onsuccess = () => resolve((request.result || []).sort((a: VRLetter, b: VRLetter) => b.createdAt - a.createdAt));
-          request.onerror = () => reject(request.error);
-      });
+      const letters = await readLocalCursor<VRLetter>(db, STORE_VR_LETTERS);
+      return letters.sort((a, b) => b.createdAt - a.createdAt);
   },
 
   saveVRLetter: async (letter: VRLetter): Promise<void> => {
@@ -4314,6 +4347,9 @@ export const DB = {
           await clearAndAdd(STORE_ASSETS, data.assets || [], '系统资源', true);
           data.assets = undefined as any;
       }, data.assets?.length || 0);
+      await runSection('聊天收藏', data.contentFavoritesIndex != null, async () => {
+          await DB.saveAssetRaw('content_favorites_index_v1', data.contentFavoritesIndex);
+      });
       await runSection('日记贴纸', data.savedJournalStickers !== undefined, async () => {
           await mergeStore(STORE_JOURNAL_STICKERS, data.savedJournalStickers, '日记贴纸', true);
           data.savedJournalStickers = undefined as any;

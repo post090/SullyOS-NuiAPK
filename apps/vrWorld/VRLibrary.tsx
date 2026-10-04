@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { BookOpen, Check, Plus, X } from '@phosphor-icons/react';
-import type { CharacterProfile, VRLibraryCategory, VRWorldCharState, VRWorldNovel } from '../../types';
+import type { CharacterProfile, VRLibraryCategory, VRWorldCharState, VRWorldNovelSummary } from '../../types';
 import { novelReadingMode, readingPreferenceLabel, type LibraryEdit } from '../../utils/vrWorld/library';
 import { getBookmark } from '../../utils/vrWorld/novel';
 import './vr-library.css';
 
 export function LibraryView({ novels, categories, characters, onOpen, onAdd, onDelete, onEdit, onPreference }: {
-    novels: VRWorldNovel[]; categories: VRLibraryCategory[]; characters: CharacterProfile[];
-    onOpen: (book: VRWorldNovel) => void; onAdd: (categoryId?: string) => void; onDelete: (id: string) => Promise<void>;
+    novels: VRWorldNovelSummary[]; categories: VRLibraryCategory[]; characters: CharacterProfile[];
+    onOpen: (book: VRWorldNovelSummary) => void; onAdd: (categoryId?: string) => void; onDelete: (id: string) => Promise<void>;
     onEdit: (edit: LibraryEdit) => Promise<void>; onPreference: (char: CharacterProfile) => void;
 }) {
     const [filter, setFilter] = useState('all'), [query, setQuery] = useState('');
@@ -52,7 +52,7 @@ export function LibraryView({ novels, categories, characters, onOpen, onAdd, onD
 }
 
 type Preference = Pick<VRWorldCharState,'novelReadingMode'|'preferredNovelIds'|'preferredNovelCategoryIds'>;
-export function NovelPreferenceModal({char,novels,categories,onClose,onSave}:{char:CharacterProfile;novels:VRWorldNovel[];categories:VRLibraryCategory[];onClose:()=>void;onSave:(preference:Preference)=>void}) {
+export function NovelPreferenceModal({char,novels,categories,onClose,onSave}:{char:CharacterProfile;novels:VRWorldNovelSummary[];categories:VRLibraryCategory[];onClose:()=>void;onSave:(preference:Preference)=>void}) {
     const panel = useRef<HTMLElement>(null);
     useEffect(() => {
         const previous = document.activeElement;

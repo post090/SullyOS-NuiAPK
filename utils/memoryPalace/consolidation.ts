@@ -8,7 +8,7 @@
  */
 
 import type { MemoryNode, MemoryRoom, RemoteVectorConfig } from './types';
-import { ROOM_CONFIGS } from './types';
+import { ROOM_CONFIGS, resolveMemoryScoringRoom } from './types';
 import { MemoryNodeDB } from './db';
 import { bulkSetRoom } from './supabaseVector';
 
@@ -52,7 +52,7 @@ const EFFECTIVE_IMPORTANCE_FLOOR_RATIOS: Record<MemoryRoom, number> = {
  * 不会低于 importance × floor_ratio[room]（0.8 或 0.9）
  */
 export function calculateEffectiveImportance(node: MemoryNode, now: number = Date.now()): number {
-    const room = node.room;
+    const room = resolveMemoryScoringRoom(node.room);
     const config = ROOM_CONFIGS[room];
 
     // 永不遗忘的房间（self_room / attic / windowsill）

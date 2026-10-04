@@ -278,20 +278,28 @@ export function normalizeMessageContent(
     // 抓空时甚至空字符串，角色读不到任何东西。
     if (type === 'xhs_card') {
         const note: any = msg.metadata?.xhsNote || {};
+        const share = shareLinkContext(msg);
         const title = (note.title || msg.content || '').trim();
         const desc = (note.desc || '').trim();
         const author = (note.author || '').trim();
         const authorPart = author ? `（作者：${author}）` : '';
-        const head = `[小红书笔记] ${userName}分享了一篇小红书笔记${title ? `《${title}》` : ''}${authorPart}`;
+        const head = `[小红书笔记] ${msg.role === 'assistant' ? charName : userName}分享了一篇小红书笔记${title ? `《${title}》` : ''}${authorPart}${share}`;
         // 评论区：建卡时抓到的评论一并喂给角色（含归档/记忆宫殿场景），与浏览笔记时的可见性对齐。
         const comments = Array.isArray(note.comments) ? note.comments : [];
         const commentsPart = comments.length
             ? `\n评论区：\n${comments.slice(0, 15).map((c: any) => `· ${c.author || '匿名'}：${c.content}`).join('\n')}`
             : '';
-        if (desc) return `${head}\n笔记正文：\n${desc}${commentsPart}`;
+        const stats = [
+            note.likes != null ? note.likes + '赞' : '',
+            note.collects != null ? note.collects + '收藏' : '',
+            note.commentCount != null ? note.commentCount + '评论' : '',
+            note.shareCount != null ? note.shareCount + '分享' : '',
+        ].filter(Boolean).join(' · ');
+        const details = (stats ? '\n互动：' + stats : '') + commentsPart;
+        if (desc) return `${head}\n笔记正文：\n${desc}${details}`;
         // 只有标题（没部署 MCP / 没抓到正文）：角色至少知道是哪篇笔记，但别假装读过正文。
-        if (title) return `${head}\n（注：只拿到了笔记标题，正文/图片没抓到——要读完整内容需部署小红书功能。别假装读过正文。）`;
-        return `${head}\n（注：这篇笔记的内容没能获取到。）`;
+        if (title) return `${head}${details}\n（注：只拿到了笔记标题，正文/图片没抓到；可用原链接调用已配置的解析工具。别假装读过正文。）`;
+        return `${head}${details}\n（注：这篇笔记的内容没能获取到。）`;
     }
 
     // 网页卡片：用户粘贴链接分享的网页。卡片只给人看封面，上下文/归档/palace 要读到
@@ -301,6 +309,7 @@ export function normalizeMessageContent(
         const title = meta.title || msg.content || '网页';
         const site = meta.siteName ? `（来自 ${meta.siteName}）` : '';
         const url = meta.finalUrl || meta.url || '';
+        const share = shareLinkContext(msg);
         // 视频平台分享（videoParser 解析路径）：没有可读正文，喂给角色的是
         // 「标题 + 作者 + 热度数据」，并明确告知看不到画面内容，防止对着标题瞎编剧情。
         if (meta.video) {
@@ -309,7 +318,7 @@ export function normalizeMessageContent(
             const isImage = v.contentType === 'image';
             const kindLabel = isImage ? `图文${v.imageCount ? `（${v.imageCount} 张图）` : ''}` : '视频';
             const author = v.authorName ? `（作者：${v.authorName}）` : '';
-            const head = `[视频分享] ${userName}分享了一个${plat}${kindLabel}${title ? `《${title}》` : ''}${author}${url ? `\n链接：${url}` : ''}`;
+            const head = `[视频分享] ${msg.role === 'assistant' ? charName : userName}分享了一个${plat}${kindLabel}${title ? `《${title}》` : ''}${author}${url ? `\n链接：${url}` : ''}${share}`;
             const stats = [
                 v.playCount ? `播放 ${formatStatCount(v.playCount)}` : '',
                 v.likeCount ? `点赞 ${formatStatCount(v.likeCount)}` : '',
@@ -329,7 +338,7 @@ export function normalizeMessageContent(
         const bodyRaw = (typeof meta.content === 'string' && meta.content.trim())
             ? meta.content.trim()
             : (typeof meta.excerpt === 'string' ? meta.excerpt.trim() : '');
-        const head = `[网页分享] ${userName}分享了一个网页《${title}》${site}${url ? `\n链接：${url}` : ''}`;
+        const head = `[网页分享] ${msg.role === 'assistant' ? charName : userName}分享了一个网页《${title}》${site}${url ? `\n链接：${url}` : ''}${share}`;
         // 正文抓空（登录墙 / SPA 动态渲染等）：明确告诉角色没读到正文，避免它对着标题瞎编网页内容。
         if (!bodyRaw) {
             return `${head}\n（注：这个网页的正文没能抓取到——可能需要登录，或是用 JS 动态渲染的页面。你只看到标题和链接，不知道正文写了什么，别假装读过内容。）`;
@@ -433,4 +442,17 @@ export function isMessageSemanticallyRelevant(msg: Message): boolean {
     }
     // 有内容或有结构化 metadata 才算
     return !!(msg.content?.trim() || msg.metadata?.scoreCard || msg.metadata?.amount || msg.metadata?.song || msg.metadata?.trpg || msg.metadata?.webpage);
+}
+
+/** Preserve the user's instruction and the unexpanded URL for external parsing tools. */
+export function shareLinkContext(msg: { metadata?: Record<string, any> }): string {
+    const meta = msg.metadata || {};
+    const note = meta.xhsNote || {};
+    const original = typeof meta.originalShareText === 'string' ? meta.originalShareText.trim() : '';
+    if (original) return '\n分享原文：\n' + original;
+    const url = meta.originalShareUrl || (note.noteId
+        ? 'https://www.xiaohongshu.com/explore/' + encodeURIComponent(note.noteId)
+            + (note.xsecToken ? '?xsec_token=' + encodeURIComponent(note.xsecToken) : '')
+        : '');
+    return url ? '\n原始链接：' + url : '';
 }

@@ -27,17 +27,21 @@
 export const DEFAULT_PROXY_WORKER =
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_PROXY_WORKER) ||
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_DEFAULT_WORKER) ||
-  'https://sullymeow.ccwu.cc';
+  'https://proxy.friedsully.com';
 
 const LS_KEY = 'sully_proxy_worker_url_v1';
 const SETTINGS_FOCUS_SESSION_KEY = 'sully_settings_focus_proxy_worker_v1';
 
-// 已死/弃用的历史公共实例域名。老用户 localStorage 里如果还存着这些，
+// 历史公共实例域名（含保留兼容但不再默认使用的旧域名）。老用户 localStorage 里如果还存着这些，
 // 读出来时自动当成"用的是默认"，回落到 DEFAULT_PROXY_WORKER（与
 // MusicContext 的迁移逻辑一致：都指向同一个 worker，行为相同）。
 //   - sully-n.qegj567.workers.dev：最早的 workers.dev 默认域名（国内超时）
 //   - sullymeow.ccwu213.cc：旧公共自定义域名，注册已过期、DNS 无法解析（2026-07 起）
-const STALE_HOSTS = [/sully-n\.qegj567\.workers\.dev/i, /sullymeow\.ccwu213\.cc/i];
+//   - sullymeow.ccwu.cc：迁移至自有域名，旧绑定继续供旧客户端使用
+const STALE_HOSTS = new Set(['sully-n.qegj567.workers.dev', 'sullymeow.ccwu213.cc', 'sullymeow.ccwu.cc']);
+export const isLegacyProxyWorkerUrl = (url: string): boolean => {
+  try { return STALE_HOSTS.has(new URL(url).hostname.toLowerCase()); } catch { return false; }
+};
 
 const normalize = (url: string): string => url.trim().replace(/\/+$/, '');
 
@@ -51,7 +55,7 @@ let runtimeOverrideUrl: string | null = null;
  */
 export const setProxyWorkerUrlOverride = (url: string | null): void => {
   const trimmed = normalize(url || '');
-  runtimeOverrideUrl = /^https?:\/\//i.test(trimmed) ? trimmed : null;
+  runtimeOverrideUrl = /^https?:\/\//i.test(trimmed) ? (isLegacyProxyWorkerUrl(trimmed) ? DEFAULT_PROXY_WORKER : trimmed) : null;
 };
 
 /**
@@ -65,7 +69,7 @@ export const getProxyWorkerUrl = (): string => {
     if (!raw) return DEFAULT_PROXY_WORKER;
     const url = normalize(raw);
     if (!/^https?:\/\//i.test(url)) return DEFAULT_PROXY_WORKER;
-    if (STALE_HOSTS.some((re) => re.test(url))) return DEFAULT_PROXY_WORKER;
+    if (isLegacyProxyWorkerUrl(url)) return DEFAULT_PROXY_WORKER;
     return url;
   } catch {
     return DEFAULT_PROXY_WORKER;
@@ -132,12 +136,12 @@ export const consumeProxyWorkerSettingsFocus = (): boolean => {
 };
 
 /**
- * 把指向已死历史实例的 url 改写到当前生效的 worker（保留路径和 query）；
+ * 把指向历史公共实例的 url 改写到当前生效的 worker（保留路径和 query）；
  * 其余地址原样返回。给小红书 serverUrl 这类「自己存一份地址」的模块做存量迁移用——
  * 它们存的地址不走上面的 LS_KEY，得在自己的读取层调这个。
  */
 export const rewriteStaleWorkerUrl = (url: string): string => {
-  if (typeof url !== 'string' || !url || !STALE_HOSTS.some((re) => re.test(url))) return url;
+  if (typeof url !== 'string' || !url || !isLegacyProxyWorkerUrl(url)) return url;
   const base = getProxyWorkerUrl();
   try {
     const u = new URL(url);

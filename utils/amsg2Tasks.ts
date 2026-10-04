@@ -7,7 +7,7 @@
  * 换算，不能用 formatTaskTime 那种吃运行时本地时区的写法。
  *
  * 状态设计：清单只存 'scheduled'（取消即移除记录）。到点后的一次性任务不回写
- * 状态——「已发送 / 已作废」由消息历史现场推导（amsg2TaskContext），避免
+ * 状态——发没发出去由云端说（发出去的随 push 落进聊天记录，没发的回一条结果），避免
  * React 之外（push 送达路径）写角色数据引发状态竞争。过点 48h 的一次性任务
  * 由 pruneStaleTasks 在下一次任务变更落盘时顺手清掉。
  */
@@ -47,8 +47,8 @@ export const isAmsg2EnabledForChar = (char: CharacterProfile): boolean =>
 export const shortTaskId = (taskUuid: string): string => taskUuid.slice(0, 8);
 
 /**
- * fixed 任务恒为 force：它没有 AI 生成环节，防穿帮闸的「作废」对它没有意义，
- * 而且 worker 的闸压根不会看到 fixed 任务。写任务记录的地方都过这里，别各写各的三元。
+ * fixed 任务恒为 force：它没有 AI 生成环节，「到点看情况」对它没有意义，
+ * 而且 worker 的 fire-time hook 压根不会看到 fixed 任务。写任务记录的地方都过这里，别各写各的三元。
  */
 export const resolveExpirePolicy = (
   mode: ActiveMsg2Mode,
@@ -65,7 +65,7 @@ export const describeRecurrence = (recurrence: ActiveMsg2Recurrence): string =>
 /**
  * 排程信息本身是系统内务，不该被角色念出来。
  *
- * 短 id、「遇忙作废」这些词一旦进了对话，用户听到的就是一段系统日志。平时聊天那份
+ * 短 id、「到点看情况」这些词一旦进了对话，用户听到的就是一段系统日志。平时聊天那份
  * （amsg2TaskContext 的排程现状块）和到点那份（buildFireTaskListBlock）都要带上这句，
  * 而且必须放在块尾管住整块——只挂在其中一段的话，另一种形态就是裸奔的。
  */
@@ -85,7 +85,7 @@ export const AMSG2_SCHEDULE_SECRECY_NOTE = '不要向用户复述或提及这份
 export const AMSG2_SCHEDULE_NOT_YET_NOTE = '排在未来的事到点自己会响，不用你现在提前替它开口——还没到那个时刻的就让它安静待着，别每轮都拿它起话头、追着问进展。对方自己提起，或者真到了那个点，才是说它的时候。';
 
 export const describeExpirePolicy = (policy: ActiveMsg2ExpirePolicy): string =>
-  policy === 'force' ? '强制发送' : '遇忙作废';
+  policy === 'force' ? '到点必发' : '到点看情况';
 
 /** 任务「要说什么」的一句话描述。fixed 有固定内容、prompted 有方向、auto 可带灵感。 */
 export const describeTaskMode = (
@@ -194,7 +194,7 @@ export const currentOccurrenceMs = (
  *
  * 已过点的一次性任务光说「已到点」信息量为零——用户看不出它是发过了还是卡住了。
  * 远端底账正好能分辨：那一行还在 = worker 还没消费（cron 慢了或刚过点）；不在了 =
- * worker 已经处理完（发出去了，或者被防穿帮闸作废了，两种情况都会删行）。
+ * worker 已经处理完（发出去了，或者这次没发，两种情况都会删行）。
  * 底账没拉到（null）时不猜，回到中性的「已到点」。
  *
  * remoteStatus 是远端那一行的 status（拉到底账时顺带的投影，没有就不传）：
@@ -219,10 +219,6 @@ export const getPendingTasks = (
 ): ActiveMsg2TaskRecord[] =>
   (config?.tasks ?? []).filter((t) => isPendingTask(t, nowMs));
 
-/** 这个任务的触发有没有可能被防穿帮闸作废（fixed / force 永远照发）。 */
-export const canExpire = (task: ActiveMsg2TaskRecord): boolean =>
-  task.status === 'scheduled' && task.mode !== 'fixed' && task.expirePolicy === 'expire';
-
 /** 有没有还会响的 AI 任务（amsgStateSync 的同步门用：fixed 不需要 fire_pack）。 */
 export const hasActiveAiTask = (
   config: ActiveMsg2CharacterConfig | undefined,
@@ -237,7 +233,7 @@ export const hasActiveAiTask = (
  *   1. 时间按 fire_pack 的时区参照系（tzId）换算——
  *      worker 跑在 UTC，用运行时本地时区会整体差几个小时；
  *   2. 摘掉正在发的这一条 —— 它此刻正在被消费，列进「进行中」会让角色以为还得再排一次；
- *   3. 不含「已作废回执」那一段 —— 那是给对话现场用的，到点生成时提不着。
+ *   3. 不含回执那一段 —— 那是给对话现场用的，到点生成时提不着。
  *
  * 没有可列的（清单空了，或者只剩正在发的这条）→ 返回空串，槽位被抹平。
  */

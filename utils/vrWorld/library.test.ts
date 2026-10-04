@@ -67,3 +67,11 @@ describe('整理书库',()=>{
         expect(()=>editLibrary(categories,[],{kind:'rename',id:'gone',name:'name'})).toThrow();
     });
 });
+
+it('uses summary segment counts for availability without loading full books', () => {
+    expect(readableNovels([
+        { id: 'yes', categoryId: 'web', segmentCount: 2 },
+        { id: 'empty', categoryId: 'web', segmentCount: 0 },
+        { id: 'excluded', categoryId: 'lit', segmentCount: 3 },
+    ], char()).map(book => book.id)).toEqual(['yes']);
+});

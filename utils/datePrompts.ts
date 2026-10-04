@@ -630,7 +630,7 @@ const buildDateHistory = (
         userProfile || ({} as UserProfile),
         emojis,
         undefined,
-        { useVisionDescriptions },
+        { useVisionDescriptions, timeAwarenessEnabled: isDateTimeAwarenessOn(char) },
     );
     return apiMessages;
 };
@@ -654,10 +654,10 @@ export const DatePrompts = {
         const { char, userProfile, allMsgs, emojis } = input;
         const charTz = resolveCharTimeZone(char);
         const dateTimeOn = isDateTimeAwarenessOn(char);
-        const timeStr = getRealTimeStr(charTz);
+        const timeStr = dateTimeOn ? getRealTimeStr(charTz) : '';
         const selected = selectCharacterContextMessages(allMsgs, char);
         const lastMsg = allMsgs[allMsgs.length - 1];
-        const gapHint = getTimeGapHint(lastMsg?.timestamp, charTz);
+        const gapHint = dateTimeOn ? getTimeGapHint(lastMsg?.timestamp, charTz) : '';
 
         const { apiMessages } = ChatPrompts.buildMessageHistory(
             selected,
@@ -666,7 +666,10 @@ export const DatePrompts = {
             userProfile || ({} as UserProfile),
             emojis,
             undefined,
-            { useVisionDescriptions: input.useVisionDescriptions === true },
+            {
+                useVisionDescriptions: input.useVisionDescriptions === true,
+                timeAwarenessEnabled: dateTimeOn,
+            },
         );
 
         // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）
@@ -685,15 +688,20 @@ export const DatePrompts = {
         const preset = getStylePreset(char.dateStyleConfig);
         const extraBlock = buildExtraStyleBlock(char.dateStyleConfig);
 
-        // 根据时间间隔选择合适的分隔符
-        const contextSeparator = gapHint
-            ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
-            : `\n\n--- [最近互动见上文，场景关系以具体上下文为准] ---\n\n`;
+        // 架空模式以剧情衔接，不用现实经过多久判断跳时，也不假定刚刚还在聊天。
+        const contextSeparator = !dateTimeOn
+            ? `\n\n--- [SCENE CONTINUATION: 按最近记录中的剧情时间与事件衔接] ---\n\n`
+            : gapHint
+                ? `\n\n--- [TIME SKIP: ${gapHint}] ---\n\n`
+                : `\n\n--- [最近互动见上文，场景关系以具体上下文为准] ---\n\n`;
+        const continuityRule = dateTimeOn
+            ? '参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。地点、正在做的事、话题是否延续，都以具体上下文为准；时间间隔只是参考。选择开场方式只决定谁主动靠近，不表示关系或话题重新开始，也不强制续接上一句话。'
+            : '参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话），沿用其中的剧情时间、地点、事件与情绪状态。时间推进以剧情明确内容为准。选择开场方式只决定谁主动靠近，不表示关系或话题重新开始，也不强制续接上一句话。';
 
         const invite = input.openingMode === 'invite';
         const peekInstructions = `
 ### 场景：感知 (Sense Presence)
-${dateTimeOn ? `当前时间: ${timeStr}\n` : ''}时间上下文: ${gapHint}
+${dateTimeOn ? `当前时间: ${timeStr}\n时间上下文: ${gapHint}\n` : ''}
 
 ### 任务
 ${invite ? `由你主动以合理的方式与 ${userProfile?.name || '对方'} 见面。根据已有上下文中的地点、约定、关系和你自己的动机，写出你如何走近或来到对方面前；如果已经在一起，就从当前场景自然靠近、开口，不另编一次到访。未知的地点或安排不要当成已知事实，也不代写用户答应、移动或回应。` : '你现在并不在和用户直接对话。用户正在悄悄靠近你所在的地点。'}
@@ -701,7 +709,7 @@ ${invite ? `由你主动以合理的方式与 ${userProfile?.name || '对方'} �
 ${invite ? '描写角色自己的到来、动作与必要的开场台词，停在留给用户回应的位置。' : `描述：${char.name} 此时此刻正在做什么？周围环境是怎样的？状态如何？`}
 
 ### 逻辑检查
-1. **上下文连贯性**: 参考 [最近记录]（注意消息来源标签：[聊天]是文字聊天、[约会]是面对面、[通话]是语音通话）。地点、正在做的事、话题是否延续，都以具体上下文为准；时间间隔只是参考。选择开场方式只决定谁主动靠近，不表示关系或话题重新开始，也不强制续接上一句话。
+1. **上下文连贯性**: ${continuityRule}
 2. **状态一致性**: ${gapHint.includes('天') ? '如果间隔了很多天，可能在发呆、忙碌或者有点落寞。' : '根据最近的聊天内容和情绪来决定当前状态。如果刚聊完，角色的状态应该与聊天内容相呼应。'}
 3. **描写风格**: ${preset.peekHint}。${isObserveOn(char) ? '先按下方「观测协议」输出观测块，再开始描写内容（描写本身不要加任何前缀）。' : '不要输出任何前缀，直接输出描写内容。'}
 ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlock(char)}` : ''}`;

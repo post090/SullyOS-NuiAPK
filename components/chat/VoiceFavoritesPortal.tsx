@@ -30,6 +30,7 @@ import {
     type VoiceFavoriteSource,
 } from '../../utils/voiceFavorites';
 import { normalizeChatSearchText, searchableChatMessageText } from '../../utils/chatMessageSearch';
+import TokenImg from '../os/TokenImg';
 
 const PAGE_SIZE = 10;
 type FavoriteTab = 'chat' | 'voice' | 'image';
@@ -267,6 +268,31 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
         const message = resolvedMessage || item.snapshot || null;
         const sourceAvailable = !!(resolved && 'sourceAvailable' in resolved && resolved.sourceAvailable);
         const missing = !!resolved && !message;
+        if (item.conversation?.length) return (
+            <article key={item.id} className="favorite-row py-4 border-b border-slate-900/10">
+                <div className="flex items-start gap-2">
+                    <details className="group min-w-0 flex-1">
+                        <summary className="cursor-pointer text-sm text-slate-800">
+                            <span className="font-bold">{item.charName}</span>
+                            <span className="ml-2 text-xs text-violet-700">对话 · {item.conversation.length} 条</span>
+                            <time className="block mt-1 text-[10px] text-slate-500">{formatTime(item.sourceTimestamp)}</time>
+                            <p className="mt-2 whitespace-pre-wrap break-words line-clamp-3 group-open:hidden">{item.snapshot?.content}</p>
+                            <span className="block mt-2 text-xs text-violet-600 group-open:hidden">展开查看对话</span>
+                            <span className="hidden mt-2 text-xs text-violet-600 group-open:block">收起对话</span>
+                        </summary>
+                        <ol className="mt-3 space-y-3">
+                            {item.conversation.map(entry => <li key={entry.messageId} className={`rounded-xl p-3 ${entry.role === 'user' ? 'ml-4 bg-violet-50' : 'mr-4 bg-slate-100'}`}>
+                                <div className="text-[10px] text-slate-500">{entry.senderName} · {formatTime(entry.timestamp)}</div>
+                                {entry.type === 'image' ? (entry.content ? <TokenImg value={entry.content} alt="收藏对话中的图片" className="mt-2 max-w-full max-h-80 object-contain rounded-lg" /> : <p className="mt-2 text-xs text-slate-400">图片未包含在这份备份中</p>)
+                                    : <p className="mt-1 text-sm whitespace-pre-wrap break-words">{entry.content || '（无文字内容）'}</p>}
+                            </li>)}
+                        </ol>
+                        {sourceAvailable && onJumpToMessage && <button type="button" className="mt-3 text-xs text-violet-600" onClick={() => onJumpToMessage(item.charId, item.messageId)}>跳回原聊天</button>}
+                    </details>
+                    <button type="button" onClick={() => void removeContent(item)} className="shrink-0 w-9 h-9 grid place-items-center rounded-full text-slate-400 active:text-rose-500" aria-label="取消收藏"><Trash size={16} /></button>
+                </div>
+            </article>
+        );
         return (
             <article key={item.id} className="favorite-row flex gap-3 py-4 border-b border-slate-900/10">
                 <button
@@ -360,7 +386,7 @@ const FavoritesPortal: React.FC<FavoritesPortalProps> = ({ onClose, onJumpToMess
     );
 
     const emptyText = tab === 'chat'
-        ? '长按有意义的聊天消息，就能收藏到这里。'
+        ? '长按消息可单条收藏，也可进入多选，将一段对话合并收藏。'
         : tab === 'voice'
             ? '在聊天、通话或见面里长按语音，就能收藏到这里。'
             : '在聊天或相册里收藏图片；这里只保存引用，不复制图片。';

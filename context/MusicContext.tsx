@@ -14,7 +14,7 @@ import React, {
 import { cachedCall as _cachedCall, invalidate as _invalidateCache, clearAll as _clearAllCache } from '../utils/musicCache';
 import { neteaseCacheClearAll } from '../utils/neteaseCache';
 import { DB } from '../utils/db';
-import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT } from '../utils/proxyWorker';
+import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT, isLegacyProxyWorkerUrl } from '../utils/proxyWorker';
 import type { PostProcessMusicHooks } from '../utils/applyAssistantPostProcessing';
 import { resolveRefToDataUrl } from '../utils/blobRef';
 
@@ -136,14 +136,13 @@ export const resolveMusicWorkerUrl = (
 //   2. 当前的公共默认实例；
 //   3. 跟当前中心地址一模一样的——老版本会把中心地址抄一份存进音乐配置。
 // 只有跟以上都不同的地址才原样保留。读到需要改写时落盘一次。
-const FOLLOW_CENTRAL_HOSTS = [/sully-n\.qegj567\.workers\.dev/i, /sullymeow\.ccwu213\.cc/i];
 const migrateWorkerUrl = (url: string | undefined): string => {
   const own = normalizeHost(url || '');
   if (!own) return '';
   const lower = own.toLowerCase();
   if (lower === normalizeHost(DEFAULT_PROXY_WORKER).toLowerCase()) return '';
   if (lower === normalizeHost(getProxyWorkerUrl()).toLowerCase()) return '';
-  if (FOLLOW_CENTRAL_HOSTS.some((re) => re.test(lower))) return '';
+  if (isLegacyProxyWorkerUrl(own)) return '';
   return own;
 };
 

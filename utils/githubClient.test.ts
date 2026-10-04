@@ -62,7 +62,7 @@ describe('GitHub 备份代理安全默认', () => {
             githubProxyConsentVersion: 1,
         });
         expect(message).toContain('应用内 Cloudflare 中转');
-        expect(message).toContain('sullymeow.ccwu.cc');
+        expect(message).toContain('proxy.friedsully.com');
         expect(message).toContain('自定义网络代理 (Worker)');
     });
 });

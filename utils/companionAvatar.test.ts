@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CharacterProfile } from '../types';
 import {
   companionExpressionKey,
+  companionPortraitConfig,
   getCompanionDateSprites,
   listCompanionDateOutfits,
   resolveCompanionPortrait,
@@ -46,4 +47,14 @@ describe('静态陪伴形象', () => {
     } as unknown as CharacterProfile;
     expect(resolveCompanionPortrait(uploaded, 'angry')).toBe('blobref:portrait');
   });
+});
+
+it('keeps upload/date desktop positions independent and preserves legacy date framing', () => {
+  const legacy = { ...character, spriteConfig: { scale: 1.5, x: 12, y: -20 } };
+  expect(companionPortraitConfig(legacy)).toEqual(legacy.spriteConfig);
+  expect(companionPortraitConfig({ ...legacy, companionAvatar: { version: 1, source: 'upload' } })).toEqual({ scale: 1, x: 0, y: 0 });
+  const portraitConfigs = { upload: { scale: .8, x: 5, y: 8 }, date: { scale: 2, x: -7, y: 0 } };
+  for (const source of ['upload', 'date'] as const) {
+    expect(companionPortraitConfig({ ...legacy, companionAvatar: { version: 1, source, portraitConfigs } })).toEqual(portraitConfigs[source]);
+  }
 });

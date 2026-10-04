@@ -142,7 +142,7 @@ export const plateConsolidateHandler: FireKindHandler = {
 
     try {
       await ctx.emitResult({
-        ...buildPlateConsolidateResult({ jobId, charId: job.charId, items, rooms: job.rooms }),
+        ...buildPlateConsolidateResult({ jobId, charId: job.charId, items, rooms: job.rooms, snapshotAt: job.snapshotAt }),
         // 背景工作，整理完不该把人叫回来看。show:false 的 payload 上游只落收件箱、
         // 不发推送，客户端下次上线补收。
         notification: { show: false },

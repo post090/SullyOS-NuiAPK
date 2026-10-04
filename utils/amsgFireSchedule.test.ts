@@ -22,7 +22,7 @@ const TZ = { tzId: 'UTC' };
 // 参数是模型现写的，写歪是常态。这里每一条打回都必须是「能照着改」的一句话——
 // 回一个裸错误码的话，模型下一轮多半原样再试一次，白烧一轮预算。
 describe('parseFireScheduleArgs', () => {
-  it('只给 send_at 时其余走默认（auto / 一次性 / 遇忙作废）', () => {
+  it('只给 send_at 时其余走默认（auto / 一次性 / 到点看情况）', () => {
     const out = parseFireScheduleArgs({ send_at: inMinutes(90) }, NOW, TZ);
     expect(out).toEqual({
       sendAt: new Date(NOW + 90 * 60_000).toISOString(),

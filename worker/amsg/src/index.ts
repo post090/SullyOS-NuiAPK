@@ -92,7 +92,9 @@ import {
   sendsOnDay,
 } from '../../../utils/amsgLimits';
 import { resolveFireSceneSong } from '../../../utils/amsgFireScene';
-import { shouldExpireFire } from '../../../utils/amsg2ExpireGuard';
+import {
+  type AmsgFireSkipTaskBrief, buildFireSkipResult, shouldReportFireSkip,
+} from '../../../utils/amsgFireSkipResult';
 import { buildFireTaskListBlock, currentOccurrenceMs, isPendingTask, shortTaskId } from '../../../utils/amsg2Tasks';
 import {
   AMSG_FIRE_CANCEL_TOOL,
@@ -274,8 +276,10 @@ interface FireCtx {
     credId: string,
   ) => Promise<{ apiUrl: string; apiKey: string; primaryModel: string } | null>;
   readState: (namespace: string) => Promise<Array<{ key: string; value: string }>>;
-  /** 与每轮 sessionCtx 上那个是同一套写口（防穿帮闸跳过时用它留一句原因）。 */
+  /** 与每轮 sessionCtx 上那个是同一套写口（到点跳过时用它留一句原因）。 */
   writeState?: WriteState;
+  /** 与每轮 sessionCtx 上那个是同一个出口（到点跳过时用它把「这次没发」送回客户端）。 */
+  emitResult?: EmitResult;
   scheduleTask?: ScheduleTask;
   cancelTask?: CancelTask;
   renewTask?: RenewTask;
@@ -286,6 +290,9 @@ interface FireCtx {
    */
   scratch: Record<string, unknown>;
 }
+
+/** `ctx.emitResult`：往客户端送一条不是聊天内容的结果。 */
+type EmitResult = (payload: Record<string, unknown>) => Promise<{ messageId: string; pushed: boolean }>;
 
 /** client_state 的写入口（amsg-server 2.6.0-next.7+）；value 传 null 即删除该 key。 */
 type WriteState = (
@@ -499,6 +506,15 @@ interface FireStash {
 const getFireStash = (scratch: Record<string, unknown> | undefined): FireStash | undefined =>
   scratch?.fire as FireStash | undefined;
 
+/**
+ * 到点时页面正在本地生成一轮回复：这次触发推迟这么久再来（见 onBeforeFire 的在场租约门）。
+ *
+ * 跟在场记录的有效期同长（45 秒）：到那时记录要么被续过（还在生成，再推一次）、要么
+ * 已经过期（放行）。必须比 cron 的一分钟间隔短——推迟到期的时刻得落在下一跳之前，
+ * 取整一分钟的话，下一跳来的时候还差几秒没到期，白白多等一整跳。
+ */
+const REPLY_IN_FLIGHT_DEFER_MS = 45_000;
+
 /** 两个时间戳取较新的那个；两个都没有为 null。 */
 const laterOf = (a: number | null, b: number | null): number | null =>
   (a == null ? b : b == null ? a : Math.max(a, b));
@@ -552,7 +568,7 @@ const buildToolCtx = (
  * putClientStateOrThrow），所以到点读不到 fire_pack 只有三种可能：云端状态被删了、
  * 数据坏了、任务是开发期的旧格式。都是异常，不是能悄悄降级的正常分支。
  *
- * 为什么抛错而不是 { skip: true }：skip 是「这次故意不发」的出口（防穿帮闸在用），
+ * 为什么抛错而不是 { skip: true }：skip 是「这次故意不发」的出口（频率上限那几道闸在用），
  * 用它表达「坏了」会把两件事混在一起，而且循环任务会天天静默不响、只有 worker 日志
  * 里看得见。抛错走库的投递失败路径，任务标 failed + 写 last_error，至少留下痕迹。
  *
@@ -751,7 +767,7 @@ export const offloadOversizedPush = async (
 };
 
 /**
- * 防穿帮闸跳过一次触发时，留一句「为什么没响」给客户端。
+ * 到点跳过一次触发时，留一句「为什么没响」给客户端。
  *
  * 闸是静默工作的：判定该让路就直接跳过，一条 push 都不发，而远端那行任务两种情况下
  * （真发出去了 / 被闸拦下）都会被消费掉。客户端事后看到的一模一样，用户只会觉得
@@ -774,19 +790,61 @@ const writeLastSkip = async (
   }
 };
 
+/**
+ * 把「这次到点没发」送回客户端（见 utils/amsgFireSkipResult）。落服务端收件箱、不弹通知，
+ * 客户端上线拉到后给角色留一条回执。best-effort：送不出去只是角色少知道一件事。
+ */
+const emitFireSkip = async (
+  emitResult: EmitResult | undefined,
+  args: {
+    charId: string;
+    taskUuid: string | null | undefined;
+    occurrenceMs: number;
+    reason: AmsgLastSkip['reason'];
+    task?: AmsgFireSkipTaskBrief | null;
+  },
+): Promise<void> => {
+  if (!args.taskUuid || !shouldReportFireSkip(args.reason) || typeof emitResult !== 'function') return;
+  try {
+    await emitResult({
+      ...buildFireSkipResult({ ...args, taskUuid: args.taskUuid }),
+      // 角色这次一个字都没说，不该惊动用户：show:false 只落收件箱、不发推送。
+      notification: { show: false },
+    });
+  } catch (error) {
+    console.warn('[amsg:skip] 「这次没发」没能送回客户端（角色下一轮不会知道这条没发）', error);
+  }
+};
+
+/** 从任务清单里找出这条任务的概要，随「这次没发」一起送回去；清单里没有就不带。 */
+const findTaskBrief = (
+  tasks: ActiveMsg2TaskRecord[],
+  taskUuid: string | null | undefined,
+): AmsgFireSkipTaskBrief | null => {
+  const task = taskUuid ? tasks.find((t) => t.taskUuid === taskUuid) : undefined;
+  return task
+    ? { mode: task.mode, promptHint: task.promptHint, recurrenceType: task.recurrenceType }
+    : null;
+};
+
+/** 到点跳过：面板那份留痕（last_skip）和给角色的回执各记一笔。 */
 const recordSkip = async (
   ctx: FireCtx,
   charId: string,
   reason: AmsgLastSkip['reason'],
   occurrenceMs: number,
-): Promise<void> =>
-  writeLastSkip(ctx.writeState, charId, {
+  task?: AmsgFireSkipTaskBrief | null,
+): Promise<void> => {
+  const taskUuid = typeof ctx.task.uuid === 'string' ? ctx.task.uuid : null;
+  await writeLastSkip(ctx.writeState, charId, {
     v: 1,
-    taskUuid: typeof ctx.task.uuid === 'string' ? ctx.task.uuid : null,
+    taskUuid,
     occurrenceMs,
     reason,
     skippedAt: ctx.now.getTime(),
   });
+  await emitFireSkip(ctx.emitResult, { charId, taskUuid, occurrenceMs, reason, task });
+};
 
 // ─── self_log 的发送后回写（⑥）───
 //
@@ -805,7 +863,7 @@ const recordSkip = async (
  * 一次 fire 收尾时把云端自述日志落盘（config 级 hook onFireSettled，见 buildWorkerConfig）。
  *
  * 挂在 onFireSettled 而不是 onAfterSend 上，因为后者只在「真发出去了」那条路被调用：
- * skip-push（这轮只做了副作用 / 空生成）、防穿帮闸 skip、中途抛错三条路都不调。而角色
+ * skip-push（这轮只做了副作用 / 空生成 / 角色决定不说）、到点闸 skip、中途抛错三条路都不调。而角色
  * 用工具给自己排的任务在 ctx.scheduleTask 那一刻就已经建进 D1 了——账没落下来的话，
  * 客户端认领不到、面板看不见、用户取消不掉，它却会一直按时发下去。
  *
@@ -964,7 +1022,10 @@ const sendInstantErrorPush = async (args: {
 
 export const amsgFireSettled = async (
   info: {
-    /** sent / skipped / failed / not-handled；区分「有没有真发出去」和「这跳挂了」。 */
+    /**
+     * sent / skipped / failed / not-handled / deferred；区分「有没有真发出去」和「这跳挂了」。
+     * deferred（这次推迟了）发生在挂 stash 之前，下面读不到 stash 就直接收场，什么都不记。
+     */
     status?: string;
     sentCount?: number;
     /** D1 任务行原样（上游 notifyFireSettled 透传；retry_count 是明文列）。 */
@@ -1149,6 +1210,7 @@ export const amsgStaleSkip = async (
     skippedCount: number;
     nextSendAt: string | null;
     writeState: WriteState;
+    emitResult?: EmitResult;
   },
 ): Promise<void> => {
   const meta = (info.metadata ?? {}) as Record<string, unknown>;
@@ -1191,6 +1253,15 @@ export const amsgStaleSkip = async (
     skippedCount: info.skippedCount,
     nextSendAtMs: Number.isFinite(nextSendAtMs) ? nextSendAtMs : null,
   });
+  // 即时对话的过期上面已经用 chat_fail 交代过了；这里只管定时主动消息。
+  if (!isInstantChatTask(meta) && info.occurrenceMs != null) {
+    await emitFireSkip(info.emitResult, {
+      charId,
+      taskUuid: typeof task?.uuid === 'string' ? task.uuid : null,
+      occurrenceMs: info.occurrenceMs,
+      reason: 'stale',
+    });
+  }
 };
 
 /**
@@ -1810,25 +1881,23 @@ export const amsgHooks = {
     // 这次任务的方向是什么——对「回一句用户刚说的话」全都不适用，整段跳过。
     // （instant 本体在上面 fail 之前就算好了，这里只是叙事位置。）
 
-    // 同角色活跃会话租约：一轮对话生成期间客户端每 15s 续租，45s TTL。
-    // 这是 worker 防通知的第一道快速门；缺失/过期/坏数据就继续走 fire_pack 规则。
-    // 保持在 fire_pack 检查之前：用户正在聊天时应该直接 skip，既省一次状态读，
-    // 也让「状态不完整」的异常任务在用户正忙时安静跳过、而不是抛错刷失败计数。
+    // 同角色活跃会话租约：页面在本地生成一轮回复期间每 15s 续租，45s TTL。
+    // 租约新鲜 = 这一轮回复还没写完。这时生成主动消息，角色看不到自己正在说的那句，
+    // 两头会各说各的——推迟一会儿再来，等那一轮结束、对话同步上来再生成。
+    // 页面被系统杀掉时没人续租，45 秒后自然放行，不会一直等下去。
+    // 云端生成的即时回复不靠这道门：它和定时任务排在同一个串行分组里，回复没结束之前
+    // 定时任务认领不到。到点必发（force）的任务不等，准点照发。
+    // 排在 fire_pack 检查之前：包可能正因为这一轮对话在重传，等回复结束再读才是完整的。
     const presence = parseAmsgChatPresence(
       charRows.find((r) => r.key === AMSG_CHAT_PRESENCE_KEY)?.value,
     );
     if (!instant && policy === 'expire' && isFreshChatPresence(presence, charId, ctx.now.getTime())) {
-      console.log('[amsg:expire-skip]', {
+      console.log('[amsg:defer]', {
         taskId: ctx.task.id,
-        reason: 'active-chat-presence',
+        reason: 'reply-in-flight',
         presenceActiveAt: presence?.activeAt,
       });
-      // 这道门在解析 fire_pack 之前，拿不到 occurrenceMs，用任务行的名义时刻。
-      await recordSkip(
-        ctx, charId, 'active-chat-presence',
-        Date.parse(String(ctx.task.nextSendAt)) || ctx.now.getTime(),
-      );
-      return { skip: true } as const;
+      return { defer: { afterMs: REPLY_IN_FLIGHT_DEFER_MS } } as const;
     }
 
     const packRow = charRows.find((r) => r.key === AMSG_FIRE_PACK_KEY);
@@ -1874,54 +1943,37 @@ export const amsgHooks = {
       throw new Error('AMSG2_FIRE_PACK_NOT_READY: fire_pack 里还是即时对话的占位模板（真模板尚未补传），这次触发先重试等它就位');
     }
 
-    // 本次触发时刻：任务行 next_send_at（NOT NULL，buildHookTask 已摊平提供）。防穿帮闸的
-    // 循环判定要拿它当窗口锚点，之后又经 scratch 透传给每条 push 的 metadata.amsgOccurrenceMs
-    // （客户端兜底闸的循环判定与吞放缓存键都要它）。解析不出来说明上游任务行的时间格式变了，
-    // 按状态异常硬失败。
+    // 本次触发时刻：任务行 next_send_at（NOT NULL，buildHookTask 已摊平提供）。
+    // 它是这次触发的身份：自述日志的条目 id、「这次没发」的回执、每条 push 的
+    // metadata.amsgOccurrenceMs 都拿它认是哪一次。解析不出来说明上游任务行的时间格式
+    // 变了，按状态异常硬失败。
     const occurrenceMs = Date.parse(String(ctx.task.nextSendAt));
     if (!Number.isFinite(occurrenceMs)) {
       throw fail('任务行 next_send_at 解析不出触发时刻', { nextSendAt: ctx.task.nextSendAt });
     }
 
-    // 防穿帮闸·worker 主判定：一次性任务创建后对话已前进 / 循环任务到点时用户
-    // 正在热聊 → { skip: true } 跳过本次 fire（amsg-server skip 出口，任务照常
-    // 推进/删除），一个生成 token 都不花。fire_pack.lastUserMessageAt 随 amsgStateSync
-    // 在微任务里冲刷，滞后的只有一次上传往返（慢网下也是几秒量级）；这点残余竞态由客户端
-    // 送达兜底闸兜住（activeMsgRuntime 的 runtime-expire-swallow）。缺策略字段的任务不拦。
-    //
-    // 「用户最后一次开口」取 fire_pack 和 presence 两份里较新的：presence 行是每轮聊天
+    // 「对方最后一次开口」取 fire_pack 和 presence 两份里较新的：presence 行是每轮聊天
     // 一开场就写的小值，几十字节就发完了；fire_pack 是整包几十 KB，同样是打脏即发，
-    // 但传完总要慢一截。presence 过期（TTL 45s，上面那道门用的就是它）只说明用户此刻不在
-    // 等回复，不影响「他最后一次开口是几点」这个事实，所以这里不看新鲜度，只保留 charId
-    // 校验——别拿别的角色的对话当锚点。
+    // 但传完总要慢一截。presence 过期（TTL 45s，上面那道门用的就是它）只说明此刻没有
+    // 回复在生成，不影响「他最后一次开口是几点」这个事实，所以这里不看新鲜度，只保留
+    // charId 校验——别拿别的角色的对话当锚点。
+    // 到点时对方在不在聊天不拦发送：说不说由角色看着最新对话自己判（提示词里那段
+    // 「开口之前」），这个时刻只是给它的事实之一。
     const presenceLastUserMessageAt = presence?.charId === charId ? presence.lastUserMessageAt : null;
-    const expireInput = {
-      policy,
-      lastUserMessageAt: laterOf(pack.lastUserMessageAt ?? null, presenceLastUserMessageAt),
-      nowMs: ctx.now.getTime(),
-      occurrenceMs,
-    };
-    // 判定输入原样留一行，**放行也留**。客户端送达兜底闸会拿同一套规则、更新的数据
-    // 再判一次，两边结论不一样时（worker 放行 → 生成 → 推送，客户端吞掉）用户看到的
-    // 就是「通知弹出来了、点进去没有」，而这中间没有任何一处说得出发生过什么。只有把
-    // 两边的输入都留下来，事后才分得清是哪一边、因为哪个字段。
-    // 「最后一次开口」拆成两个来源分别记：合并后的那一个值看不出 fire_pack 是不是
-    // 陈旧的，而「fire_pack 落后于真实对话」正是两边判定分叉的头号原因。
+    const lastUserMessageAt = laterOf(pack.lastUserMessageAt ?? null, presenceLastUserMessageAt);
+    // 两个来源分别留一行，便于排查 fire_pack / presence 是否落后于真实对话。
     // 字段全是时间戳与枚举，不含正文、不含角色名。
-    const expireTrace = {
-      taskId: ctx.task.id,
-      // 判定本身已经不看任务类型了（一次性和循环同一条规则），但排查时得认得出是哪种。
-      recurrenceType: ctx.task.recurrenceType,
-      ...expireInput,
-      packLastUserMessageAt: pack.lastUserMessageAt ?? null,
-      presenceLastUserMessageAt,
-    };
-    if (!instant && shouldExpireFire(expireInput)) {
-      console.log('[amsg:expire-skip]', { ...expireTrace, reason: 'conversation-moved-on' });
-      await recordSkip(ctx, charId, 'conversation-moved-on', occurrenceMs);
-      return { skip: true } as const;
+    if (!instant) {
+      console.log('[amsg:fire-context]', {
+        taskId: ctx.task.id,
+        recurrenceType: ctx.task.recurrenceType,
+        policy,
+        occurrenceMs,
+        nowMs: ctx.now.getTime(),
+        packLastUserMessageAt: pack.lastUserMessageAt ?? null,
+        presenceLastUserMessageAt,
+      });
     }
-    if (!instant) console.log('[amsg:expire-pass]', expireTrace);
 
     // 任务指令缺失（开发期旧格式任务）：不能用默认 auto 指令凑一个渲染——那会把
     // prompted 任务的方向偷换掉，发出去的内容和用户当初排的不是一回事。
@@ -1968,7 +2020,9 @@ export const amsgHooks = {
       return { skip: true } as const;
     }
     const storedSelfLog = reconcileStoppedReplies(parseSelfLog(charRows.find((r) => r.key === AMSG_SELF_LOG_KEY)?.value ?? ''), charRows);
-    const selfLog = reconcileSelfLogWithPack(storedSelfLog, pack, expireInput.lastUserMessageAt);
+    const selfLog = reconcileSelfLogWithPack(storedSelfLog, pack, lastUserMessageAt);
+    // 这条任务的概要：到点被拦下时随「这次没发」一起送回客户端。
+    const taskBrief = findTaskBrief([...pack.pendingTasks, ...selfLog.tasks], ctx.task.uuid);
 
     // 连发上限·到点兜底闸（用户主权）：用户未回复期间，角色自己排的任务最多响这么多次。
     // 只拦自排（amsgSelfScheduled）——用户面板排的是明确意愿，不受自己的防骚扰上限误伤；
@@ -1988,7 +2042,7 @@ export const amsgHooks = {
       console.log('[amsg:schedule-off-skip]', {
         taskId: ctx.task.id, charId, selfScheduled, recurring, scheduleOff,
       });
-      await recordSkip(ctx, charId, 'schedule-off', occurrenceMs);
+      await recordSkip(ctx, charId, 'schedule-off', occurrenceMs, taskBrief);
       return { skip: true } as const;
     }
 
@@ -2001,7 +2055,7 @@ export const amsgHooks = {
         sends: countUnansweredSends(selfLog),
         limit: maxUnansweredSends,
       });
-      await recordSkip(ctx, charId, 'unanswered-limit', occurrenceMs);
+      await recordSkip(ctx, charId, 'unanswered-limit', occurrenceMs, taskBrief);
       return { skip: true } as const;
     }
 
@@ -2020,7 +2074,7 @@ export const amsgHooks = {
       console.log('[amsg:min-gap-skip]', {
         taskId: ctx.task.id, charId, lastSelfSendAt, gapMs: limits.minSendGapMs,
       });
-      await recordSkip(ctx, charId, 'min-gap', occurrenceMs);
+      await recordSkip(ctx, charId, 'min-gap', occurrenceMs, taskBrief);
       return { skip: true } as const;
     }
 
@@ -2032,7 +2086,7 @@ export const amsgHooks = {
         taskId: ctx.task.id, charId, sends: countRecurringSends(selfLog, clientTaskId),
         stopAfter: limits.recurringStopAfter,
       });
-      await recordSkip(ctx, charId, 'recurring-unanswered', occurrenceMs);
+      await recordSkip(ctx, charId, 'recurring-unanswered', occurrenceMs, taskBrief);
       return { skip: true } as const;
     }
 
@@ -2045,7 +2099,7 @@ export const amsgHooks = {
       console.log('[amsg:daily-limit-skip]', {
         taskId: ctx.task.id, charId, day: dailyDay, sentToday, cap: limits.dailySendCap,
       });
-      await recordSkip(ctx, charId, 'daily-limit', occurrenceMs);
+      await recordSkip(ctx, charId, 'daily-limit', occurrenceMs, taskBrief);
       return { skip: true } as const;
     }
 
@@ -2305,6 +2359,7 @@ export const amsgHooks = {
       selfLog,
       taskListBlock,
       realtimeWorldBlock,
+      lastUserMessageAt,
       // 「此刻在做什么」里的钟点跟今日节日同一个开关：关掉时间感知的角色不该从日程块
       // 读到「23:00」——那正是这个开关要挡的东西。日程内容本身照给。
       includeClock: toolPack.timeAwarenessEnabled,
@@ -2335,9 +2390,8 @@ export const amsgHooks = {
     const taskId = ctx.taskId != null ? String(ctx.taskId) : null;
     if (taskId == null) {
       // 没有任务行的路径（in-server instant）才该是 null。定时任务走到这里说明上游没
-      // 给身份，而后果是静默的：送达消息的 metadata.activeMsg2.taskId 会是 null →
-      // 客户端 hasDeliveredProactiveNear 判定「这次没送达过」→ 排程现状块给角色注入
-      // 一条假的「已作废」回执，角色可能把已经发出去的事又当没发生。留个日志。
+      // 给身份，而后果是静默的：送达消息的 metadata.activeMsg2.taskId 会是 null，
+      // 客户端认不出它是哪条任务发的。留个日志。
       console.warn('[amsg:agentic] ctx 上没有 taskId，送达归属会失效', ctx.sessionId);
     }
     const messageType = typeof ctx.metadata?.amsgMode === 'string' ? ctx.metadata.amsgMode : 'auto';
@@ -2502,6 +2556,16 @@ export const amsgHooks = {
         reason: decision.reason,
         skippedAt: Date.now(),
       });
+      // 定时主动消息这次没发：也告诉客户端一声，角色下一轮聊天时知道这条没说出去。
+      if (!stash.instant) {
+        await emitFireSkip(ctx.emitResult, {
+          charId: stash.charId,
+          taskUuid: stash.taskUuid,
+          occurrenceMs: stash.occurrenceMs,
+          reason: decision.reason,
+          task: findTaskBrief(stash.pendingTasks, stash.taskUuid),
+        });
+      }
       // 即时对话被 skip：一次性行会被上游当成功消费删掉，客户端点名只能看到「行没了、
       // outbox 也空」，落下的说明是「回复没能取回」——把「没生成出来」说成了「取不回」。
       // 也写一份 chat_fail（认 uuid），客户端 gone 分支读回后能照实说「模型这轮没说话」。

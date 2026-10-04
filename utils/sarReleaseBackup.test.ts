@@ -27,10 +27,10 @@ describe('SAR / 私聊偏好备份兼容', () => {
         expect(localStorage.getItem('vr_fishing_simple_mode')).toBe('true');
     });
     it('聊天偏好保留明确布尔值，旧字段缺省按用户指定默认值，忽略未知内容', () => {
-        saveChatInputPreferences({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true });
-        expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true });
+        saveChatInputPreferences({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
+        expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
         saveChatInputPreferences({ enterToSend: false, private: 'poison', autoReply: 'true' } as any);
-        expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: false, enterToSend: false, autoReply: false, emojiSuggestions: false });
+        expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: false, enterToSend: false, autoReply: false, emojiSuggestions: false, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
         expect(localStorage.getItem(CHAT_INPUT_PREFERENCES_KEY)).not.toContain('poison');
     });
 });

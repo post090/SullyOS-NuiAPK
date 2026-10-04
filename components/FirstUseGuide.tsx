@@ -1,3 +1,4 @@
+import { MEMORY_GUIDE_SECTIONS } from '../utils/memoryGuide';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
@@ -126,6 +127,7 @@ export default function FirstUseGuide() {
             {step === 1 && <>
                 <p className="text-xs leading-relaxed mt-2 text-amber-800">全自动记忆需要副 API 整理文字、Embedding API 检索记忆，两者缺一不可。副 API 可选择「我想暂时只用主 API」；向量记忆可暂时跳过。硅基流动需要先在<a className="underline" href="https://cloud.siliconflow.cn" target="_blank" rel="noreferrer">网页版完成实名认证</a>才能使用。</p>
             </>}
+            {step === 6 && <div className="mt-3 space-y-3">{MEMORY_GUIDE_SECTIONS.map(([title, text]) => <section key={title}><strong className="text-xs">{title}</strong><p className="mt-1 text-xs leading-relaxed">{text}</p></section>)}</div>}
             {step === 6 && <p className="text-xs leading-relaxed mt-2">聊天「＋」→ 设置里的「一键存进记忆宫殿」等是进阶手动工具。全自动用户大部分时候不需要操作，只有明确知道用途和影响时才使用。</p>}
             <div className="flex items-center gap-3 mt-3 text-xs">
                 {step > 0 && <button onClick={() => setGuideStep(step === 3 && skippedVector ? 1 : step - 1)}>上一步</button>}

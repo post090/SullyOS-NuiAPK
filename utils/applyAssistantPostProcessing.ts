@@ -556,6 +556,8 @@ export interface PostProcessCtx {
      * 其余路径（非流式 / 双语 / 工具模式 / 实时送达的主动消息）不传，打字节奏不变。
      */
     instantRender?: boolean;
+    /** 用户准备生成下一轮时结束 inbox 的打字等待；仅加速显示，不取消正文或副作用。 */
+    skipTypingSignal?: AbortSignal;
     /**
      * worker 已在自己内部跑过 2nd-pass LLM (云端回复) 时置 true, 主线程不该再调一次。
      * 本地 fetch 路径不传。
@@ -623,8 +625,19 @@ export async function applyAssistantPostProcessing(
     } = ctx;
     const { baseUrl, headers, effectiveApi } = api;
     // 拟人打字延迟：流式预览已实时展示过气泡时（instantRender）跳过，避免二次慢放
-    const typingPause = (ms: number): Promise<void> =>
-        instantRender ? Promise.resolve() : new Promise(r => setTimeout(r, ms));
+    const typingPause = (ms: number): Promise<void> => {
+        const signal = ctx.skipTypingSignal;
+        if (instantRender || signal?.aborted) return Promise.resolve();
+        return new Promise(resolve => {
+            const finish = () => {
+                clearTimeout(timer);
+                signal?.removeEventListener('abort', finish);
+                resolve();
+            };
+            const timer = setTimeout(finish, ms);
+            signal?.addEventListener('abort', finish, { once: true });
+        });
+    };
     // 统一落库入口：ctx.messageTimestamp（若有）盖到每条消息上，保证同一轮拆出的
     // 正文 / 表情 / 卡片 / 系统提示时间戳一致；没传则维持 DB.saveMessage 默认（写库当刻）。
     // 全函数落库一律走这里，别直接调 DB.saveMessage——漏一处就会出现气泡时间戳互相打架。

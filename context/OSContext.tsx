@@ -82,7 +82,7 @@ import { ActiveMsgStore, backupHasBackendConnection, exportAmsg2GlobalConfig } f
 import { charMayHaveCloudState, purgeCharCloudState, purgeCloudCharById } from '../utils/amsg2CharCleanup';
 import { parseCharCredId } from '../utils/amsgLlmCredentials';
 import { SAR_MODULE_RUNTIME_CHANGED_EVENT, type SarModuleRuntimeChangedDetail } from '../utils/sarModuleRuntimeEvents';
-import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgToolConfigAndPrompts, wipeAmsgCloudDataForReset } from '../utils/amsgStateSync';
+import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgLlmCredentials, syncAmsgToolConfigAndPrompts, wipeAmsgCloudDataForReset } from '../utils/amsgStateSync';
 import { loadMusicPlaybackSnapshot } from './MusicContext';
 import { setCharNameRegistry } from '../utils/charNameRegistry';
 import { setMinimaxRegion } from '../utils/minimaxEndpoint';
@@ -342,6 +342,9 @@ export type ResetSystemResult =
   | { status: 'cloud-cleanup-failed'; workerUrl: string; detail: string }
   | { status: 'failed' };
 
+/** API 预设的附加信息：label = 站点视图模型别名（fork），group = 预设分组（上游）。 */
+type ApiPresetMetaInput = { label?: string; group?: string };
+
 interface OSContextType {
   activeApp: AppID;
   openApp: (appId: AppID) => void;
@@ -408,9 +411,10 @@ interface OSContextType {
   
   // API Presets
   apiPresets: ApiPreset[];
-  addApiPreset: (name: string, config: APIConfig, label?: string) => void;
+  /** opts.label：站点视图的模型别名（fork）；opts.group：预设分组（上游）。 */
+  addApiPreset: (name: string, config: APIConfig, opts?: ApiPresetMetaInput) => void;
   savePresets: (presets: ApiPreset[]) => void; // 批量覆写（站点视图的增删改用）
-  updateApiPreset: (id: string, name: string, config: APIConfig) => void;
+  updateApiPreset: (id: string, name: string, config: APIConfig, opts?: ApiPresetMetaInput) => void;
   removeApiPreset: (id: string) => void;
 
   // 实时配置 (天气、新闻、Notion等)
@@ -2130,10 +2134,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             }
         };
 
+        let charactersReadSucceeded = false;
         const [dbChars, dbThemes, dbUser, dbGroups, dbWorldbooks, dbNovels, dbSongs, dbCharGroups] = await Promise.all([
             settle(DB.getAllCharacters().then(chars => {
                 initializeFeedbackInvitation(chars.length, hadPriorFeedbackEvidence);
                 initializeFirstUseGuide(chars.length);
+                charactersReadSucceeded = true;
                 return chars;
             }), 'characters', [] as CharacterProfile[]),
             settle(DB.getThemes(), 'themes', [] as ChatTheme[]),
@@ -2147,7 +2153,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
         let finalChars = dbChars;
 
-        if (!finalChars.some(c => c.id === sullyV2.id)) {
+        // A failed read is not an empty installation: never overwrite the saved Sully with defaults.
+        if (charactersReadSucceeded && !finalChars.some(c => c.id === sullyV2.id)) {
             await DB.saveCharacter(sullyV2);
             finalChars = [...finalChars, sullyV2];
         } else {
@@ -2241,10 +2248,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           } else {
             setActiveCharacterId(finalChars[0].id);
           }
-        } else {
+        } else if (charactersReadSucceeded) {
           await DB.saveCharacter(initialCharacter);
           setCharacters([initialCharacter]);
           setActiveCharacterId(initialCharacter.id);
+        } else {
+          addToast('角色资料读取未完成，未写入默认角色。请重新打开应用重试，无需清理数据。', 'error');
         }
 
         setGroups(dbGroups);
@@ -2891,7 +2900,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           proactiveRunningRef.current = true;
           setProactiveComposingChars(prev => prev[charId] ? prev : { ...prev, [charId]: true });
-          console.log(`🔔 [Proactive/Global] Trigger fired for ${char.name}${useSecondary ? ' (副API)' : ''}`);
+          console.log(`🔔 [Proactive/Global] Trigger fired for ${char.name}`);
 
           try {
               // 1. Calculate time gap
@@ -3915,8 +3924,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       setAvailableModels(safeModels);
       localStorage.setItem('os_available_models', JSON.stringify(safeModels));
   };
-  const addApiPreset = (name: string, config: APIConfig, label?: string) => { setApiPresets(prev => { const next = [...prev, normalizeApiPreset({ id: Date.now().toString(), name, config, ...(label ? { label } : {}) })]; localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
-  const updateApiPreset = (id: string, name: string, config: APIConfig) => { setApiPresets(prev => { const next = prev.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config }) : p); localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
+  const addApiPreset = (name: string, config: APIConfig, opts?: ApiPresetMetaInput) => { setApiPresets(prev => { const next = [...prev, normalizeApiPreset({ id: crypto.randomUUID(), name, config, ...(opts?.label ? { label: opts.label } : {}), ...(opts?.group?.trim() ? { group: opts.group.trim() } : {}) })]; localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
+  const updateApiPreset = (id: string, name: string, config: APIConfig, opts?: ApiPresetMetaInput) => { setApiPresets(prev => { const next = prev.map(p => p.id === id ? normalizeApiPreset({ ...p, name, config, ...(opts?.label !== undefined ? { label: opts.label || undefined } : {}), ...(opts?.group !== undefined ? { group: opts.group.trim() || undefined } : {}) }) : p); localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
   const removeApiPreset = (id: string) => { setApiPresets(prev => { const next = prev.filter(p => p.id !== id); localStorage.setItem('os_api_presets', JSON.stringify(next)); return next; }); };
   const savePresets = (presets: ApiPreset[]) => { const normalized = presets.map(normalizeApiPreset); setApiPresets(normalized); localStorage.setItem('os_api_presets', JSON.stringify(normalized)); };
   const addCharacter = async () => {
@@ -4738,6 +4747,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const cloneForInPlace = <T,>(v: T): T => (mode === 'text_only' ? v : deepCloneForExport(v));
 
           const backupData: Partial<FullBackupData> = {
+              contentFavoritesIndex: mode === 'text_only'
+                  ? stripBackupImages(await DB.getAssetRaw('content_favorites_index_v1')) : undefined,
               timestamp: Date.now(),
               version: 3,
               apiConfig: (mode === 'text_only' || mode === 'full') ? apiConfig : undefined,

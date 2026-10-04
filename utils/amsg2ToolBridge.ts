@@ -56,7 +56,7 @@ export const buildAmsg2Tools = (limits: AmsgLimits): OpenAITool[] => [
         '推荐使用 mode=auto：角色根据最新聊天内容自动决定说什么，后续聊天会自动同步至上下文。',
         'mode=prompted：给角色一个提示方向（如"问问对方吃了没"），角色围绕这个方向生成。',
         `每个角色最多同时挂 ${limits.maxActiveTasks} 个任务`
-          + (limits.allowSelfForce ? '；到点作废与否由 expire_policy 决定。' : '；到点碰上用户正在聊天会自动作废。'),
+          + (limits.allowSelfForce ? '；到点怎么处理由 expire_policy 决定。' : '；到点时你会先看最新的对话，再决定这条说不说。'),
       ].join('\n'),
       parameters: buildScheduleParameters({
         // 只教裸墙钟：角色照着自己那边的钟写，系统按角色时区还原成绝对时刻
@@ -88,7 +88,7 @@ export const buildAmsg2Tools = (limits: AmsgLimits): OpenAITool[] => [
     function: {
       name: 'renew_active_message',
       description: [
-        '给一个任务续期：只换触发时间，沿用原有模式与提示方向（含已作废的任务）。',
+        '给一个任务续期：只换触发时间，沿用原有模式与提示方向（含到点没发的任务）。',
         '一次性任务 = 整条改到新时间；循环任务 = 只给这一次补发一条一次性任务，原来的每天/每周节奏和编号都不动。',
         '想改的是循环任务本身的时间，或者想说的内容、方向已经变了，都不要用 renew，改用 cancel_active_message + schedule_active_message 重新创建。',
       ].join('\n'),

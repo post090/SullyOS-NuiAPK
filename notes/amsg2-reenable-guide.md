@@ -17,8 +17,7 @@ function-calling 工具自管排程（`utils/amsg2ToolBridge.ts`），设置面�
 到点时若对话已前进（一次性=创建锚点后有真实用户消息；循环=到点前 10 分钟内在聊）或
 同角色活跃会话租约（`chat_presence`，15s 心跳 / 45s TTL，`utils/amsgChatPresence.ts`）
 仍新鲜，worker onBeforeFire 直接 `{ skip: true }` 作废本次触发，一个生成 token 不花；
-剩余竞态由客户端送达兜底闸吞没（`activeMsgRuntime` 的 runtime-expire-swallow，按
-`amsgClientTaskId:occurrenceMs` 缓存同吞同放）。作废不是消失：`utils/amsg2TaskContext.ts`
+消息一旦发出客户端照收（`activeMsgRuntime` 的 runtime-scheduled-delivery-accepted）。作废不是消失：`utils/amsg2TaskContext.ts`
 在下一轮组请求时把「进行中任务 + 未告知的作废回执」拼成排程现状块注入 system，由角色
 自行决定就地消化 / renew 续期 / 放弃；发送成功后 `markExpiredNoticesNotified` 落账。
 `force` 是闹钟语义，全绿灯照发；fixed 任务恒 force（走不了 worker 闸）。

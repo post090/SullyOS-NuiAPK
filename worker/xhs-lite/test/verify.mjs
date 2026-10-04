@@ -1,6 +1,6 @@
 /**
  * Verifies the XHS signing EMBEDDED in worker/index.js (the deployed worker,
- * https://sullymeow.ccwu.cc) is byte-identical to the Python xhshow reference
+ * https://proxy.friedsully.com) is byte-identical to the Python xhshow reference
  * (test/vectors.json), using the same deterministic RNG.
  *
  *   PYTHONPATH=/tmp/xhshow/src python3 oracle.py > vectors.json

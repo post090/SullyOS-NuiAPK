@@ -50,3 +50,21 @@ describe('彼方动态轻量读取', () => {
         expect(refs.every(ref => !('content' in ref))).toBe(true);
     });
 });
+
+it('lists book metadata without retaining bodies and loads a selected book intact', async () => {
+    const book = { id: 'summary-read', title: 'test', segments: [{ idx: 0, text: '原文'.repeat(50000), chars: 100000 }], totalChars: 100000, createdAt: 1, updatedAt: 1 };
+    await DB.saveVRNovel(book);
+    const summaries = await DB.getVRNovelSummaries();
+    const summary = summaries.find(item => item.id === book.id)!;
+    expect(summary.segmentCount).toBe(1);
+    expect(summary).not.toHaveProperty('segments');
+    expect(JSON.stringify(summary).length).toBeLessThan(250);
+    expect(await DB.getVRNovel(book.id)).toEqual(book);
+    expect(await DB.getVRNovel('missing-summary-read')).toBeUndefined();
+});
+
+it('market deduplication returns only event IDs, not old card bodies', async()=>{
+  await DB.saveMessage({charId:'market-id-projection',role:'assistant',type:'vr_card',content:'大正文'.repeat(1000),metadata:{vrCard:true,marketEventId:'legacy-event'}});
+  await DB.saveMessage({charId:'market-id-projection',role:'assistant',type:'text',content:'不是动态',metadata:{marketEventId:'ignore'}});
+  expect(await DB.getVRMarketEventIds('market-id-projection')).toEqual(['legacy-event']);
+});

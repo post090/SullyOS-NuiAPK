@@ -7,11 +7,26 @@ import {
   rewriteStaleWorkerUrl,
   requestProxyWorkerSettingsFocus,
   consumeProxyWorkerSettingsFocus,
+  setProxyWorkerUrlOverride,
 } from './proxyWorker';
 
 const LS_KEY = 'sully_proxy_worker_url_v1';
 
 describe('proxyWorker 中心配置', () => {
+  afterEach(() => setProxyWorkerUrlOverride(null));
+  it('旧公共域名迁移，保留路径查询串，自有地址不被误匹配', () => {
+    localStorage.setItem(LS_KEY, 'https://sullymeow.ccwu.cc/');
+    expect(getProxyWorkerUrl()).toBe('https://proxy.friedsully.com');
+    expect(rewriteStaleWorkerUrl('https://sullymeow.ccwu.cc/api?test=1')).toBe(`${DEFAULT_PROXY_WORKER}/api?test=1`);
+    setProxyWorkerUrlOverride('https://sullymeow.ccwu.cc');
+    expect(getProxyWorkerUrl()).toBe(DEFAULT_PROXY_WORKER);
+    setProxyWorkerUrlOverride('https://my-proxy.test');
+    expect(getProxyWorkerUrl()).toBe('https://my-proxy.test');
+    setProxyWorkerUrlOverride(null);
+    setProxyWorkerUrl('https://sullymeow.ccwu.cc.example.com');
+    expect(getProxyWorkerUrl()).toBe('https://sullymeow.ccwu.cc.example.com');
+    expect(rewriteStaleWorkerUrl('https://own.example.com/path/sullymeow.ccwu.cc')).toBe('https://own.example.com/path/sullymeow.ccwu.cc');
+  });
   beforeEach(() => {
     localStorage.clear();
   });

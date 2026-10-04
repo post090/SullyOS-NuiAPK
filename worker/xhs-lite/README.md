@@ -5,14 +5,14 @@
 
 ## 它在哪、怎么用
 
-实现已**直接嵌入主 Worker** `worker/index.js`（即已部署的 `https://sullymeow.ccwu.cc`），
+实现已**直接嵌入主 Worker** `worker/index.js`（即已部署的 `https://proxy.friedsully.com`），
 作为隔离的 `XHSLite` 模块，对外暴露 `/api/<command>` 桥接接口，和
 `scripts/xhs-bridge.mjs` 完全兼容，前端 bridge 模式直接复用。
 
 **部署（运营方做一次）：** 像平时一样重新部署 `worker/index.js` 即可，URL 不变。
 
 **用户侧（不需要电脑/部署）：** SullyOS → 设置 → 实时感知 → 小红书：
-- 服务器 URL 已默认 `https://sullymeow.ccwu.cc/api`，一般无需改。
+- 服务器 URL 已默认 `https://proxy.friedsully.com/api`，一般无需改。
 - 粘贴浏览器登录 `xiaohongshu.com` 或 `rednote.com` 后的完整 cookie（含 `a1` 和
   `web_session`），点测试连接。Lite 会分别探测国内与全球后端并自动选择，不依赖
   `gid`、`bRequestId` 等可能随域名和灰度版本变化的字段。

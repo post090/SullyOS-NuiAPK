@@ -97,7 +97,7 @@ interface PlateJobInFlight {
  * 读在飞记号的**原值**：不看 TTL，也不做任何收尾。
  *
  * 「本地记着的那个 job 编号是什么」和「那份还算不算在飞」是两个问题，问后者的那个函数
- * （下面的 readPlateJobInFlight）会顺手清记号，拿它来问前者就会在超时之后一律得到 null。
+ * （下面的 readPlateJobInFlight）超时后会返回 null，但不清记号。
  * 删角色时要清云端那份输入、结果落地时要认「这是不是当前这一份」，问的都是前者。
  */
 export const readPlateJobInFlightRaw = (charId: string): PlateJobInFlight | null => {
@@ -291,6 +291,7 @@ export const submitPlateConsolidation = async (args: {
     identityContext: args.identityContext,
     rooms,
     materials: args.materials,
+    snapshotAt: args.snapshotAt,
   });
 
   // 记号和调用记录都在**发请求之前**落下。事后再落的话，「请求到了服务端、答复却丢在
@@ -331,8 +332,8 @@ export const submitPlateConsolidation = async (args: {
   } catch (error) {
     // 服务端答复了「不行」= 确定没建成，痕迹全收干净，下一轮照常再试。
     // 没等到答复的那一种不收：任务可能真在云端跑着，记号留着挡住下一轮重复提交，
-    // 调用记录留着等结果回来收尾；真没建成的话，30 分钟后 readPlateJobInFlight 会
-    // 就地把两样都收掉。
+    // 调用记录留着等结果回来收尾；真没建成的话，下一轮整理的 sweepExpiredPlateJob
+    // 会在超过 30 分钟时把两样都收掉。
     if (!mayHaveCreatedBackgroundJob(error)) {
       clearPlateJobInFlight(args.charId);
       settleCloudApiCall({ id: cloudApiCallLogId(jobId), ok: false });
@@ -491,10 +492,10 @@ export const applyPlateConsolidateResult = async (
 
   const now = Date.now();
   const updated: PlateRoom[] = [];
-  // 快照时刻：认得出它才知道哪些条目是「等结果这几分钟里用户自己改过的」，那批的文本
-  // 以本地为准。编号对不上、或者记号早被 TTL 收走时问不到，传 0 让合并那侧按
-  // 「谁都可能被改过」保守处理（见 mergeCloudPlateEntries）。
-  const snapshotAt = isCurrentJob ? (inFlight?.snapshotAt ?? 0) : 0;
+  // 在飞记号只挡 30 分钟，结果却允许晚到一周；下一轮整理可能已经清掉或覆盖了记号。
+  // 结果必须能带回自己的快照时间，否则提交前的历史改写也会被误认成提交后的编辑。
+  // 旧 Worker 未回传时仍可用同 job 的本地记号；两边都没有才保守保护，不能借用新 job 的时间。
+  const snapshotAt = (isCurrentJob ? inFlight?.snapshotAt : undefined) ?? result.snapshotAt ?? 0;
 
   // 逐块串行：并发跑会同时开好几个 IDB 事务，连接一挤爆，推送收件那边就会跟着超时。
   // 走 mutatePlate 而不是自己「读一份 → 改 → 存回去」：同一块门牌上还有别的路在写

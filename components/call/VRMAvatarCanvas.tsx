@@ -106,6 +106,8 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
   const headMotionLockedRef = useRef(headMotionLocked);
   const ambientAutonomyDisabledRef = useRef(ambientAutonomyDisabled);
   const onReadyRef = useRef(onReady);
+  const onLoadingChangeRef = useRef(onLoadingChange);
+  const onErrorRef = useRef(onError);
   const onExpressionsDiscoveredRef = useRef(onExpressionsDiscovered);
   const onAvatarTouchRef = useRef(onAvatarTouch);
   const touchResolverRef = useRef<((request: AvatarTouchRequest) => void) | null>(null);
@@ -116,6 +118,8 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
   useEffect(() => { headMotionLockedRef.current = headMotionLocked; }, [headMotionLocked]);
   useEffect(() => { ambientAutonomyDisabledRef.current = ambientAutonomyDisabled; }, [ambientAutonomyDisabled]);
   useEffect(() => { onReadyRef.current = onReady; }, [onReady]);
+  useEffect(() => { onLoadingChangeRef.current = onLoadingChange; }, [onLoadingChange]);
+  useEffect(() => { onErrorRef.current = onError; }, [onError]);
   useEffect(() => { onExpressionsDiscoveredRef.current = onExpressionsDiscovered; }, [onExpressionsDiscovered]);
   useEffect(() => { onAvatarTouchRef.current = onAvatarTouch; }, [onAvatarTouch]);
   useEffect(() => { touchImpulseNonceRef.current = touchImpulseNonce; }, [touchImpulseNonce]);
@@ -247,7 +251,7 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
 
     const loader = new GLTFLoader();
     loader.register(parser => new VRMLoaderPlugin(parser));
-    onLoadingChange?.(true);
+    onLoadingChangeRef.current?.(true);
 
     const setBone = (
       vrm: VRM,
@@ -520,7 +524,7 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
         // 用户构图叠加在导演机位之上：scale 缩短相机距离，offset 换算成
         // 目标距离处的世界坐标平移，保证拖拽时模型 1:1 跟手。
         const activeFraming = anchored || userFraming;
-        const zoom = Math.max(0.4, Math.min(4.5, activeFraming.scale || 1));
+        const zoom = Math.max(0.1, Math.min(4.5, activeFraming.scale || 1));
         const cameraDistance = (avatarHeight * cameraZFactor) / zoom;
         const viewWorldHeight = 2 * Math.tan((camera.fov * Math.PI) / 360) * cameraDistance;
         const panX = activeFraming.offsetX * viewWorldHeight * camera.aspect;
@@ -542,11 +546,15 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
     loader.load(
       modelUrl,
       gltf => {
-        if (disposed) return;
+        if (disposed) {
+          VRMUtils.deepDispose(gltf.scene);
+          return;
+        }
         const vrm = gltf.userData.vrm as VRM | undefined;
         if (!vrm) {
-          onLoadingChange?.(false);
-          onError?.('这个文件是 glTF，但没有找到 VRM 人形数据。');
+          VRMUtils.deepDispose(gltf.scene);
+          onLoadingChangeRef.current?.(false);
+          onErrorRef.current?.('这个文件是 glTF，但没有找到 VRM 人形数据。');
           return;
         }
 
@@ -584,15 +592,15 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
           onExpressionsDiscoveredRef.current?.(customExpressionNames);
         } catch { /* 表情枚举失败不影响渲染 */ }
 
-        onLoadingChange?.(false);
+        onLoadingChangeRef.current?.(false);
         onReadyRef.current?.();
       },
       undefined,
       error => {
         if (disposed) return;
-        onLoadingChange?.(false);
+        onLoadingChangeRef.current?.(false);
         const message = error instanceof Error ? error.message : '模型解析失败';
-        onError?.(message);
+        onErrorRef.current?.(message);
       },
     );
 
@@ -612,7 +620,7 @@ const VRMAvatarCanvas: React.FC<VRMAvatarCanvasProps> = ({
       renderer.forceContextLoss();
       if (renderer.domElement.parentElement === host) host.removeChild(renderer.domElement);
     };
-  }, [modelUrl, onError, onLoadingChange, maxFps]);
+  }, [modelUrl, maxFps]);
 
   return <div ref={hostRef} className="absolute inset-0 touch-none" aria-label="VRM 角色舞台" />;
 };

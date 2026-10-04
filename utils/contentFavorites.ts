@@ -1,5 +1,6 @@
 import type { GalleryImage, Message } from '../types';
 import { DB } from './db';
+import { migrateDataUrlToRef } from './blobRef';
 
 export const CONTENT_FAVORITES_INDEX_ASSET_ID = 'content_favorites_index_v1';
 export const CONTENT_FAVORITES_CHANGED_EVENT = 'sully:content-favorites-changed';
@@ -30,6 +31,8 @@ export interface ChatContentFavorite extends ContentFavoriteBase {
     messageId: number;
     /** 文字/卡片的轻量收藏副本；不包含 metadata，更不用于图片消息。 */
     snapshot?: ChatFavoriteSnapshot;
+    /** 合并收藏的当时快照；图片使用 blobref，不把 Base64 塞进索引。 */
+    conversation?: Array<ChatFavoriteSnapshot & { messageId: number; senderName: string }>;
 }
 
 export interface ImageContentFavorite extends ContentFavoriteBase {
@@ -132,7 +135,13 @@ const sanitizeFavorite = (value: unknown): ContentFavorite | null => {
         favoritedAt: normalizeTimestamp(item.favoritedAt, now),
     };
     if (item.kind === 'chat' && typeof item.messageId === 'number' && Number.isSafeInteger(item.messageId)) {
-        return { ...base, kind: 'chat', messageId: item.messageId, snapshot: sanitizeSnapshot(item.snapshot) };
+        const conversation = Array.isArray(item.conversation) ? item.conversation.flatMap(entry => {
+            const snapshot = sanitizeSnapshot(entry);
+            return snapshot && Number.isSafeInteger(entry.messageId) && typeof entry.senderName === 'string'
+                ? [{ ...snapshot, messageId: entry.messageId, senderName: entry.senderName }] : [];
+        }) : undefined;
+        return { ...base, kind: 'chat', messageId: item.messageId, snapshot: sanitizeSnapshot(item.snapshot),
+            ...(conversation?.length ? { conversation } : {}) };
     }
     if (item.kind === 'image' && typeof item.fingerprint === 'string') {
         const seen = new Set<string>();
@@ -192,6 +201,34 @@ export const listContentFavorites = async (): Promise<ContentFavorite[]> => sort
 export const getContentFavoriteById = async (id: string): Promise<ContentFavorite | null> => (
     (await loadIndex()).find(item => item.id === id) || null
 );
+
+/** Only accepts messages from the current conversation; a repeated selection is idempotent. */
+export const saveConversationContentFavorite = async (
+    messages: Message[], charId: string, charName: string, userName: string,
+): Promise<ChatContentFavorite> => withWriteLock(async () => {
+    const selected = [...new Map(messages.filter(message => message.charId === charId && Number.isSafeInteger(message.id))
+        .map(message => [message.id, message])).values()].sort((a, b) => a.id - b.id);
+    if (!selected.length) throw new Error('请先选择要收藏的聊天消息');
+    const conversation = await Promise.all(selected.map(async message => ({
+        messageId: message.id, senderName: message.role === 'user' ? (userName || '我') : message.role === 'assistant' ? charName : '系统',
+        role: message.role, type: message.type,
+        content: message.type === 'image' && message.content.startsWith('data:')
+            ? await migrateDataUrlToRef(message.content) : message.content,
+        timestamp: message.timestamp, replyTo: message.replyTo,
+    })));
+    const current = await loadIndex();
+    const id = `conversation_${compactHash(JSON.stringify([charId, selected.map(message => message.id)]))}`;
+    const favorite: ChatContentFavorite = {
+        id, kind: 'chat', charId, charName, messageId: selected[0].id,
+        sourceTimestamp: selected[0].timestamp, favoritedAt: current.find(item => item.id === id)?.favoritedAt || Date.now(),
+        conversation,
+        snapshot: { role: 'system', type: 'text', timestamp: selected[0].timestamp,
+            content: conversation.map(message => `${message.senderName}：${message.type === 'image' ? '[图片]' : message.content}`).join('\n') },
+    };
+    await saveIndex([favorite, ...current.filter(item => item.id !== id)]);
+    notifyChanged();
+    return favorite;
+});
 
 export const saveMessageContentFavorite = async (
     message: Message,
@@ -424,7 +461,7 @@ export const resolveContentFavorite = async (favorite: ContentFavorite): Promise
         } : null;
         return {
             favorite,
-            message: sourceMessage || snapshotMessage,
+            message: favorite.conversation ? snapshotMessage : sourceMessage || snapshotMessage,
             sourceAvailable: !!sourceMessage,
         };
     }

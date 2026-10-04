@@ -41,9 +41,9 @@ export function novelReadingMode(char: Pick<CharacterProfile, 'vrState'>) {
     return char.vrState?.novelReadingMode ?? ((char.vrState?.preferredNovelIds?.length || 0) > 0 ? 'books' : 'all');
 }
 
-export function readableNovels(novels: VRWorldNovel[], char: Pick<CharacterProfile, 'vrState'>): VRWorldNovel[] {
+export function readableNovels<T extends { categoryId?: string; segments?: unknown[]; segmentCount?: number }>(novels: T[], char: Pick<CharacterProfile, 'vrState'>): T[] {
     const ids = new Set(char.vrState?.preferredNovelCategoryIds || []);
-    return novels.filter(n => n.segments.length > 0 && (novelReadingMode(char) !== 'categories' || (!!n.categoryId && ids.has(n.categoryId))));
+    return novels.filter(n => (n.segments?.length ?? n.segmentCount ?? 0) > 0 && (novelReadingMode(char) !== 'categories' || (!!n.categoryId && ids.has(n.categoryId))));
 }
 
 export function readingPreferenceLabel(char: Pick<CharacterProfile, 'vrState'>): string {

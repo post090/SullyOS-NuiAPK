@@ -5,6 +5,7 @@
  */
 
 import type { EmbeddingConfig, MemoryNode, MemoryRoom, MemoryVector, ScoredMemory, RemoteVectorConfig } from './types';
+import { resolveMemoryScoringRoom } from './types';
 import { MemoryNodeDB } from './db';
 import { getEmbedding } from './embedding';
 import { vectorSearch } from './vectorSearch';
@@ -194,7 +195,7 @@ export async function hybridSearch(
         const effectiveImp = calculateEffectiveImportance(node, now) / 10;
 
         // 房间权重
-        const weights = ROOM_WEIGHTS[node.room];
+        const weights = ROOM_WEIGHTS[resolveMemoryScoringRoom(node.room)];
 
         // 老记忆 recency 回收（所有有 recency 权重的房间）：
         //   recency = RECENCY_DECAY^hoursAgo，约 100 天后会降到 0.1 以下，再往后

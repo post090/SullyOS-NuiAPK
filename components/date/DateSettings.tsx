@@ -10,6 +10,7 @@ import { pickDateFallbackSprite } from '../../utils/dateSprites';
 import TokenImg from '../os/TokenImg';
 import { DATE_STYLE_PRESETS } from '../../utils/datePrompts';
 import ObserveSettings from './ObserveSettings';
+import DateExtraPresets from './DateExtraPresets';
 
 // 标准情绪列表
 const REQUIRED_EMOTIONS = ['normal', 'happy', 'angry', 'sad', 'shy'];
@@ -34,6 +35,42 @@ const Section: React.FC<{ title: string; defaultOpen?: boolean; children: React.
 const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
     const { updateCharacter, addToast, userProfile } = useOS();
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pageRef = useRef<HTMLDivElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const [previewOpen, setPreviewOpen] = useState(true);
+    useEffect(() => {
+        const viewport = window.visualViewport;
+        let frame = 0;
+        const sync = () => {
+            if (viewport && viewport.scale !== 1) return;
+            const page = pageRef.current;
+            if (!page) return;
+            const bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
+            page.style.maxHeight = `${Math.max(0, bottom - page.getBoundingClientRect().top)}px`;
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                const focused = document.activeElement;
+                const scroll = scrollRef.current;
+                if (!(focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement || focused instanceof HTMLSelectElement) || !scroll?.contains(focused)) return;
+                const field = focused.getBoundingClientRect(), area = scroll.getBoundingClientRect();
+                if (field.top < area.top || field.height > area.height) scroll.scrollTop += field.top - area.top - 8;
+                else if (field.bottom > area.bottom) scroll.scrollTop += field.bottom - area.bottom + 8;
+            });
+        };
+        sync();
+        viewport?.addEventListener('resize', sync);
+        viewport?.addEventListener('scroll', sync);
+        window.addEventListener('resize', sync);
+        pageRef.current?.addEventListener('focusin', sync);
+        const page = pageRef.current;
+        return () => {
+            cancelAnimationFrame(frame);
+            viewport?.removeEventListener('resize', sync);
+            viewport?.removeEventListener('scroll', sync);
+            window.removeEventListener('resize', sync);
+            page?.removeEventListener('focusin', sync);
+        };
+    }, []);
     // 背景字段存的是 blobref 令牌（二进制在 IndexedDB），CSS url() 喂不了令牌，
     // 先在这里解析成能直接用的地址。非令牌值（旧 data: / 外链）原样透传。
     const dateBackgroundUrl = useBlobRefUrl(char.dateBackground);
@@ -238,7 +275,7 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
     };
 
     return (
-        <div className="h-full w-full bg-slate-50 flex flex-col">
+        <div ref={pageRef} className="h-full min-h-0 w-full bg-slate-50 flex flex-col overflow-hidden">
             <div className="h-16 flex items-center justify-between px-4 border-b border-slate-200 bg-white shrink-0 z-20">
                 <button onClick={onBack} className="p-2 -ml-2 text-slate-600 active:scale-95 transition-transform">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
@@ -247,9 +284,14 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                 <div className="w-8"></div>
             </div>
             
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto overscroll-contain" data-testid="date-settings-scroll">
             <MeetingAppearanceControl surface="date" characterId={char.id} />
+            <button type="button" onClick={() => setPreviewOpen(open => !open)} aria-expanded={previewOpen}
+                className="w-full px-5 py-3 text-left text-xs font-bold text-slate-500 bg-white border-b border-slate-100">
+                {previewOpen ? '收起场景预览' : '展开场景预览'}
+            </button>
             {/* Live Preview Area */}
-            <div className="h-64 bg-black relative overflow-hidden shrink-0 border-b border-slate-200">
+            {previewOpen && <div className="h-64 bg-black relative overflow-hidden shrink-0 border-b border-slate-200">
                 {readingAppearance.id!=='none'&&<div className="absolute inset-0 z-10 px-8 py-6 font-serif leading-8" style={{background:readingAppearance.background,color:readingAppearance.ink}}><small className="text-xs opacity-50">{readingAppearance.name} · 阅读预览</small><p className="mt-4">窗边的灯亮了，书页上留下了一小片暖色。</p><p>“今天读到哪里了？”</p><p>他把书签夹好，慢慢合上书。</p></div>}
                     <div className="absolute inset-0 bg-cover bg-center opacity-60" style={{ backgroundImage: dateBackgroundUrl ? `url("${dateBackgroundUrl}")` : 'none' }}></div>
                     <div className="absolute inset-0 flex items-end justify-center pointer-events-none">
@@ -262,9 +304,9 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                         />
                     </div>
                     <div className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-2 py-1 rounded backdrop-blur-sm">预览 (Preview)</div>
-            </div>
+            </div>}
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-8 pb-20">
+            <div className="p-5 space-y-8">
                 <Section title="立绘位置调整">
                     <div className="space-y-6">
                         <div>
@@ -381,7 +423,11 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                     {/* 自定义补充 */}
                     <div>
                         <label className="text-[11px] text-slate-500 font-bold mb-2 block">自定义补充（可选）</label>
+                        <DateExtraPresets key={char.id} presets={char.dateExtraPresets || []} value={extraDraft}
+                            onApply={content => { setExtraDraft(content); patchStyleConfig({ extra: content }); }}
+                            onChange={dateExtraPresets => updateCharacter(char.id, { dateExtraPresets })} />
                         <textarea
+                            aria-label="自定义补充"
                             value={extraDraft}
                             onChange={e => setExtraDraft(e.target.value)}
                             onBlur={saveExtraDraft}
@@ -625,10 +671,11 @@ const DateSettings: React.FC<DateSettingsProps> = ({ char, onBack }) => {
                 </div>
             )}
 
-            <div className="p-4 border-t border-slate-200 bg-white/90 backdrop-blur-sm sticky bottom-0 z-20">
+            <div className="p-4 pb-safe border-t border-slate-200 bg-white/90">
                 <button onClick={handleSaveSettings} className="w-full py-3 bg-primary text-white font-bold rounded-2xl shadow-lg active:scale-95 transition-transform">
                     保存当前布置
                 </button>
+            </div>
             </div>
         </div>
     );

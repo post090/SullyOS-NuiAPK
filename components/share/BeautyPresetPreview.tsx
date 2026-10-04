@@ -1,5 +1,6 @@
 import {decorationPreviewScenes,decorationThumbnailPart,type DecorationThumbnailPart} from '../../utils/decorationPreviewScenes';
 import React, { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import {embedBeautyCaptureImages} from '../../utils/beautyCaptureAssets';
 import {enqueuePreviewBuild} from '../../utils/previewRenderQueue';
 import { beautyPreviewDocument, PREVIEW_WIDTH, PREVIEW_HEIGHT } from '../../utils/beautyPreview';
 import {bindDecorationPreview,type DecorationPreviewState} from '../../utils/decorationPreviewInteraction';
@@ -7,7 +8,7 @@ import {bindDecorationPreview,type DecorationPreviewState} from '../../utils/dec
 export interface BeautyPreviewHandle { capture: () => Promise<HTMLCanvasElement> }
 interface Props { data: unknown; compact?: boolean; sceneScope?: 'preset'|'all'; thumbnailPart?:DecorationThumbnailPart|'full' }
 function copyPaint(element: Element, scrolls: Array<[HTMLElement,number,number]>): HTMLElement {
-  const clone = element.cloneNode(false) as HTMLElement;
+  const clone = (element instanceof HTMLTextAreaElement ? document.createElement('div') : element.cloneNode(false)) as HTMLElement;
   const computed = getComputedStyle(element);
   for (const key of Array.from(computed)) clone.style.setProperty(key, computed.getPropertyValue(key));
   // Freeze pseudo-element appearance without copying the author's CSS selectors.
@@ -19,6 +20,11 @@ function copyPaint(element: Element, scrolls: Array<[HTMLElement,number,number]>
     if (/^["']/.test(css.content)) part.textContent = css.content.slice(1, -1);
     clone.append(part);
   };
+  if (element instanceof HTMLTextAreaElement) {
+    clone.textContent = element.value || element.placeholder;
+    if (!element.value) clone.style.color = getComputedStyle(element, '::placeholder').color;
+    return clone;
+  }
   pseudo('::before');
   for (const node of Array.from(element.childNodes)) {
     if (node instanceof Element && node.tagName !== 'STYLE') clone.append(copyPaint(node,scrolls));
@@ -108,9 +114,13 @@ export default memo(forwardRef<BeautyPreviewHandle, Props>(function BeautyPreset
       holder.append(snapshot); document.body.append(holder);
       for(const [element,top,left] of scrolls){element.scrollTop=top;element.scrollLeft=left;}
       try {
+        await embedBeautyCaptureImages(snapshot);
         // html2canvas flattens Shadow DOM into its clone. Exclude all original previews
         // so untrusted selectors cannot see the rest of the app in that temporary clone.
-        return await html2canvas(snapshot, { scale: 2, width: PREVIEW_WIDTH, height, backgroundColor: null, useCORS: true, imageTimeout: 8000, logging: false, ignoreElements: node => node.hasAttribute('data-beauty-preview-source') });
+        // The foreignObject painter serializes the element at a one-pixel inset.
+        // Cancel the temporary holder's off-screen coordinates without clipping it.
+        const bounds = snapshot.getBoundingClientRect();
+        return await html2canvas(snapshot, { x: 1 - bounds.left, y: 1 - bounds.top, scale: 2, width: PREVIEW_WIDTH, height, backgroundColor: null, foreignObjectRendering: true, useCORS: true, imageTimeout: 8000, logging: false, ignoreElements: node => node.hasAttribute('data-beauty-preview-source') });
       } finally { holder.remove(); }
     },
   }), [ready,height]);

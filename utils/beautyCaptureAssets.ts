@@ -1,0 +1,80 @@
+/** Embed paint resources before SVG/foreignObject capture: external images are not
+ * loaded inside a serialized SVG. Fail explicitly instead of publishing blank art. */
+export async function embedBeautyCaptureImages(root: HTMLElement): Promise<void> {
+  const cache = new Map<string, Promise<string>>();
+  const imageData = (src: string): Promise<string> => {
+    if (!src || src.startsWith('#')) return Promise.resolve(src);
+    const url = new URL(src, document.baseURI);
+    if (!['http:', 'https:', 'data:', 'blob:'].includes(url.protocol)) {
+      return Promise.reject(new Error('封面包含不支持的图片地址'));
+    }
+    const existing = cache.get(url.href);
+    if (existing) return existing;
+    const pending = (async () => {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 12000);
+      let objectUrl = '';
+      try {
+        const response = await fetch(url.href, { signal: controller.signal, credentials: 'omit' });
+        if (!response.ok) throw Error('图片下载失败');
+        const blob = await response.blob();
+        objectUrl = URL.createObjectURL(blob);
+        const image = new Image();
+        image.src = objectUrl;
+        await Promise.race([
+          image.decode(),
+          new Promise<never>((_, reject) => {
+            if (controller.signal.aborted) reject(Error('图片加载超时'));
+            else controller.signal.addEventListener('abort', () => reject(Error('图片加载超时')), { once: true });
+          }),
+        ]);
+        const canvas = document.createElement('canvas');
+        canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+        const context = canvas.getContext('2d');
+        if (!context || !canvas.width || !canvas.height) throw Error('图片无法解码');
+        context.drawImage(image, 0, 0);
+        return canvas.toDataURL('image/png');
+      } catch {
+        throw Error('封面图片加载失败，可能是图床跨域限制或网络问题。请更换可跨域访问的图片，或稍后重试；不会提交缺图封面。');
+      } finally {
+        clearTimeout(timer);
+        if (objectUrl) URL.revokeObjectURL(objectUrl);
+      }
+    })();
+    cache.set(url.href, pending);
+    return pending;
+  };
+  const inlineCss = async (value: string): Promise<string> => {
+    const pattern = /url\(\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^)]*))\s*\)/gi;
+    const matches = Array.from(value.matchAll(pattern));
+    let result = value;
+    for (const match of matches) {
+      const src = (match[1] ?? match[2] ?? match[3]).trim().replace(/\\(["'()\\])/g, '$1');
+      const data = await imageData(src);
+      result = result.replace(match[0], `url(${JSON.stringify(data)})`);
+    }
+    return result;
+  };
+  // Work in small groups to avoid decoding every image in a large preset at once.
+  const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement | SVGElement>('*'))];
+  for (const element of elements) {
+    if (element instanceof HTMLImageElement) {
+      const src = element.currentSrc || element.src;
+      element.removeAttribute('srcset'); element.removeAttribute('sizes');
+      element.removeAttribute('crossorigin'); element.loading = 'eager';
+      if (src) { element.src = await imageData(src); await element.decode(); }
+    }
+    if (element instanceof SVGImageElement) {
+      const src = element.href.baseVal;
+      if (src) element.setAttribute('href', await imageData(src));
+    }
+    if (!('style' in element)) continue;
+    for (const property of Array.from(element.style)) {
+      // Computed paint properties already resolve CSS variables. Do not fetch
+      // resources from unused custom properties.
+      if (property.startsWith('--')) { element.style.removeProperty(property); continue; }
+      const value = element.style.getPropertyValue(property);
+      if (/url\(/i.test(value)) element.style.setProperty(property, await inlineCss(value), element.style.getPropertyPriority(property));
+    }
+  }
+}

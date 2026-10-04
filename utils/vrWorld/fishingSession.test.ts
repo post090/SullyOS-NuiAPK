@@ -11,7 +11,7 @@ import {ensureDinosaurGarden,setGardenVisits,editDino,gardenResidents,findGarden
 const mocks=vi.hoisted(()=>({messages:[] as any[],board:{id:'board',messages:[] as any[],updatedAt:0}}));
 vi.mock('../db',()=>({DB:{
     getVRNovels:vi.fn(async()=>[]),getVRMusicRoom:vi.fn(async()=>null),getEmojis:vi.fn(async()=>[]),getEmojiCategories:vi.fn(async()=>[]),
-    getRecentMessagesByCharId:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id)),getVRCardsByCharId:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id)),
+    getRecentMessagesByCharId:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id)),getVRCardsByCharId:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id)),getVRMarketEventIds:vi.fn(async(id:string)=>mocks.messages.filter(m=>m.charId===id).map(m=>m.metadata?.marketEventId).filter(Boolean)),
     saveMessageOnce:vi.fn(async(key:string,m:any)=>{const found=mocks.messages.find(x=>x.charId===m.charId&&x.metadata?.deliveryId===key);if(!found)mocks.messages.push({...m,metadata:{...m.metadata,deliveryId:key}});return 1;}),
     appendVRGuestbookMessages:vi.fn(async(messages:any[])=>{for(const m of messages)if(!mocks.board.messages.some(x=>x.id===m.id))mocks.board.messages.push(m);}),
     saveMessage:vi.fn(async(m:any)=>{mocks.messages.push(m);return 1;}),getVRGuestbook:vi.fn(async()=>mocks.board),saveVRGuestbook:vi.fn(async(b:any)=>{mocks.board=b;}),

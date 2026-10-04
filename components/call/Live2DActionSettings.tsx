@@ -721,7 +721,7 @@ const Live2DActionSettings: React.FC<Live2DActionSettingsProps> = ({
             const selectedWardrobeId = normalizedActions.some(action => action.id === activeWardrobeActionId && action.wardrobe)
               ? activeWardrobeActionId
               : normalizedActions.find(action => action.wardrobe)?.id;
-            onSave({ ...config, framing, actions: normalizedActions, activeWardrobeActionId: selectedWardrobeId });
+            onSave({ ...config, actionPolicyVersion: 2, framing, actions: normalizedActions, activeWardrobeActionId: selectedWardrobeId });
           }}
           className="flex w-full items-center justify-center gap-2 rounded-2xl py-3 text-sm font-semibold text-white active:scale-[0.98]"
           style={{ background: `linear-gradient(90deg, ${accentColor}aa, ${accentColor})`, boxShadow: `0 0 20px ${accentColor}44` }}

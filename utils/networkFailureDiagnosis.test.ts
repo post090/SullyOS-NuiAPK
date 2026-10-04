@@ -30,7 +30,7 @@ describe('classifyFetchFailure', () => {
     it('Chrome / Safari / Firefox 三种说法都算「拿不到响应」', () => {
         for (const msg of ['Failed to fetch', 'Load failed', 'NetworkError when attempting to fetch resource']) {
             expect(classifyFetchFailure({
-                url: 'https://sullymeow.ccwu.cc/api/health',
+                url: 'https://proxy.friedsully.com/api/health',
                 error: new TypeError(msg),
                 online: true,
                 pageProtocol: 'https:',
@@ -49,7 +49,7 @@ describe('classifyFetchFailure', () => {
     it('AbortSignal.timeout 的 TimeoutError 归到 timeout，不是 aborted、更不是 unknown', () => {
         const err = new Error('signal timed out');
         err.name = 'TimeoutError';
-        expect(classifyFetchFailure({ url: 'https://sullymeow.ccwu.cc/api/health', error: err })).toBe('timeout');
+        expect(classifyFetchFailure({ url: 'https://proxy.friedsully.com/api/health', error: err })).toBe('timeout');
     });
 
     it('timeout 和 blocked 都要做连通性复检，其余不做', () => {
@@ -111,7 +111,7 @@ describe('summarizeFetchRequestBody', () => {
 
 describe('buildFetchFailureDetail', () => {
     const detail = () => buildFetchFailureDetail({
-        url: 'https://sullymeow.ccwu.cc/api/health',
+        url: 'https://proxy.friedsully.com/api/health',
         method: 'get',
         durationMs: 43,
         error: failedToFetch(),
@@ -122,11 +122,11 @@ describe('buildFetchFailureDetail', () => {
 
     it('把能补的旁证全补上', () => {
         const text = detail();
-        expect(text).toContain('URL: https://sullymeow.ccwu.cc/api/health');
+        expect(text).toContain('URL: https://proxy.friedsully.com/api/health');
         expect(text).toContain('GET');
         expect(text).toContain('43ms');
         expect(text).toContain('TypeError: Failed to fetch');
-        expect(text).toContain('sullymeow.ccwu.cc');
+        expect(text).toContain('proxy.friedsully.com');
         expect(text).toContain('跨域');
         expect(text).toContain('在线');
         expect(text).toContain('初判:');
@@ -220,7 +220,7 @@ describe('buildFetchFailureDetail', () => {
         const err = new Error('signal timed out');
         err.name = 'TimeoutError';
         const text = buildFetchFailureDetail({
-            url: 'https://sullymeow.ccwu.cc/api/health',
+            url: 'https://proxy.friedsully.com/api/health',
             method: 'GET',
             durationMs: 10001,
             error: err,
@@ -236,7 +236,7 @@ describe('buildFetchFailureDetail', () => {
 
     it('Resource Timing 里有状态码时，直接点破「不是网络不通」', () => {
         const text = buildFetchFailureDetail({
-            url: 'https://sullymeow.ccwu.cc/api/health',
+            url: 'https://proxy.friedsully.com/api/health',
             error: failedToFetch(),
             online: true,
             pageOrigin: 'https://sullyos.example.com',
@@ -404,16 +404,16 @@ describe('probeOriginReachability', () => {
     it('打的是域名根路径，不是原地址——原地址可能有副作用', async () => {
         const seen: any[] = [];
         const fakeFetch = ((url: any, init: any) => { seen.push([url, init]); return Promise.resolve(new Response('')); }) as any;
-        const verdict = await probeOriginReachability('https://sullymeow.ccwu.cc/api/publish', fakeFetch);
+        const verdict = await probeOriginReachability('https://proxy.friedsully.com/api/publish', fakeFetch);
         expect(verdict).toBe('reachable');
-        expect(seen[0][0]).toBe('https://sullymeow.ccwu.cc/');
+        expect(seen[0][0]).toBe('https://proxy.friedsully.com/');
         expect(seen[0][1].mode).toBe('no-cors');
         expect(seen[0][1].credentials).toBe('omit');
     });
 
     it('探测也失败 → unreachable', async () => {
         const fakeFetch = (() => Promise.reject(failedToFetch())) as any;
-        expect(await probeOriginReachability('https://sullymeow.ccwu.cc/api/health', fakeFetch)).toBe('unreachable');
+        expect(await probeOriginReachability('https://proxy.friedsully.com/api/health', fakeFetch)).toBe('unreachable');
     });
 
     it('被超时控制器掐断 → timeout，不是 unreachable', async () => {
@@ -422,7 +422,7 @@ describe('probeOriginReachability', () => {
             err.name = 'AbortError';
             return Promise.reject(err);
         }) as any;
-        expect(await probeOriginReachability('https://sullymeow.ccwu.cc/api/health', fakeFetch)).toBe('timeout');
+        expect(await probeOriginReachability('https://proxy.friedsully.com/api/health', fakeFetch)).toBe('timeout');
     });
 
     it('同一域名 30s 内只探一次', async () => {
@@ -447,7 +447,7 @@ describe('probeOriginReachability', () => {
 
 describe('describeReachabilityProbe', () => {
     it('通了 → 只确认域名可达，并警告生成后失败仍可能计费', () => {
-        const text = describeReachabilityProbe('reachable', 'sullymeow.ccwu.cc', 'POST');
+        const text = describeReachabilityProbe('reachable', 'proxy.friedsully.com', 'POST');
         expect(text).toContain('域名当前可达');
         expect(text).toContain('原 POST');
         expect(text).toContain('CORS');
@@ -466,14 +466,14 @@ describe('describeReachabilityProbe', () => {
     });
 
     it('没通 → 指向线路，不能再提 CORS 把人带偏', () => {
-        const text = describeReachabilityProbe('unreachable', 'sullymeow.ccwu.cc');
+        const text = describeReachabilityProbe('unreachable', 'proxy.friedsully.com');
         expect(text).toContain('连不上');
         expect(text).toContain('梯子');
         expect(text).not.toContain('域名当前可达');
     });
 
     it('冷却期内要说清「已经查过了，看上一条」，不能一声不吭让人以为漏了', () => {
-        expect(describeReachabilityProbe('cooldown', 'sullymeow.ccwu.cc')).toContain('之前那一条日志');
+        expect(describeReachabilityProbe('cooldown', 'proxy.friedsully.com')).toContain('之前那一条日志');
     });
 
     it('skipped 不产出文案（不往日志里塞废话）', () => {

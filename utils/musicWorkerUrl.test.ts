@@ -62,6 +62,7 @@ describe('音乐服务地址：跟随中心代理', () => {
       DEFAULT_PROXY_WORKER,
       'https://sully-n.qegj567.workers.dev',
       'https://sullymeow.ccwu213.cc',
+      'https://sullymeow.ccwu.cc',
     ]) {
       seedMusicCfg(stale);
       expect(loadMusicCfgStandalone().workerUrl).toBe('');

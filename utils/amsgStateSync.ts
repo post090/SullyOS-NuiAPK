@@ -344,8 +344,8 @@ export const resumePendingAmsgStateSync = (scope: {
   // （那等于把 token 又抄一份到别的地方），补传用启动时这份最新配置——它本来就是
   // 云端此刻该有的那一份。
   if (hasPersistedToolConfigMark()) syncAmsgToolConfig(scope.realtimeConfig);
-  // LLM 凭据行同理（同样只记欠账、不落凭据本体）。
-  if (scope.apiConfig && hasPersistedCredSyncMark()) syncAmsgLlmCredentials(scope.apiConfig);
+  // 每次启动按当前口径（Fork：主动消息单独 API > 全局）对齐凭据行；失败仍沿用欠账与退避重试。
+  if (scope.apiConfig) syncAmsgLlmCredentials(scope.apiConfig);
 
   const pending = readPendingCharIds();
   if (pending.length === 0) return;
@@ -515,10 +515,6 @@ const writeCredSyncMark = (pending: boolean) => {
   } catch { /* 见上 */ }
 };
 
-const hasPersistedCredSyncMark = (): boolean => {
-  try { return localStorage.getItem(AMSG2_PENDING_CRED_SYNC_LS_KEY) === '1'; } catch { return false; }
-};
-
 /**
  * 按底账里记着的 credId，用当前配置重算出这几行现在该是什么值。
  * 角色已删 / 凭据配不齐的那些直接跳过——没得算，也不该拿一份残缺的去覆盖云端。
@@ -531,9 +527,13 @@ export const buildCredentialRowsToResync = async (
     .map(parseCharCredId)
     .filter((parsed): parsed is { charId: string; purpose: 'chat' | 'emotion' } =>
       !!parsed && (parsed.purpose === 'chat' || parsed.purpose === 'emotion'));
-  if (wanted.length === 0) return [];
-
   const all = characters ?? await DB.getAllCharacters();
+  // 备份恢复 / 换设备时可能没有本地凭据底账，仍为启用的角色补一份 chat 行。
+  for (const char of all) {
+    if (char.activeMsg2Config?.enabled && !wanted.some((item) => item.charId === char.id && item.purpose === 'chat')) {
+      wanted.push({ charId: char.id, purpose: 'chat' });
+    }
+  }
   const byId = new Map(all.map((char) => [char.id, char]));
   const rows: LlmCredentialRow[] = [];
   for (const { charId, purpose } of wanted) {
@@ -554,16 +554,20 @@ const runLlmCredentialSync = async (reason: string): Promise<void> => {
   const snapshot = pendingCredApiConfig;
   try {
     const globalConfig = await ActiveMsgStore.getGlobalConfig();
-    // 没配 worker、或这台 worker 还不认凭据表 = 这几行没有去处，不是「传失败」，连底账一起清掉。
-    if (!globalConfig.workerUrl?.trim() || !snapshot || !(await isLlmCredentialsReady())) {
+    // 没配 Worker / 没有 API 快照时没有同步目标，清掉底账。
+    if (!globalConfig.workerUrl?.trim() || !snapshot) {
       hasPendingCredSync = false;
       pendingCredApiConfig = undefined;
       writeCredSyncMark(false);
       return;
     }
-    const rows = await buildCredentialRowsToResync(snapshot);
-    // 值一个都没变（多半是这次保存改的不是 API 那几项）：不发请求，直接销账。
-    if (pickChangedCredRows(rows).length > 0) await ActiveMsgClient.putLlmCredentials(rows);
+    if (await isLlmCredentialsReady()) {
+      const rows = await buildCredentialRowsToResync(snapshot);
+      if (pickChangedCredRows(rows).length > 0) await ActiveMsgClient.putLlmCredentials(rows);
+    }
+    // 老 Worker 的内联任务也要迁移；新 Worker 的引用任务只更新引用，不塞内联字段。
+    const refresh = await ActiveMsgClient.refreshApiCredentialsForPendingTasks(snapshot);
+    if (refresh.failed > 0) throw new Error(`${refresh.failed} 个任务的 API 凭据尚未同步`);
     if (pendingCredApiConfig === snapshot) {
       hasPendingCredSync = false;
       pendingCredApiConfig = undefined;
@@ -584,15 +588,20 @@ const runLlmCredentialSync = async (reason: string): Promise<void> => {
     }
   } finally {
     credSyncing = false;
+    // 上传途中又切了 API：旧请求结束后立刻接着传最新一份，不能等下次启动。
+    if (hasPendingCredSync && pendingCredApiConfig !== snapshot) {
+      if (credRetryTimer != null) { clearTimeout(credRetryTimer); credRetryTimer = null; }
+      credRetryCount = 0;
+      void runLlmCredentialSync('newer-config');
+    }
   }
 };
 
 /**
- * 聊天 API / 角色单独 API / 情绪评估 API 改过之后，把云端那几行凭据对齐的唯一入口。
+ * 聊天 API / 情绪评估 API 改过之后，把云端那几行凭据对齐的唯一入口。
  *
  * 立即传一次，失败退避重试，并在 localStorage 留底账等启动 / 下次冲刷补传。
- * 老 worker（不支持凭据表）上它是 no-op——那条路的凭据仍冻结在任务里，靠
- * refreshApiCredentialsForPendingTasks 逐条补刷。
+ * 老 worker 没有凭据表，仍通过 refreshApiCredentialsForPendingTasks 逐条补刷。
  */
 export const syncAmsgLlmCredentials = (apiConfig: APIConfig): void => {
   pendingCredApiConfig = apiConfig;

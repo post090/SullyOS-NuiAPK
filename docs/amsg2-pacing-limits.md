@@ -46,15 +46,21 @@
 
 ## 到点闸的顺序（onBeforeFire）
 
-只列跟这份文档有关的几道，按出现的先后排。每道拦下都会写 `last_skip`，面板用 `describeLastSkip` 照实说明原因：
+只列跟这份文档有关的几道，按出现的先后排。
 
-1. 用户正在聊天（policy 为 expire 时才生效，没放开的角色 force 在这里已按 expire 算）→ `active-chat-presence`
-2. 排程之后对话已经往前走了 → `conversation-moved-on`
-3. 2.0 关了，或者角色自排了重复任务但用户没放开 → `schedule-off`
-4. 角色自排的，连发已到上限 → `unanswered-limit`
-5. 角色自排的，离上一条主动消息还没隔够。「上一条」按它开始生成的时刻算（日志条目的 `startedAt`），跟排程时比的是同一个时刻；另有 3 分钟宽限（`FIRE_GAP_TOLERANCE_MS`）兜住没有 `startedAt` 的老条目 → `min-gap`
-6. 重复任务连续没回够次数 → `recurring-unanswered`
-7. 今天已发满 → `daily-limit`
+最前面一道不是拦，是等：页面正在本地生成一轮回复（在场记录 `chat_presence` 还新鲜）时，这次触发推迟 45 秒、下一跳 cron 再来（`onBeforeFire` 返回 `{ defer }`），任务不消费、不留记录。policy 为 expire 时才生效，没放开的角色 force 在这里已按 expire 算。云端生成的即时回复不用这道门：它和定时任务排在同一个串行分组里，回复结束前定时任务认领不到。
+
+后面每道拦下都会写 `last_skip`，面板用 `describeLastSkip` 照实说明原因：
+
+1. 2.0 关了，或者角色自排了重复任务但用户没放开 → `schedule-off`
+2. 角色自排的，连发已到上限 → `unanswered-limit`
+3. 角色自排的，离上一条主动消息还没隔够。「上一条」按它开始生成的时刻算（日志条目的 `startedAt`），跟排程时比的是同一个时刻；另有 3 分钟宽限（`FIRE_GAP_TOLERANCE_MS`）兜住没有 `startedAt` 的老条目 → `min-gap`
+4. 重复任务连续没回够次数 → `recurring-unanswered`
+5. 今天已发满 → `daily-limit`
+
+过了这几道就生成。到点时用户在不在聊天不拦发送：角色看着最新的对话自己决定说不说（提示词里的【开口之前】），决定不说时输出 `AMSG_SILENT_MARK`，记成 `declined`。
+
+除了 `schedule-off`，每次没发还会用 `ctx.emitResult` 回一条 `fire-skipped` 结果（不弹通知）。客户端收到后记进回执台账，角色下一轮聊天时在排程现状块里看到这条没发和原因（`utils/amsgFireSkipResult.ts`、`utils/amsgFireSkipResultApply.ts`）。
 
 ## 告诉角色的那一段
 

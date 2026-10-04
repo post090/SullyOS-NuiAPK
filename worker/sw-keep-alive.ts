@@ -1,6 +1,10 @@
 /// <reference lib="WebWorker" />
 
 import { installReiSW } from '@rei-standard/amsg-sw';
+import { createStaticCache, type StaticManifest } from './staticCache';
+
+declare const __STATIC_CACHE_MANIFEST__: StaticManifest | undefined;
+const staticManifest = typeof __STATIC_CACHE_MANIFEST__ === 'undefined' ? undefined : __STATIC_CACHE_MANIFEST__;
 
 /**
  * SW_VERSION: 改 SW 实质行为时（push handler / message protocol / 通知策略 / IDB 升级）
@@ -78,7 +82,8 @@ import { installReiSW } from '@rei-standard/amsg-sw';
  *  - 1.19.0: push handler 只分 content / emotion_update / error / result 四轨；
  *            _blob 信封、reasoning、tool_request 三条路线移除。
  */
-const SW_VERSION = '1.19.0';
+// 1.20.0: 静态资源缓存、离线启动、用户确认更新；保留原推送注册。
+const SW_VERSION = '1.20.0';
 
 const PING_INTERVAL = 15_000;
 const MAX_MANUAL_ALIVE_MS = 5 * 60_000;
@@ -106,6 +111,35 @@ const proactiveSchedules = new Map<string, { charId: string; intervalMs: number 
 const proactiveTimers = new Map<string, number>();
 
 const sw = self as unknown as ServiceWorkerGlobalScope;
+
+const resourceCache = staticManifest && createStaticCache({
+  manifest: staticManifest, scope: sw.registration.scope, caches: sw.caches,
+  fetch: request => fetch(request), waitUntil: () => {},
+  digest: async bytes => [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join(''),
+});
+if (resourceCache) {
+  sw.addEventListener('fetch', event => {
+    const result = resourceCache.handle(event.request, promise => event.waitUntil(promise));
+    // A failed download reaches the page as the network error it is, without an unhandled rejection per request.
+    if (result) event.respondWith(result.catch(() => Response.error()));
+  });
+}
+
+/** Clears shells of releases no open page still runs. Pages that do not answer postpone it. */
+async function tidyResourceCache(cache: NonNullable<typeof resourceCache>): Promise<void> {
+  const clients = await sw.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const scope = new URL(sw.registration.scope);
+  const pages = clients.filter(client => new URL(client.url).pathname.startsWith(scope.pathname));
+  const builds = await Promise.all(pages.map(client => new Promise<string | null>(resolve => {
+    const channel = new MessageChannel();
+    const finish = (build: string | null) => { clearTimeout(timer); channel.port1.close(); channel.port2.close(); resolve(build); };
+    const timer = setTimeout(() => finish(null), 1500);
+    channel.port1.onmessage = message => finish(typeof message.data?.buildId === 'string' ? message.data.buildId : null);
+    try { client.postMessage({ type: 'SULLY_GET_PAGE_BUILD' }, [channel.port2]); }
+    catch { finish(null); }
+  })));
+  await cache.activate(builds.includes(null) ? null : builds as string[]).catch(() => {});
+}
 
 function summarizeAmsgPayload(payload: any): Record<string, any> {
   return {
@@ -741,6 +775,31 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
   const { type } = event.data || {};
 
   switch (type) {
+    case 'SULLY_CACHE_STATUS':
+    case 'SULLY_CACHE_PREPARE':
+    case 'SULLY_CACHE_CLEAR': {
+      if (!resourceCache) { event.ports[0]?.postMessage({ error: '资源缓存尚未启用' }); break; }
+      event.waitUntil((async () => {
+        try {
+          if (type === 'SULLY_CACHE_CLEAR') await resourceCache.clearRuntime();
+          if (type === 'SULLY_CACHE_PREPARE') await resourceCache.install();
+          event.ports[0]?.postMessage(await resourceCache.stats());
+        } catch { event.ports[0]?.postMessage({ error: '暂时无法读取资源缓存' }); }
+      })());
+      break;
+    }
+    case 'SULLY_ACTIVATE_UPDATE':
+      event.waitUntil(sw.skipWaiting());
+      break;
+    case 'SULLY_RELEASE_READY':
+      // The next release is downloaded. With the same version number it needs no consent, so page
+      // loads go to the network from now on and the next refresh is already the new release; the
+      // page then lets the waiting worker take over. A new version number waits for the user.
+      if (resourceCache && event.data.appVersion === staticManifest!.appVersion) event.waitUntil(resourceCache.markReplaced());
+      break;
+    case 'SULLY_CACHE_TIDY':
+      if (resourceCache) event.waitUntil(tidyResourceCache(resourceCache));
+      break;
     case 'GET_SW_VERSION':
       // BuildBadge 通过 MessageChannel + port 协议查询；不响应时 BuildBadge 显示 sw@?
       event.ports[0]?.postMessage({ version: SW_VERSION });
@@ -784,10 +843,25 @@ sw.addEventListener('message', (event: ExtendableMessageEvent) => {
   }
 });
 
-sw.addEventListener('install', () => {
-  void sw.skipWaiting();
+sw.addEventListener('install', (event: ExtendableEvent) => {
+  // Without a manifest (dev server, native app) this is the push-only worker, replaced at once.
+  if (!resourceCache) { void sw.skipWaiting(); return; }
+  // A first installation activates right away so push and keep-alive are ready; the page then
+  // asks for the offline shell. Upgrades download the shell first and wait. A failed download
+  // does not hold the worker back, so push fixes always arrive: that version loads its page from
+  // the network until the page gets the shell stored.
+  const previous = sw.registration.active;
+  if (previous) event.waitUntil(resourceCache.install().catch(error => {
+    console.warn('[StaticCache] Offline shell not stored; the page will retry after the update', error);
+  }).then(() => {
+    // The worker in charge decides what this means for the pages it serves (SULLY_RELEASE_READY).
+    try { previous.postMessage({ type: 'SULLY_RELEASE_READY', appVersion: staticManifest!.appVersion }); }
+    catch { /* it finds out when the page next asks */ }
+  }));
 });
 
 sw.addEventListener('activate', (event: ExtendableEvent) => {
+  // Requests of the page that is about to load are held until this finishes, so it only takes
+  // control. Older shells are cleared later, when a started page asks (SULLY_CACHE_TIDY).
   event.waitUntil(sw.clients.claim());
 });
