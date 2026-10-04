@@ -190,6 +190,8 @@ const Chat: React.FC = () => {
     const [newEmojiName, setNewEmojiName] = useState(''); // 表情包重命名输入框
 
     const scrollRef = useRef<HTMLDivElement>(null);
+    const entryFollowingBottomRef = useRef(true);
+    const chatContentRef = useRef<HTMLDivElement>(null);
     const lastMsgIdRef = useRef<number | null>(null);
     // 最新图片在移动端异步解码后会把消息列表继续向下撑开。记录这一条，等真实高度
     // 确定后再补一次贴底；用户一旦主动向上翻，就清掉它，绝不抢滚动位置。
@@ -1151,8 +1153,7 @@ const Chat: React.FC = () => {
             setPlayingMsgId(null);
             if (chatAudioRef.current) { try { stopVoiceAudio(chatAudioRef.current); } catch { /* ignore */ } }
 
-            const savedViewport = loadSavedChatViewport();
-            const initialVisibleCount = savedViewport?.visibleCount || LOAD_BATCH_SIZE;
+            const initialVisibleCount = LOAD_BATCH_SIZE;
             visibleCountRef.current = initialVisibleCount;
             setVisibleCount(initialVisibleCount);
             reloadMessages(initialVisibleCount);
@@ -1206,6 +1207,11 @@ const Chat: React.FC = () => {
             setFlashMsgId(null);
         }
     }, [activeCharacterId, reloadMessages]);
+
+    useLayoutEffect(() => {
+        entryFollowingBottomRef.current = true;
+        pendingFavoriteJumpRef.current = null;
+    }, [activeCharacterId, activeApp]);
 
     // 进入/切换角色时触发「登场」过场。useLayoutEffect 在浏览器绘制前置真，
     // 让过场层先盖住，避免一帧闪到新角色的空聊天界面。
@@ -2932,7 +2938,7 @@ const Chat: React.FC = () => {
             void handleJumpToMessageInChat(messageId);
             return;
         }
-        pendingFavoriteJumpRef.current = { charId, messageId };
+        pendingFavoriteJumpRef.current = null;
         setActiveCharacterId(charId);
     };
 
@@ -3634,6 +3640,33 @@ const Chat: React.FC = () => {
         publishReplyDisplay(activeCharacterId, renderedMessages.map(message => message.id), streamingBubbles);
     }, [activeCharacterId, renderedMessages, streamingBubbles]);
 
+    // 在实际内容提交后贴底；异步图片、字体和输入区高度变化也补定位。
+    // 只监听布局，不轮询；用户操作列表后立即停止进入会话的强制跟随。
+    useLayoutEffect(() => {
+        if (activeApp !== AppID.Chat || !char || windowedFocusMsgId !== null) return;
+        const scroller = scrollRef.current;
+        const content = chatContentRef.current;
+        if (!scroller || !content) return;
+        const pin = () => {
+            if (entryFollowingBottomRef.current) scroller.scrollTop = scroller.scrollHeight;
+        };
+        const stop = () => { entryFollowingBottomRef.current = false; };
+        pin();
+        const frame = requestAnimationFrame(pin);
+        const observer = new ResizeObserver(pin);
+        observer.observe(content);
+        observer.observe(scroller);
+        scroller.addEventListener('pointerdown', stop, { passive: true });
+        scroller.addEventListener('wheel', stop, { passive: true });
+        scroller.addEventListener('keydown', stop);
+        return () => {
+            cancelAnimationFrame(frame);
+            observer.disconnect();
+            scroller.removeEventListener('pointerdown', stop);
+            scroller.removeEventListener('wheel', stop);
+            scroller.removeEventListener('keydown', stop);
+        };
+    }, [activeApp, activeCharacterId, char?.id, renderedMessages, windowedFocusMsgId, showEntry]);
     const collapsedCount = Math.max(0, totalMsgCount - displayMessages.length);
     const hasOlderHistoryWindow = windowedFocusMsgId !== null && !!historyWindowRange && historyWindowRange.start > 0;
     const hasNewerHistoryWindow = windowedFocusMsgId !== null && !!historyWindowRange && historyWindowRange.end < chatDisplayMessages.length;
@@ -4301,6 +4334,7 @@ const Chat: React.FC = () => {
             {/* onScroll 两件事都要做：handleScrollSnapshot 防抖保存阅读位置（单聊滚动恢复），
                 handleChatScroll 在历史窗口模式下按边界扩展更早/更新的消息。 */}
             <div ref={scrollRef} onScroll={() => { handleScrollSnapshot(); handleChatScroll(); }} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+                <div ref={chatContentRef} className="flow-root">
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
                         <button onClick={handleBackToCurrent} className="pointer-events-auto px-4 py-2 bg-primary text-white rounded-full text-xs font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-1.5">
@@ -4521,6 +4555,7 @@ const Chat: React.FC = () => {
                         </div>
                     </div>
                 )}
+                </div>
             </div>
 
             <div className="relative z-40">

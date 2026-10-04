@@ -546,7 +546,7 @@ let _lastPageIndex = 0;
 // --- Main Launcher ---
 
 const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false }) => {
-  const { openApp, characters, activeCharacterId, setActiveCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages, apiConfig, addToast, userProfile } = useOS();
+  const { activeApp, openApp, characters, activeCharacterId, setActiveCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages, apiConfig, addToast, userProfile } = useOS();
   const localDateKey = useLocalDateKey();
 
   // Local state for widget data to prevent context trashing
@@ -871,7 +871,7 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
 
   // --- Mouse Drag Handlers ---
   const handleMouseDown = (e: React.MouseEvent) => {
-      if (!scrollContainerRef.current || layoutEditing) return;
+      if (!scrollContainerRef.current || layoutEditing || e.button !== 0 || (e.nativeEvent as MouseEvent & { sourceCapabilities?: { firesTouchEvents?: boolean } }).sourceCapabilities?.firesTouchEvents) return;
       isDragging.current = true;
       dragMoved.current = 0;
       startX.current = e.pageX - scrollContainerRef.current.offsetLeft;
@@ -1037,7 +1037,7 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
           layoutPointer.current.active = true;
           activateLayoutDrag(layoutPointer.current);
           launcherRoot.setPointerCapture(e.pointerId);
-          isDragging.current = false;
+          handleMouseUp();
           suppressLayoutClickUntil.current = Date.now() + 700;
           setLayoutEditing(true);
           trackEvent('进入桌面整理模式');
@@ -1099,8 +1099,26 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
           });
       }
       layoutPointer.current = null;
+      const root = pointer?.element.closest('.launcher-desktop');
+      if (pointer && root?.hasPointerCapture(pointer.pointerId)) root.releasePointerCapture(pointer.pointerId);
   };
 
+  useEffect(() => {
+      const reset = () => {
+          finishLayoutPointer();
+          handleMouseUp();
+          dragMoved.current = 0;
+          setLayoutEditing(false);
+      };
+      if (activeApp !== AppID.Launcher) reset();
+      const onVisibility = () => { if (document.hidden) reset(); };
+      window.addEventListener('blur', reset);
+      document.addEventListener('visibilitychange', onVisibility);
+      return () => {
+          window.removeEventListener('blur', reset);
+          document.removeEventListener('visibilitychange', onVisibility);
+      };
+  }, [activeApp]);
   const finishLayoutEditing = () => {
       finishLayoutPointer();
       setLayoutEditing(false);
@@ -1140,7 +1158,8 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
       onPointerDown={handleLayoutPointerDown}
       onPointerMove={handleLayoutPointerMove}
       onPointerUp={finishLayoutPointer}
-      onPointerCancel={finishLayoutPointer}
+      onPointerCancel={(e) => { finishLayoutPointer(e); handleMouseUp(); }}
+      onLostPointerCapture={finishLayoutPointer}
       onContextMenu={(e) => {
           if ((e.target as HTMLElement).closest('[data-launcher-item]')) e.preventDefault();
       }}
