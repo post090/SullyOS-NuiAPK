@@ -14,6 +14,7 @@ import React, {
 import { cachedCall as _cachedCall, invalidate as _invalidateCache, clearAll as _clearAllCache } from '../utils/musicCache';
 import { neteaseCacheClearAll } from '../utils/neteaseCache';
 import { DB } from '../utils/db';
+import { isNativeRuntimePlatform } from '../utils/runtime/nativeRuntime';
 import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT, isLegacyProxyWorkerUrl } from '../utils/proxyWorker';
 import type { PostProcessMusicHooks } from '../utils/applyAssistantPostProcessing';
 import { resolveRefToDataUrl } from '../utils/blobRef';
@@ -729,7 +730,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const cfgRef = useRef(cfg); cfgRef.current = cfg;
   const endedHandlerRef = useRef<() => void>(() => {});
   // 原生通知用：读进度/时长不订阅（避免每秒重发通知），seek/拿到时长后由 ref 主动补发
-  const progressRef = useRef(progress); progressRef.current = progress;
+  const progressRef = useRef(progress);
   const durationRef = useRef(duration); durationRef.current = duration;
   const nativeMusicSyncRef = useRef<(() => void) | null>(null);
 
@@ -742,7 +743,11 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
-    const onTime = () => setProgress(a.currentTime);
+    const onTime = () => {
+      progressRef.current = a.currentTime;
+      if (!document.hidden) setProgress(a.currentTime);
+    };
+    const onVisible = () => { if (!document.hidden) onTime(); };
     const onMeta = () => setDuration(a.duration || 0);
     // 播放出错 → 清掉 playing 状态 + 清掉"一起听"伙伴（防止 UI 卡在残留状态）
     const onErr = () => { setPlaying(false); setListeningTogetherWith([]); toast('播放失败', 'error'); };
@@ -754,6 +759,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     a.addEventListener('play', onPlay);
     a.addEventListener('pause', onPause);
     a.addEventListener('timeupdate', onTime);
+    document.addEventListener('visibilitychange', onVisible);
     a.addEventListener('loadedmetadata', onMeta);
     a.addEventListener('loadedmetadata', onMetaSync);
     a.addEventListener('error', onErr);
@@ -764,6 +770,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       a.removeEventListener('play', onPlay);
       a.removeEventListener('pause', onPause);
       a.removeEventListener('timeupdate', onTime);
+      document.removeEventListener('visibilitychange', onVisible);
       a.removeEventListener('loadedmetadata', onMeta);
       a.removeEventListener('loadedmetadata', onMetaSync);
       a.removeEventListener('error', onErr);
@@ -792,7 +799,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       }
     }
 
-    setLoadingSong(true); setLyric([]); setTlyric([]); setProgress(0); setDuration(0);
+    setLoadingSong(true); setLyric([]); setTlyric([]); progressRef.current = 0; setProgress(0); setDuration(0);
     try {
       // ── Local-source branch ── 本地生成的歌（写歌 App 出歌）从 IndexedDB 取 blob
       if (song.local && song.localAssetKey) {
@@ -1082,16 +1089,20 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => { if (nativeMusicSyncRef.current === send) nativeMusicSyncRef.current = null; };
   }, [current?.id, current?.name, current?.artists, current?.album, playing, liked]);
 
-  // 轮询原生侧音乐控制按钮（通知栏点击） - prev/next/toggle/like/seek
+  // 有媒体会话才轮询；暂停歌曲仍保留通知栏恢复播放功能。
+  const nativeMusicPollInFlightRef = useRef(false);
+  const hasMusicSession = !!current;
   useEffect(() => {
+    if (!hasMusicSession || !isNativeRuntimePlatform()) return;
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | null = null;
     const poll = async () => {
-      if (cancelled) return;
+      if (cancelled || nativeMusicPollInFlightRef.current) return;
+      nativeMusicPollInFlightRef.current = true;
       try {
         const { getPendingNativeMusicAction } = await import('../utils/runtime/nativeRuntime');
         const action = await getPendingNativeMusicAction();
-        if (!action) return;
+        if (cancelled || !action) return;
         // 系统媒体卡片拖动进度条 → 原生写入 "seek:<ms>"，这里应用到 audio 元素
         if (action.startsWith('seek:')) {
           const ms = Number(action.slice(5));
@@ -1119,6 +1130,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             break;
         }
       } catch { /* ignore */ }
+      finally { nativeMusicPollInFlightRef.current = false; }
     };
     // 每 1s 轮询一次 pending action，通知栏点击后 10s 内有效
     timer = setInterval(() => { void poll(); }, 1000);
@@ -1126,7 +1138,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, [prevSong, nextSong, togglePlay, toggleLike]);
+  }, [hasMusicSession, prevSong, nextSong, togglePlay, toggleLike]);
 
   // 把当前播放状态写到模块级快照，供非 React 调用者（OSContext.runProactive
   // 等位于 MusicProvider 上层的代码）读取。useMusic() 在那一层用不了。

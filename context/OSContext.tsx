@@ -934,10 +934,21 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   
   // Real-time Clock Sync
   useEffect(() => {
-      const timer = setInterval(() => {
-          setVirtualTime(getRealTime());
-      }, 1000);
-      return () => clearInterval(timer);
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const refresh = () => {
+          if (timer !== null) clearTimeout(timer);
+          timer = null;
+          if (document.hidden) return;
+          const next = getRealTime();
+          setVirtualTime(prev => prev.hours === next.hours && prev.minutes === next.minutes && prev.day === next.day ? prev : next);
+          timer = setTimeout(refresh, 60_000 - Date.now() % 60_000 + 50);
+      };
+      refresh();
+      document.addEventListener('visibilitychange', refresh);
+      return () => {
+          if (timer !== null) clearTimeout(timer);
+          document.removeEventListener('visibilitychange', refresh);
+      };
   }, []);
 
   // 启动后台扫描一次，把还停留在老 number[] 形态的向量记录升级到 Uint8Array
@@ -1049,6 +1060,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   });
 
   const schedulerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scheduledDeliveryInFlightRef = useRef(false);
   const interceptorsInitialized = useRef(false);
   
   // Back Handler Stack：支持父 App 和子组件（如 DateApp + DateSession）同时各注册一个
@@ -2355,7 +2367,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (!isDataLoaded || characters.length === 0) return;
       let cancelled = false;
       const checkAllSchedules = async () => {
-          if (cancelled) return;
+          if (cancelled || scheduledDeliveryInFlightRef.current) return;
+          scheduledDeliveryInFlightRef.current = true;
+          try {
           let hasNewMessage = false;
           const unreadUpdates: Record<string, number> = {};
 
@@ -2428,6 +2442,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
                   return next;
               });
+          }
+          } finally {
+              scheduledDeliveryInFlightRef.current = false;
           }
       };
       schedulerRef.current = setInterval(checkAllSchedules, 5000);

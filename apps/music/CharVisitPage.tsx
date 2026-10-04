@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { useMusic, musicApi, toHttps } from '../../context/MusicContext';
-import { CharPlaylist } from '../../types';
+import { CharPlaylist, CharMusicReview } from '../../types';
 import { CharMusicPersona } from '../../utils/charMusicPersona';
 import { computeCurrentListening } from '../../utils/charMusicSchedule';
 import { C, Sparkle, MizuHeader, BokehBg, MiniPlayer, gradientFor } from './MusicUI';
@@ -57,9 +57,37 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
   const [editingEntry, setEditingEntry] = useState<{ kind: 'artist' | 'soundtrack'; index: number } | null>(null);
   // 顶栏批量匹配图片（艺人头像 + OST 封面）
   const [refreshingArt, setRefreshingArt] = useState(false);
+  // 听歌日记：每页 5 条；长按某条打开编辑/删除弹窗
+  const [reviewPage, setReviewPage] = useState(0);
+  const [editingReview, setEditingReview] = useState<CharMusicReview | null>(null);
 
   const profile = char?.musicProfile;
   const initialized = !!(char && CharMusicPersona.isInitialized(char));
+  const REVIEWS_PER_PAGE = 5;
+  const sortedReviews = useMemo(
+    () => [...(profile?.reviews || [])].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)),
+    [profile?.reviews],
+  );
+  const reviewPageCount = Math.max(1, Math.ceil(sortedReviews.length / REVIEWS_PER_PAGE));
+  // 删掉最后一页的最后一条时自动退回上一页
+  const safeReviewPage = Math.min(reviewPage, reviewPageCount - 1);
+  const pagedReviews = sortedReviews.slice(safeReviewPage * REVIEWS_PER_PAGE, (safeReviewPage + 1) * REVIEWS_PER_PAGE);
+  useEffect(() => { setReviewPage(0); setEditingReview(null); }, [charId]);
+  useEffect(() => { setReviewPage(p => Math.min(p, reviewPageCount - 1)); }, [reviewPageCount]);
+  const writeReviews = (next: CharMusicReview[]) => {
+    if (!char || !profile) return;
+    updateCharacter(char.id, { musicProfile: { ...profile, reviews: next, updatedAt: Date.now() } });
+  };
+  const saveReview = (id: string, content: string) => {
+    writeReviews((profile?.reviews || []).map(r => r.id === id ? { ...r, content } : r));
+    setEditingReview(null);
+    addToast?.('已保存', 'success');
+  };
+  const deleteReview = (id: string) => {
+    writeReviews((profile?.reviews || []).filter(r => r.id !== id));
+    setEditingReview(null);
+    addToast?.('已删除', 'success');
+  };
 
   // 拜访时刷新 char 此刻在听的歌（纯本地计算，零网络）
   // 只在 char.id / initialized 变化时刷新一次，避免每秒 tick
@@ -619,8 +647,11 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
           <div className="mx-4 mt-4">
             <SectionTitle>写过的话</SectionTitle>
             <div className="space-y-2">
-              {profile!.reviews!.slice(0, 10).map(rv => (
-                <div key={rv.id} className="rounded-xl shizuku-glass p-3">
+              {pagedReviews.map(rv => (
+                <TapOrHoldButton key={rv.id} onTap={() => {}} onHold={() => setEditingReview(rv)}
+                  title="长按编辑或删除"
+                  className="block w-full text-left rounded-xl shizuku-glass p-3 select-none"
+                  style={{ WebkitTouchCallout: 'none' }}>
                   <div className="text-[10px] mb-1" style={{ color: C.muted }}>
                     对 <span className="font-medium" style={{ color: C.primary }}>{rv.targetTitle}</span>
                   </div>
@@ -630,9 +661,21 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
                   <div className="text-[9px] mt-1" style={{ color: C.faint }}>
                     {new Date(rv.createdAt).toLocaleDateString()}
                   </div>
-                </div>
+                </TapOrHoldButton>
               ))}
             </div>
+            {reviewPageCount > 1 && (
+              <div className="flex items-center justify-center gap-3 mt-2 text-[11px]" style={{ color: C.muted }}>
+                <button onClick={() => setReviewPage(p => Math.max(0, p - 1))} disabled={safeReviewPage === 0}
+                  className="px-3 py-1 rounded-full disabled:opacity-30 transition-all active:scale-95"
+                  style={{ color: C.primary, background: `${C.primary}14`, border: `1px solid ${C.primary}30` }}>‹ 上一页</button>
+                <span className="tabular-nums" style={{ fontFamily: `'Noto Serif', serif` }}>{safeReviewPage + 1} / {reviewPageCount}</span>
+                <button onClick={() => setReviewPage(p => Math.min(reviewPageCount - 1, p + 1))} disabled={safeReviewPage >= reviewPageCount - 1}
+                  className="px-3 py-1 rounded-full disabled:opacity-30 transition-all active:scale-95"
+                  style={{ color: C.primary, background: `${C.primary}14`, border: `1px solid ${C.primary}30` }}>下一页 ›</button>
+              </div>
+            )}
+            <p className="text-[9px] text-center mt-1.5" style={{ color: C.faint }}>共 {sortedReviews.length} 条 · 长按一条可编辑或删除</p>
           </div>
         )}
 
@@ -705,6 +748,10 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
         );
       })()}
 
+      {editingReview && (
+        <EditReviewModal review={editingReview} onCancel={() => setEditingReview(null)}
+          onSave={c => saveReview(editingReview.id, c)} onDelete={() => deleteReview(editingReview.id)} />
+      )}
       {/* 新建歌单弹窗 */}
       {showNewPl && (
         <NewPlaylistModal onCancel={() => setShowNewPl(false)} onCreate={createPlaylist} />
@@ -744,6 +791,7 @@ const TapOrHoldButton: React.FC<{
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const heldRef = useRef(false);
 
+  useEffect(() => () => { if (timer.current != null) clearTimeout(timer.current); }, []);
   const cancel = () => {
     if (timer.current != null) { clearTimeout(timer.current); timer.current = null; }
     startPos.current = null;
@@ -884,6 +932,49 @@ const EditNameModal: React.FC<{
   );
 };
 
+/** 听歌日记编辑：沿用音乐页的水滴玻璃风格。 */
+const EditReviewModal: React.FC<{
+  review: CharMusicReview;
+  onCancel: () => void;
+  onSave: (content: string) => void;
+  onDelete: () => void;
+}> = ({ review, onCancel, onSave, onDelete }) => {
+  const [content, setContent] = useState(review.content);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => {
+    const handle = (e: KeyboardEvent) => { if (e.key === 'Escape') onCancel(); };
+    window.addEventListener('keydown', handle);
+    return () => window.removeEventListener('keydown', handle);
+  }, [onCancel]);
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-6" style={{ background: 'rgba(0,0,0,0.4)' }} onClick={onCancel}>
+      <div role="dialog" aria-modal="true" aria-label="编辑听歌日记" className="w-full max-w-sm rounded-2xl p-4 shizuku-glass-strong max-h-[80vh] overflow-y-auto" style={{ background: C.bg }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold" style={{ color: C.text, fontFamily: `'Noto Serif', serif` }}><PencilSimple size={14} className="inline mr-1.5" style={{ color: C.primary }} />听歌日记</h3>
+          <button aria-label="关闭" onClick={onCancel} className="p-1"><X size={16} style={{ color: C.muted }} /></button>
+        </div>
+        <p className="text-[11px] mb-2" style={{ color: C.muted }}>《{review.targetTitle}》 · {new Date(review.createdAt).toLocaleDateString()}</p>
+        {confirmDelete ? (
+          <>
+            <p className="text-sm py-4" style={{ color: C.text }}>删除这条日记？删除后无法恢复。</p>
+            <div className="flex gap-2">
+              <button onClick={() => setConfirmDelete(false)} className="flex-1 py-2 rounded-lg text-xs" style={{ background: `${C.primary}18`, color: C.primary }}>返回编辑</button>
+              <button onClick={onDelete} className="flex-1 py-2 rounded-lg text-xs" style={{ background: `${C.sakura}25`, color: '#c14d5d' }}>确认删除</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <textarea aria-label="日记正文" value={content} onChange={e => setContent(e.target.value)} rows={8} className="w-full px-3 py-2 rounded-lg text-sm outline-none resize-none leading-relaxed" style={{ background: '#fff', border: `1px solid ${C.faint}40`, color: C.text, fontFamily: `'Noto Serif', serif` }} />
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => onSave(content.trim())} disabled={!content.trim() || content.trim() === review.content} className="flex-1 py-2 rounded-lg text-xs disabled:opacity-40" style={{ background: C.primary, color: '#fff' }}><Check size={12} className="inline mr-1" />保存</button>
+              <button onClick={() => setConfirmDelete(true)} className="px-3 py-2 rounded-lg text-xs" style={{ background: `${C.sakura}18`, color: '#c14d5d' }}><Trash size={12} className="inline mr-1" />删除</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
 /** 新建歌单弹窗 — 只要一个标题，建完直接进详情页加歌。 */
 const NewPlaylistModal: React.FC<{
   onCancel: () => void;

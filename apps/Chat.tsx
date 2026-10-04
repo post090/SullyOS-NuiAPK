@@ -204,10 +204,6 @@ const Chat: React.FC = () => {
     const historyJumpUnlockTimerRef = useRef<number | null>(null);
     const historyWindowScrollEnabledRef = useRef(false);
     const activeCharIdRef = useRef(activeCharacterId);
-    const restoreScrollTopRef = useRef<number | null>(null);
-    // 进会话时保存上次离开看到的最后一条消息 ID，用于判断「该会话是否有新消息」：
-    // 有新消息 → 滚到底部；无新消息 → 恢复上次阅读位置。
-    const savedLastMsgIdRef = useRef<number | null>(null);
     const saveScrollTimerRef = useRef<number | null>(null);
     // 流式预览接棒过的正式消息在当前会话内始终跳过入场动画，避免后续 DB 刷新时动画类又被加回来。
     const streamPreviewHandoverIdsRef = useRef<Set<number>>(new Set());
@@ -1159,8 +1155,6 @@ const Chat: React.FC = () => {
             const initialVisibleCount = savedViewport?.visibleCount || LOAD_BATCH_SIZE;
             visibleCountRef.current = initialVisibleCount;
             setVisibleCount(initialVisibleCount);
-            restoreScrollTopRef.current = savedViewport?.top ?? null;
-            savedLastMsgIdRef.current = savedViewport?.lastId ?? null;
             reloadMessages(initialVisibleCount);
             loadEmojiData();
             const savedDraft = localStorage.getItem(draftKey);
@@ -1353,22 +1347,9 @@ const Chat: React.FC = () => {
         // windowed 模式下用户在翻旧消息，不要被新消息打断滚走。
         if (currentLastId !== lastMsgIdRef.current) {
             if (windowedFocusMsgId === null) {
-                const restoreTop = restoreScrollTopRef.current;
-                const savedLastId = savedLastMsgIdRef.current;
-                // 只有「上次离开时看到的最后一条消息」和「现在最后一条消息」一致
-                // （即无新消息）才恢复旧阅读位置；否则滚到底部看新消息。
-                const shouldRestore = restoreTop != null
-                    && savedLastId != null
-                    && currentLastId === savedLastId;
-                if (shouldRestore) {
-                    scrollRef.current.scrollTop = Math.min(restoreTop, scrollRef.current.scrollHeight);
-                    pendingMediaAutoScrollIdRef.current = null;
-                } else {
-                    pendingMediaAutoScrollIdRef.current = currentLastId;
-                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-                }
-                restoreScrollTopRef.current = null;
-                savedLastMsgIdRef.current = null;
+                // 正常进入会话始终显示最新消息；指定历史消息跳转由 windowedFocusMsgId 保护。
+                pendingMediaAutoScrollIdRef.current = currentLastId;
+                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
             } else {
                 pendingMediaAutoScrollIdRef.current = null;
             }

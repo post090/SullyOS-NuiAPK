@@ -349,7 +349,7 @@ export async function saveSongListenReview(
     createdAt: Date.now(),
   };
   const kept = (char.musicProfile.reviews || []).filter(r => !(r.targetType === 'song' && r.targetId === String(song.id) && r.id.startsWith(SONG_LISTEN_REVIEW_PREFIX)));
-  const musicProfile = { ...char.musicProfile, reviews: [...kept, review].slice(-50), updatedAt: Date.now() };
+  const musicProfile = { ...char.musicProfile, reviews: [...kept, review], updatedAt: Date.now() };
   await DB.saveCharacter({ ...char, musicProfile });
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('char-music-profile-updated', { detail: { charId, musicProfile } }));
