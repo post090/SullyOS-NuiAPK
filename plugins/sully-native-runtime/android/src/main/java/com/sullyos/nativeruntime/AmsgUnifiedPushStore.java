@@ -257,7 +257,9 @@ final class AmsgUnifiedPushStore {
             .remove(KEY_POLL_ADOPTED)
             .remove(KEY_POLL_LAST_RUN)
             .remove(KEY_POLL_LAST_ERROR)
-            .remove(KEY_POLL_SEEN)
+            // KEY_POLL_SEEN is kept: it is also the delivery dedupe for the ntfy path
+            // (AmsgUnifiedPushService.onMessage), and syncNativePollMode clears the poll
+            // config on every start while ntfy is active. Bounded by POLL_MAX_SEEN.
             .apply();
     }
 

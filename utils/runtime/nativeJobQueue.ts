@@ -1,5 +1,4 @@
-import { enqueueNativeHttpJob, getNativeJob, type NativeJobRecord } from './nativeRuntime';
-
+import { cancelNativeJob, enqueueNativeHttpJob, getNativeJob, type NativeJobRecord } from './nativeRuntime';
 export interface NativeHttpRequest {
   jobId: string;
   url: string;
@@ -12,8 +11,9 @@ export interface NativeHttpRequest {
   title?: string;
   text?: string;
   meta?: Record<string, unknown>;
+  /** 调用方停止（用户点停止 / 切走取消）时取消原生任务并立即抛 AbortError。 */
+  signal?: AbortSignal | null;
 }
-
 export interface NativeHttpResult {
   jobId: string;
   statusCode: number;
@@ -22,16 +22,41 @@ export interface NativeHttpResult {
   job: NativeJobRecord;
 }
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const abortError = () => new DOMException('Native job aborted', 'AbortError');
+
+/** 可被 signal 打断的等待：轮询间隔里点了停止，不必等满这一拍。 */
+const sleep = (ms: number, signal?: AbortSignal | null) => new Promise<void>((resolve, reject) => {
+  if (signal?.aborted) { reject(abortError()); return; }
+  const onAbort = () => { clearTimeout(timer); reject(abortError()); };
+  const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
+  signal?.addEventListener('abort', onAbort, { once: true });
+});
 
 export async function enqueueAndWaitNativeHttp(request: NativeHttpRequest): Promise<NativeHttpResult> {
-  await enqueueNativeHttpJob(request);
+  const { signal, ...jobInput } = request;
+  if (signal?.aborted) throw abortError();
+  await enqueueNativeHttpJob(jobInput);
+  try {
+    return await waitNativeHttp(request, signal);
+  } catch (error) {
+    // 停止后原生请求还会在后台跑完；不取消的话结果会落盘，被当成可恢复回复。
+    if (signal?.aborted) {
+      try { await cancelNativeJob(request.jobId); } catch { /* best-effort */ }
+      throw abortError();
+    }
+    throw error;
+  }
+}
+
+async function waitNativeHttp(request: NativeHttpRequest, signal?: AbortSignal | null): Promise<NativeHttpResult> {
   const startedAt = Date.now();
   const timeoutMs = Math.max(15_000, request.timeoutMs ?? 120_000);
   let delay = 350;
-
   while (Date.now() - startedAt <= timeoutMs + 5_000) {
+    if (signal?.aborted) throw abortError();
     const job = await getNativeJob(request.jobId);
+    // 轮询返回前点了停止：即使已经完成也不交付。
+    if (signal?.aborted) throw abortError();
     if (!job) throw new Error(`Native job not found: ${request.jobId}`);
     if (job.status === 'completed') {
       return {
@@ -45,7 +70,7 @@ export async function enqueueAndWaitNativeHttp(request: NativeHttpRequest): Prom
     if (job.status === 'failed' || job.status === 'cancelled') {
       throw new Error(job.error || `Native job ${job.status}`);
     }
-    await sleep(delay);
+    await sleep(delay, signal);
     delay = Math.min(1500, Math.round(delay * 1.25));
   }
 

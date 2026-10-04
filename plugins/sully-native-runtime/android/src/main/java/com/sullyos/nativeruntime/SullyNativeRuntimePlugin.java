@@ -1,5 +1,6 @@
 package com.sullyos.nativeruntime;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 
@@ -13,11 +14,37 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.File;
 import java.util.Iterator;
 
 @CapacitorPlugin(name = "SullyNativeRuntime")
 public class SullyNativeRuntimePlugin extends Plugin {
+
+    @Override
+    public void load() {
+        // Cold start from a notification tap: the route rides on the launching Intent.
+        Activity activity = getActivity();
+        if (activity != null) captureLaunchRoute(activity.getIntent());
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        // Warm start (activity already alive): the tap arrives as a new Intent.
+        captureLaunchRoute(intent);
+    }
+
+    /**
+     * Record the destination of a notification the user actually tapped. JS consumes it via
+     * getLaunchRoute() on startup and on every return to the foreground. The extra is removed
+     * so a config change / activity recreation does not replay the same jump.
+     */
+    private void captureLaunchRoute(Intent intent) {
+        if (intent == null) return;
+        String route = intent.getStringExtra(SullyNativeRuntimeService.EXTRA_ROUTE);
+        if (route == null || route.trim().isEmpty()) return;
+        intent.removeExtra(SullyNativeRuntimeService.EXTRA_ROUTE);
+        getContext().getSharedPreferences("sully_native_runtime", Context.MODE_PRIVATE)
+            .edit().putString("launch_route", route).apply();
+    }
 
     // PluginCall.getLong only accepts Long instances, but small JS numbers arrive
     // as Integer through the bridge (durationMs/positionMs), which silently fell
@@ -85,6 +112,9 @@ public class SullyNativeRuntimePlugin extends Plugin {
             long runAt = readLong(call, "runAt", 0L);
             if (runAt > 0L) job.put("runAt", runAt);
             job.put("responseType", call.getString("responseType", "json"));
+            // Per-enqueue identity: lets an in-flight run of an older enqueue under the same
+            // jobId detect that it was cleared/replaced and skip writing stale results.
+            job.put(SullyNativeRuntimeService.ENQUEUE_TOKEN_KEY, SullyNativeRuntimeService.newEnqueueToken());
 
             JSONObject request = new JSONObject();
             request.put("url", url);
@@ -327,9 +357,7 @@ public class SullyNativeRuntimePlugin extends Plugin {
             call.reject("jobId is required");
             return;
         }
-        SullyNativeRuntimeService.cancelAlarm(getContext(), jobId);
-        File f = SullyNativeRuntimeService.jobFile(getContext(), jobId);
-        if (f.exists()) f.delete();
+        SullyNativeRuntimeService.clearJob(getContext(), jobId);
         call.resolve();
     }
 

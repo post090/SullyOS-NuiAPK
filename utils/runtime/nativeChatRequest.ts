@@ -50,6 +50,7 @@ export async function sendNativeChatAttempt(input: {
       body,
       timeoutMs: input.timeoutMs || 120_000,
       responseType: 'json',
+      signal: input.options.signal,
       title: input.meta?.charName ? `${input.meta.charName} 正在回应你` : 'SullyOS 正在生成回复',
       text: input.meta?.purpose || input.meta?.appName || '后台请求处理中',
       meta: input.meta ? {

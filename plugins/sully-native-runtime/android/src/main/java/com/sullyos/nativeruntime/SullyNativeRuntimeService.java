@@ -45,6 +45,16 @@ public class SullyNativeRuntimeService extends Service {
     public static final String ACTION_MUSIC_STOP = "com.sullyos.nativeruntime.MUSIC_STOP";
     public static final String ACTION_MUSIC_ACTION = "com.sullyos.nativeruntime.MUSIC_ACTION";
     public static final String ACTION_ALARM_WAKE = "com.sullyos.nativeruntime.ALARM_WAKE";
+    /** Intent extra carrying the in-app destination of a notification tap. */
+    static final String EXTRA_ROUTE = "sully_route";
+
+    /**
+     * Stable per-route PendingIntent request code. Kept in its own range so it never collides
+     * with the fixed codes used by the persistent (0), call (93091) and music (94091) cards.
+     */
+    private static int routeRequestCode(String route) {
+        return 100_000 + (route.hashCode() & 0xFFFFF);
+    }
 
     private static final String CHANNEL_ID = "sully_native_runtime";
     private static final String CHANNEL_CALL = "sully_call";
@@ -114,7 +124,9 @@ public class SullyNativeRuntimeService extends Service {
                 intent.getStringExtra("tag"),
                 intent.getStringExtra("route")
             );
-            if (manualForeground || callStartedAtMs != 0 || musicActive) {
+            if (manualForeground || callStartedAtMs != 0 || musicActive || RUNNING_JOBS.get() > 0) {
+                // In-flight jobs count too: stopSelf(startId) here would tear down the
+                // foreground service in the middle of a background generation.
                 return START_STICKY;
             }
             stopSelf(startId);
@@ -277,23 +289,7 @@ public class SullyNativeRuntimeService extends Service {
                 intent.getStringExtra("title"),
                 intent.getStringExtra("text")
             );
-            if (!ACTIVE_JOB_IDS.add(jobId)) return START_REDELIVER_INTENT;
-            RUNNING_JOBS.incrementAndGet();
-            EXECUTOR.execute(() -> {
-                long runAt = readJobRunAt(jobId);
-                // Far-future jobs: hand off to AlarmManager instead of parking a worker thread.
-                if (runAt > System.currentTimeMillis() + ALARM_THRESHOLD_MS) {
-                    scheduleExactAlarm(this, jobId, runAt);
-                    ACTIVE_JOB_IDS.remove(jobId);
-                    RUNNING_JOBS.decrementAndGet();
-                    MAIN_HANDLER.post(() -> {
-                        restoreMusicForegroundIfIdle();
-                        maybeStop();
-                    });
-                    return;
-                }
-                runHttpJob(jobId);
-            });
+            dispatchJob(jobId);
             return START_REDELIVER_INTENT;
         }
         if (ACTION_ALARM_WAKE.equals(action)) {
@@ -622,12 +618,47 @@ public class SullyNativeRuntimeService extends Service {
         });
     }
 
+    /**
+     * Run a queued job now, or hand it to AlarmManager when it is far in the future.
+     * Shared by fresh enqueues and by re-dispatching a job that was replaced (same jobId,
+     * new enqueue token) while an older run of it was still in flight.
+     */
+    private void dispatchJob(String jobId) {
+        if (!ACTIVE_JOB_IDS.add(jobId)) return;
+        RUNNING_JOBS.incrementAndGet();
+        EXECUTOR.execute(() -> {
+            long runAt = readJobRunAt(jobId);
+            // Far-future jobs: hand off to AlarmManager instead of parking a worker thread.
+            if (runAt > System.currentTimeMillis() + ALARM_THRESHOLD_MS) {
+                scheduleExactAlarm(this, jobId, runAt);
+                ACTIVE_JOB_IDS.remove(jobId);
+                RUNNING_JOBS.decrementAndGet();
+                MAIN_HANDLER.post(() -> {
+                    restoreMusicForegroundIfIdle();
+                    maybeStop();
+                });
+                return;
+            }
+            runHttpJob(jobId);
+        });
+    }
+
     private void runHttpJob(String jobId) {
+        // Token of the enqueue this run belongs to. Every write below is conditional on the
+        // job file still existing with this token: if JS cleared the job (or replaced it under
+        // the same jobId) mid-flight, this run must not resurrect or overwrite it.
+        String token = null;
         try {
             JSONObject job = readJob(this, jobId);
-            if (job == null) throw new IllegalStateException("job file not found");
+            // Cleared before we started: nothing to do. Do NOT write a "failed" record here —
+            // that recreated the deleted file and made drainNativeTimers fire a cleared timer.
+            if (job == null) return;
+            token = job.optString(ENQUEUE_TOKEN_KEY, "");
+            String status = job.optString("status", "");
+            // Redelivered intents / duplicate wakes must not re-run a finished job.
+            if (!"queued".equals(status) && !"running".equals(status)) return;
             if (CANCELLED.contains(jobId)) {
-                markCancelled(this, jobId);
+                markCancelledIfCurrent(this, jobId, token);
                 return;
             }
             long runAt = job.optLong("runAt", 0L);
@@ -635,16 +666,16 @@ public class SullyNativeRuntimeService extends Service {
                 Thread.sleep(Math.min(runAt - System.currentTimeMillis(), 2_147_000_000L));
             }
             if (CANCELLED.contains(jobId)) {
-                markCancelled(this, jobId);
+                markCancelledIfCurrent(this, jobId, token);
                 return;
             }
             JSONObject request = job.getJSONObject("request");
             updateJobStatus(job, "running", null);
-            writeJob(this, jobId, job);
+            if (!writeJobIfCurrent(this, jobId, token, job)) return;
 
-            HttpResult result = executeRequestWithRetry(jobId, request, job.optInt("timeoutMs", 120000));
+            HttpResult result = executeRequestWithRetry(jobId, token, request, job.optInt("timeoutMs", 120000));
             if (CANCELLED.contains(jobId)) {
-                markCancelled(this, jobId);
+                markCancelledIfCurrent(this, jobId, token);
                 return;
             }
 
@@ -654,24 +685,24 @@ public class SullyNativeRuntimeService extends Service {
             response.put("headers", result.headers);
             response.put("body", result.body);
             done.put("response", response);
-            writeJob(this, jobId, done);
+            writeJobIfCurrent(this, jobId, token, done);
         } catch (Exception e) {
             try {
                 JSONObject job = readJob(this, jobId);
-                JSONObject failed = job == null ? new JSONObject() : baseFinishedJob(job, "failed");
-                long now = System.currentTimeMillis();
-                if (!failed.has("jobId")) failed.put("jobId", jobId);
-                if (!failed.has("createdAt")) failed.put("createdAt", now);
-                failed.put("status", "failed");
-                failed.put("updatedAt", now);
-                failed.put("error", e.getMessage() == null ? String.valueOf(e) : e.getMessage());
-                writeJob(this, jobId, failed);
+                if (job != null) {
+                    JSONObject failed = baseFinishedJob(job, "failed");
+                    failed.put("error", e.getMessage() == null ? String.valueOf(e) : e.getMessage());
+                    writeJobIfCurrent(this, jobId, token, failed);
+                }
             } catch (Exception ignored) {}
         } finally {
             CONNECTIONS.remove(jobId);
             CANCELLED.remove(jobId);
             ACTIVE_JOB_IDS.remove(jobId);
             RUNNING_JOBS.decrementAndGet();
+            // The job may have been re-enqueued under the same jobId while this run was in
+            // flight; that enqueue was dropped by ACTIVE_JOB_IDS, so pick it up now.
+            if (token != null && isReplacedQueuedJob(this, jobId, token)) dispatchJob(jobId);
             // If the job foreground displaced the media notification, restore it once idle.
             restoreMusicForegroundIfIdle();
             maybeStop();
@@ -685,14 +716,17 @@ public class SullyNativeRuntimeService extends Service {
      * 换条新连接几乎必成。后台 job 跑的时候 WebView 已冻结，JS 层的重试不在场，
      * 不在这里补枪的话 job 直接落盘 failed，用户切回前台就看到 [回复处理失败]。
      */
-    private HttpResult executeRequestWithRetry(String jobId, JSONObject request, int timeoutMs) throws Exception {
+    private HttpResult executeRequestWithRetry(String jobId, String token, JSONObject request, int timeoutMs) throws Exception {
         Exception last = null;
         for (int attempt = 0; attempt <= 2; attempt++) {
-            if (CANCELLED.contains(jobId)) break;
+            // A cleared/replaced job disconnects its connection, which surfaces as a
+            // SocketException and would otherwise look "transient" and be re-sent.
+            if (CANCELLED.contains(jobId) || !isCurrentJob(this, jobId, token)) break;
             try {
                 return executeRequest(jobId, request, timeoutMs);
             } catch (Exception e) {
                 last = e;
+                if (CANCELLED.contains(jobId) || !isCurrentJob(this, jobId, token)) throw e;
                 String msg = e.getMessage() == null ? String.valueOf(e) : e.getMessage();
                 String lower = msg.toLowerCase();
                 boolean transient_ = lower.contains("unexpected end of stream")
@@ -796,9 +830,69 @@ public class SullyNativeRuntimeService extends Service {
 
     public static void markCancelled(Context context, String jobId) throws Exception {
         JSONObject job = readJob(context, jobId);
-        if (job == null) job = new JSONObject().put("jobId", jobId).put("createdAt", System.currentTimeMillis());
-        JSONObject cancelled = baseFinishedJob(job, "cancelled");
-        writeJob(context, jobId, cancelled);
+        // Cancelling a job that was already cleared must not recreate its file.
+        if (job == null) return;
+        writeJob(context, jobId, baseFinishedJob(job, "cancelled"));
+    }
+
+    /** Per-enqueue identity stored in the job file; distinguishes reuses of the same jobId. */
+    static final String ENQUEUE_TOKEN_KEY = "enqueueToken";
+
+    static String newEnqueueToken() {
+        return java.util.UUID.randomUUID().toString();
+    }
+
+    /** True when the job file still exists and belongs to the enqueue identified by token. */
+    static synchronized boolean isCurrentJob(Context context, String jobId, String token) {
+        try {
+            JSONObject current = readJob(context, jobId);
+            return current != null && current.optString(ENQUEUE_TOKEN_KEY, "").equals(token == null ? "" : token);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Write only if the job was neither cleared nor replaced since this run read it. */
+    static synchronized boolean writeJobIfCurrent(Context context, String jobId, String token, JSONObject job) throws Exception {
+        if (!isCurrentJob(context, jobId, token)) return false;
+        writeJob(context, jobId, job);
+        return true;
+    }
+
+    static synchronized void markCancelledIfCurrent(Context context, String jobId, String token) {
+        try {
+            JSONObject job = readJob(context, jobId);
+            if (job == null || !job.optString(ENQUEUE_TOKEN_KEY, "").equals(token == null ? "" : token)) return;
+            writeJob(context, jobId, baseFinishedJob(job, "cancelled"));
+        } catch (Exception ignored) {}
+    }
+
+    /** A newer enqueue replaced this jobId while the old run was in flight and still needs to run. */
+    static synchronized boolean isReplacedQueuedJob(Context context, String jobId, String oldToken) {
+        try {
+            JSONObject job = readJob(context, jobId);
+            if (job == null) return false;
+            if (job.optString(ENQUEUE_TOKEN_KEY, "").equals(oldToken)) return false;
+            return "queued".equals(job.optString("status", ""));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Remove a job completely: cancel its alarm, abort an in-flight request and delete the file.
+     * Deliberately does NOT add the jobId to CANCELLED: timer jobIds are reused (clear + re-enqueue
+     * under the same id), and a lingering CANCELLED entry would kill the next enqueue. The in-flight
+     * run notices the missing/replaced file through its enqueue token instead.
+     */
+    static synchronized void clearJob(Context context, String jobId) {
+        cancelAlarm(context, jobId);
+        File f = jobFile(context, jobId);
+        if (f.exists()) f.delete();
+        HttpURLConnection conn = CONNECTIONS.get(jobId);
+        if (conn != null) {
+            try { conn.disconnect(); } catch (Exception ignored) {}
+        }
     }
 
     private void showEventNotification(String title, String body, String tag, String route) {
@@ -914,11 +1008,11 @@ public class SullyNativeRuntimeService extends Service {
         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
         PendingIntent contentIntent = null;
         if (launchIntent != null) {
-            launchIntent.putExtra("sully_route", charIdForRoute != null ? charIdForRoute : "call");
+            // Route is recorded on tap only (see buildNotification); this notification is
+            // rebuilt on every call update / avatar load, so a post-time write would keep
+            // re-arming the call route long after the user stopped caring.
+            launchIntent.putExtra(EXTRA_ROUTE, charIdForRoute != null ? charIdForRoute : "call");
             launchIntent.putExtra("sully_call_resume", true);
-            getSharedPreferences("sully_native_runtime", MODE_PRIVATE).edit()
-                .putString("launch_route", charIdForRoute != null ? charIdForRoute : "call")
-                .apply();
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
             contentIntent = PendingIntent.getActivity(this, 93091, launchIntent, flags);
@@ -1047,7 +1141,7 @@ public class SullyNativeRuntimeService extends Service {
         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
         PendingIntent contentIntent = null;
         if (launchIntent != null) {
-            launchIntent.putExtra("sully_route", "music");
+            launchIntent.putExtra(EXTRA_ROUTE, "music");
             launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
@@ -1133,14 +1227,17 @@ public class SullyNativeRuntimeService extends Service {
         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
         PendingIntent pendingIntent = null;
         if (launchIntent != null) {
-            if (route != null && !route.trim().isEmpty()) {
-                launchIntent.putExtra("sully_route", route);
-                getSharedPreferences("sully_native_runtime", MODE_PRIVATE)
-                    .edit().putString("launch_route", route).apply();
-            }
+            boolean hasRoute = route != null && !route.trim().isEmpty();
+            // The route travels with the tap (Intent extra) and is only recorded when the user
+            // actually opens this notification (SullyNativeRuntimePlugin.captureLaunchRoute).
+            // Writing launch_route here, at post time, made the app jump to the newest event
+            // whenever it came back to the foreground — even without any notification tap.
+            if (hasRoute) launchIntent.putExtra(EXTRA_ROUTE, route);
             int flags = PendingIntent.FLAG_UPDATE_CURRENT;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
-            pendingIntent = PendingIntent.getActivity(this, 0, launchIntent, flags);
+            // One PendingIntent per destination: with a shared request code, FLAG_UPDATE_CURRENT
+            // rewrote the extras of every earlier notification to the newest route.
+            pendingIntent = PendingIntent.getActivity(this, hasRoute ? routeRequestCode(route) : 0, launchIntent, flags);
         }
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
             ? new Notification.Builder(this, CHANNEL_ID)

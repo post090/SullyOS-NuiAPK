@@ -409,8 +409,15 @@ export async function safeFetchJson(
     const automaticRetryLimit = isChatCompletionUrl(urlStr)
         ? 0
         : Math.max(0, Math.floor(Number(maxRetries) || 0));
+    // 循环的真实上限。所有“再来一次”的判断都必须用它而不是入参 maxRetries：
+    // 聊天补全的 automaticRetryLimit 是 0，拿 maxRetries 判断会 continue 出循环，
+    // 结果既没重发，还把真实错误吞成“API请求失败”。
+    let attemptLimit = automaticRetryLimit;
     let lastStatus: number | undefined;
     let graceRetryUsed = false; // 回前台恢复窗口额外补枪：只允许一次，防止无限循环
+    // 采样参数被 400 拒收时摘参重发一次。400 说明上游没生成，不存在重复计费，
+    // 所以聊天补全也允许，但只允许一次。
+    let samplingRetryUsed = false;
 
     // 显式 meta 挂到 RequestInit 给全局 fetch 兜底；同时快照环境标签，避免长响应期间
     // 用户切 App 后被错标。safeFetchJson 与全局拦截器以 requestId 原子去重。
@@ -426,7 +433,7 @@ export async function safeFetchJson(
         ? metaOptions
         : { ...metaOptions, body: resolvedBody as BodyInit };
 
-    for (let attempt = 0; attempt <= automaticRetryLimit; attempt++) {
+    for (let attempt = 0; attempt <= attemptLimit; attempt++) {
         if (meta?.appName === '记忆宫殿') await waitForPalaceRequest(options.signal ?? undefined);
         // 全局 fetch 拦截器和这里的“已解析响应兜底”共享 ID。前者覆盖裸 fetch，
         // 后者不依赖 Response.clone()，避免部分 iOS/WebView 克隆流不结束时漏记。
@@ -476,18 +483,20 @@ export async function safeFetchJson(
                 if (nativeResult.statusCode < 200 || nativeResult.statusCode >= 300) {
                     if (isNativeSamplingError(nativeResult.statusCode, nativeResult.body || '')) {
                         const strippedBody = stripSamplingFromNativeBody(nativeResult.requestBody);
-                        if (strippedBody && strippedBody !== nativeResult.requestBody && attempt < maxRetries) {
+                        if (strippedBody && strippedBody !== nativeResult.requestBody && !samplingRetryUsed) {
+                            samplingRetryUsed = true;
+                            attemptLimit = Math.max(attemptLimit, attempt + 1);
                             markNativeChatFailed(nativeResult.chatJobId, `HTTP ${nativeResult.statusCode}: sampling params retry`);
                             try { (window as any).__sullyRetryNotifier?.('采样参数被模型拒收，已自动摘除重试'); } catch { /* ignore */ }
                             forcedBodyOverride = strippedBody;
                             continue;
                         }
                     }
-                    if (retryableStatuses.has(nativeResult.statusCode) && attempt < maxRetries) {
+                    if (retryableStatuses.has(nativeResult.statusCode) && attempt < attemptLimit) {
                         markNativeChatFailed(nativeResult.chatJobId, `HTTP ${nativeResult.statusCode}: retrying`);
                         const delay = Math.pow(2, attempt) * 1000;
-                        log.warn('Native HTTP retry', { status: nativeResult.statusCode, attempt: attempt + 1, maxRetries, delay });
-                        try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries, reason: `http:${nativeResult.statusCode}`, message: `HTTP ${nativeResult.statusCode}`, delayMs: delay }); } catch { /* ignore */ }
+                        log.warn('Native HTTP retry', { status: nativeResult.statusCode, attempt: attempt + 1, maxRetries: attemptLimit, delay });
+                        try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: attemptLimit, reason: `http:${nativeResult.statusCode}`, message: `HTTP ${nativeResult.statusCode}`, delayMs: delay }); } catch { /* ignore */ }
                         await new Promise(r => setTimeout(r, delay));
                         continue;
                     }
@@ -537,10 +546,10 @@ export async function safeFetchJson(
 
             if (!response.ok) {
                 // For retryable status codes, retry before giving up
-                if (retryableStatuses.has(response.status) && attempt < automaticRetryLimit) {
+                if (retryableStatuses.has(response.status) && attempt < attemptLimit) {
                     const delay = Math.pow(2, attempt) * 1000; // 1s, 2s
-                    log.warn('HTTP retry', { status: response.status, attempt: attempt + 1, maxRetries: automaticRetryLimit, delay });
-                    try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: automaticRetryLimit, reason: `http:${response.status}`, message: `HTTP ${response.status}`, delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
+                    log.warn('HTTP retry', { status: response.status, attempt: attempt + 1, maxRetries: attemptLimit, delay });
+                    try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: attemptLimit, reason: `http:${response.status}`, message: `HTTP ${response.status}`, delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
                     await new Promise(r => setTimeout(r, delay));
                     continue;
                 }
@@ -602,10 +611,10 @@ export async function safeFetchJson(
             const isNativeTransportError = /Native job|NativeRuntime|native.*timeout|Connection refused|Unable to resolve host|timeout|unexpected end of stream|connection reset|connection abort|broken pipe|ssl|handshake|econnreset|epipe|stream.*reset/i.test(e?.message || '');
 
             // Network errors (fetch itself failed) are retryable
-            if ((e?.name === 'TypeError' || isAbort || isNativeTransportError) && attempt < automaticRetryLimit) {
+            if ((e?.name === 'TypeError' || isAbort || isNativeTransportError) && attempt < attemptLimit) {
                 const delay = Math.pow(2, attempt) * 1000;
-                log.warn(isAbort ? 'Timeout/Abort retry' : 'Network error retry', { attempt: attempt + 1, maxRetries: automaticRetryLimit, delay, message: e?.message });
-                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: automaticRetryLimit, reason: isAbort ? 'timeout' : 'network', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
+                log.warn(isAbort ? 'Timeout/Abort retry' : 'Network error retry', { attempt: attempt + 1, maxRetries: attemptLimit, delay, message: e?.message });
+                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: attemptLimit, reason: isAbort ? 'timeout' : 'network', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
                 await new Promise(r => setTimeout(r, delay));
                 continue;
             }
@@ -615,21 +624,22 @@ export async function safeFetchJson(
             // （用户侧表现＝疯狂 Failed to fetch）。这里在常规 maxRetries 用尽后，若
             // 距上次回前台很近（<8s），再补最后一枪并拉长退避，把它推到网络恢复之后。
             const isNetworkish = e?.name === 'TypeError' || isAbort || isNativeTransportError;
-            if (isNetworkish && !graceRetryUsed && attempt === maxRetries && msSinceForeground() < 8_000) {
+            // 聊天补全不进这里：超时/断网不能证明上游没在生成，补枪同样可能重复计费。
+            if (isNetworkish && !graceRetryUsed && !isChatCompletionUrl(urlStr) && attempt === attemptLimit && msSinceForeground() < 8_000) {
                 graceRetryUsed = true;
                 const graceDelay = 2_500;
                 log.warn('Foreground-recovery grace retry', { attempt: attempt + 1, delay: graceDelay, message: e?.message });
-                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: maxRetries + 1, reason: 'network', message: '切回前台网络恢复中，正在重试', delayMs: graceDelay }); } catch { /* 回调异常不拦截重试 */ }
+                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: attemptLimit + 1, reason: 'network', message: '切回前台网络恢复中，正在重试', delayMs: graceDelay }); } catch { /* 回调异常不拦截重试 */ }
                 await new Promise(r => setTimeout(r, graceDelay));
-                maxRetries += 1; // 只加这一枪（graceRetryUsed 已锁，不会再进本块）
+                attemptLimit += 1; // 只加这一枪（graceRetryUsed 已锁，不会再进本块）
                 continue;
             }
 
             // For HTML/parse errors on non-ok responses during retry, continue
-            if (attempt < automaticRetryLimit && e?.message?.includes('API返回了HTML')) {
+            if (attempt < attemptLimit && e?.message?.includes('API返回了HTML')) {
                 const delay = Math.pow(2, attempt) * 1000;
-                log.warn('HTML response retry', { attempt: attempt + 1, maxRetries, delay });
-                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries, reason: 'html', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
+                log.warn('HTML response retry', { attempt: attempt + 1, maxRetries: attemptLimit, delay });
+                try { streamHooks?.onRetry?.({ attempt: attempt + 1, maxRetries: attemptLimit, reason: 'html', message: e?.message || '', delayMs: delay }); } catch { /* 回调异常不拦截重试 */ }
                 await new Promise(r => setTimeout(r, delay));
                 continue;
             }

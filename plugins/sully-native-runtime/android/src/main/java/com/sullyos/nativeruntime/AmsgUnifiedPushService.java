@@ -29,6 +29,8 @@ import java.nio.charset.StandardCharsets;
 public class AmsgUnifiedPushService extends PushService {
     static final String CHANNEL_ID = "amsg2";
     static final String EXTRA_PAYLOAD = "amsg_unified_push_payload";
+    /** Group used only to silence individual notifications (see maybeShowNotification). */
+    private static final String SILENT_GROUP = "amsg2_silent";
 
     @Override
     public void onNewEndpoint(PushEndpoint endpoint, String instance) {
@@ -79,6 +81,12 @@ public class AmsgUnifiedPushService extends PushService {
         }
 
         long receivedAt = System.currentTimeMillis();
+        // Same delivery twice (distributor redelivery, or ntfy + the poll fallback both
+        // catching it): the JS inbox dedupes by messageId, but the system notification is
+        // posted here, before JS ever sees the payload, so it must be gated natively too.
+        // The SW path gets the same guarantee from amsg-sw's delivery dedupe.
+        String messageId = payload.optString("messageId", "");
+        if (!messageId.isEmpty() && !AmsgUnifiedPushStore.rememberPollSeen(ctx, messageId)) return;
         boolean visible = AmsgUnifiedPushPlugin.isAppVisible();
         maybeShowNotification(ctx, payload, raw, visible);
         if (!AmsgUnifiedPushPlugin.emitPushReceived(raw)) {
@@ -168,6 +176,9 @@ public class AmsgUnifiedPushService extends PushService {
             Boolean.TRUE.equals(notification.opt("silent"))
                 || ("when-visible".equals(notification.opt("silent")) && visible)
         );
+        boolean renotify = notification != null
+            ? notification.optBoolean("renotify", payload.optBoolean("renotify", false))
+            : payload.optBoolean("renotify", false);
 
         NotificationManager manager = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
@@ -197,10 +208,27 @@ public class AmsgUnifiedPushService extends PushService {
             .setContentIntent(contentIntent);
         if (silent) {
             builder.setOnlyAlertOnce(true);
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) builder.setSound(null).setVibrate(null);
-        } else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            builder.setDefaults(Notification.DEFAULT_ALL);
-            builder.setPriority(Notification.PRIORITY_HIGH);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                // On O+ sound/vibration belong to the channel, and setOnlyAlertOnce only
+                // quiets *updates* — a fresh post on this IMPORTANCE_HIGH channel still rings.
+                // A group child with GROUP_ALERT_SUMMARY never alerts, which is how
+                // NotificationCompat implements setSilent(). Mirrors the SW honouring
+                // silent / 'when-visible' (user is looking at the chat: no ring).
+                builder.setGroup(SILENT_GROUP);
+                builder.setGroupAlertBehavior(Notification.GROUP_ALERT_SUMMARY);
+            } else {
+                builder.setSound(null).setVibrate(null);
+            }
+        } else {
+            // Web Notification semantics, which the Worker payload is written against: replacing
+            // a same-tag notification is quiet unless `renotify` is set. The Worker marks only
+            // the first segment of a reply with renotify, so a multi-part reply rings once.
+            // A brand-new notification always alerts regardless of this flag.
+            builder.setOnlyAlertOnce(!renotify);
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                builder.setDefaults(Notification.DEFAULT_ALL);
+                builder.setPriority(Notification.PRIORITY_HIGH);
+            }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             builder.setCategory(Notification.CATEGORY_MESSAGE);
