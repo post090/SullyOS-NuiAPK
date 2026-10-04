@@ -32,6 +32,8 @@ interface ApiConnectionPickerProps {
     /** follow 项的小字说明（一般填当前主 API 的 model · host） */
     followSub?: string;
     compact?: boolean;
+    /** 深色界面（如彼方）用 'dark'；默认浅色 */
+    tone?: 'light' | 'dark';
     /** 底部指路小字，默认提示去系统设置管理站点；传 null 隐藏 */
     hint?: string | null;
 }
@@ -39,8 +41,10 @@ interface ApiConnectionPickerProps {
 const FOLLOW = '__follow__';
 
 const ApiConnectionPicker: React.FC<ApiConnectionPickerProps> = ({
-    value, onChange, followLabel, followSub, compact, hint,
+    value, onChange, followLabel, followSub, compact, hint, tone = 'light',
 }) => {
+    const dark = tone === 'dark';
+    const labelClass = `text-[9px] font-bold uppercase tracking-widest pl-1 mb-1 block ${dark ? 'text-indigo-200/55' : 'text-slate-400'}`;
     const { apiPresets } = useOS();
     const stations = React.useMemo(() => deriveStations(apiPresets), [apiPresets]);
 
@@ -76,9 +80,10 @@ const ApiConnectionPicker: React.FC<ApiConnectionPickerProps> = ({
     return (
         <div className="space-y-2">
             <div>
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-1 mb-1 block">API 站</label>
+                <label className={labelClass}>API 站</label>
                 <GlassSelect
                     compact={compact}
+                    tone={tone}
                     value={stationValue}
                     placeholder={isLegacy ? '自定义遗留配置（换选即覆盖）' : '— 选择站点 —'}
                     options={stationOptions}
@@ -86,9 +91,10 @@ const ApiConnectionPicker: React.FC<ApiConnectionPickerProps> = ({
                 />
             </div>
             <div>
-                <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest pl-1 mb-1 block">模型</label>
+                <label className={labelClass}>模型</label>
                 <GlassSelect
                     compact={compact}
+                    tone={tone}
                     disabled={!activeStation}
                     value={activeStation?.models.find(m => m.model === value?.model)?.presetId || ''}
                     placeholder={isLegacy ? (value?.model || '—') : '— 选择模型 —'}
@@ -99,12 +105,12 @@ const ApiConnectionPicker: React.FC<ApiConnectionPickerProps> = ({
                 />
             </div>
             {isLegacy && (
-                <p className="text-[10px] text-amber-500/90 leading-relaxed px-1">
+                <p className={`text-[10px] leading-relaxed px-1 ${dark ? 'text-amber-300/70' : 'text-amber-500/90'}`}>
                     当前是旧版手填的配置（{value?.model || '未知模型'}），仍正常生效；从上面选择站点后会替换它。
                 </p>
             )}
             {hint !== null && (
-                <p className="text-[10px] text-slate-400 leading-relaxed px-1">
+                <p className={`text-[10px] leading-relaxed px-1 ${dark ? 'text-white/35' : 'text-slate-400'}`}>
                     {hint || '站点与模型的添加、编辑在 系统设置 → API 配置 里统一管理。'}
                 </p>
             )}

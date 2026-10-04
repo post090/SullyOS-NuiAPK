@@ -4088,6 +4088,7 @@ const VRApiSettings: React.FC<{ apiPresets: ApiPreset[]; chatApi: APIConfig; add
                     value={follow ? null : { baseUrl: vrApi!.baseUrl, apiKey: vrApi!.apiKey, model: vrApi!.model }}
                     onChange={pick}
                     followLabel="跟随角色设置"
+                    tone="dark"
                     followSub={`${chatApi?.model || '未配置'} · ${host(chatApi?.baseUrl)}`}
                 />
             </div>

@@ -1813,6 +1813,8 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger, charId?: string): Pro
           body: message.previewBody || message.body,
           avatarUrl: message.avatarUrl,
           sentAt: eventSentAt,
+          // 同一轮回复会拆成多条 push，各派发一次；带上轮次标识，界面据此合并提示。
+          roundKey: message.taskUuid || getInstantSessionId(message) || undefined,
         },
       }));
       activeMsgTrace('runtime-active-msg-received-dispatched', {

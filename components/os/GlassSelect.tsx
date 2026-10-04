@@ -24,6 +24,8 @@ interface GlassSelectProps {
     placeholder?: string;
     disabled?: boolean;
     compact?: boolean;  // 悬浮球面板用的小号样式
+    /** 深色界面（如彼方）用的配色；默认浅色，其余调用方不受影响 */
+    tone?: 'light' | 'dark';
 }
 
 /** 弹层与按钮的间距 / 距视口边缘的安全距离 / 高度上限 */
@@ -39,7 +41,8 @@ interface MenuPos {
     maxHeight: number;
 }
 
-const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, placeholder = '请选择…', disabled, compact }) => {
+const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, placeholder = '请选择…', disabled, compact, tone = 'light' }) => {
+    const dark = tone === 'dark';
     const [open, setOpen] = useState(false);
     const [pos, setPos] = useState<MenuPos | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
@@ -98,16 +101,18 @@ const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, pla
                 disabled={disabled}
                 onClick={() => setOpen(v => !v)}
                 className={`w-full flex items-center justify-between gap-2 text-left transition-all active:scale-[0.99] disabled:opacity-40 ${
-                    compact
-                        ? 'bg-slate-100/80 rounded-xl px-3 py-2.5 text-sm'
-                        : 'bg-white/50 border border-slate-200/60 rounded-xl px-4 py-3 text-sm shadow-sm'
+                    dark
+                        ? `bg-white/[0.045] border border-white/10 rounded-xl text-sm ${compact ? 'px-3 py-2.5' : 'px-4 py-3'}`
+                        : compact
+                            ? 'bg-slate-100/80 rounded-xl px-3 py-2.5 text-sm'
+                            : 'bg-white/50 border border-slate-200/60 rounded-xl px-4 py-3 text-sm shadow-sm'
                 }`}
             >
-                <span className={`min-w-0 flex-1 truncate font-medium ${selected ? 'text-slate-700' : 'text-slate-400'}`}>
+                <span className={`min-w-0 flex-1 truncate font-medium ${dark ? (selected ? 'text-white/90' : 'text-white/40') : (selected ? 'text-slate-700' : 'text-slate-400')}`}>
                     {selected ? selected.label : placeholder}
                 </span>
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-                    className={`w-4 h-4 text-slate-400 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}>
+                    className={`w-4 h-4 shrink-0 transition-transform ${dark ? 'text-indigo-200/60' : 'text-slate-400'} ${open ? 'rotate-180' : ''}`}>
                     <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
                 </svg>
             </button>
@@ -115,12 +120,14 @@ const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, pla
             {open && pos && createPortal(
                 <div
                     ref={menuRef}
-                    className="fixed z-[300] rounded-2xl bg-white/95 backdrop-blur-xl shadow-xl border border-slate-200/60 py-1.5 overflow-hidden animate-[fadeIn_120ms_ease-out]"
+                    className={`fixed z-[300] rounded-2xl backdrop-blur-xl shadow-xl py-1.5 overflow-hidden animate-[fadeIn_120ms_ease-out] ${
+                        dark ? 'bg-[#1b2236]/95 border border-white/10' : 'bg-white/95 border border-slate-200/60'
+                    }`}
                     style={{ left: pos.left, width: pos.width, top: pos.top, bottom: pos.bottom }}
                 >
                     <div className="overflow-y-auto no-scrollbar overscroll-contain" style={{ maxHeight: pos.maxHeight }}>
                         {options.length === 0 && (
-                            <p className="text-[11px] text-slate-400 text-center py-4">暂无可选项</p>
+                            <p className={`text-[11px] text-center py-4 ${dark ? 'text-white/35' : 'text-slate-400'}`}>暂无可选项</p>
                         )}
                         {options.map(o => {
                             const isSel = o.value === value;
@@ -130,14 +137,14 @@ const GlassSelect: React.FC<GlassSelectProps> = ({ value, options, onChange, pla
                                     type="button"
                                     onClick={() => { onChange(o.value); setOpen(false); }}
                                     className={`w-full text-left px-3.5 py-2.5 flex items-center gap-2 transition-colors ${
-                                        isSel ? 'bg-primary/10' : 'active:bg-slate-100'
+                                        dark ? (isSel ? 'bg-indigo-300/15' : 'active:bg-white/10') : (isSel ? 'bg-primary/10' : 'active:bg-slate-100')
                                     }`}
                                 >
                                     <span className="min-w-0 flex-1">
-                                        <span className={`block text-sm truncate ${isSel ? 'font-bold text-primary' : 'font-medium text-slate-600'}`}>{o.label}</span>
-                                        {o.sub && <span className="block text-[10px] text-slate-400 font-mono truncate">{o.sub}</span>}
+                                        <span className={`block text-sm truncate ${dark ? (isSel ? 'font-bold text-indigo-100' : 'font-medium text-white/75') : (isSel ? 'font-bold text-primary' : 'font-medium text-slate-600')}`}>{o.label}</span>
+                                        {o.sub && <span className={`block text-[10px] font-mono truncate ${dark ? 'text-white/40' : 'text-slate-400'}`}>{o.sub}</span>}
                                     </span>
-                                    {isSel && <span className="w-1.5 h-1.5 rounded-full bg-primary shrink-0" />}
+                                    {isSel && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dark ? 'bg-indigo-200' : 'bg-primary'}`} />}
                                 </button>
                             );
                         })}

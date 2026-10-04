@@ -2525,17 +2525,29 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   // Registered at OS level so it works even when Chat is not open.
   useEffect(() => {
       let awayActiveMsgCount = 0;
+      // 一轮回复拆成多段时每段都会派发一次，按 roundKey 只提示一次；未读仍逐条累加。
+      const toastedRounds = new Map<string, number>();
+      const isRepeatRound = (charId: string, roundKey?: string) => {
+          if (!roundKey) return false;
+          const key = `${charId}|${roundKey}`;
+          const now = Date.now();
+          for (const [k, at] of toastedRounds) if (now - at > 10 * 60_000) toastedRounds.delete(k);
+          if (toastedRounds.has(key)) return true;
+          toastedRounds.set(key, now);
+          return false;
+      };
 
       const handler = (e: Event) => {
-          const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
+          const { charId, charName, body, roundKey } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string; roundKey?: string };
           setLastMsgTimestamp(Date.now());
 
           const isChattingWithThisChar = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId;
           if (!isChattingWithThisChar) {
               const isVisible = document.visibilityState === 'visible';
+              const repeatRound = isRepeatRound(charId, roundKey);
               if (isVisible) {
-                  addToast(`${charName} 给你发了消息`, 'success');
-              } else {
+                  if (!repeatRound) addToast(`${charName} 给你发了消息`, 'success');
+              } else if (!repeatRound) {
                   awayActiveMsgCount += 1;
               }
               setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
