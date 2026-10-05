@@ -3,7 +3,7 @@ import { CharacterProfile, DailySchedule, ScheduleSlot } from '../../types';
 import ScheduleCard, { REVISION_SOURCE_ICON, revisionsForSlot } from './ScheduleCard';
 import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
 import { useOS } from '../../context/OSContext';
-import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
+import { resolveScheduleCardPalette, resolveScheduleHue } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
 import TokenImg from '../os/TokenImg';
 import { useBlobRefUrl } from '../../utils/blobRef';
@@ -43,7 +43,7 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
 
     const palette = resolveScheduleCardPalette(
         theme.scheduleCardAppearance,
-        theme.hue ?? 260,
+        resolveScheduleHue(character, theme.hue ?? 260),
         inheritedContentColor,
     );
     const contentColor = palette.text;
@@ -197,7 +197,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
 
     const palette = resolveScheduleCardPalette(
         theme.scheduleCardAppearance,
-        theme.hue ?? 260,
+        resolveScheduleHue(character, theme.hue ?? 260),
         inheritedContentColor,
     );
     const effectivePaper = paper && palette.isOriginal;

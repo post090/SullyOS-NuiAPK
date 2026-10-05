@@ -260,6 +260,11 @@
         transition: max-height 0.2s ease-out, opacity 0.2s ease-out, padding 0.2s ease-out;
         max-height: 420px;
       }
+      /* 进 App 时桌面层立刻隐藏：子元素若带 transition-all（日程进度条、美化 CSS 等），
+         visibility 会被拖到过渡结束才变隐藏，看起来像组件慢半拍。隐藏瞬间关掉过渡。 */
+      .sully-launcher-hidden, .sully-launcher-hidden * {
+        transition: none !important;
+      }
       body.ios-keyboard-open .sully-call-hero {
         max-height: 0;
         opacity: 0;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Question } from '@phosphor-icons/react';
-import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
+import { AUTO_REPLY_SECONDS_MAX, AUTO_REPLY_SECONDS_MIN, normalizeAutoReplySeconds, type ChatInputPreferences } from '../../utils/chatInputPreferences';
 
 interface ChatInputSettingsProps {
     value: ChatInputPreferences;
@@ -27,7 +27,9 @@ const ChatInputSettings: React.FC<ChatInputSettingsProps> = ({ value, onChange, 
                 {
                     key: 'autoReply',
                     label: '发完后自动生成回复',
-                    help: '发过文字、图片或表情后，等输入框没有草稿和光标、加号等底部面板全部收起，再等 2 秒让对方回复。继续输入、打开面板或发送新消息，就重新等待。倒计时可以取消。' + (scope === 'group' ? '群聊沿用本群的导演或轮询模式；退出群聊会取消等待。' : ''),
+                    help: '发过文字、图片或表情后，等输入框没有草稿和光标、加号等底部面板全部收起，再等设定的秒数让对方回复。继续输入、打开面板或发送新消息，就重新等待。倒计时可以取消。' + (scope === 'group'
+                        ? '群聊沿用本群的导演或轮询模式；退出群聊会取消等待。'
+                        : '私聊里发完就离开（回桌面、切到别的 App 或锁屏）也会照常回复，回复会以通知提醒；输入框留着草稿时不会代你触发。'),
                 },
                 {
                     key: 'emojiSuggestions',
@@ -66,6 +68,27 @@ const ChatInputSettings: React.FC<ChatInputSettingsProps> = ({ value, onChange, 
                         </button>
                     </div>
                     <p id={`chat-input-help-${key}`} hidden={openHelp !== key} className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">{help}</p>
+                    {key === 'autoReply' && value.autoReply && (
+                        <label className="mb-1 ml-3 flex min-h-11 items-center justify-between gap-3 text-xs text-slate-500">
+                            <span>等待秒数（{AUTO_REPLY_SECONDS_MIN}–{AUTO_REPLY_SECONDS_MAX}）</span>
+                            <input
+                                type="number"
+                                inputMode="numeric"
+                                min={AUTO_REPLY_SECONDS_MIN}
+                                max={AUTO_REPLY_SECONDS_MAX}
+                                step={1}
+                                aria-label="自动回复等待秒数"
+                                defaultValue={value.autoReplySeconds}
+                                key={value.autoReplySeconds}
+                                onBlur={event => {
+                                    const next = normalizeAutoReplySeconds(event.target.value);
+                                    event.target.value = String(next);
+                                    if (next !== value.autoReplySeconds) onChange({ ...value, autoReplySeconds: next });
+                                }}
+                                className="h-9 w-20 rounded-lg border border-slate-200 bg-white px-2 text-right text-xs font-bold text-slate-700 outline-none focus:border-primary"
+                            />
+                        </label>
+                    )}
                 </div>
             ))}
         </div>

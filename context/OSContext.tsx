@@ -110,12 +110,16 @@ import { assertSupportedSullyBackup } from '../utils/backupImportPolicy';
 import { getRestorableActiveApp, getRestorableActiveCharacterId, getRestorableSuspendedCall, patchRuntimeSnapshot } from '../utils/runtime/runtimeState';
 import { recoverNativeChatJobs } from '../utils/runtime/recovery';
 import { getNativeLaunchRoute, getPersistentNativeRuntimeUserEnabled, isNativeRuntimePlatform, startPersistentNativeRuntime } from '../utils/runtime/nativeRuntime';
+import { AUTO_REPLY_FIRE_EVENT, fireBackgroundAutoReply, resumeBackgroundAutoReplies } from '../utils/backgroundAutoReply';
+import { isChatReplyActive } from '../utils/chatReplyLock';
 import { notifyRoleEvent } from '../utils/runtime/roleEventNotification';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
 
 interface ProactiveQueueEntry {
   charId: string;
+  /** 'autoreply'：用户发完消息离开聊天后，后台代为生成回复（不走主动消息的闸门）。 */
+  mode?: 'autoreply';
 }
 
 const normalizeProactiveAiContent = (raw: string): string => {
@@ -1165,6 +1169,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         // try to run proactive by firing the scheduler's overdue check: set lastFire to 0 to force trigger
         // or just call the global handler via custom event 'proactive-native-wake'.
         window.dispatchEvent(new CustomEvent('proactive-native-wake', { detail: { charId: detail.charId } }));
+      } else if (kind === 'autoreply' && detail.charId) {
+        fireBackgroundAutoReply(detail.charId);
       } else if (kind === 'vr' && detail.charId) {
         window.dispatchEvent(new CustomEvent('vr-native-wake', { detail: { charId: detail.charId } }));
       } else if (kind === 'world' && detail.worldId) {
@@ -2466,7 +2472,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       let awayProactiveCount = 0;
 
       const handler = (e: Event) => {
-          const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
+          const { charId, charName, body, kind } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string; kind?: string };
           // Only mark unread if user is NOT currently viewing this character's chat
           // Always bump timestamp so Chat reloads messages if currently open
           setLastMsgTimestamp(Date.now());
@@ -2475,7 +2481,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (!isChattingWithThisChar) {
               const isVisible = document.visibilityState === 'visible';
               if (isVisible) {
-                  addToast(`${charName} 主动发来了消息`, 'success');
+                  addToast(kind === 'autoreply' ? `${charName} 回复了你` : `${charName} 主动发来了消息`, 'success');
               } else {
                   awayProactiveCount += 1;
               }
@@ -2795,15 +2801,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const drainQueuedProactive = () => {
           const next = proactiveQueueRef.current.shift();
           if (next) {
-              void runProactive(next.charId);
+              void runProactive(next.charId, next.mode);
           }
       };
 
-      const runProactive = async (charId: string) => {
+      const runProactive = async (charId: string, mode?: 'autoreply') => {
+          const isAutoReply = mode === 'autoreply';
           if (proactiveRunningRef.current) {
-              const queuedIndex = proactiveQueueRef.current.findIndex(item => item.charId === charId);
+              const queuedIndex = proactiveQueueRef.current.findIndex(item => item.charId === charId && item.mode === mode);
               if (queuedIndex < 0) {
-                  proactiveQueueRef.current.push({ charId });
+                  proactiveQueueRef.current.push({ charId, mode });
               }
               return;
           }
@@ -2821,7 +2828,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               return;
           }
 
-          if (char.proactiveConfig && !char.proactiveConfig.enabled) {
+          if (!isAutoReply && char.proactiveConfig && !char.proactiveConfig.enabled) {
               drainQueuedProactive();
               console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: disabled`);
               return;
@@ -2844,6 +2851,21 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               drainQueuedProactive();
               console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: 正在通话 (CallApp active)`);
               return;
+          }
+          // 自动回复：只在「最后一条真实消息是用户发的」且没有别的回复在跑时才生成，
+          // 避免用户回来后手动回复过、或聊天页已经在生成时重复回一遍。
+          if (isAutoReply) {
+              if (isChatReplyActive(charId)) {
+                  drainQueuedProactive();
+                  return;
+              }
+              const tail = (await DB.getRecentMessagesByCharId(charId, 20))
+                  .filter(m => (m.role === 'user' || m.role === 'assistant') && !m.metadata?.proactiveHint);
+              if (tail[tail.length - 1]?.role !== 'user') {
+                  drainQueuedProactive();
+                  console.log(`🔕 [AutoReply/Global] Skipped for ${char.name}: 已经回复过`);
+                  return;
+              }
           }
 
           // ─── 主动消息决策链（间隔闸 + 节制闸 + 睡眠 + 思念值保底 + 概率 roll）─────
@@ -2869,7 +2891,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 间隔闸：用户在间隔内有联系→skip（间隔=用户多久没联系才找）。睡眠窗口在后面作为硬闸再次检查。
           const currentMissCountPre = getMissCount(charId);
           const missSaturatedPre = currentMissCountPre >= MISS_THRESHOLD;
-          if (!missSaturatedPre && sinceUserContact < intervalMs) {
+          if (!isAutoReply && !missSaturatedPre && sinceUserContact < intervalMs) {
               drainQueuedProactive();
               console.log(`🔇 [Proactive/Global] 间隔闸 skip for ${char.name}: 用户 ${Math.round(sinceUserContact/60000)}min 前刚联系过，间隔 ${Math.round(intervalMs/60000)}min 未满`);
               return;
@@ -2878,7 +2900,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 节制闸：用户没回应反复找，找满 maxAttempts 次用户仍没回→停止
           // 判断"用户没回应"= 用户上次联系时间 < 上次主动消息发出时间（即主动消息发出后用户没回）
           const noResponseCount = getNoResponseCount(charId);
-          if (maxAttempts > 0 && noResponseCount >= maxAttempts) {
+          if (!isAutoReply && maxAttempts > 0 && noResponseCount >= maxAttempts) {
               // 再确认用户确实没回（用户回了会在 sendMessage 里清零 noResponseCount，这里双保险）
               drainQueuedProactive();
               console.log(`🛑 [Proactive/Global] 节制闸 stop for ${char.name}: 已找 ${noResponseCount}/${maxAttempts} 次用户未回应，停止直到用户再说话`);
@@ -2892,14 +2914,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const currentMissCount = getMissCount(charId);
           const missSaturated = currentMissCount >= MISS_THRESHOLD;
 
-          if (shouldSkipProactiveForSleep({ now: new Date(), sleepStart, sleepEnd, missCount: currentMissCount })) {
+          if (!isAutoReply && shouldSkipProactiveForSleep({ now: new Date(), sleepStart, sleepEnd, missCount: currentMissCount })) {
               // 在睡眠窗口内且思念值没满 → 静默 skip，不攒思念（她在睡觉）
               drainQueuedProactive();
               console.log(`🔇 [Proactive/Global] Skipped for ${char.name}: 睡眠窗口 ${sleepStart}-${sleepEnd}, miss=${currentMissCount}`);
               return;
           }
 
-          if (missSaturated) {
+          if (isAutoReply) {
+              // 自动回复：用户刚发过消息，直接回，不走概率与思念值
+          } else if (missSaturated) {
               // 思念值保底触发：强制发消息（即便在睡眠窗口内 — 思念优先）
               console.log(`💖 [Proactive/Global] 思念值保底触发 for ${char.name}: miss=${currentMissCount}/${MISS_THRESHOLD}${inSleepWindow ? ' (无视睡眠窗口)' : ''}`);
               // 走到下面的正常发送流程；发完会在 dispatchEvent 后 resetMissCount
@@ -2918,7 +2942,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
           // Determine which API to use
           const pCfg = char.proactiveConfig;
-          const useSecondary = pCfg?.useSecondaryApi && pCfg.secondaryApi?.baseUrl;
+          // 自动回复是正常对话，用主 API；副 API 只给主动消息用
+          const useSecondary = !isAutoReply && pCfg?.useSecondaryApi && pCfg.secondaryApi?.baseUrl;
           // 副 API > 角色独立主 API（加号菜单「API 配置」）> 全局 apiConfig
           const charMainApi = char.chatApiOverride?.baseUrl ? char.chatApiOverride : null;
           const api = useSecondary ? pCfg!.secondaryApi! : (charMainApi || currentApiConfig);
@@ -2977,7 +3002,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   })
                   : defaultHint;
 
-              await DB.saveMessage({
+              if (!isAutoReply) await DB.saveMessage({
                   charId,
                   role: 'user',
                   type: 'text',
@@ -3066,7 +3091,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
                   method: 'POST', headers,
                   body: JSON.stringify(reqBody)
-              }, 2, 0, { appName: '消息', charId, charName: char.name, purpose: '主动消息' });
+              }, 2, 0, { appName: '消息', charId, charName: char.name, purpose: isAutoReply ? '自动回复' : '主动消息' });
 
               // 5. Process & save response
               let aiContent = data.choices?.[0]?.message?.content || '';
@@ -3283,13 +3308,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
                   // 6. Notify OS for unread badge + toast
                   window.dispatchEvent(new CustomEvent('proactive-message-sent', {
-                      detail: { charId, charName: char.name, body: preview }
+                      detail: { charId, charName: char.name, body: preview, kind: isAutoReply ? 'autoreply' : 'proactive' }
                   }));
                   // 7. 主动消息真的发出去了 → 清零思念值（保底/roll 成功都算"已发"）
-                  resetMissCount(charId);
+                  if (!isAutoReply) resetMissCount(charId);
                   // 节制模式：无回应计数 +1（用户回消息时会在 sendMessage 里清零）
-                  const newNoResp = incrementNoResponseCount(charId);
-                  if (maxAttempts > 0) {
+                  const newNoResp = isAutoReply ? 0 : incrementNoResponseCount(charId);
+                  if (!isAutoReply && maxAttempts > 0) {
                       console.log(`📊 [Proactive/Global] 无回应计数 for ${char.name}: ${newNoResp}/${maxAttempts}`);
                   }
               }
@@ -3474,6 +3499,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         if (worldId) void runWorld(worldId, 'tick');
       };
       window.addEventListener('proactive-native-wake', onProactiveNativeWake as EventListener);
+      // 离开聊天后的自动回复：到点由 backgroundAutoReply 派发；启动时把没执行的重新挂上
+      const onAutoReplyFire = (e: Event) => {
+        const charId = (e as CustomEvent).detail?.charId;
+        if (charId) void runProactive(charId, 'autoreply');
+      };
+      window.addEventListener(AUTO_REPLY_FIRE_EVENT, onAutoReplyFire as EventListener);
+      resumeBackgroundAutoReplies();
       window.addEventListener('vr-native-wake', onVrNativeWake as EventListener);
       window.addEventListener('world-native-wake', onWorldNativeWake as EventListener);
 
@@ -3495,6 +3527,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           WorldScheduler.onTrigger(() => {});
           window.removeEventListener('world-reroll-request', onRerollRequest as EventListener);
           window.removeEventListener('proactive-native-wake', onProactiveNativeWake as EventListener);
+          window.removeEventListener(AUTO_REPLY_FIRE_EVENT, onAutoReplyFire as EventListener);
           window.removeEventListener('vr-native-wake', onVrNativeWake as EventListener);
           window.removeEventListener('world-native-wake', onWorldNativeWake as EventListener);
       };

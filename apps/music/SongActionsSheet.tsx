@@ -33,6 +33,8 @@ interface NeteasePl {
   name: string;
   trackCount: number;
   coverImgUrl: string;
+  /** 网易云 specialType=5 是「我喜欢的音乐」 */
+  liked: boolean;
 }
 
 const MenuRow: React.FC<{
@@ -57,7 +59,7 @@ const MenuRow: React.FC<{
 
 const SongActionsSheet: React.FC<Props> = ({ song, onClose, onOpenComments, onOpenArtist, onOpenAlbum }) => {
   const { characters, updateCharacter, addToast } = useOS();
-  const { cfg, queue, setQueue, idx, profile } = useMusic();
+  const { cfg, queue, setQueue, idx, profile, setSongLiked } = useMusic();
 
   const [stage, setStage] = useState<Stage>('main');
   const [collectMode, setCollectMode] = useState<'char' | 'netease'>('char');
@@ -139,6 +141,7 @@ const SongActionsSheet: React.FC<Props> = ({ song, onClose, onOpenComments, onOp
         .map((p: any) => ({
           id: p.id, name: p.name, trackCount: p.trackCount || 0,
           coverImgUrl: toHttps(p.coverImgUrl || p.picUrl || ''),
+          liked: p.specialType === 5,
         }));
       setNeteasePls(list);
       if (list.length === 0) addToast('没有可以收藏的自建歌单', 'info');
@@ -148,10 +151,16 @@ const SongActionsSheet: React.FC<Props> = ({ song, onClose, onOpenComments, onOp
       setPlLoading(false);
     }
   };
-  const collectToNetease = async (plId: number) => {
+  const collectToNetease = async (pl: NeteasePl) => {
+    // 「我喜欢的音乐」走喜欢接口：歌单加歌接口对它经常不生效，红心状态也不会同步
+    if (pl.liked) {
+      if (await setSongLiked(song.id, true)) addToast('已添加到「我喜欢的音乐」', 'success');
+      onClose();
+      return;
+    }
     try {
-      await musicApi.playlistAdd(cfg, plId, [song.id]);
-      addToast('已收藏到网易云歌单', 'success');
+      await musicApi.playlistAdd(cfg, pl.id, [song.id]);
+      addToast(`已收藏到「${pl.name}」`, 'success');
     } catch (e: any) {
       addToast(`收藏失败：${e.message || '未知错误'}`, 'error');
     }
@@ -355,7 +364,7 @@ const SongActionsSheet: React.FC<Props> = ({ song, onClose, onOpenComments, onOp
                   {(neteasePls || []).map(pl => (
                     <div key={pl.id} className="rounded-2xl shizuku-glass overflow-hidden">
                       <button
-                        onClick={() => collectToNetease(pl.id)}
+                        onClick={() => collectToNetease(pl)}
                         className="w-full flex items-center gap-3 p-2.5 text-left active:scale-[0.99] transition-transform"
                       >
                         {pl.coverImgUrl ? (

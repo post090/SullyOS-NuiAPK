@@ -72,6 +72,7 @@ import ChatSearchModal from '../components/chat/ChatSearchModal';
 import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
 import { useChatAI } from '../hooks/useChatAI';
 import { useChatAutoReply } from '../hooks/useChatAutoReply';
+import { cancelBackgroundAutoReply, hasBackgroundAutoReply, scheduleBackgroundAutoReply } from '../utils/backgroundAutoReply';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
 import {
@@ -1842,6 +1843,7 @@ const Chat: React.FC = () => {
     // 顶栏 ⚡ 手动触发（也是「发完后自动生成」到点时调的那一下）。
     const handleManualTrigger = () => {
         autoReply.cancel();
+        if (char) cancelBackgroundAutoReply(char.id);
         if (isTyping || instantChatPending) {
             stopReplyRuns(char.id);
             void stopInstantChat(char.id).catch(error => {
@@ -3735,7 +3737,26 @@ const Chat: React.FC = () => {
             || mcdAppOpen || luckinAppOpen || showForwardModal,
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
+        delayMs: inputPreferences.autoReplySeconds * 1000,
+        // 发完就离开（切走、回桌面、退到后台）：交给全局后台到点回复
+        onHandoff: id => scheduleBackgroundAutoReply(id, inputPreferences.autoReplySeconds * 1000),
+        holdHandoff: !!input.trim(),
+        onSendStart: cancelBackgroundAutoReply,
     });
+    // 回到聊天时，后台还没回的那一份收回页面，按页面规则（草稿、面板）重新倒计时
+    useEffect(() => {
+        if (activeApp !== AppID.Chat || !activeCharacterId) return;
+        const reclaim = () => {
+            if (document.hidden || !hasBackgroundAutoReply(activeCharacterId)) return;
+            cancelBackgroundAutoReply(activeCharacterId);
+            autoReply.resume();
+        };
+        reclaim();
+        const onVisible = () => { if (!document.hidden) reclaim(); };
+        document.addEventListener('visibilitychange', onVisible);
+        return () => document.removeEventListener('visibilitychange', onVisible);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeApp, activeCharacterId]);
     // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
     // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
     // hook 必须在下面的空态早退之前调用，所以用可选链读 char。

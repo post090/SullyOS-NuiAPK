@@ -1514,7 +1514,7 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
                           style={pk ? { background: pk.accentSoft, border: `1px solid ${pk.line}` } : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.09)' }}
                       >
                           <div className="relative w-12 h-12 shrink-0 overflow-hidden rounded-2xl" style={pk ? { background: pk.base, border: `1px solid ${pk.line}` } : { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)' }}>
-                              <img src={c.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
+                              <TokenImg value={c.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
                           </div>
                           <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
@@ -1559,7 +1559,7 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
                           >
                               <div className="relative w-12 h-12 shrink-0 overflow-hidden rounded-[26%] bg-[#e8e2d6]"
                                   style={{ border: '2px solid #ffffff', boxShadow: '0 2px 6px -1px rgba(61,52,40,0.22)' }}>
-                                  <img src={c.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                  <TokenImg value={c.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
                               </div>
                               <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">

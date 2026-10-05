@@ -89,6 +89,29 @@ function hexToRgba(hex: string, alpha: number): string {
     return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
 }
 
+/**
+ * 「原版星夜」配色的色相：跟当前角色走。
+ * 优先级：角色手动主题色（companionThemeColor，#rrggbb）> 角色日程色相（themeColor）> 全局主题色相。
+ */
+export function resolveScheduleHue(
+    character: { companionThemeColor?: string; themeColor?: number } | null | undefined,
+    fallbackHue: number = 260,
+): number {
+    const hex = character?.companionThemeColor;
+    const m = hex ? /^#([0-9a-f]{6})$/i.exec(hex.trim()) : null;
+    if (m) {
+        const v = Number.parseInt(m[1], 16);
+        const r = ((v >> 16) & 255) / 255, g = ((v >> 8) & 255) / 255, b = (v & 255) / 255;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+        if (d > 0) {
+            let h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+            return Math.round(h * 60) % 360;
+        }
+    }
+    const tc = character?.themeColor;
+    if (typeof tc === 'number' && Number.isFinite(tc)) return ((Math.round(tc) % 360) + 360) % 360;
+    return fallbackHue;
+}
 export function resolveScheduleCardPalette(
     appearance: ScheduleCardAppearance | undefined,
     hue: number = 260,

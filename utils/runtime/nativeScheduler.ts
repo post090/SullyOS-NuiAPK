@@ -25,7 +25,7 @@ const TIMER_URL = 'https://www.gstatic.com/generate_204';
 const TIMER_TAG_PREFIX = 'sully-timer-';
 const TIMER_JOB_PREFIX = 'sully-timer-';
 
-export type NativeTimerKind = 'proactive' | 'vr' | 'world' | 'task' | 'generic';
+export type NativeTimerKind = 'proactive' | 'vr' | 'world' | 'task' | 'autoreply' | 'generic';
 
 export interface NativeTimerMeta {
   kind: NativeTimerKind;

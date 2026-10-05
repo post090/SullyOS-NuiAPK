@@ -1689,6 +1689,7 @@ ${memberTimeline || '(暂无互动记录)'}
             || selectionMode || isSummarizing,
         generating: isTyping,
         onGenerate: () => { void triggerGroupAI(); },
+        delayMs: inputPreferences.autoReplySeconds * 1000,
     });
 
     if (view === 'list') {

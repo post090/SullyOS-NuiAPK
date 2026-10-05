@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, X, MagnifyingGlass,
-  Play, Pause, SkipBack, SkipForward,
+  Play, Pause, SkipBack, SkipForward, ThumbsDown,
   DotsThreeVertical,
 } from '@phosphor-icons/react';
 import { isBlobRef, useBlobRefUrl } from '../../utils/blobRef';
@@ -792,11 +792,14 @@ export const PlayControls: React.FC<{
   onPrev: () => void;
   onToggle: () => void;
   onNext: () => void;
-}> = ({ playing, loading, onPrev, onToggle, onNext }) => (
+  /** 'dislike'：私人 FM 下左侧按钮变成「不喜欢」 */
+  prevKind?: 'prev' | 'dislike';
+}> = ({ playing, loading, onPrev, onToggle, onNext, prevKind = 'prev' }) => (
   <div className="flex items-center justify-center gap-8 mt-3 mb-1">
     <button onClick={onPrev} className="p-2 rounded-full transition-all"
+      aria-label={prevKind === 'dislike' ? '不喜欢，跳过' : '上一首'}
       style={{ color: C.muted }}>
-      <SkipBack size={22} weight="fill" />
+      {prevKind === 'dislike' ? <ThumbsDown size={22} weight="fill" /> : <SkipBack size={22} weight="fill" />}
     </button>
     <button
       onClick={onToggle}

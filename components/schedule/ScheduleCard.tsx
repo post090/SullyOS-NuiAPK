@@ -4,7 +4,7 @@ import { DailySchedule, ScheduleSlot, ScheduleRevision, CharacterProfile, OSThem
 import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
 import { resolveCharTimeZone, tzShortLabel } from '../../utils/timezone';
 import { useOS } from '../../context/OSContext';
-import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
+import { resolveScheduleCardPalette, resolveScheduleHue } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
 import TokenImg from '../os/TokenImg';
 import { putImageBlob } from '../../utils/blobRef';
@@ -158,7 +158,7 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
 
     const palette = resolveScheduleCardPalette(
         theme.scheduleCardAppearance,
-        theme.hue || 260,
+        resolveScheduleHue(character, theme.hue || 260),
         inheritedContentColor,
     );
     const contentColor = palette.text;

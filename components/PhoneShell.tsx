@@ -475,7 +475,18 @@ const PhoneShell: React.FC = () => {
 
   // 冷启动「世界入场」是否已结束。结束前由 BootSequence 接管整屏（同时取代旧的黑屏 spinner）。
   const [bootDone, setBootDone] = useState(false);
-  const bootAnimationEnabled = theme.bootAnimationEnabled !== false;
+  // 主题要等 IndexedDB 才加载完；开机动画在那之前就得画出来。首帧直接读 localStorage 里的主题，
+  // 否则会先按默认值播水母、再切成用户选的样式（或关掉开机动画时闪一下再消失）。
+  const [bootPrefs] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('os_theme') || 'null');
+      return saved && typeof saved === 'object'
+        ? { known: true, enabled: saved.bootAnimationEnabled !== false, style: saved.bootAnimationStyle as typeof theme.bootAnimationStyle }
+        : { known: false, enabled: true, style: undefined };
+    } catch { return { known: false, enabled: true, style: undefined }; }
+  });
+  const bootAnimationEnabled = bootPrefs.known && !isDataLoaded ? bootPrefs.enabled : theme.bootAnimationEnabled !== false;
+  const bootStyle = bootPrefs.known ? bootPrefs.style : theme.bootAnimationStyle;
   useEffect(() => {
     // 本次启动一旦选择跳过，就记为已经完成；用户稍后重新打开开关时不在桌面中途补播。
     if (!bootAnimationEnabled) setBootDone(true);
@@ -829,7 +840,8 @@ const PhoneShell: React.FC = () => {
   // 冷启动：先放「世界入场」cinematic（数据没就绪时它持续呼吸等待，绝不出现 spinner）。
   // BootSequence 在「数据就绪 + 停留够时长」后推进退场，再交还控制权给下方的锁屏/桌面。
   if (!bootDone && bootAnimationEnabled) {
-    return <BootSequence dataReady={isDataLoaded} wallpaper={theme.wallpaper} style={theme.bootAnimationStyle} onDone={() => setBootDone(true)} />;
+    // 壁纸等数据加载完再给：否则经典样式会先铺默认壁纸，再硬切成用户壁纸。
+    return <BootSequence dataReady={isDataLoaded} wallpaper={isDataLoaded ? theme.wallpaper : undefined} style={bootStyle} onDone={() => setBootDone(true)} />;
   }
 
   // 兜底：理论上 bootDone 时数据已就绪；万一未就绪（极端慢）退化为最简静态深色屏，不闪 spinner。
@@ -1030,7 +1042,7 @@ const PhoneShell: React.FC = () => {
                 ⚠ 显隐只能用 visibility，绝不能用常驻 opacity/transition：那会让这层变成
                 backdrop root，桌面小组件的 backdrop-filter 采样不到外层壁纸，透明柔光玻璃会糊成白底毛玻璃。 */}
             <div
-              className="absolute inset-0"
+              className={`absolute inset-0${activeApp !== AppID.Launcher ? ' sully-launcher-hidden' : ''}`}
               style={activeApp !== AppID.Launcher ? { visibility: 'hidden' as const } : undefined}
             >
               <Launcher />
@@ -1087,9 +1099,9 @@ const PhoneShell: React.FC = () => {
           <div className="absolute top-12 left-0 w-full flex flex-col items-center gap-2 pointer-events-none z-[60]">
               {toasts.map(toast => (
                  <div key={toast.id} className="animate-fade-in bg-white/95 backdrop-blur-xl px-4 py-3 rounded-2xl shadow-xl border border-black/5 flex items-start gap-3 max-w-[85%] ring-1 ring-white/20">
-                     {toast.type === 'success' && <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0"></div>}
-                     {toast.type === 'error' && <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0"></div>}
-                     {toast.type === 'info' && <div className="w-2.5 h-2.5 rounded-full bg-primary shrink-0"></div>}
+                     {toast.type === 'success' && <div className="w-2.5 h-2.5 mt-[5px] rounded-full bg-green-500 shrink-0"></div>}
+                     {toast.type === 'error' && <div className="w-2.5 h-2.5 mt-[5px] rounded-full bg-red-500 shrink-0"></div>}
+                     {toast.type === 'info' && <div className="w-2.5 h-2.5 mt-[5px] rounded-full bg-primary shrink-0"></div>}
                      <span className="min-w-0 text-left text-xs font-bold text-slate-800 whitespace-normal break-words [overflow-wrap:anywhere] leading-5">{toast.message}</span>
                  </div>
               ))}

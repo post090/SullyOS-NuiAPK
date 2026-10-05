@@ -58,6 +58,26 @@ export interface Song {
 }
 
 export interface LyricLine { t: number; text: string; }
+/** 当前播放队列的来源：播放器按它切换每日推荐 / 私人 FM 的专属外观。 */
+export type QueueSource = 'normal' | 'daily' | 'fm';
+export type PlayOpts = { alsoSetQueue?: boolean; replaceQueue?: Song[]; startIdx?: number; source?: QueueSource };
+const LS_SOURCE_KEY = 'sully_music_queue_source_v1';
+const loadQueueSource = (): QueueSource => {
+  try {
+    const v = localStorage.getItem(LS_SOURCE_KEY);
+    return v === 'daily' || v === 'fm' ? v : 'normal';
+  } catch { return 'normal'; }
+};
+/** 网易云 personal_fm 返回 → Song[]（个人页入口与 FM 自动续歌共用）。 */
+export const mapFmSongs = (r: any): Song[] => (r?.data || []).map((s: any): Song => ({
+  id: s.id, name: s.name,
+  artists: (s.artists || s.ar || []).map((a: any) => a.name).join(' / '),
+  artistIds: (s.artists || s.ar || []).map((a: any) => a.id),
+  album: s.album?.name || s.al?.name || '',
+  albumPic: toHttps(s.album?.picUrl || s.al?.picUrl || ''),
+  duration: (s.duration || s.dt || 0) / 1000,
+  fee: s.fee ?? 0,
+}));
 
 export interface NeteaseProfile {
   userId: number;
@@ -278,6 +298,24 @@ export const toHttps = (url: string): string => {
 };
 
 /* ───────────── API ───────────── */
+// 网易云写操作（喜欢 / 歌单加歌）后：客户端缓存清掉，同时 worker 边缘缓存按歌单 id 缓存 10 分钟
+// 且不分账号，拿不到新数据。所以写后 11 分钟内的歌单读请求带上写入时间戳 t，换一个缓存键。
+let neteaseLibraryWriteAt = 0;
+const LIBRARY_BUST_MS = 11 * 60 * 1000;
+const libraryBust = (): { t?: number } =>
+  neteaseLibraryWriteAt && Date.now() - neteaseLibraryWriteAt < LIBRARY_BUST_MS ? { t: neteaseLibraryWriteAt } : {};
+export const markNeteaseLibraryChanged = (cookie?: string) => {
+  neteaseLibraryWriteAt = Date.now();
+  for (const path of ['/likelist', '/playlist/', '/user/playlist', '/user/subcount']) _invalidateCache(path, cookie);
+};
+/** 网易云接口常以 HTTP 200 + body.code 报错（未登录 301、风控 -460 等），写操作要显式检查。 */
+const assertNeteaseOk = (j: any) => {
+  const code = j?.body?.code ?? j?.code;
+  if (code != null && Number(code) !== 200) {
+    throw new Error(j?.body?.message || j?.message || j?.msg || `网易云返回 ${code}`);
+  }
+  return j;
+};
 export const musicApi = {
   // 内部：真正打网络（不走缓存）
   async _raw(cfg: MusicCfg, path: string, body: any = {}) {
@@ -310,7 +348,7 @@ export const musicApi = {
     return musicApi.call(cfg, '/user/detail', { uid });
   },
   userPlaylist(cfg: MusicCfg, uid: number) {
-    return musicApi.call(cfg, '/user/playlist', { uid, limit: 60 });
+    return musicApi.call(cfg, '/user/playlist', { uid, limit: 60, ...libraryBust() });
   },
   userRecord(cfg: MusicCfg, uid: number, type = 1) {
     return musicApi.call(cfg, '/user/record', { uid, type });
@@ -322,10 +360,10 @@ export const musicApi = {
     return musicApi.call(cfg, '/user/subcount', {});
   },
   playlistDetail(cfg: MusicCfg, id: number) {
-    return musicApi.call(cfg, '/playlist/detail', { id });
+    return musicApi.call(cfg, '/playlist/detail', { id, ...libraryBust() });
   },
   playlistTrackAll(cfg: MusicCfg, id: number, limit = 50, offset = 0) {
-    return musicApi.call(cfg, '/playlist/track/all', { id, limit, offset });
+    return musicApi.call(cfg, '/playlist/track/all', { id, limit, offset, ...libraryBust() });
   },
   album(cfg: MusicCfg, id: number) {
     return musicApi.call(cfg, '/album', { id });
@@ -335,8 +373,16 @@ export const musicApi = {
     return musicApi.call(cfg, '/album/sublist', { limit, offset });
   },
   /** 网易云歌单加歌（写操作，不缓存；需要登录 cookie） */
-  playlistAdd(cfg: MusicCfg, pid: number, trackIds: number[]) {
-    return musicApi.call(cfg, '/playlist/tracks', { op: 'add', pid, tracks: trackIds });
+  async playlistAdd(cfg: MusicCfg, pid: number, trackIds: number[]) {
+    const r = assertNeteaseOk(await musicApi.call(cfg, '/playlist/tracks', { op: 'add', pid, tracks: trackIds }));
+    markNeteaseLibraryChanged(cfg.cookie);
+    return r;
+  },
+  /** 喜欢 / 取消喜欢（写进「我喜欢的音乐」歌单）。 */
+  async like(cfg: MusicCfg, id: number, like: boolean) {
+    const r = assertNeteaseOk(await musicApi.call(cfg, '/like', { id, like }));
+    markNeteaseLibraryChanged(cfg.cookie);
+    return r;
   },
   /** 歌手详情（头像/简介/作品数） */
   artist(cfg: MusicCfg, id: number) {
@@ -415,7 +461,9 @@ interface MusicContextType {
   profileError: boolean;
 
   // 操作
-  playSong: (song: Song, opts?: { alsoSetQueue?: boolean; replaceQueue?: Song[]; startIdx?: number }) => Promise<void>;
+  playSong: (song: Song, opts?: PlayOpts) => Promise<void>;
+  /** 当前队列来源（每日推荐 / 私人 FM / 普通） */
+  queueSource: QueueSource;
   togglePlay: () => void;
   nextSong: () => void;
   prevSong: () => void;
@@ -426,6 +474,8 @@ interface MusicContextType {
   setPlayMode: (m: PlayMode) => void;
   liked: boolean;
   toggleLike: () => Promise<void>;
+  /** 把指定网易云歌曲设为喜欢 / 取消，成功返回 true（同步更新红心状态）。 */
+  setSongLiked: (id: number, like: boolean) => Promise<boolean>;
 
   // 一起听 — 当前哪些 char 和 user 一起听（仅视觉状态，不影响播放）
   // 歌曲切换 / 结束时自动清空
@@ -498,6 +548,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const initialState = useMemo(loadState, []);
   const [queue, setQueueState] = useState<Song[]>(initialState.queue);
   const [idx, setIdx] = useState<number>(initialState.idx);
+  const [queueSource, setQueueSource] = useState<QueueSource>(loadQueueSource);
+  useEffect(() => { try { localStorage.setItem(LS_SOURCE_KEY, queueSource); } catch {} }, [queueSource]);
+  const queueSourceRef = useRef(queueSource); queueSourceRef.current = queueSource;
   const current = idx >= 0 && idx < queue.length ? queue[idx] : null;
 
   // 「一起写的歌」本地专辑 — 由写歌 App 同步过来的 ACE-Step / MiniMax 出歌
@@ -644,6 +697,21 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       ? localAlbumSongs.some(s => s.id === current.id)
       : likedSet.has(current.id)
   );
+  const setSongLiked = useCallback(async (id: number, like: boolean) => {
+    if (!cfg.cookie) { toast('需要登录网易云账号', 'error'); return false; }
+    try {
+      await musicApi.like(cfg, id, like);
+      setLikedSet(prev => {
+        const next = new Set(prev);
+        if (like) next.add(id); else next.delete(id);
+        return next;
+      });
+      return true;
+    } catch (e: any) {
+      toast(`喜欢失败: ${e.message}`, 'error');
+      return false;
+    }
+  }, [cfg, toast]);
   const toggleLike = useCallback(async () => {
     if (!current) return;
     // ── 本地歌：toggle from album ──
@@ -661,19 +729,8 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     // ── 网易云歌 ──
     if (!cfg.cookie) { toast('需要登录网易云账号', 'error'); return; }
     const willLike = !likedSet.has(current.id);
-    try {
-      await musicApi.call(cfg, '/like', { id: current.id, like: willLike });
-      _invalidateCache('/likelist', cfg.cookie);
-      setLikedSet(prev => {
-        const next = new Set(prev);
-        if (willLike) next.add(current.id); else next.delete(current.id);
-        return next;
-      });
-      toast(willLike ? '已添加到喜欢' : '已取消喜欢', 'success');
-    } catch (e: any) {
-      toast(`喜欢失败: ${e.message}`, 'error');
-    }
-  }, [current, cfg, likedSet, localAlbumSongs, addLocalSong, removeLocalSong, toast]);
+    if (await setSongLiked(current.id, willLike)) toast(willLike ? '已添加到喜欢' : '已取消喜欢', 'success');
+  }, [current, cfg, likedSet, localAlbumSongs, addLocalSong, removeLocalSong, toast, setSongLiked]);
 
   // 播放模式 —— 持久化到 localStorage：列表循环/随机/单曲是用户的长期习惯，
   // 重启一次就失忆退回 loop 会让人每次都得重新点一遍
@@ -782,10 +839,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   // 播放单曲
-  const playSong = useCallback(async (song: Song, opts: { alsoSetQueue?: boolean; replaceQueue?: Song[]; startIdx?: number } = {}) => {
-    const { alsoSetQueue = true, replaceQueue, startIdx } = opts;
-
+  const playSong = useCallback(async (song: Song, opts: PlayOpts = {}) => {
+    const { alsoSetQueue = true, replaceQueue, startIdx, source } = opts;
     if (replaceQueue) {
+      // 在播放列表里点同一队列的某首（同一个数组引用）不改变来源
+      if (source) setQueueSource(source);
+      else if (replaceQueue !== queueRef.current) setQueueSource('normal');
       setQueueState(replaceQueue);
       setIdx(typeof startIdx === 'number' ? startIdx : replaceQueue.findIndex(s => s.id === song.id));
     } else if (alsoSetQueue) {
@@ -925,9 +984,28 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, [toast]);
 
   // 下一首 / 上一首
+  const fmLoadingRef = useRef(false);
   const nextSong = useCallback(() => {
     const q = queueRef.current; if (!q.length) return;
     const cur = idxRef.current; if (cur < 0) return;
+    if (queueSourceRef.current === 'fm' && modeRef.current !== 'single' && cur >= q.length - 1) {
+      if (fmLoadingRef.current) return;
+      fmLoadingRef.current = true;
+      void musicApi.personalFm(cfgRef.current)
+        .then(r => {
+          const seen = new Set(queueRef.current.map(s => s.id));
+          const more = mapFmSongs(r).filter(s => !seen.has(s.id));
+          if (!more.length) { setIdx(0); playSong(queueRef.current[0], { alsoSetQueue: false }); return; }
+          const nextQ = [...queueRef.current, ...more].slice(-60);
+          const at = nextQ.length - more.length;
+          setQueueState(nextQ);
+          setIdx(at);
+          playSong(nextQ[at], { alsoSetQueue: false });
+        })
+        .catch(() => { setIdx(0); playSong(queueRef.current[0], { alsoSetQueue: false }); })
+        .finally(() => { fmLoadingRef.current = false; });
+      return;
+    }
     let n: number;
     if (modeRef.current === 'shuffle' && q.length > 1) {
       do { n = Math.floor(Math.random() * q.length); } while (n === cur);
@@ -1274,8 +1352,9 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     profile, refreshProfile,
     profileLoading, profileError,
     playSong, togglePlay, nextSong, prevSong, seek,
+    queueSource,
     playMode, setPlayMode,
-    liked, toggleLike,
+    liked, toggleLike, setSongLiked,
     listeningTogetherWith, addListeningPartner, removeListeningPartner, clearListeningPartners,
     recentTrackChange,
     toast, setToastHandler,

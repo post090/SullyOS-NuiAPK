@@ -4,6 +4,7 @@ import { useOS } from '../context/OSContext';
 import { useBackGuard } from '../hooks/useBackGuard';
 import { useMusic, musicApi, normalizeCookie, toHttps, Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
+import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 import { Gear, User as UserIcon, Crosshair, Play as PlayIcon, Pause as PauseIcon } from '@phosphor-icons/react';
 import {
@@ -48,6 +49,7 @@ const MusicApp: React.FC = () => {
     playMode, setPlayMode,
     queue, idx,
     regeneratingId, regeneratingStatus,
+    queueSource,
   } = useMusic();
   const [showQueue, setShowQueue] = useState(false);
   // 全局音乐悬浮球开关（状态存 localStorage，改动时用 CustomEvent 即时通知球本体）
@@ -436,13 +438,26 @@ const MusicApp: React.FC = () => {
   const renderPlayer = () => {
     if (!current) return null;
     const isTogether = companions.length > 0;
+    // 每日推荐 / 私人 FM 的专属外观；一起听优先（它有自己的特殊外观）。
+    const special = !isTogether && (queueSource === 'daily' || queueSource === 'fm') ? queueSource : null;
+    const today = new Date();
+    const pageBg = isTogether
+      ? `linear-gradient(180deg, #fff5f8 0%, ${C.bg} 55%, ${C.bgDeep} 100%)`
+      : special === 'daily'
+        ? `linear-gradient(180deg, #fff4ec 0%, #fdf1f4 42%, ${C.bg} 70%, ${C.bgDeep} 100%)`
+        : special === 'fm'
+          ? `linear-gradient(180deg, #eef1ff 0%, #f1edfb 45%, ${C.bg} 72%, ${C.bgDeep} 100%)`
+          : `linear-gradient(180deg, #ffffff 0%, ${C.bg} 60%, ${C.bgDeep} 100%)`;
     return (
-      <div className="flex flex-col h-full relative"
-        style={{ background: isTogether
-          ? `linear-gradient(180deg, #fff5f8 0%, ${C.bg} 55%, ${C.bgDeep} 100%)`
-          : `linear-gradient(180deg, #ffffff 0%, ${C.bg} 60%, ${C.bgDeep} 100%)` }}>
+      <div className="flex flex-col h-full relative" style={{ background: pageBg }}>
         <BokehBg />
-        <MizuHeader title="Now Playing" onBack={() => setView('search')} />
+        {special === 'fm' && (
+          <style>{`@keyframes sully-fm-wave{0%,100%{transform:scaleY(.35)}50%{transform:scaleY(1)}}`}</style>
+        )}
+        <MizuHeader
+          title={special === 'daily' ? 'Daily Picks' : special === 'fm' ? 'Private FM' : 'Now Playing'}
+          onBack={() => setView('search')}
+        />
 
         <div className="flex-1 flex flex-col items-center px-5 pt-4 pb-3 relative z-10 overflow-hidden">
           {/* 一起听徽章 —— 进入特殊外观 */}
@@ -456,7 +471,41 @@ const MusicApp: React.FC = () => {
               />
             </div>
           )}
-          <div className="shrink-0 mt-1 relative" style={isTogether ? { filter: `drop-shadow(0 0 22px ${C.sakura}66)` } : undefined}>
+          {special === 'daily' && (
+            <div className="shrink-0 mb-2 flex items-center gap-2 px-3 py-1 rounded-full text-[10px] tracking-[0.18em]"
+              style={{ background: 'rgba(255,255,255,0.7)', color: '#c0786a', border: '1px solid #f3cfc0' }}>
+              <span aria-hidden>☀</span>
+              <span>为你推荐 · {today.getMonth() + 1}月{today.getDate()}日</span>
+              {queue.length > 0 && idx >= 0 && <span style={{ color: '#d9a497' }}>{idx + 1}/{queue.length}</span>}
+            </div>
+          )}
+          {special === 'fm' && (
+            <div className="shrink-0 mb-2 flex items-center gap-2 px-3 py-1 rounded-full text-[10px] tracking-[0.18em]"
+              style={{ background: 'rgba(255,255,255,0.7)', color: '#6f74b8', border: '1px solid #d4d6f3' }}>
+              <span className="relative flex h-2 w-2" aria-hidden>
+                <span className="absolute inline-flex h-full w-full rounded-full opacity-60" style={{ background: '#8b8fe0', animation: playing ? 'ping 1.6s cubic-bezier(0,0,.2,1) infinite' : 'none' }} />
+                <span className="relative inline-flex h-2 w-2 rounded-full" style={{ background: '#7a7fd6' }} />
+              </span>
+              <span>私人电台 · 越听越懂你</span>
+            </div>
+          )}
+          {special === 'fm' ? (
+            <div className="shrink-0 mt-1 relative" style={{ filter: 'drop-shadow(0 14px 28px rgba(105,110,190,0.28))' }}>
+              <div className="relative overflow-hidden rounded-[28px]" style={{ width: 176, height: 176, background: 'linear-gradient(135deg,#c9ccf5,#e8d9f6)' }}>
+                {current.albumPic && <TokenImg src={current.albumPic} alt="" className="h-full w-full object-cover" />}
+                <div className="absolute inset-x-0 bottom-0 h-14 flex items-end justify-center gap-[3px] pb-3"
+                  style={{ background: 'linear-gradient(to top, rgba(40,40,80,0.45), transparent)' }} aria-hidden>
+                  {[0.2, 0.55, 0.1, 0.7, 0.35, 0.85, 0.25, 0.6, 0.15].map((d, i) => (
+                    <span key={i} className="block w-[3px] h-5 rounded-full origin-bottom"
+                      style={{ background: 'rgba(255,255,255,0.9)', animation: playing ? `sully-fm-wave 1.1s ease-in-out ${d}s infinite` : 'none', transform: playing ? undefined : 'scaleY(.35)' }} />
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : (
+          <div className="shrink-0 mt-1 relative" style={isTogether
+            ? { filter: `drop-shadow(0 0 22px ${C.sakura}66)` }
+            : special === 'daily' ? { filter: 'drop-shadow(0 0 24px rgba(244,170,140,0.45))' } : undefined}>
             <VinylDisc albumPic={current.albumPic} playing={playing} size={150} bitrate={bitrateMap[cfg.quality]} />
             {/* 重录中覆盖层 — 只在本地歌且 regeneratingId 匹配时显示 */}
             {isCurrentRegenerating && (
@@ -482,6 +531,7 @@ const MusicApp: React.FC = () => {
             )}
           </div>
 
+          )}
           {/* 横幅形式的重录提示 — 进入播放页第一时间看到状态 */}
           {isCurrentRegenerating && (
             <div className="mt-3 px-3 py-1.5 rounded-full flex items-center gap-2 text-[10px] tracking-wider"
@@ -619,7 +669,11 @@ const MusicApp: React.FC = () => {
             <PlayControls
               playing={playing}
               loading={loadingSong}
-              onPrev={() => { prevSong(); trackEvent('切歌（上一首/下一首）', { direction: 'prev' }); }}
+              prevKind={special === 'fm' ? 'dislike' : 'prev'}
+              onPrev={() => {
+                if (special === 'fm') { nextSong(); addToast('已跳过，换一首', 'info'); trackEvent('私人FM不喜欢'); return; }
+                prevSong(); trackEvent('切歌（上一首/下一首）', { direction: 'prev' });
+              }}
               onToggle={togglePlay}
               onNext={() => { nextSong(); trackEvent('切歌（上一首/下一首）', { direction: 'next' }); }}
             />
@@ -631,11 +685,13 @@ const MusicApp: React.FC = () => {
               className="text-[11px] px-3 py-1.5 rounded-full flex items-center gap-1.5 active:scale-95 transition-transform"
               style={{ background: showQueue ? C.primary : 'rgba(255,255,255,0.6)', color: showQueue ? 'white' : C.muted, border: `1px solid ${showQueue ? 'transparent' : 'rgba(255,255,255,0.4)'}` }}
             >
-              <span className="text-[13px]">☰</span> 播放列表 {queue.length > 0 ? `(${queue.length})` : ''}
+              <span className="text-[13px]">☰</span> {special === 'daily' ? '今日推荐' : special === 'fm' ? '电台队列' : '播放列表'} {queue.length > 0 ? `(${queue.length})` : ''}
             </button>
             {queue.length > 0 && (
               <span className="text-[10px]" style={{ color: C.faint }}>
-                {idx >= 0 ? `${idx + 1}/${queue.length}` : ''} {playMode === 'shuffle' ? '· 随机' : playMode === 'single' ? '· 单曲循环' : '· 列表'}
+                {special === 'fm'
+                  ? '电台模式 · 播完自动续歌'
+                  : <>{idx >= 0 ? `${idx + 1}/${queue.length}` : ''} {playMode === 'shuffle' ? '· 随机' : playMode === 'single' ? '· 单曲循环' : '· 列表'}</>}
               </span>
             )}
           </div>

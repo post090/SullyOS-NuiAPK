@@ -585,7 +585,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                     fee: s.fee ?? 0,
                   }));
                   if (!songs.length) { addToast('还没有每日推荐', 'info'); return; }
-                  playSong(songs[0], { replaceQueue: songs, startIdx: 0 });
+                  playSong(songs[0], { replaceQueue: songs, startIdx: 0, source: 'daily' });
                   onOpenPlayer();
                   trackEvent('播放每日推荐');
                 } catch (e: any) { addToast(`获取失败：${e.message}`, 'error'); }
@@ -609,7 +609,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                     fee: s.fee ?? 0,
                   }));
                   if (!songs.length) { addToast('FM 暂无歌曲', 'info'); return; }
-                  playSong(songs[0], { replaceQueue: songs, startIdx: 0 });
+                  playSong(songs[0], { replaceQueue: songs, startIdx: 0, source: 'fm' });
                   onOpenPlayer();
                   trackEvent('播放私人 FM');
                 } catch (e: any) { addToast(`FM 失败：${e.message}`, 'error'); }

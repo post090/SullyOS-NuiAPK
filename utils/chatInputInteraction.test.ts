@@ -156,15 +156,15 @@ describe('private chat input controls', () => {
         expect(container.querySelector<HTMLParagraphElement>('#chat-input-help-sendButtonGenerates')!.hidden).toBe(false);
         expect(onChange).not.toHaveBeenCalled();
         act(() => boxes[0].click());
-        expect(onChange).toHaveBeenCalledWith({ sendButtonGenerates: true, enterToSend: true, autoReply: false, emojiSuggestions: false, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
+        expect(onChange).toHaveBeenCalledWith({ sendButtonGenerates: true, enterToSend: true, autoReply: false, emojiSuggestions: false, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false, autoReplySeconds: 2 });
     });
 
     it('persists global preferences and falls back safely for old or broken storage', () => {
-        saveChatInputPreferences({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
-        expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
+        saveChatInputPreferences({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false, autoReplySeconds: 2 });
+        expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: true, enterToSend: false, autoReply: true, emojiSuggestions: true, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false, autoReplySeconds: 2 });
         for (const raw of ['{broken', 'null', '{}', '{"sendButtonGenerates":"true","enterToSend":null,"emojiSuggestions":"true"}']) {
             localStorage.setItem(CHAT_INPUT_PREFERENCES_KEY, raw);
-            expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: false, enterToSend: true, autoReply: false, emojiSuggestions: false, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false });
+            expect(loadChatInputPreferences()).toEqual({ sendButtonGenerates: false, enterToSend: true, autoReply: false, emojiSuggestions: false, linkCards: true, xhsCards: true, linkCardNoticeSeen: false, xhsCardNoticeSeen: false, autoReplySeconds: 2 });
         }
     });
 
