@@ -83,7 +83,7 @@ import { charMayHaveCloudState, purgeCharCloudState, purgeCloudCharById } from '
 import { parseCharCredId } from '../utils/amsgLlmCredentials';
 import { SAR_MODULE_RUNTIME_CHANGED_EVENT, type SarModuleRuntimeChangedDetail } from '../utils/sarModuleRuntimeEvents';
 import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgLlmCredentials, syncAmsgToolConfigAndPrompts, wipeAmsgCloudDataForReset } from '../utils/amsgStateSync';
-import { loadMusicPlaybackSnapshot } from './MusicContext';
+import { loadMusicHooks, loadMusicPlaybackSnapshot } from './MusicContext';
 import { setCharNameRegistry } from '../utils/charNameRegistry';
 import { setMinimaxRegion } from '../utils/minimaxEndpoint';
 import { setElevenLabsModel, setTtsProvider, setVoicePromptOverrides } from '../utils/ttsProvider';
@@ -111,7 +111,9 @@ import { getRestorableActiveApp, getRestorableActiveCharacterId, getRestorableSu
 import { recoverNativeChatJobs } from '../utils/runtime/recovery';
 import { getNativeLaunchRoute, getPersistentNativeRuntimeUserEnabled, isNativeRuntimePlatform, startPersistentNativeRuntime } from '../utils/runtime/nativeRuntime';
 import { AUTO_REPLY_FIRE_EVENT, fireBackgroundAutoReply, resumeBackgroundAutoReplies } from '../utils/backgroundAutoReply';
-import { isChatReplyActive } from '../utils/chatReplyLock';
+import { acquireChatReply, isChatReplyActive } from '../utils/chatReplyLock';
+import { readChatTranslationConfig, renderAutoReplyWithChatPipeline } from '../utils/backgroundAutoReplyRender';
+import { createReplyRun, withReplyCancellation, type ReplyRun } from '../utils/chatReplyCancellation';
 import { notifyRoleEvent } from '../utils/runtime/roleEventNotification';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
@@ -2955,8 +2957,21 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           proactiveRunningRef.current = true;
           setProactiveComposingChars(prev => prev[charId] ? prev : { ...prev, [charId]: true });
           console.log(`🔔 [Proactive/Global] Trigger fired for ${char.name}`);
+          // 自动回复占住和聊天页同一把回复锁：用户中途回到聊天，页面不会再生成一份；
+          // 聊天页也会显示「正在输入」，「停止」按钮能停掉这一轮。
+          let releaseAutoReplyLock: (() => void) | null = null;
+          // 从请求模型前就建好，聊天页按「停止」时连请求一起作废
+          let autoReplyRun: ReplyRun | null = null;
 
           try {
+              if (isAutoReply) {
+                  releaseAutoReplyLock = acquireChatReply(charId);
+                  if (!releaseAutoReplyLock) {
+                      console.log(`🔕 [AutoReply/Global] Skipped for ${char.name}: 聊天页正在回复`);
+                      return;
+                  }
+                  autoReplyRun = createReplyRun(charId);
+              }
               // 1. Calculate time gap
               const recentMsgs = await DB.getRecentMessagesByCharId(charId, 200);
               const lastRealUserMsg = [...recentMsgs].reverse().find(
@@ -3041,6 +3056,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   // 实时音乐播放状态 —— OSContext 在 MusicProvider 上层用不了 useMusic()，
                   // 走 MusicContext 暴露的模块级快照（Provider mount 后会持续写入）
                   musicSnapshot: loadMusicPlaybackSnapshot(),
+                  // 自动回复是对用户这句话的正常回复：沿用聊天页按角色保存的双语设置
+                  ...(isAutoReply ? { translationConfig: readChatTranslationConfig(charId) } : {}),
                   // translationConfig / mcdMiniSnap 是 chat-app 会话级 UI 状态，主动消息触发时
                   // 不存在；保持 undefined 即可，与"用户当时根本没在 chat 界面"的语义一致
                   htmlMode: { enabled: !!(char as any).htmlModeEnabled, customPrompt: (char as any).htmlModeCustomPrompt },
@@ -3088,13 +3105,43 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   delete reqBody.temperature;
                   delete reqBody.top_p;
               }
-              const data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+              const requestReply = () => safeFetchJson(`${baseUrl}/chat/completions`, {
                   method: 'POST', headers,
                   body: JSON.stringify(reqBody)
               }, 2, 0, { appName: '消息', charId, charName: char.name, purpose: isAutoReply ? '自动回复' : '主动消息' });
+              const data = autoReplyRun ? await withReplyCancellation(autoReplyRun, requestReply) : await requestReply();
 
               // 5. Process & save response
               let aiContent = data.choices?.[0]?.message?.content || '';
+              // 自动回复走聊天页同一条后处理（备忘录 / 转账 / 日程 / 音乐 / 引用 / 回忆搜索等），
+              // 主动消息仍用下面的精简版。
+              if (isAutoReply) {
+                  const viewing = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId
+                      && document.visibilityState === 'visible';
+                  const result = await renderAutoReplyWithChatPipeline({
+                      replyRun: autoReplyRun!,
+                      rawContent: aiContent,
+                      data,
+                      char,
+                      userProfile: currentUserProfile!,
+                      emojis, categories,
+                      realtimeConfig: currentRealtimeConfig,
+                      groups: currentGroups,
+                      contextMsgs: allMsgs,
+                      fullMessages,
+                      api: { baseUrl, headers, effectiveApi: { baseUrl: api.baseUrl, apiKey: api.apiKey, model: api.model } },
+                      addToast,
+                      onProgress: () => window.dispatchEvent(new CustomEvent('active-msg-progress', { detail: { charId } })),
+                      musicHooks: loadMusicHooks() ?? undefined,
+                      instantRender: !viewing,
+                  });
+                  if (result.status !== 'stopped' && result.savedCount > 0) {
+                      window.dispatchEvent(new CustomEvent('proactive-message-sent', {
+                          detail: { charId, charName: char.name, body: result.preview || `${char.name} 回复了你`, kind: 'autoreply' }
+                      }));
+                  }
+                  return;
+              }
               // 思考链抽取 — 与 useChatAI 保持一致:reasoning_content 字段 + 主 content 里的 <think>/<thinking>/<thought> 块,
               // 拼接后挂到本回合首条 assistant 消息的 metadata.thinkingChain
               let pendingThinkingChain: string | null = null;
@@ -3321,6 +3368,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           } catch (err) {
               console.error(`[Proactive/Global] Error for ${char.name}:`, err);
           } finally {
+              if (autoReplyRun) {
+                  // 停在请求阶段时这里收尾；正常走完后处理时 settle 已跑过（幂等）
+                  await autoReplyRun.settle().catch(e => console.error('[AutoReply/Global] 收尾失败', e));
+              }
+              releaseAutoReplyLock?.();
               proactiveRunningRef.current = false;
               setProactiveComposingChars(prev => {
                   if (!prev[charId]) return prev;
