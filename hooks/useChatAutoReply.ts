@@ -1,15 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react';
 
 export const CHAT_AUTO_REPLY_DELAY_MS = 2000;
-export const CHAT_AUTO_REPLY_MIN_SECONDS = 1;
-export const CHAT_AUTO_REPLY_MAX_SECONDS = 600;
-
-/** 把任意输入收敛为合法等待秒数；非法值回落默认 2 秒。 */
-export function normalizeAutoReplySeconds(value: unknown): number {
-    const n = typeof value === 'number' ? value : Number(value);
-    if (!Number.isFinite(n)) return CHAT_AUTO_REPLY_DELAY_MS / 1000;
-    return Math.min(CHAT_AUTO_REPLY_MAX_SECONDS, Math.max(CHAT_AUTO_REPLY_MIN_SECONDS, Math.round(n)));
-}
 
 interface Options {
     enabled: boolean;
@@ -18,8 +9,6 @@ interface Options {
     blocked: boolean;
     generating: boolean;
     onGenerate: () => void;
-    /** 等待毫秒数，默认 CHAT_AUTO_REPLY_DELAY_MS。 */
-    delayMs?: number;
 }
 
 const newWork = () => ({ pending: false, sends: new Set<symbol>(), cancelVersion: 0 });
@@ -90,21 +79,15 @@ export function useChatAutoReply(options: Options) {
             setSeconds(null);
             return;
         }
-        const delayMs = options.delayMs ?? CHAT_AUTO_REPLY_DELAY_MS;
-        const deadline = Date.now() + delayMs;
-        setSeconds(Math.max(1, Math.ceil(delayMs / 1000)));
-        // 每秒刷新剩余秒数；按截止时间计算，避免定时器漂移累积。
-        const tick = window.setInterval(() => {
-            if (!ready()) return;
-            setSeconds(Math.max(1, Math.ceil((deadline - Date.now()) / 1000)));
-        }, 1000);
+        setSeconds(2);
+        const tick = window.setTimeout(() => { if (ready()) setSeconds(1); }, 1000);
         const timer = window.setTimeout(() => {
             if (!ready()) return;
             cancel();
             current.current.onGenerate();
-        }, delayMs);
-        return () => { window.clearInterval(tick); window.clearTimeout(timer); };
-    }, [revision, visible, options.enabled, options.active, options.blocked, options.generating, options.conversationId, options.delayMs, cancel]);
+        }, CHAT_AUTO_REPLY_DELAY_MS);
+        return () => { window.clearTimeout(tick); window.clearTimeout(timer); };
+    }, [revision, visible, options.enabled, options.active, options.blocked, options.generating, options.conversationId, cancel]);
 
     return { seconds, beginSend, cancel };
 }

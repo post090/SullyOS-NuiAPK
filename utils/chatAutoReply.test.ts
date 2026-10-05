@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { normalizeAutoReplySeconds, useChatAutoReply } from '../hooks/useChatAutoReply';
+import { useChatAutoReply } from '../hooks/useChatAutoReply';
 
 let root: Root;
 let container: HTMLDivElement;
@@ -148,28 +148,5 @@ describe('two-second automatic reply', () => {
         expect(options.onGenerate).not.toHaveBeenCalled();
         advance(1);
         expect(options.onGenerate).toHaveBeenCalledTimes(1);
-    });
-});
-
-describe('custom automatic reply delay', () => {
-    it('counts down from the configured seconds and fires exactly at the deadline', () => {
-        render({ delayMs: 5000 });
-        send();
-        expect(controls.seconds).toBe(5);
-        advance(1000);
-        expect(controls.seconds).toBe(4);
-        advance(3000);
-        expect(controls.seconds).toBe(1);
-        advance(999);
-        expect(options.onGenerate).not.toHaveBeenCalled();
-        advance(1);
-        expect(options.onGenerate).toHaveBeenCalledTimes(1);
-    });
-    it('normalizes invalid or out-of-range seconds', () => {
-        expect(normalizeAutoReplySeconds(undefined)).toBe(2);
-        expect(normalizeAutoReplySeconds('abc')).toBe(2);
-        expect(normalizeAutoReplySeconds(0)).toBe(1);
-        expect(normalizeAutoReplySeconds('7.6')).toBe(8);
-        expect(normalizeAutoReplySeconds(99999)).toBe(600);
     });
 });

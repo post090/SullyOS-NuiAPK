@@ -71,7 +71,7 @@ import JobHuntPanelModal from '../components/chat/JobHuntPanelModal';
 import ChatSearchModal from '../components/chat/ChatSearchModal';
 import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
 import { useChatAI } from '../hooks/useChatAI';
-import { useChatAutoReply, normalizeAutoReplySeconds } from '../hooks/useChatAutoReply';
+import { useChatAutoReply } from '../hooks/useChatAutoReply';
 import { cleanTextForTts, parseVoiceOutput } from '../utils/minimaxTts';
 import { collectVoiceBatchSubtitle, isPoisonedVoiceSubtitle } from '../utils/voiceSubtitle';
 import {
@@ -3735,7 +3735,6 @@ const Chat: React.FC = () => {
             || mcdAppOpen || luckinAppOpen || showForwardModal,
         generating: isTyping || instantChatPending || isProactiveComposing,
         onGenerate: handleManualTrigger,
-        delayMs: normalizeAutoReplySeconds(char?.proactiveConfig?.autoReplySeconds) * 1000,
     });
     // 角色自定义聊天背景：字段值可能是 blobref 令牌（二进制在 IndexedDB），这里解析成能直接
     // 喂进 CSS url() 的地址；data: / http(s) 之类的非令牌值渲染期原样透传。
@@ -4687,8 +4686,7 @@ const Chat: React.FC = () => {
                             addToast(`已启动主动消息，每 ${config.intervalMinutes >= 60 ? formatHours(config.intervalMinutes) + ' 小时' : config.intervalMinutes + ' 分钟'}发送一次`, 'success');
                         } else {
                             stopProactiveChat();
-                            if (char.proactiveConfig?.enabled) addToast('已关闭主动消息', 'info');
-                            else addToast('已保存', 'success');
+                            addToast('已关闭主动消息', 'info');
                         }
                     }}
                     onStop={() => {
