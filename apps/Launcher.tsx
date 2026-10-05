@@ -12,6 +12,7 @@ import { runDailyCheck } from '../utils/taskSettlement';
 import { runWalletDailySettlement } from '../utils/walletSettlement';
 import { syncTaskReminders } from '../utils/taskReminderScheduler';
 import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
+import { resolveScheduleCardPalette } from '../utils/scheduleAppearance';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
@@ -357,7 +358,17 @@ const CALENDAR_WEEKDAYS = [
 ] as const;
 
 // 4. Widget Page Component (Calendar + Events)
-const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characters, acnh = false, paper = false }: any) => {
+const WidgetsPage = React.memo(({ contentColor: inheritedContentColor, openApp, anniversaries, characters, acnh: acnhSkin = false, paper: paperSkin = false }: any) => {
+    // 沿用日程卡片美化：选了非原版配色时，日历和 Upcoming Events 跟着换色，
+    // 并覆盖动森/纸质皮肤（与 ScheduleHomeWidget 的 effectiveAcnh/effectivePaper 规则一致）。
+    const { theme } = useOS();
+    const schedulePalette = resolveScheduleCardPalette(theme.scheduleCardAppearance, theme.hue ?? 260, inheritedContentColor);
+    const sk = schedulePalette.isOriginal ? null : schedulePalette;
+    const acnh = acnhSkin && !sk;
+    const paper = paperSkin && !sk;
+    const contentColor = sk ? sk.text : inheritedContentColor;
+    const skCard = sk ? { background: sk.background, border: `1px solid ${sk.line}`, boxShadow: '0 10px 28px rgba(0,0,0,0.18)' } : undefined;
+    const skSoft = sk ? { background: sk.accentSoft, color: sk.accent } : undefined;
     // 动森：奶油卡片样式（替代暗色玻璃）
     const acCard = acnh ? { background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)' } : undefined;
     const acDot = acnh ? '#6fba2c' : undefined;
@@ -430,10 +441,10 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
 
     return (
         <div className="launcher-page w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
-              <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
+              <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper || sk ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={sk ? skCard : paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
                       <h3 className="text-xl font-bold tracking-widest">{monthName} {currentYear}</h3>
-                      <div onClick={() => openApp('schedule')} className={`p-2 rounded-full cursor-pointer transition-colors ${acnh ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50' : paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : 'bg-white/20 hover:bg-white/40'}`}>
+                      <div onClick={() => openApp('schedule')} className={`p-2 rounded-full cursor-pointer transition-colors ${acnh ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50' : paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : sk ? '' : 'bg-white/20 hover:bg-white/40'}`} style={skSoft}>
                           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
                       </div>
                   </div>
@@ -453,14 +464,14 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                           return (
                               <div key={day} className="flex flex-col items-center justify-center h-8 relative">
                                   <div
-                                    className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${isToday ? (acnh ? 'text-white font-bold' : paper ? 'text-white font-bold' : 'bg-white text-black font-bold shadow-lg') : 'opacity-80'}`}
-                                    style={isToday ? (acnh ? { background: '#19c8b9' } : paper ? { background: '#788369', boxShadow: '0 4px 10px rgba(91,72,51,0.14)' } : {}) : { color: contentColor }}
+                                    className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${isToday ? (acnh || sk ? 'text-white font-bold' : paper ? 'text-white font-bold' : 'bg-white text-black font-bold shadow-lg') : 'opacity-80'}`}
+                                    style={isToday ? (sk ? { background: sk.accent, color: sk.base } : acnh ? { background: '#19c8b9' } : paper ? { background: '#788369', boxShadow: '0 4px 10px rgba(91,72,51,0.14)' } : {}) : { color: contentColor }}
                                   >
                                       {day}
                                   </div>
                                   {(hasEvent || hasJobEvent) && (
                                       <div className="absolute bottom-0 flex gap-0.5">
-                                          {hasEvent && <div className="w-1.5 h-1.5 rounded-full shadow-sm border border-black/10" style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}></div>}
+                                          {hasEvent && <div className="w-1.5 h-1.5 rounded-full shadow-sm border border-black/10" style={{ background: sk?.accent || acDot || (paper ? '#a66f52' : '#c084fc') }}></div>}
                                           {hasJobEvent && <div className="w-1.5 h-1.5 rounded-full shadow-sm border border-black/10" style={{ background: '#f59e0b' }}></div>}
                                       </div>
                                   )}
@@ -470,17 +481,18 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                   </div>
               </div>
 
-              <div className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
+              <div className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${acnh ? 'shadow-sm' : paper || sk ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={sk ? skCard : paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
                   <div className="flex items-center justify-between mb-4">
                       <h3 className="text-xs font-bold opacity-60 uppercase tracking-widest flex items-center gap-2" style={{ color: contentColor }}>
-                          <span className="w-2 h-2 rounded-full" style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}></span> Upcoming Events
+                          <span className="w-2 h-2 rounded-full" style={{ background: sk?.accent || acDot || (paper ? '#a66f52' : '#c084fc') }}></span> Upcoming Events
                       </h3>
                       {eventPageCount > 1 && (
                           <div className="flex items-center gap-2 shrink-0" style={{ color: contentColor }}>
                               <button
                                   onClick={(e) => { e.stopPropagation(); setEventPage(p => Math.max(0, p - 1)); }}
                                   disabled={eventPage === 0}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-25 transition-colors active:scale-90 ${paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : 'bg-white/15 hover:bg-white/30'}`}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-25 transition-colors active:scale-90 ${paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : sk ? '' : 'bg-white/15 hover:bg-white/30'}`}
+                                  style={skSoft}
                                   aria-label="Previous events"
                               >
                                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
@@ -489,7 +501,8 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                               <button
                                   onClick={(e) => { e.stopPropagation(); setEventPage(p => Math.min(eventPageCount - 1, p + 1)); }}
                                   disabled={eventPage >= eventPageCount - 1}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-25 transition-colors active:scale-90 ${paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : 'bg-white/15 hover:bg-white/30'}`}
+                                  className={`w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-25 transition-colors active:scale-90 ${paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : sk ? '' : 'bg-white/15 hover:bg-white/30'}`}
+                                  style={skSoft}
                                   aria-label="Next events"
                               >
                                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
@@ -499,8 +512,8 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                   </div>
                   <div className="space-y-3">
                       {upcomingEvents.length > 0 ? pagedEvents.map((ev: any) => ev._kind === 'job' ? (
-                          <div key={ev.id} onClick={() => openApp(AppID.JobHunt)} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer active:scale-[0.98] transition-transform ${acnh ? 'bg-[#f7edd6] border border-[#e8d9b4]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : 'bg-amber-400/10 border border-amber-300/20'}`}>
-                              <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#e8b04b] text-white border border-[#d69f3c]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : 'bg-amber-500/20 text-amber-200 border border-amber-500/30'}`}>
+                          <div key={ev.id} onClick={() => openApp(AppID.JobHunt)} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer active:scale-[0.98] transition-transform ${acnh ? 'bg-[#f7edd6] border border-[#e8d9b4]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : sk ? '' : 'bg-amber-400/10 border border-amber-300/20'}`} style={sk ? { border: `1px solid ${sk.line}` } : undefined}>
+                              <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#e8b04b] text-white border border-[#d69f3c]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : sk ? '' : 'bg-amber-500/20 text-amber-200 border border-amber-500/30'}`} style={sk ? { background: 'rgba(245,158,11,0.18)', color: '#d97706', border: '1px solid rgba(245,158,11,0.32)' } : undefined}>
                                   <span className="text-[9px] opacity-70">{ev.date.split('-')[1]}</span>
                                   <span className="text-sm font-bold leading-none">{ev.date.split('-')[2]}</span>
                               </div>
@@ -510,8 +523,8 @@ const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characte
                               </div>
                           </div>
                       ) : (
-                          <div key={ev.id} className={`flex items-center gap-3 p-3 rounded-xl ${acnh ? 'bg-[#efe7d4] border border-[#e0d6c0]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : 'bg-white/5 border border-white/10'}`}>
-                              <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#82D5BB] text-white border border-[#6cc0a6]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : 'bg-purple-500/20 text-purple-200 border border-purple-500/30'}`}>
+                          <div key={ev.id} className={`flex items-center gap-3 p-3 rounded-xl ${acnh ? 'bg-[#efe7d4] border border-[#e0d6c0]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : sk ? '' : 'bg-white/5 border border-white/10'}`} style={sk ? { border: `1px solid ${sk.line}` } : undefined}>
+                              <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#82D5BB] text-white border border-[#6cc0a6]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : sk ? '' : 'bg-purple-500/20 text-purple-200 border border-purple-500/30'}`} style={sk ? { background: sk.accentSoft, color: sk.accent, border: `1px solid ${sk.line}` } : undefined}>
                                   <span className="text-[9px] opacity-70">{ev.date.split('-')[1]}</span>
                                   <span className="text-sm font-bold leading-none">{ev.date.split('-')[2]}</span>
                               </div>
@@ -1127,6 +1140,9 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing'; // 动森彩蛋：Dock 换奶油木质底
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
+  // 最近聊天弹出列表沿用日程卡片美化；原版配色时保持原样（含动森奶油版）
+  const pickerPalette = resolveScheduleCardPalette(theme.scheduleCardAppearance, theme.hue ?? 260, '#ffffff');
+  const pk = pickerPalette.isOriginal ? null : pickerPalette;
   // 已迁移 App 外壳已收回到可见 viewport 底边，dock 仅需自留视觉间距，无需再 + safe-bottom
   // （否则会比 home 条上方多让 34px，dock 看起来悬空）。
   const launcherBottomInset = '1.25rem';
@@ -1458,30 +1474,30 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
       {/* 最近聊天面板：最新消息组件的二级菜单，挑一个最近聊过的角色直接进 ta 的聊天窗。
           默认皮肤：半屏底部抽屉 + 暗色毛玻璃（视觉语言与 ScheduleFullscreenViewer 同源：
           小字母标签 + 玻璃圆钮 + 玻璃行卡），点抽屉外空白关闭；动森皮肤保留奶油卡底部抽屉。 */}
-      {chatPickerOpen && !acnh && (
+      {chatPickerOpen && (!acnh || pk) && (
           <div className="absolute inset-0 z-50 flex flex-col justify-end animate-fade-in">
               <div className="absolute inset-0 bg-black/35" onClick={() => setChatPickerOpen(false)} />
               <div
                   className="relative flex flex-col max-h-[68%] rounded-t-[2rem] animate-slide-up overflow-hidden"
                   style={{
-                      background: 'rgba(10, 12, 22, 0.82)',
+                      background: pk ? pk.background : 'rgba(10, 12, 22, 0.82)',
                       backdropFilter: 'blur(22px) saturate(1.2)',
                       WebkitBackdropFilter: 'blur(22px) saturate(1.2)',
-                      borderTop: '1px solid rgba(255,255,255,0.14)',
+                      borderTop: pk ? `1px solid ${pk.line}` : '1px solid rgba(255,255,255,0.14)',
                   }}
               >
                   {/* 抽屉把手 */}
-                  <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 shrink-0" />
+                  <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mt-3 shrink-0" style={pk ? { background: pk.line } : undefined} />
                   {/* Header —— 小字母标签 + 粗黑标题 + 玻璃圆钮 */}
                   <div className="flex items-center justify-between px-5 pt-3 pb-3 shrink-0">
                       <div>
-                          <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-white/50">Recent Chats</div>
-                          <div className="text-lg font-black tracking-tight" style={{ color: 'hsl(260, 70%, 72%)' }}>最近聊天</div>
+                          <div className="text-[10px] font-bold tracking-[0.25em] uppercase text-white/50" style={pk ? { color: pk.text, opacity: 0.55 } : undefined}>Recent Chats</div>
+                          <div className="text-lg font-black tracking-tight" style={{ color: pk ? pk.accent : 'hsl(260, 70%, 72%)' }}>最近聊天</div>
                       </div>
                       <button
                           onClick={() => setChatPickerOpen(false)}
                           className="w-9 h-9 rounded-full flex items-center justify-center transition-transform active:scale-90 text-white"
-                          style={{ background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
+                          style={pk ? { background: pk.accentSoft, border: `1px solid ${pk.line}`, color: pk.text } : { background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.18)' }}
                           aria-label="Close"
                       >
                           <svg viewBox="0 0 24 24" fill="none" strokeWidth={2.2} stroke="currentColor" className="w-4 h-4">
@@ -1495,22 +1511,22 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
                           key={c.id}
                           onClick={() => { setChatPickerOpen(false); setActiveCharacterId(c.id); openApp(AppID.Chat); }}
                           className="w-full flex items-center gap-3 p-2.5 rounded-2xl active:scale-[0.99] transition-all text-left"
-                          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.09)' }}
+                          style={pk ? { background: pk.accentSoft, border: `1px solid ${pk.line}` } : { background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.09)' }}
                       >
-                          <div className="relative w-12 h-12 shrink-0 overflow-hidden rounded-2xl" style={{ background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)' }}>
+                          <div className="relative w-12 h-12 shrink-0 overflow-hidden rounded-2xl" style={pk ? { background: pk.base, border: `1px solid ${pk.line}` } : { background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)' }}>
                               <img src={c.avatar} className="w-full h-full object-cover" alt="" loading="lazy" />
                           </div>
                           <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
-                                  <span className="text-sm font-bold truncate text-white/95">{c.name}</span>
+                                  <span className="text-sm font-bold truncate text-white/95" style={pk ? { color: pk.text } : undefined}>{c.name}</span>
                                   {c.id === activeCharacterId && (
-                                      <span className="px-1.5 py-px rounded-full text-[8px] font-bold shrink-0" style={{ background: 'hsla(260, 70%, 65%, 0.28)', color: 'hsl(260, 80%, 82%)' }}>当前</span>
+                                      <span className="px-1.5 py-px rounded-full text-[8px] font-bold shrink-0" style={pk ? { background: pk.accent, color: pk.base } : { background: 'hsla(260, 70%, 65%, 0.28)', color: 'hsl(260, 80%, 82%)' }}>当前</span>
                                   )}
                               </div>
-                              <p className="text-[11px] truncate mt-0.5 text-white/45">{lastText || '还没聊过天，去打个招呼？'}</p>
+                              <p className="text-[11px] truncate mt-0.5 text-white/45" style={pk ? { color: pk.text, opacity: 0.6 } : undefined}>{lastText || '还没聊过天，去打个招呼？'}</p>
                           </div>
                           <div className="flex flex-col items-end gap-1 shrink-0">
-                              <span className="text-[10px] tabular-nums text-white/35">{formatChatTime(lastTs)}</span>
+                              <span className="text-[10px] tabular-nums text-white/35" style={pk ? { color: pk.text, opacity: 0.45 } : undefined}>{formatChatTime(lastTs)}</span>
                               {(unreadMessages[c.id] || 0) > 0 && (
                                   <span className="min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-[9px] font-bold text-white bg-red-500">
                                       {unreadMessages[c.id] > 99 ? '99+' : unreadMessages[c.id]}
@@ -1519,12 +1535,12 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
                           </div>
                       </button>
                   ))}
-                  <div className="text-[10px] text-center text-white/40 mt-4 tracking-widest">TAP OUTSIDE TO CLOSE · 点空白处关闭</div>
+                  <div className="text-[10px] text-center text-white/40 mt-4 tracking-widest" style={pk ? { color: pk.text, opacity: 0.5 } : undefined}>TAP OUTSIDE TO CLOSE · 点空白处关闭</div>
                   </div>
               </div>
           </div>
       )}
-      {chatPickerOpen && acnh && (
+      {chatPickerOpen && acnh && !pk && (
           <div className="absolute inset-0 z-50 flex flex-col justify-end animate-fade-in">
               <div className="absolute inset-0 bg-black/35" onClick={() => setChatPickerOpen(false)} />
               <div className="relative rounded-t-[2rem] shadow-2xl max-h-[70%] flex flex-col animate-slide-up"

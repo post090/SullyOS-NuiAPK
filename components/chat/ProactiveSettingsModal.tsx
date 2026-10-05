@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Modal from '../os/Modal';
 import ApiConnectionPicker, { ApiTriple } from '../os/ApiConnectionPicker';
 import { CharacterProfile } from '../../types';
+import { CHAT_AUTO_REPLY_DELAY_MS, CHAT_AUTO_REPLY_MAX_SECONDS, CHAT_AUTO_REPLY_MIN_SECONDS, normalizeAutoReplySeconds } from '../../hooks/useChatAutoReply';
 
 interface ProactiveSettingsModalProps {
     isOpen: boolean;
@@ -63,6 +64,9 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
     // hint 自定义
     const [hintCustom, setHintCustom] = useState(saved?.hintCustom ?? '');
     const [showHintEditor, setShowHintEditor] = useState(false);
+    // 自动回复等待：开关关 = 用默认 2 秒；输入框存字符串，保存时再收敛
+    const [customAutoReply, setCustomAutoReply] = useState(saved?.autoReplySeconds !== undefined);
+    const [autoReplyInput, setAutoReplyInput] = useState(String(saved?.autoReplySeconds ?? CHAT_AUTO_REPLY_DELAY_MS / 1000));
 
     // Reset form when modal opens with new char data
     useEffect(() => {
@@ -77,6 +81,8 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
             setMaxAttempts(s?.maxAttempts ?? 3);
             setHintCustom(s?.hintCustom ?? '');
             setShowHintEditor(false);
+            setCustomAutoReply(s?.autoReplySeconds !== undefined);
+            setAutoReplyInput(String(s?.autoReplySeconds ?? CHAT_AUTO_REPLY_DELAY_MS / 1000));
         }
     }, [isOpen, char.id]);
 
@@ -93,6 +99,7 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
             proactiveness,
             maxAttempts,
             hintCustom: hintCustom.trim() || undefined,
+            autoReplySeconds: customAutoReply ? normalizeAutoReplySeconds(autoReplyInput) : undefined,
         });
         onClose();
     };
@@ -319,6 +326,42 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
                         </div>
                     </>
                 )}
+                {/* 自动回复等待 —— 与主动消息开关无关，始终可设 */}
+                <div className="pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between mb-1">
+                        <span id="auto-reply-label" className="text-sm font-bold text-slate-700">自动回复</span>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={customAutoReply}
+                            aria-labelledby="auto-reply-label"
+                            onClick={() => setCustomAutoReply(!customAutoReply)}
+                            className={`w-12 h-7 rounded-full transition-colors relative ${customAutoReply ? 'bg-violet-500' : 'bg-slate-200'}`}
+                        >
+                            <span className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-all duration-200 ${customAutoReply ? 'translate-x-5' : 'translate-x-0'}`} />
+                        </button>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed mb-3">
+                        你发完消息、停手多少秒后 {char.name} 自动回复。需先在输入设置里打开「发完后自动生成回复」；
+                        不开这里就按默认 {CHAT_AUTO_REPLY_DELAY_MS / 1000} 秒。
+                    </p>
+                    {customAutoReply && (
+                        <label className="block">
+                            <span className="text-xs text-slate-500 font-medium block mb-1">无输入后等待（秒）</span>
+                            <input
+                                type="number"
+                                inputMode="numeric"
+                                min={CHAT_AUTO_REPLY_MIN_SECONDS}
+                                max={CHAT_AUTO_REPLY_MAX_SECONDS}
+                                value={autoReplyInput}
+                                onChange={e => setAutoReplyInput(e.target.value)}
+                                onBlur={() => setAutoReplyInput(String(normalizeAutoReplySeconds(autoReplyInput)))}
+                                className="w-full px-3 py-2 bg-slate-50 rounded-xl text-sm text-slate-700 border border-slate-200 focus:border-violet-300 focus:outline-none"
+                            />
+                            <span className="text-[10px] text-slate-400 mt-1 block">{CHAT_AUTO_REPLY_MIN_SECONDS}–{CHAT_AUTO_REPLY_MAX_SECONDS} 秒</span>
+                        </label>
+                    )}
+                </div>
             </div>
         </Modal>
     );

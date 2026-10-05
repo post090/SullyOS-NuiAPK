@@ -57,6 +57,12 @@ public class SullyNativeRuntimeService extends Service {
     }
 
     private static final String CHANNEL_ID = "sully_native_runtime";
+    /**
+     * 常驻「SullyOS 正在运行」专用的静默渠道。渠道重要性创建后无法再改，
+     * 所以不复用旧渠道，新开一个 IMPORTANCE_MIN：只在通知栏折叠区，不弹横幅、不响、不震、无角标。
+     * 事件通知（ongoing=false）仍走旧渠道，不受影响。
+     */
+    private static final String CHANNEL_FG_SILENT = "sully_runtime_silent";
     private static final String CHANNEL_CALL = "sully_call";
     private static final String CHANNEL_MUSIC = "sully_music";
     // Custom action id for the like/heart button on the system media card.
@@ -1239,8 +1245,9 @@ public class SullyNativeRuntimeService extends Service {
             // rewrote the extras of every earlier notification to the newest route.
             pendingIntent = PendingIntent.getActivity(this, hasRoute ? routeRequestCode(route) : 0, launchIntent, flags);
         }
+        if (ongoing) ensureSilentForegroundChannel(this);
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-            ? new Notification.Builder(this, CHANNEL_ID)
+            ? new Notification.Builder(this, ongoing ? CHANNEL_FG_SILENT : CHANNEL_ID)
             : new Notification.Builder(this);
         builder
             .setContentTitle(title)
@@ -1253,6 +1260,15 @@ public class SullyNativeRuntimeService extends Service {
             .setOngoing(ongoing)
             .setShowWhen(false)
             .setContentIntent(pendingIntent);
+        if (ongoing) {
+            // 每次任务/闹钟唤醒都会重新 startForeground 一次；只提醒一次，避免反复弹出。
+            builder.setOnlyAlertOnce(true);
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+                builder.setPriority(Notification.PRIORITY_MIN);
+                builder.setSound(null);
+                builder.setVibrate(null);
+            }
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             builder.setCategory(Notification.CATEGORY_SERVICE);
         }
@@ -1290,6 +1306,22 @@ public class SullyNativeRuntimeService extends Service {
         manager.createNotificationChannel(channel);
     }
 
+    private static void ensureSilentForegroundChannel(Context context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (manager == null || manager.getNotificationChannel(CHANNEL_FG_SILENT) != null) return;
+        NotificationChannel channel = new NotificationChannel(
+            CHANNEL_FG_SILENT,
+            "SullyOS 后台常驻",
+            NotificationManager.IMPORTANCE_MIN
+        );
+        channel.setDescription("「SullyOS 正在运行」常驻通知，静默显示");
+        channel.setSound(null, null);
+        channel.enableVibration(false);
+        channel.enableLights(false);
+        channel.setShowBadge(false);
+        manager.createNotificationChannel(channel);
+    }
     private static void ensureCallChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);

@@ -3540,6 +3540,11 @@ export interface CharacterProfile {
     maxAttempts?: number;
     /** 主动消息 hint 自定义内容（替换默认 hint 文案） */
     hintCustom?: string;
+    /**
+     * 自动回复等待秒数（本角色私聊）。仅在输入设置「发完后自动生成回复」开启时生效。
+     * 未设置 = 默认 2 秒。
+     */
+    autoReplySeconds?: number;
   };
 
   // 情绪Buff系统
