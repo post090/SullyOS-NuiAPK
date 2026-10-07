@@ -23,6 +23,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
+    <!-- 单聊相册「拍照」同样走 getUserMedia。BridgeWebChromeClient 对 VIDEO_CAPTURE 申请
+         CAMERA；manifest 未声明时系统不弹授权框直接拒绝，页面只能看到 NotAllowedError。 -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
     <application>
         <receiver
             android:name="com.sullyos.nativeruntime.SullyNativeRuntimeBootReceiver"

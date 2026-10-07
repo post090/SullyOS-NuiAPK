@@ -1,5 +1,6 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Capacitor } from '@capacitor/core';
 import { Camera, ImageSquare, X, ArrowsClockwise, ArrowCounterClockwise, PaperPlaneTilt, Trash, Sticker as StickerIcon, FrameCorners, SlidersHorizontal, Eye } from '@phosphor-icons/react';
 import './ChatCamera.css';
 import { createCameraAnalytics } from '../../utils/cameraAnalytics';
@@ -145,7 +146,8 @@ export default function ChatCamera({ onClose, onGallery, onCapture, character }:
                 if (cancelled) return;
                 stop();
                 const name = e instanceof Error ? e.name : '';
-                setError(name === 'NotAllowedError' ? '未获得相机权限，请在浏览器设置中允许访问相机后重试。'
+                setError(name === 'NotAllowedError'
+                    ? (Capacitor.isNativePlatform() ? '未获得相机权限。若没有弹出授权框，请到系统设置 › 应用 › 权限里允许相机后重试。' : '未获得相机权限，请在浏览器设置中允许访问相机后重试。')
                     : name === 'NotFoundError' ? '没有找到可用摄像头。'
                     : name === 'NotReadableError' ? '摄像头暂时不可用，可能正被其他应用占用。'
                     : e instanceof Error ? e.message : '无法打开相机，请重试。');

@@ -102,6 +102,7 @@ function renderMemoInstructions(): string {
         `- 编辑：[[MEMO_EDIT:编号|content:新内容|status:active或done|type:note或todo|tags:新标签]] —— 任意字段组合，编号就是上面的序号；status=done 表示划掉，划掉即完成，会直接从备忘录里删除`,
         `- 删除：[[MEMO_DEL:编号]]`,
         '编号是上面列表里的序号（从 1 开始）。备忘录随手记短句、要记长内容也可以，单条上限 5000 字。',
+        '只有写出标签才会真的改动；嘴上说「改好了」却不写标签，备忘录不会有任何变化。',
     ].join('\n');
 }
 
@@ -141,14 +142,25 @@ export type MemoDirective = MemoAddDirective | MemoEditDirective | MemoDelDirect
  *   [[MEMO_EDIT:2|content:新内容|status:done]]
  *   [[MEMO_DEL:3]]
  */
+const MEMO_TAG_RE = () => /\[\[\s*MEMO[_\s]?(ADD|EDIT|DEL|DELETE|UPDATE)\s*[:：]([\s\S]*?)\]\]/gi;
+
+function normalizeMemoBody(raw: string, indexed: boolean): string {
+    const body = raw
+        .replace(/｜/g, '|')
+        .replace(/(^|\|)\s*([a-zA-Z]+|内容|状态|类型|标签)\s*：/g, '$1$2:')
+        .trim();
+    return indexed ? body.replace(/^(?:#|第|No\.?\s*)?(\d+)\s*条?/i, '$1') : body;
+}
+
 export function parseMemoDirectives(text: string): MemoDirective[] {
     const out: MemoDirective[] = [];
     // 贪婪匹配到 ]] 结束；内容里允许任意字符（除 ]] 自身）
-    const re = /\[\[MEMO_(ADD|EDIT|DEL):([\s\S]*?)\]\]/g;
+    const re = MEMO_TAG_RE();
     let m: RegExpExecArray | null;
     while ((m = re.exec(text)) !== null) {
-        const kind = m[1].toLowerCase();
-        const body = m[2].trim();
+        const verb = m[1].toLowerCase();
+        const kind = verb === 'delete' ? 'del' : verb === 'update' ? 'edit' : verb;
+        const body = normalizeMemoBody(m[2], kind !== 'add');
         try {
             if (kind === 'add') {
                 const d = parseAdd(body);
@@ -165,6 +177,25 @@ export function parseMemoDirectives(text: string): MemoDirective[] {
         }
     }
     return out;
+}
+
+/** 合并第一轮与最终正文里的指令；同一条指令两边都出现时只算一次。 */
+export function mergeMemoDirectives(first: MemoDirective[], last: MemoDirective[]): MemoDirective[] {
+    const pending = new Map<string, number>();
+    for (const d of first) {
+        const key = JSON.stringify(d);
+        pending.set(key, (pending.get(key) || 0) + 1);
+    }
+    const extra = last.filter(d => {
+        const key = JSON.stringify(d);
+        const n = pending.get(key) || 0;
+        if (n > 0) {
+            pending.set(key, n - 1);
+            return false;
+        }
+        return true;
+    });
+    return [...first, ...extra];
 }
 
 function parseAdd(body: string): MemoAddDirective | null {
@@ -191,11 +222,16 @@ function parseEdit(body: string): MemoEditDirective | null {
     const idx = parseInt(idxRaw || '', 10);
     if (!Number.isFinite(idx) || idx < 1) return null;
     const d: MemoEditDirective = { kind: 'edit', index: idx };
+    const EDIT_KEYS: Record<string, string> = { content: 'content', 内容: 'content', status: 'status', 状态: 'status', type: 'type', 类型: 'type', tags: 'tags', 标签: 'tags' };
     for (let i = 1; i < parts.length; i++) {
         const kv = parts[i];
         const ci = kv.indexOf(':');
-        if (ci < 0) continue;
-        const k = kv.slice(0, ci).trim().toLowerCase();
+        const rawKey = ci < 0 ? '' : kv.slice(0, ci).trim().toLowerCase();
+        const k = EDIT_KEYS[rawKey];
+        if (!k) {
+            if (i === 1 && kv.trim()) d.content = kv.trim().slice(0, MEMO_MAX_CONTENT_LEN);
+            continue;
+        }
         const v = kv.slice(ci + 1).trim();
         if (k === 'content') d.content = v.slice(0, MEMO_MAX_CONTENT_LEN);
         else if (k === 'status' && (v === 'active' || v === 'done')) d.status = v;
@@ -315,7 +351,7 @@ export function applyMemoDirectives(
 
 /** 从 AI 回复正文里剥离所有 [[MEMO_*:...]] 标签（用户不可见）。 */
 export function stripMemoTags(text: string): string {
-    return text.replace(/\s*\[\[MEMO_(?:ADD|EDIT|DEL):[\s\S]*?\]\]\s*/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    return text.replace(/\s*\[\[\s*MEMO[_\s]?(?:ADD|EDIT|DEL|DELETE|UPDATE)\s*[:：][\s\S]*?\]\]\s*/gi, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
 function genId(): string {

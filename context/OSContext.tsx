@@ -3639,7 +3639,19 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       window.addEventListener(LINKED_ARCHIVE_DELETED, linkedArchiveDeletedHandler);
       window.addEventListener('char-music-profile-updated', musicProfileSyncHandler);
       window.addEventListener(MEMORY_AUTO_ARCHIVE_SYNC_EVENT, memoryAutoArchiveSyncHandler);
+      const memosSyncHandler = (e: Event) => {
+          const { charId, memos } = ((e as CustomEvent).detail || {}) as { charId?: string; memos?: CharacterProfile['memos'] };
+          if (!charId || !Array.isArray(memos)) return;
+          setCharacters(prev => prev.map(c => {
+              if (c.id !== charId) return c;
+              const next = { ...c, memos };
+              markAmsgStateDirty({ char: next, userProfile: userProfileRef.current, groups: groupsRef.current, realtimeConfig: realtimeConfigRef.current });
+              return next;
+          }));
+      };
+      window.addEventListener('char-memos-updated', memosSyncHandler);
       return () => {
+          window.removeEventListener('char-memos-updated', memosSyncHandler);
           window.removeEventListener('amsg2-tasks-adopted', tasksAdoptedHandler);
           window.removeEventListener(SAR_MODULE_RUNTIME_CHANGED_EVENT, sarModuleRuntimeChangedHandler);
           window.removeEventListener(LINKED_ARCHIVE_DELETED, linkedArchiveDeletedHandler);

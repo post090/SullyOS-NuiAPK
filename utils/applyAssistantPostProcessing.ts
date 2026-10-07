@@ -31,7 +31,7 @@ import { ChatParser, type FrozenMusicSong } from './chatParser';
 import { resolveCharTimeZone } from './timezone';
 import { NotionManager, FeishuManager, XhsNote } from './realtimeContext';
 import { enqueuePendingDiary, removePendingDiary } from './pendingDiary';
-import { parseMemoDirectives, applyMemoDirectives, stripMemoTags } from './memos';
+import { parseMemoDirectives, applyMemoDirectives, stripMemoTags, mergeMemoDirectives } from './memos';
 import { parseXhsCount, XhsMcpClient } from './xhsMcpClient';
 import { extractPublishedNoteId, ownedPostToNote } from './xhsFreeRoamOwnership';
 import { selectOwnedPostsForReference } from './xhsOwnedPostReference';
@@ -777,6 +777,8 @@ export async function applyAssistantPostProcessing(
     // 在任何 lead-in/二轮渲染之前先剥掉仿卡片文本，防止它被 chunkText 拆成灰色普通气泡。
     const mimickedXhsShares = extractMimickedXhsShares(aiContent);
     aiContent = mimickedXhsShares.cleanedContent;
+    // 第一轮里的备忘录标签先记下：后面 RECALL / SEARCH / READ_DIARY 等二轮请求会整段替换 aiContent。
+    const firstPassMemoDirectives = parseMemoDirectives(aiContent);
 
     // ── 渲染基础设施 (提前声明, 供"执行功能前先展示本轮正文 A" + 末尾展示二轮结果 B 复用) ──
     // 引用/回复标签的匹配 + 清理正则 (提前声明避免 lead-in 渲染时落入 TDZ)。
@@ -1020,7 +1022,7 @@ export async function applyAssistantPostProcessing(
         if (leadInRendered) return;
         leadInRendered = true;
         await replyStep(async () => renderAndPersist(
-            raw.replace(/\[\[READ_NOTE:[\s\S]*?\]\]/g, '').replace(/\[\[XHS_[A-Z_]+(?::[\s\S]*?)?\]\]/g, ''),
+            stripMemoTags(raw.replace(/\[\[READ_NOTE:[\s\S]*?\]\]/g, '').replace(/\[\[XHS_[A-Z_]+(?::[\s\S]*?)?\]\]/g, '')),
             round1ThinkingChain,
         ));
     };
@@ -1760,14 +1762,20 @@ ${lines.join(String.fromCharCode(10))}
     // 主动消息 / 通话 / 小小窝路径都不会教 AI 用这些标签，理论上不会在这里出现。
     // 但保险起见：检测到标签就执行（哪怕非单聊场景也执行——AI 主动写就让它写，不破坏角色一致性）。
     // skipSecondPassLLM=true (push 路径) 时也执行：备忘录是纯本地副作用，不需要二轮 LLM。
-    const memoDirectives = parseMemoDirectives(aiContent);
+    const memoDirectives = mergeMemoDirectives(firstPassMemoDirectives, parseMemoDirectives(aiContent));
     if (memoDirectives.length > 0) {
         try {
-            const before = char.memos || [];
-            const result = applyMemoDirectives(before, memoDirectives);
-            // 落库
+            // 以 DB 最新那份为准：char 是本轮开始时的快照，生成期间别处可能已改过角色。
+            const fresh = (await DB.getCharacter(char.id)) || char;
+            const result = applyMemoDirectives(fresh.memos || [], memoDirectives);
             char.memos = result.newMemos;
-            await DB.saveCharacter(char);
+            await DB.saveCharacter({ ...fresh, memos: result.newMemos });
+            // 只写 DB 的话，OSContext 内存里的角色还是旧备忘录，下一次 updateCharacter 会把它写回去。
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('char-memos-updated', {
+                    detail: { charId: char.id, memos: result.newMemos },
+                }));
+            }
             // 日志（用户面板不可见，开发者可见）
             const summary = `+${result.added} ~${result.edited} -${result.deleted}` +
                 (result.rejected.length > 0 ? ` (rejected ${result.rejected.length})` : '');
