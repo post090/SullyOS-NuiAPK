@@ -1,3 +1,4 @@
+import {portableCssImages} from './cssImageAssets';
 import { DB } from './db';
 import type { BeautyShare } from './beautyShareContract';
 import { validateDecoration } from './chatDecoration';
@@ -17,7 +18,9 @@ export function readBeautyUsage(): UsageState {
 }
 function write(state: UsageState) { localStorage.setItem(KEY, JSON.stringify(state)); window.dispatchEvent(new Event(BEAUTY_USAGE_EVENT)); }
 export async function decorationSourceKey(preset: unknown) {
-  const content = new TextEncoder().encode(JSON.stringify(validateDecoration(preset)));
+  const normalized=validateDecoration(preset);
+  if(normalized.parts.css!==undefined)normalized.parts.css=await portableCssImages(normalized.parts.css);
+  const content = new TextEncoder().encode(JSON.stringify(normalized));
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', content));
   return 'chat-' + Array.from(hash, b => b.toString(16).padStart(2, '0')).join('');
 }

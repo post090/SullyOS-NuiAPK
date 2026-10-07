@@ -275,7 +275,22 @@ export function harmonizeCameraPixels(pixels: Uint8ClampedArray, width: number, 
 
 const photoFields = new WeakMap<HTMLCanvasElement, CameraLightField>();
 const sourcePixels = new WeakMap<HTMLCanvasElement, { pixels: Uint8ClampedArray; median: number }>();
-export function lightCameraSticker(source: HTMLCanvasElement, photo: HTMLCanvasElement, placement: CameraLightPlacement): HTMLCanvasElement {
+const previewSources = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
+/** Pixel work stays bounded during editing; the original is retained for export. */
+export function cameraPreviewSticker(source: HTMLCanvasElement): HTMLCanvasElement {
+    if (Math.max(source.width, source.height) <= 256) return source;
+    let small = previewSources.get(source);
+    if (!small) {
+        const scale = 256 / Math.max(source.width, source.height);
+        small = document.createElement('canvas');
+        small.width = Math.max(1, Math.round(source.width * scale)); small.height = Math.max(1, Math.round(source.height * scale));
+        small.getContext('2d')!.drawImage(source, 0, 0, small.width, small.height);
+        previewSources.set(source, small);
+    }
+    return small;
+}
+export function lightCameraSticker(source: HTMLCanvasElement, photo: HTMLCanvasElement, placement: CameraLightPlacement, preview = false): HTMLCanvasElement {
+    if (preview) source = cameraPreviewSticker(source);
     let field = photoFields.get(photo);
     if (!field) {
         const sample = document.createElement('canvas'); sample.width = sample.height = 32;

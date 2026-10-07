@@ -1,4 +1,4 @@
-// 群聊 LLM 输出解析 —— 两层容错（家规：严格层失败后进宽松层，绝不静默丢整轮输出）。
+// 群聊 LLM 输出解析：严格 JSON → 逐对象恢复 → 按群成员姓名恢复正文。
 // 纯函数、无副作用，便于 vitest 直测。
 
 export interface DirectorAction {
@@ -33,9 +33,10 @@ const normalizeAction = (a: any): DirectorAction | null => {
  * 解析导演模式输出的 JSON 动作数组。
  * 第一层（严格）：剥围栏 → 截取最外层 [ ... ] → JSON.parse 整体。
  * 第二层（宽松）：正则逐个抠出含 "charId" 的对象逐个 parse，能救一个是一个。
- * 两层皆空时返回 []，由调用方决定是否提示用户。
+ * 第三层：由调用方传入群成员，按唯一姓名识别「名字：正文」；不猜无署名内容的作者。
+ * 皆空时返回 []，由调用方决定是否提示用户。
  */
-export function parseDirectorActions(raw: string): DirectorAction[] {
+export function parseDirectorActions(raw: string, members: ReadonlyArray<{id: string; name: string}> = []): DirectorAction[] {
     const text = stripFences(raw);
     if (!text) return [];
 
@@ -59,7 +60,56 @@ export function parseDirectorActions(raw: string): DirectorAction[] {
             if (action) rescued.push(action);
         } catch { /* 这个对象坏了，跳过它救别的 */ }
     }
-    return rescued;
+    if (rescued.length) return rescued;
+    return parseNamedDialogue(text, members);
+}
+
+/** Recover history-shaped replies only when the speaker is an unambiguous member.
+ * Never assign unlabelled prose, user turns, or reasoning to an arbitrary character.
+ */
+function parseNamedDialogue(text: string, members: ReadonlyArray<{id: string; name: string}>): DirectorAction[] {
+    const names = new Map<string, string | null>();
+    for (const member of members) {
+        const name = member.name.trim();
+        if (name) names.set(name, names.has(name) ? null : member.id);
+    }
+    const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const alternatives = [...names.keys()].sort((a, b) => b.length - a.length).map(escape).join('|');
+    if (!alternatives) return [];
+    // A model may put several [Name: content] bubbles on one line.
+    const lines = text.replace(new RegExp(`\\[(${alternatives})[：:]`, 'g'), '\n[$1：')
+        .replace(/\[(?:约\s*)?\d+\s*(?:秒|分钟|小时|天)前\]\s*/g, '\n')
+        .replace(/\[([^\]\n]+?)\s+引用了\s+([^\]\n]+?)说的「([\s\S]*?)」\s*[，,]?\s*并回复了\s*↓\]/g,
+            '\n$1：[[QUOTE: $3]]\n')
+        .split(/\r?\n/);
+    const header = new RegExp(`^\\[?(${alternatives})[：:]\\s*([\\s\\S]*)$`);
+    const actions: DirectorAction[] = [];
+    let current: DirectorAction | undefined;
+    for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        const match = line.match(header);
+        if (match) {
+            const charId = names.get(match[1]);
+            current = undefined;
+            if (!charId) continue;
+            const content = (line.startsWith('[') ? match[2].replace(/\]$/, '') : match[2]).trim();
+            const previous = actions[actions.length - 1];
+            // Keep a recovered quote attached to the next bubble from its author.
+            if (previous?.charId === charId && /^\[\[QUOTE: [\s\S]*\]\]$/.test(previous.content)) {
+                previous.content += '\n' + content;
+                current = previous;
+            } else {
+                current = {charId, content};
+                actions.push(current);
+            }
+        } else if (/^\[?[^：:\n]{1,80}[：:]/.test(line)) {
+            current = undefined; // Unknown speaker / user: do not absorb into last member.
+        } else if (current) {
+            current.content += '\n' + line;
+        }
+    }
+    return actions.filter(action => action.content && !/^\[\[QUOTE: [\s\S]*\]\]$/.test(action.content));
 }
 
 /**

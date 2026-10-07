@@ -9,6 +9,24 @@ vi.mock('./decorationLibrary',async()=>({...await vi.importActual<any>('./decora
 vi.mock('../components/share/BeautyPresetPreview',()=>({default:({data,sceneScope}:any)=>React.createElement('div',{'data-testid':'preview','data-scope':sceneScope},JSON.stringify(data.parts))}));
 vi.mock('../components/chat/ChatLayoutSettings',()=>({default:()=>null}));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
+it('recovers the current legacy psyche CSS without a matching library preset and saves only that part',async()=>{
+ const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
+ const applied=vi.fn(), refreshed=vi.fn(async()=>{});mocks.save.mockClear();
+ const css='.sully-psyche-card { color: purple; }';
+ const click=async(label:string)=>act(async()=>{const buttons=Array.from(document.querySelectorAll('button')).filter(b=>b.textContent===label);expect(buttons.length).toBeGreaterThan(0);buttons[buttons.length-1].click();});
+ try{
+  await act(async()=>root.render(React.createElement(DecorationDraftEditor,{preset:{format:'sullyos-chat-decoration',version:1,name:'当前搭配',parts:{css:'.sully-chat-root{color:red}',psyche:{styleId:'custom',customColors:{bg:'#123456'},customCss:css}}},origin:{kind:'legacy'},theme:{} as any,sources:[],onClose:()=>{},onOpenWorkshop:()=>{},onSaved:()=>{},onApply:applied,onOutfitsChange:refreshed})));
+  await act(async()=>{Array.from(document.querySelectorAll('.decoration-current-grid button')).find(b=>b.textContent?.includes('心象'))!.dispatchEvent(new MouseEvent('click',{bubbles:true}));});
+  await click('编辑并另存当前心象');
+  const editor=document.querySelector<HTMLTextAreaElement>('[aria-label="心象 CSS"]')!;
+  expect(editor.value).toBe(css);
+  await act(async()=>Simulate.change(editor,{target:{value:css.replace('purple','green')}} as any));
+  await click('保存预设');
+  expect(mocks.save).toHaveBeenLastCalledWith(expect.objectContaining({parts:{psyche:{styleId:'custom',customColors:{bg:'#123456'},customCss:css.replace('purple','green')}}}),expect.anything(),undefined,undefined);
+  expect(refreshed).toHaveBeenCalledOnce();expect(applied).not.toHaveBeenCalled();
+  expect(document.querySelector('[aria-label="心象 CSS"]')).toBeNull();
+ }finally{await act(async()=>root.unmount());host.remove();}
+});
 it('keeps the preview mounted, combines a permitted preset, and rejects a locked one',async()=>{
  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
  const source=(id:string,name:string)=>({id,name,kind:'chat-decoration' as const,categories:['psyche' as const],attributionKey:async()=>id,read:async()=>({format:'sullyos-chat-decoration',version:1,name,parts:{psyche:{styleId:'echo'}}})});

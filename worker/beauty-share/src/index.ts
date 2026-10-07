@@ -96,7 +96,7 @@ async function submit(request: Request, env: Env, author: string, id?: string, t
     if (termsOnly && body.expectedCatalogHidden !== work.catalog_hidden) fail(409, '公开设置已变化，请刷新后重试');
   } else {
     const count = await env.DB.prepare('SELECT count(*) AS n FROM submissions WHERE author_code=? AND deleted_at IS NULL').bind(author).first();
-    if (Number(count?.n) >= 50) fail(429, '每位作者最多保留 50 份作品');
+    if (Number(count?.n) >= 200) fail(429, '每位作者最多保留 200 份作品');
   }
   await limit(env, 'upload-bytes', positiveLimit(env.DAILY_UPLOAD_BYTES, 256 * 1024 * 1024), 86400_000, bytes);
   const capacity = positiveLimit(env.TOTAL_STORAGE_BYTES, 8 * 1024 ** 3);

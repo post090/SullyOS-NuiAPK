@@ -14,6 +14,7 @@ import {
   collectAmsg2TaskContext,
 } from './amsg2TaskContext';
 import { ActiveMsgStore } from './activeMsgStore';
+import { buildAmsg2ChatScheduleBrief, buildFireScheduleBlock } from './amsgFireSchedule';
 import type { ActiveMsg2TaskRecord, Amsg2ExpiredNoticeRecord, CharacterProfile } from '../types';
 
 const H = 3600_000;
@@ -50,6 +51,20 @@ describe('buildAmsg2TaskContextText', () => {
     const text = buildAmsg2TaskContextText([pendingTask], [], Date.now(), undefined);
     expect(text).toContain('schedule_active_message');
     expect(text).toContain('进行中：');
+  });
+
+  it('本地与即时对话共用完整的自主联系说明，保留用户名与不打扰约束', () => {
+    const local = buildAmsg2TaskContextText([], [], Date.now(), undefined, undefined, '条条');
+    const brief = buildAmsg2ChatScheduleBrief('条条');
+    for (const mode of ['native', 'text'] as const) {
+      const cloud = buildFireScheduleBlock(mode, {
+        nowMs: Date.now(), tz: { tzId: 'Asia/Tokyo' }, context: 'chat', targetName: '条条',
+      });
+      expect(local).toContain(brief);
+      expect(cloud).toContain(brief);
+      expect(cloud).toContain('条条明确说别打扰');
+      expect(cloud).not.toContain('这条消息发完，如果还有话');
+    }
   });
 
   it('用 ChatApp 用户名称呼对方，不再使用泛称', () => {

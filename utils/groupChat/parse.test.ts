@@ -2,6 +2,32 @@ import { describe, it, expect } from 'vitest';
 import { parseDirectorActions, parseSummaryYaml, parseGroupTopicBox, stripSkipMarker } from './parse';
 
 describe('parseDirectorActions', () => {
+    const members = [{id: 'c1', name: '聂廷'}, {id: 'c2', name: '阿.青(二)'}];
+    it('恢复截图中的时间、引用和按姓名发言，并保留逐条气泡', () => {
+        const raw = `<think>聂廷：不要显示思考</think>
+[约 1 分钟前] [聂廷 引用了 Charlie 说的「我不喜欢蒜苗」，并回复了 ↓]
+聂廷：回锅肉不放蒜苗还能叫回锅肉？
+[约 1 分钟前] 聂廷：我买两个不辣的。 [阿.青(二)：收到]
+[聂廷：门反锁给拧开。]`;
+        expect(parseDirectorActions(raw, members)).toEqual([
+            {charId: 'c1', content: '[[QUOTE: 我不喜欢蒜苗]]\n回锅肉不放蒜苗还能叫回锅肉？'},
+            {charId: 'c1', content: '我买两个不辣的。'},
+            {charId: 'c2', content: '收到'},
+            {charId: 'c1', content: '门反锁给拧开。'},
+        ]);
+    });
+    it('无姓名、重名、陌生人、用户和未闭合思考不猜归属', () => {
+        expect(parseDirectorActions('没有标明是谁说的', members)).toEqual([]);
+        expect(parseDirectorActions('<think>聂廷：思考', members)).toEqual([]);
+        expect(parseDirectorActions('聂廷：你好', [...members, {id: 'c3', name: '聂廷'}])).toEqual([]);
+        expect(parseDirectorActions('聂廷：第一行\n第二行\nCharlie：用户话\n用户续行\n路人：不要\n阿.青(二)：最后', members)).toEqual([
+            {charId: 'c1', content: '第一行\n第二行'}, {charId: 'c2', content: '最后'},
+        ]);
+    });
+    it('优先采用结构化输出，正文中的角色名不被拆散', () => {
+        expect(parseDirectorActions('[{"charId":"c1","content":"阿.青(二)：这是引用"}]', members))
+            .toEqual([{charId: 'c1', content: '阿.青(二)：这是引用'}]);
+    });
     it('标准 JSON 数组直接解析', () => {
         const raw = '[{"charId": "c1", "content": "早啊"}, {"charId": "c2", "content": "困死了"}]';
         expect(parseDirectorActions(raw)).toEqual([

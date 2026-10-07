@@ -3,11 +3,33 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import DateSettings from '../components/date/DateSettings';
+import DateSession from '../components/date/DateSession';
 
-vi.mock('../context/OSContext', () => ({ useOS: () => ({ updateCharacter: vi.fn(), addToast: vi.fn(), userProfile: { name: '用户' } }) }));
+vi.mock('../context/OSContext', () => ({ useOS: () => ({ updateCharacter: vi.fn(), addToast: vi.fn(), userProfile: { name: '用户' }, apiConfig: {}, registerBackHandler: () => () => {} }) }));
 vi.mock('../components/date/MeetingAppearanceControl', () => ({ default: () => React.createElement('div', null, '当前美化') }));
 vi.mock('../components/date/ObserveSettings', () => ({ default: () => null }));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
+
+it('opens settings from an active date without measuring the entrance animation as zero height', async () => {
+    vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), {scale: 1, offsetTop: 0, height: 800}));
+    // Model the browser geometry at the first frame of slideUp (translateY(100%)).
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        return {top: this.closest('.animate-slide-up') ? 800 : 0, bottom: 800, height: 800} as DOMRect;
+    });
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    const char = {id: 'test', name: '角色', avatar: ''};
+    try {
+        await act(async () => root.render(React.createElement(DateSession, {char, userProfile: {name: '用户'}, messages: [], peekStatus: '',
+            onSendMessage: async () => '', onReroll: async () => '', onExit: vi.fn(), onEditMessage: vi.fn(), onDeleteMessage: vi.fn(), onDeleteMessages: async () => {}, onSettings: vi.fn()} as any)));
+        await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="打开见面菜单"]')!.click());
+        await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent?.includes('布置场景'))!.click());
+        const scroll = host.querySelector('[data-testid="date-settings-scroll"]')!;
+        expect((scroll.parentElement as HTMLElement).style.maxHeight).toBe('800px');
+        expect(scroll.textContent).toContain('当前美化');
+        await act(async () => [...host.querySelectorAll('button')].find(button => button.textContent?.includes('保存当前布置'))!.click());
+        expect(host.querySelector('[data-testid="date-settings-scroll"]')).toBeNull();
+    } finally { act(() => root.unmount()); host.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); }
+});
 
 it('scrolls the preview with the editor, collapses it, and keeps focused input above a reduced viewport', async () => {
     const viewport = Object.assign(new EventTarget(), { scale: 1, offsetTop: 0, height: 380 });

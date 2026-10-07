@@ -20,7 +20,7 @@ export function DecorationMiniPreview({preset,category}:{preset:DecorationPreset
 }
 
 export default function DecorationPresetThumb({entry,category,disabled,onChoose}:{entry:WardrobeEntry;category:DecorationShelf;disabled:boolean;onChoose:()=>void}){
- const read=useRef(entry.read);read.current=entry.read;
+ const read=useRef(entry.readLocal || entry.read);read.current=entry.readLocal || entry.read;
  const [preset,setPreset]=useState<DecorationPreset|null>(null);
  const [error,setError]=useState(false);
  useEffect(()=>{let alive=true;setPreset(null);setError(false);Promise.resolve().then(()=>read.current()).then(value=>{if(alive)setPreset(validateDecoration(value));}).catch(()=>{if(alive)setError(true);});return()=>{alive=false;};},[entry.id,entry.revision]);

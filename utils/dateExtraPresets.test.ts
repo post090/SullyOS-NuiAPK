@@ -39,6 +39,12 @@ it('applies, duplicates, updates and deletes presets without clearing the curren
         await click('删除预设'); expect(saved).toHaveLength(3);
         await click('确认删除预设（保留当前补充）');
         expect(saved).toHaveLength(2); expect(draft).toBe('放慢节奏');
+        // The two remaining presets share a name; delete only the selected ID.
+        expect(saved.map(item => item.name)).toEqual(['日常', '日常']);
+        await choose(saved[1].id);
+        await click('删除预设'); await click('确认删除预设（保留当前补充）');
+        expect(saved).toEqual([{id: 'a', name: '日常', content: '生活细节'}]);
+        expect(draft).toBe('新的生活细节');
         expect(stripSensitiveCardFields({ name: '角色', dateExtraPresets: saved })).toEqual({ name: '角色' });
     } finally { act(() => root.unmount()); host.remove(); }
 });

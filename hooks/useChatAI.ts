@@ -1288,7 +1288,7 @@ export const useChatAI = ({
             if (instantChatRoute) {
                 // 回执跟着 chat 段上云：台账（collectAmsg2TaskContext）在上面已经读过了。
                 // 本地路径靠 withAmsg2TaskContext 注入的排程清单和能力简介，
-                // 到点由 worker 的 instant timely block 现算现渲，唯独回执云端没有——
+                // worker 的 instant timely block 现算清单、复用 buildAmsg2ChatScheduleBrief；唯独回执云端没有——
                 // 只把这一样单独成块贴上，不带清单不带简介，别和到点渲染的那份撞车。
                 const amsg2NoticesBlock = amsg2ToolsInjected && amsg2Notices.length
                     ? buildAmsg2NoticesText(amsg2Notices, resolveCharTimeZone(char), userProfile.name)

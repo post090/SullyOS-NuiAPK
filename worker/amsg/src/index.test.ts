@@ -204,7 +204,7 @@ describe('取消中的 instant hook', () => {
 /** onBeforeFire 生成路径的返回值：{ messages, tools? }（skip 那一支各测各的）。 */
 interface FiredResult {
   messages: Array<{ role: string; content: string }>;
-  tools?: Array<{ function: { name: string; parameters: unknown } }>;
+  tools?: Array<{ function: { name: string; parameters: unknown; description?: string } }>;
   maxToolIterations?: number;
 }
 
@@ -4170,6 +4170,57 @@ describe('onBeforeFire — 即时对话分支', () => {
     expect(appended.content).toContain('现在是');
     // 回归守卫：走模板渲染的话这里会出现主动消息那套措辞，用户刚说的话反而没人答
     expect(result.messages.map((m) => m.content).join('\n')).not.toContain('本次任务');
+  });
+
+  // 本地有常驻自主联系说明，云端以前只教「主动消息发完再接着说」。
+  // 空清单也得教：否则用户不明确要求时，角色连第一条都想不起来排。
+  it.each([true, false])('空清单仍教自主联系与兑现承诺（原生工具=%s）', async (native) => {
+    const { ctx } = makeCtx({
+      charRows: [
+        { key: AMSG_FIRE_PACK_KEY, value: instantPack() },
+        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+      ],
+      globalRows: [{ key: AMSG_TOOL_CONFIG_KEY, value: mcpToolConfigValue({ mcpUseNativeTools: native }) }],
+      metadata: { amsgInstantChat: true, amsgTaskInstruction: undefined },
+    });
+    const scheduleTask = vi.fn();
+    (ctx as any).scheduleTask = scheduleTask;
+    const result = fired(await amsgHooks.onBeforeFire(ctx));
+    const text = result.messages.map((m) => m.content).join('\n');
+
+    expect(text).toContain('你和小明的联系不只发生在正在聊天的时候');
+    expect(text).toContain('惦记、想分享、兑现承诺');
+    expect(text).toContain('睡觉、上课、上班、打游戏');
+    expect(text).toContain('自己的日程');
+    expect(text).toContain('就当场排成真任务，不要只在正文里答应');
+    expect(text).toContain('明确说别打扰');
+    expect(text).toContain('用户给你定的规矩');
+    expect(text.match(/你和小明的联系/g)).toHaveLength(1);
+    expect(text).not.toContain('这条消息发完，如果还有话');
+    expect(scheduleTask).not.toHaveBeenCalled();
+
+    const tool = result.tools?.find((t) => t.function.name === AMSG_FIRE_SCHEDULE_TOOL);
+    if (native) {
+      expect(tool?.function.description).toContain('惦记');
+      expect(tool?.function.description).not.toContain('你现在正在发一条主动消息');
+      expect(text).not.toContain('({"send_at"');
+    } else {
+      expect(tool).toBeUndefined();
+      expect(text).toContain('schedule_active_message({"send_at"');
+    }
+  });
+
+  it.each(['disabled', 'unsupported'] as const)('不可自主排程时不注入能力简介（%s）', async (reason) => {
+    const { ctx } = instantCtx({
+      charRows: [
+        { key: AMSG_FIRE_PACK_KEY, value: instantPack({ selfScheduleEnabled: reason !== 'disabled' }) },
+        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+      ],
+    });
+    if (reason === 'disabled') (ctx as any).scheduleTask = vi.fn();
+    const result = fired(await amsgHooks.onBeforeFire(ctx));
+    expect(result.messages.map((m) => m.content).join('\n')).not.toContain('你和小明的联系');
+    expect(result.tools?.map((t) => t.function.name) ?? []).not.toContain(AMSG_FIRE_SCHEDULE_TOOL);
   });
 
   // 图片消息本地是结构化分段，上游把 onBeforeFire 返回的 messages 整个丢进

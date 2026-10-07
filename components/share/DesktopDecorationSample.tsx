@@ -6,6 +6,7 @@ import { MusicPreviewProvider } from '../../context/MusicContext';
 import { validateBeautyPackage } from '../../utils/beautyShareContract';
 import { resolveBlobRefsDeep } from '../../utils/blobRef';
 import type { CharacterProfile } from '../../types';
+import {BEAUTY_PREVIEW_AVATAR} from '../../utils/beautyPreviewAssets';
 import baseCss from '../chat/chatPreview.generated.css?inline';
 
 const noop = () => {};
@@ -17,7 +18,7 @@ export async function renderDesktopDecorationSample(value: unknown, page: number
     const data = structuredClone(result.data);
     if (data.theme.skin && !['default', 'animalcrossing'].includes(data.theme.skin)) return null;
     await resolveBlobRefsDeep(data);
-    const character = { id: 'preview-character', name: '示例角色', avatar: '/sully/head.png' } as CharacterProfile;
+    const character = { id: 'preview-character', name: '示例角色', avatar: BEAUTY_PREVIEW_AVATAR } as CharacterProfile;
     const os = {
         theme: data.theme, customIcons: data.customIcons || {}, characters: [character],
         activeCharacterId: character.id, unreadMessages: {}, isDataLoaded: false,

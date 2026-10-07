@@ -1,6 +1,8 @@
+import {waitForBeautyCapture} from './beautyCaptureWait';
+
 /** Embed paint resources before SVG/foreignObject capture: external images are not
  * loaded inside a serialized SVG. Fail explicitly instead of publishing blank art. */
-export async function embedBeautyCaptureImages(root: HTMLElement): Promise<void> {
+export async function embedBeautyCaptureImages(root: HTMLElement, signal?: AbortSignal): Promise<void> {
   const cache = new Map<string, Promise<string>>();
   const imageData = (src: string): Promise<string> => {
     if (!src || src.startsWith('#')) return Promise.resolve(src);
@@ -12,22 +14,22 @@ export async function embedBeautyCaptureImages(root: HTMLElement): Promise<void>
     if (existing) return existing;
     const pending = (async () => {
       const controller = new AbortController();
+      const abort = () => controller.abort(signal?.reason);
+      if (signal?.aborted) abort();
+      else signal?.addEventListener('abort', abort, {once: true});
       const timer = window.setTimeout(() => controller.abort(), 12000);
       let objectUrl = '';
+      let loaded = false;
+      let httpStatus: number | undefined;
       try {
-        const response = await fetch(url.href, { signal: controller.signal, credentials: 'omit' });
-        if (!response.ok) throw Error('图片下载失败');
-        const blob = await response.blob();
+        const response = await waitForBeautyCapture(fetch(url.href, { signal: controller.signal, credentials: 'omit' }), controller.signal);
+        if (!response.ok) { httpStatus = response.status; throw Error('图片下载失败'); }
+        const blob = await waitForBeautyCapture(response.blob(), controller.signal);
+        loaded = true;
         objectUrl = URL.createObjectURL(blob);
         const image = new Image();
         image.src = objectUrl;
-        await Promise.race([
-          image.decode(),
-          new Promise<never>((_, reject) => {
-            if (controller.signal.aborted) reject(Error('图片加载超时'));
-            else controller.signal.addEventListener('abort', () => reject(Error('图片加载超时')), { once: true });
-          }),
-        ]);
+        await waitForBeautyCapture(image.decode(), controller.signal);
         const canvas = document.createElement('canvas');
         canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
         const context = canvas.getContext('2d');
@@ -35,9 +37,20 @@ export async function embedBeautyCaptureImages(root: HTMLElement): Promise<void>
         context.drawImage(image, 0, 0);
         return canvas.toDataURL('image/png');
       } catch {
-        throw Error('封面图片加载失败，可能是图床跨域限制或网络问题。请更换可跨域访问的图片，或稍后重试；不会提交缺图封面。');
+        if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : Error('封面生成已取消，请重试');
+        const reason = httpStatus === 404
+          ? `封面图片地址不存在（${url.host}，HTTP 404），请检查图片路径后重试`
+          : httpStatus
+          ? `封面图片下载失败（${url.host}，HTTP ${httpStatus}），请稍后重试`
+          : loaded
+          ? '封面图片解码或绘制失败，请检查图片格式和尺寸后重试'
+          : url.protocol === 'http:' || url.protocol === 'https:'
+            ? `封面图片加载失败（${url.host}），可能是图床跨域限制或网络问题。请更换可跨域访问的图片，或稍后重试`
+            : '封面本地图片读取失败，请重新打开预览后重试；若仍失败，请重新导入这张图片';
+        throw Error(`${reason}；不会提交缺图封面。`);
       } finally {
         clearTimeout(timer);
+        signal?.removeEventListener('abort', abort);
         if (objectUrl) URL.revokeObjectURL(objectUrl);
       }
     })();
@@ -58,11 +71,15 @@ export async function embedBeautyCaptureImages(root: HTMLElement): Promise<void>
   // Work in small groups to avoid decoding every image in a large preset at once.
   const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement | SVGElement>('*'))];
   for (const element of elements) {
+    if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : Error('封面生成已取消，请重试');
     if (element instanceof HTMLImageElement) {
       const src = element.currentSrc || element.src;
       element.removeAttribute('srcset'); element.removeAttribute('sizes');
       element.removeAttribute('crossorigin'); element.loading = 'eager';
-      if (src) { element.src = await imageData(src); await element.decode(); }
+      if (src) {
+        element.src = await imageData(src);
+        await (signal ? waitForBeautyCapture(element.decode(), signal) : element.decode());
+      }
     }
     if (element instanceof SVGImageElement) {
       const src = element.href.baseVal;

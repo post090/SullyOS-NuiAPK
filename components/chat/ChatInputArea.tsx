@@ -11,6 +11,7 @@ import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
 import { trackEvent } from '../../utils/analytics';
 import { findEmojiSuggestions } from '../../utils/emojiSuggestions';
 import { AUDIO_PICKER_ACCEPT } from '../../utils/audioApi';
+import { useEmojiThumbnailCache } from '../../utils/useEmojiThumbnailCache';
 
 const EMOJI_PAGE_SIZE = 40;
 const ACTION_PAGE_SIZE = 8;
@@ -40,7 +41,7 @@ interface ChatInputAreaProps {
     selectedCount: number;
     emojis: Emoji[];
     emojiSuggestionsEnabled?: boolean;
-    /** Visible library across all categories, independent of the open emoji tab. */
+    /** Visible library across all categories; also invalidates removed/replaced cached thumbnails. */
     suggestionEmojis?: Emoji[];
     /** 以下会话切换/主题 props 仅私聊使用；群聊等复用方不传（'chars' 面板不会被打开） */
     characters?: CharacterProfile[];
@@ -167,16 +168,22 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const [exportEmojis, setExportEmojis] = useState<Emoji[] | null>(null);
     const [selectedEmojis, setSelectedEmojis] = useState<Emoji[]>([]);
     // 手动分页避免旧版/第三方 WebView 不触发 IntersectionObserver，永远卡在「加载中」。
-    const [emojiPage, setEmojiPage] = useState(0);
+    const [emojiPaging, setEmojiPaging] = useState({category: activeCategory, page: 0});
+    const [emojiPanelVisited, setEmojiPanelVisited] = useState(showPanel === 'emojis');
+    useEffect(() => {
+        if (showPanel === 'emojis') setEmojiPanelVisited(true);
+    }, [showPanel]);
     const emojiPageCount = Math.max(1, Math.ceil(emojis.length / EMOJI_PAGE_SIZE));
+    const emojiPage = emojiPaging.category === activeCategory ? Math.min(emojiPaging.page, emojiPageCount - 1) : 0;
+    if (emojiPaging.category !== activeCategory || emojiPaging.page !== emojiPage) {
+        setEmojiPaging({category: activeCategory, page: emojiPage});
+    }
     const emojiPageStart = emojiPage * EMOJI_PAGE_SIZE;
     const visibleEmojis = emojis.slice(emojiPageStart, emojiPageStart + EMOJI_PAGE_SIZE);
-    useEffect(() => {
-        setEmojiPage(0);
-    }, [activeCategory]);
-    useEffect(() => {
-        setEmojiPage(current => Math.min(current, emojiPageCount - 1));
-    }, [emojiPageCount]);
+    const visibleEmojiNames = new Set(visibleEmojis.map(emoji => emoji.name));
+    const retainedEmojis = useEmojiThumbnailCache(
+        emojiPanelVisited || showPanel === 'emojis' ? visibleEmojis : [], suggestionEmojis,
+    );
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const startPos = useRef({ x: 0, y: 0 });
     const isLongPressTriggered = useRef(false); // Track if long press action fired
@@ -848,8 +855,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 >
 
                     {/* Emojis Panel with Categories */}
-                    {showPanel === 'emojis' && (
-                        <>
+                    {(emojiPanelVisited || showPanel === 'emojis') && (
+                        <div data-testid="emoji-panel" style={{ display: showPanel === 'emojis' ? 'flex' : 'none' }} className="flex-col min-h-0 flex-1">
                             {/* Categories Bar */}
                             <div className={`sully-chat-emoji-categories relative flex shrink-0 ${panelTopBarSurfaceClass}`} style={{ backgroundColor: 'inherit' }}>
                                 {/* touch-action: pan-x —— 显式告诉浏览器"从分组 chip 上起手的触摸就是横向滚动"，
@@ -938,13 +945,17 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         <button onClick={() => onPanelAction('emoji-import')} className={emojiImportTileClass}>+</button>
                                     )}
                                     {emojiSelectionMode && <button onClick={() => setExportEmojis([...selectedEmojis])} disabled={!selectedEmojis.length} aria-label="下载选中的表情" className={`${emojiImportTileClass} text-xs disabled:opacity-40`}>下载原图</button>}
-                                    {visibleEmojis.map((e) => {
+                                    {retainedEmojis.map((e) => {
                                         const isSelected = selectedEmojiNames.has(e.name);
+                                        const hidden = !visibleEmojiNames.has(e.name);
                                         return (
                                         <button
                                             // name 是表情库主键；不同表情可共用 URL / 去重后的 Blob 令牌。
                                             // 用图片地址当记录 key 会冲突，切分组/翻页时残留、复制旧格子。
                                             key={e.name}
+                                            hidden={hidden}
+                                            aria-hidden={hidden || undefined}
+                                            style={hidden ? {display: 'none'} : undefined}
                                             onClick={(ev) => handleItemClick(ev, e, 'emoji')}
                                             aria-pressed={emojiSelectionMode ? isSelected : undefined}
                                             // Long press handlers for Emojis
@@ -974,7 +985,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             type="button"
                                             aria-label="上一页表情"
                                             disabled={emojiPage === 0}
-                                            onClick={() => setEmojiPage(page => Math.max(0, page - 1))}
+                                            onClick={() => setEmojiPaging({category: activeCategory, page: Math.max(0, emojiPage - 1)})}
                                             className="w-8 h-7 rounded-full border border-current/20 disabled:opacity-30 active:scale-95"
                                         >
                                             ‹
@@ -986,7 +997,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             type="button"
                                             aria-label="下一页表情"
                                             disabled={emojiPage >= emojiPageCount - 1}
-                                            onClick={() => setEmojiPage(page => Math.min(emojiPageCount - 1, page + 1))}
+                                            onClick={() => setEmojiPaging({category: activeCategory, page: Math.min(emojiPageCount - 1, emojiPage + 1)})}
                                             className="w-8 h-7 rounded-full border border-current/20 disabled:opacity-30 active:scale-95"
                                         >
                                             ›
@@ -994,7 +1005,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                     </div>
                                 )}
                             </div>
-                        </>
+                        </div>
                     )}
 
                     {/* Actions Panel：外部提供 actionsContent 时整体替换内置双页网格 */}

@@ -4,11 +4,17 @@ const { mkdirSync } = require('node:fs');
 const out = 'output/chat-camera'; mkdirSync(out, { recursive: true });
 (async () => {
     const browser = await chromium.launch({ channel: process.env.CAMERA_QA_BROWSER || 'msedge', headless: true, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-    const context = await browser.newContext({ permissions: ['camera'], viewport: { width: 390, height: 844 } });
+    const context = await browser.newContext({ permissions: ['camera'], hasTouch: true, viewport: { width: 390, height: 844 } });
     const page = await context.newPage(); const errors = [];
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', message => { if (message.type() === 'error') console.log('Browser:', message.text()); });
     await page.addInitScript(() => {
+        Object.defineProperty(screen,'orientation',{configurable:true,value:Object.assign(new EventTarget(),{type:'portrait-primary'})});
+        window.cameraPixelReads = [];
+        const readPixels = CanvasRenderingContext2D.prototype.getImageData;
+        CanvasRenderingContext2D.prototype.getImageData = function(x,y,w,h,...rest) {
+            window.cameraPixelReads.push([w,h]); return readPixels.call(this,x,y,w,h,...rest);
+        };
         window.cameraTracks = [];
         window.cameraFacings = [];
         navigator.mediaDevices.getUserMedia = async constraints => {
@@ -71,7 +77,10 @@ const out = 'output/chat-camera'; mkdirSync(out, { recursive: true });
         await page.getByRole('button', { name: '角色贴纸', exact: true }).click();
         await page.getByRole('button', { name: '添加 彼方 Chibi', exact: true }).click();
         assert.equal(await page.getByRole('checkbox', { name: '匹配环境光' }).isChecked(), false);
+        await page.evaluate(()=>{window.cameraPixelReads=[];});
         await page.getByRole('checkbox', { name: '匹配环境光' }).check();
+        await page.waitForFunction(()=>!document.querySelector('.chat-camera-send').disabled);
+        assert(await page.evaluate(()=>window.cameraPixelReads.length>0 && window.cameraPixelReads.every(([w,h])=>Math.max(w,h)<=256)));
         await page.getByRole('button', { name: '角色贴纸', exact: true }).click();
         await page.getByLabel('贴纸来源').selectOption('手办柜');
         await page.getByRole('button', { name: '添加 小小窝', exact: true }).click();
@@ -110,6 +119,26 @@ const out = 'output/chat-camera'; mkdirSync(out, { recursive: true });
             return c.width === size.width && c.height === size.height;
         }, fullSize);
         assert.notEqual(await canvas.evaluate(c => c.toDataURL()), before);
+        // Real multi-touch input: the first finger selects, the second rotates/scales.
+        const touch = await context.newCDPSession(page);
+        const touchBox = await canvas.boundingBox();
+        const cx=touchBox.x+touchBox.width*.7, cy=touchBox.y+touchBox.height*.7;
+        const touchPoint=(id,x,y)=>({id,x,y,radiusX:2,radiusY:2,force:1});
+        const initialSize=Number(await page.getByLabel('贴纸大小').inputValue());
+        await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touchPoint(1,cx-8,cy)]});
+        await touch.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[touchPoint(1,cx-8,cy),touchPoint(2,cx+8,cy)]});
+        await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[touchPoint(1,cx,cy-16),touchPoint(2,cx,cy+16)]});
+        await page.waitForFunction(size=>Number(document.querySelector('[aria-label="贴纸大小"]').value)>size*1.5,initialSize);
+        assert(Math.abs(Number(await page.getByLabel('贴纸旋转').inputValue())-90)<2);
+        await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[touchPoint(1,cx,cy-16)]});
+        const singleBefore=await canvas.evaluate(c=>c.toDataURL());
+        await touch.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[touchPoint(1,cx+15,cy-6)]});
+        await touch.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+        await page.waitForFunction(()=>!document.querySelector('.chat-camera-send').disabled);
+        assert.notEqual(await canvas.evaluate(c=>c.toDataURL()),singleBefore);
+        assert.equal(await canvas.evaluate(c=>Math.max(c.width,c.height)),720);
+        await touch.detach();
+
         for (const width of [320, 390, 1280]) {
             await page.setViewportSize({ width, height: 844 });
             await page.screenshot({ path: `${out}/edit-${width}.png` });
@@ -159,6 +188,8 @@ const out = 'output/chat-camera'; mkdirSync(out, { recursive: true });
         await page.screenshot({ path: `${out}/filters-mobile.png` });
         await page.getByRole('button', { name: '发送照片' }).click();
         await page.getByText('已接收照片').waitFor();
+        await page.getByAltText('已发送照片').evaluate(img=>img.decode());
+        assert.equal(await page.getByAltText('已发送照片').evaluate(img=>Math.max(img.naturalWidth,img.naturalHeight)),960);
         assert.match(await page.getByAltText('已发送照片').getAttribute('src'), /^data:image\/jpeg/);
         await page.getByRole('button', { name: '查看大图' }).click();
         await page.getByRole('dialog', { name: '图片预览' }).waitFor();
@@ -207,7 +238,7 @@ const out = 'output/chat-camera'; mkdirSync(out, { recursive: true });
         await page.getByRole('button', { name: '发送照片' }).click();
         await page.getByText('已接收照片').waitFor();
         assert.deepEqual(errors, []);
-        console.log('Camera QA passed: capture, switch, cleanup, frames, stickers, drag resolution, lighting, filters, send, retake, permission error, mobile/desktop.');
+        console.log('Camera QA passed: capture, switch, cleanup, frames, stickers, drag/pinch/rotation, full-size export, lighting, filters, send, retake, permission error, mobile/desktop.');
     } catch (e) { await page.screenshot({ path: `${out}/failure.png` }); console.error(await page.locator('body').innerText(), errors); throw e; }
     finally { await browser.close(); }
 })().catch(e => { console.error(e); process.exitCode = 1; });

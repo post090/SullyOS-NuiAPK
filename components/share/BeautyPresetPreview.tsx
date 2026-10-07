@@ -1,6 +1,8 @@
+import {resolveCssImageUrls} from '../../utils/cssImageAssets';
 import {decorationPreviewScenes,decorationThumbnailPart,type DecorationThumbnailPart} from '../../utils/decorationPreviewScenes';
 import React, { forwardRef, memo, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import {embedBeautyCaptureImages} from '../../utils/beautyCaptureAssets';
+import {renderIsolatedBeautyCapture, waitForBeautyCapture, waitForBeautyCaptureFonts} from '../../utils/beautyCaptureWait';
 import {enqueuePreviewBuild} from '../../utils/previewRenderQueue';
 import { beautyPreviewDocument, PREVIEW_WIDTH, PREVIEW_HEIGHT } from '../../utils/beautyPreview';
 import {bindDecorationPreview,type DecorationPreviewState} from '../../utils/decorationPreviewInteraction';
@@ -37,6 +39,8 @@ function copyPaint(element: Element, scrolls: Array<[HTMLElement,number,number]>
 export default memo(forwardRef<BeautyPreviewHandle, Props>(function BeautyPresetPreview({ data, compact = false, sceneScope = 'preset', thumbnailPart }, ref) {
   const host = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
+  const activeCapture = useRef<AbortController|null>(null);
+  useEffect(() => () => activeCapture.current?.abort(), []);
   const [width, setWidth] = useState(PREVIEW_WIDTH);
   const [desktopPage, setDesktopPage] = useState(0);
   const [desktopPages, setDesktopPages] = useState(1);
@@ -63,7 +67,7 @@ export default memo(forwardRef<BeautyPreviewHandle, Props>(function BeautyPreset
   useEffect(() => {
     if(!visible)return;
     setReady(false); setError('');
-    let alive = true;let cleanup:undefined|(()=>void);
+    let alive = true;let cleanup:undefined|(()=>void);let releaseImages:undefined|(()=>void);
     const build = async () => { try {
       const sample = isChat
         ? await import('../chat/ChatDecorationSample').then(module=>alive?module.renderChatDecorationSample(data,sceneId,part,liveState):null)
@@ -78,6 +82,9 @@ export default memo(forwardRef<BeautyPreviewHandle, Props>(function BeautyPreset
       // Only text CSS and our own escaped sample markup cross this boundary, never scripts.
       shadow.adoptedStyleSheets=[];
       style.textContent = sample ? sample.css+'\n*{animation:none!important;transition:none!important;pointer-events:none!important}.sample-messages,.no-scrollbar{pointer-events:auto!important}'+(!compact?'[data-preview-action],[data-preview-action] *,[data-preview-backdrop],.sully-chat-transfer-dialog{pointer-events:auto!important}[data-preview-action]:focus-visible{outline:2px solid #8a72ad!important;outline-offset:2px}':'') : (parsed.querySelector('style')?.textContent || '').replace('html,body{', '.beauty-preview-body{').replace('body{background:', '.beauty-preview-body{background:');
+      const images = await resolveCssImageUrls(style.textContent || '');
+      if (!alive) {images.dispose(); return;}
+      releaseImages = images.dispose; style.textContent = images.css;
       const body = document.createElement('div'); body.className = 'beauty-preview-body';
       for (const child of Array.from(parsed.body.children)) body.append(child.cloneNode(true));
       shadow.replaceChildren(style, body);
@@ -89,10 +96,10 @@ export default memo(forwardRef<BeautyPreviewHandle, Props>(function BeautyPreset
       // Preset :host selectors cannot resize, position or expose the host outside its clip.
       for (const [key, value] of Object.entries({ width: '360px', height: `${height}px`, display: 'block', position: 'relative', overflow: 'hidden', contain: 'strict', 'pointer-events': compact ? 'none' : 'auto' })) host.current.style.setProperty(key, value, 'important');
       setReady(true);
-    } catch (e) { if(alive)setError(e instanceof Error ? e.message : '预览失败'); } };
+    } catch (e) { releaseImages?.(); if(alive)setError(e instanceof Error ? e.message : '预览失败'); } };
     const cancel=compact?enqueuePreviewBuild(build):undefined;
     if(!compact)void build();
-    return () => {alive=false;cancel?.();cleanup?.();};
+    return () => {alive=false;cancel?.();cleanup?.();releaseImages?.();};
   }, [data,sceneId,isChat,compact,part,height,liveState,desktopPage,visible]);
   useEffect(() => {
     if (!container.current) return;
@@ -103,25 +110,24 @@ export default memo(forwardRef<BeautyPreviewHandle, Props>(function BeautyPreset
     capture: async () => {
       const element = host.current;
       if (!ready || !element?.shadowRoot) throw Error('预览尚未加载完成，请稍后再试');
-      await document.fonts.ready;
-      const { default: html2canvas } = await import('html2canvas');
       const body = element.shadowRoot.querySelector<HTMLElement>('.beauty-preview-body');
       if (!body) throw Error('预览内容尚未就绪');
-      const scrolls:Array<[HTMLElement,number,number]>=[];
-      const snapshot = copyPaint(body,scrolls);
-      const holder = document.createElement('div');
-      holder.style.cssText = `position:fixed;left:-10000px;top:0;width:360px;height:${height}px;overflow:hidden;pointer-events:none;contain:strict`;
-      holder.append(snapshot); document.body.append(holder);
-      for(const [element,top,left] of scrolls){element.scrollTop=top;element.scrollLeft=left;}
+      activeCapture.current?.abort();
+      const controller = new AbortController(); activeCapture.current = controller;
+      let stage = '预览字体加载';
+      const timeout = window.setTimeout(() => controller.abort(Error(`${stage}超时，请检查网络后重试；不会提交未完成的封面。`)), 30000);
       try {
-        await embedBeautyCaptureImages(snapshot);
-        // html2canvas flattens Shadow DOM into its clone. Exclude all original previews
-        // so untrusted selectors cannot see the rest of the app in that temporary clone.
-        // The foreignObject painter serializes the element at a one-pixel inset.
-        // Cancel the temporary holder's off-screen coordinates without clipping it.
-        const bounds = snapshot.getBoundingClientRect();
-        return await html2canvas(snapshot, { x: 1 - bounds.left, y: 1 - bounds.top, scale: 2, width: PREVIEW_WIDTH, height, backgroundColor: null, foreignObjectRendering: true, useCORS: true, imageTimeout: 8000, logging: false, ignoreElements: node => node.hasAttribute('data-beauty-preview-source') });
-      } finally { holder.remove(); }
+        await waitForBeautyCaptureFonts(body, controller.signal);
+        const scrolls:Array<[HTMLElement,number,number]>=[];
+        const snapshot = copyPaint(body,scrolls);
+        stage = '封面图片加载';
+        await waitForBeautyCapture(embedBeautyCaptureImages(snapshot, controller.signal), controller.signal);
+        stage = '封面绘制';
+        return await renderIsolatedBeautyCapture(snapshot, PREVIEW_WIDTH, height, controller.signal, scrolls);
+      } finally {
+        clearTimeout(timeout);
+        if (activeCapture.current === controller) activeCapture.current = null;
+      }
     },
   }), [ready,height]);
   return <div className="beauty-preset-preview" data-thumbnail-part={part} ref={container}>

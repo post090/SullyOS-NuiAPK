@@ -1,4 +1,5 @@
 import type {DecorationPreset} from './chatDecoration';
+import {cssRuleSelectors,maskCssComments} from './cssRuleSelectors';
 import {CHAT_PREVIEW_SCENES,type ChatPreviewScene} from './chatPreviewFixtures';
 
 export type DecorationThumbnailPart = 'bubbles'|'background'|'psyche'|'avatar'|'schedule'|'journal'|'date'|'story';
@@ -30,7 +31,10 @@ export function decorationPreviewScenes(value: unknown, scope: 'preset'|'all' = 
   const p = (value as Partial<DecorationPreset> | null)?.parts || {};
   const css = [p.css, p.bubbles?.customCss, p.psyche?.customCss].filter(Boolean).join('\n');
   // Ignore comments and declaration values (including URLs and textual examples).
-  const selectors = Array.from(css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{/g), match => match[1]).join('\n');
+  // Scan once: a regex searching for the next opening brace retries at every
+  // byte of a large data URL in a declaration and can freeze mobile browsers.
+  const masked = maskCssComments(css);
+  const selectors = cssRuleSelectors(css).rules.map(rule => masked.slice(rule.start, rule.end)).join('\n');
   const ids = new Set<string>();
   const add = (...scenes: string[]) => scenes.forEach(id => ids.add(id));
   if (p.layout || p.background || /\.sully-chat-(?:root|header|inputbar|composer|message)(?![\w-])/.test(selectors)) {

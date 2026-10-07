@@ -2,6 +2,7 @@ import {ChatCardSurface} from '../components/chat/ChatCardSurface';
 import { avatarDecorationImageStyle, isAnniversaryFrame } from '../utils/anniversaryGifts';
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
+import BlobRefStyle from '../components/chat/BlobRefStyle';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
@@ -1491,10 +1492,10 @@ ${memberTimeline || '(暂无互动记录)'}
                 });
             }
 
-            // 两层容错解析（严格 JSON → 逐对象抢救），两层皆空且模型确实吐了内容
+            // 严格 JSON → 逐对象抢救 → 按当前群成员姓名恢复掉格式的正文。
             // 时明确提示用户，不再"正在输入…"消失后什么都不发生
             const rawContent = data.choices?.[0]?.message?.content ?? '';
-            const actions = parseDirectorActions(rawContent);
+            const actions = parseDirectorActions(rawContent, groupMembers);
             if (actions.length === 0 && String(rawContent).trim()) {
                 console.error('Director Parse Error', rawContent);
                 addToast('AI 输出格式无法解析，请重试', 'error');
@@ -1807,8 +1808,8 @@ ${memberTimeline || '(暂无互动记录)'}
             {/* 外观 App 的全局聊天细节与私聊共用同一份生成 CSS。 */}
             {groupFineTuneCss && <style>{groupFineTuneCss}</style>}
             {/* 白框自定义 CSS：全局默认在前、群专属在后（后者叠加覆盖）。作用于 .sully-chat-* 各零件。 */}
-            {osTheme.chatChromeCustomCss && <style>{osTheme.chatChromeCustomCss}</style>}
-            {activeGroup?.chromeCustomCss && <style>{activeGroup.chromeCustomCss}</style>}
+            {osTheme.chatChromeCustomCss && <BlobRefStyle css={osTheme.chatChromeCustomCss}/>}
+            {activeGroup?.chromeCustomCss && <BlobRefStyle css={activeGroup.chromeCustomCss}/>}
             {/* 气泡工坊 CSS 排在白框之后，与私聊优先级一致；每套成员主题都限定在自己的消息上。 */}
             {groupBubbleCustomCss && <style>{groupBubbleCustomCss}</style>}
             <style>{`

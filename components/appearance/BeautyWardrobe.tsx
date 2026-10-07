@@ -8,7 +8,7 @@ import './BeautyWardrobe.css';
 import { BeautyRepoBadge } from '../share/BeautyRepoInvitation';
 import {readDecorationOrigin,originLabel,canEditDecoration,type DecorationOrigin} from '../../utils/decorationLibrary';
 
-export interface WardrobeEntry extends BeautySource { attributionKey: () => Promise<string>; contents?: string }
+export interface WardrobeEntry extends BeautySource { attributionKey: () => Promise<string>; contents?: string; readLocal?: () => Promise<unknown> }
 interface WardrobeActions {onEdit?:(entry:WardrobeEntry)=>void;onExport?:(entry:WardrobeEntry)=>void;onShare?:(entry:WardrobeEntry)=>void;onDelete?:(entry:WardrobeEntry)=>void;onUpdate?:(entry:WardrobeEntry)=>void|Promise<void>}
 interface Loaded { pack: unknown; share: BeautyShare | null; origin:DecorationOrigin }
 
@@ -54,7 +54,7 @@ function CardActions({entry,origin,onEdit,onShare,onDelete,onUpdate}:WardrobeAct
 }
 
 async function loadEntry(entry: WardrobeEntry): Promise<Loaded> {
-  const pack = await entry.read();
+  const pack = await (entry.readLocal || entry.read)();
   let share: BeautyShare | null = null;
   try {
     const raw = await DB.getAsset('beauty_source_' + await entry.attributionKey());

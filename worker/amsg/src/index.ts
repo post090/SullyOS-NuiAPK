@@ -2251,14 +2251,17 @@ export const amsgHooks = {
       })
       : '';
     const scheduleBlock = canSelfSchedule
-      ? buildFireScheduleBlock(mcpNative ? 'native' : 'text', { nowMs: ctx.now.getTime(), tz, limitsBrief })
+      ? buildFireScheduleBlock(mcpNative ? 'native' : 'text', {
+        nowMs: ctx.now.getTime(), tz, limitsBrief,
+        context: instant ? 'chat' : 'fire', targetName: pack.targetName,
+      })
       : '';
     const abilities = { allowRecurring: limits.allowSelfRecurring, allowForce: limits.allowSelfForce };
 
     const fireTools = [
       ...(mcpResolve && mcpNative ? buildMcpFireTools(mcpResolve) : []),
       ...(canSelfSchedule && mcpNative
-        ? [buildFireScheduleTool({ nowMs: ctx.now.getTime(), tz, abilities })]
+        ? [buildFireScheduleTool({ nowMs: ctx.now.getTime(), tz, abilities, context: instant ? 'chat' : 'fire' })]
         : []),
       ...(canManageTasks
         ? [buildFireCancelTool(), buildFireRenewTool({ nowMs: ctx.now.getTime(), tz })]

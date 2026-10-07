@@ -1,5 +1,6 @@
 import {validateMeetingAppearance, type MeetingAppearance} from './meetingAppearance';
 import {validateJournalAppearance} from './journalAppearance';
+import {localizeCssImages,portableCssImages} from './cssImageAssets';
 import {validateScheduleAppearance} from './scheduleAppearance';
 import {resolvePsycheAppearance,validatePsycheAppearance,type PsycheAppearance} from './psycheAppearance';
 import type {CharacterProfile,OSTheme,ChatTheme,ScheduleCardAppearance,JournalAppearance} from '../types';
@@ -77,6 +78,7 @@ async function portable(value:string):Promise<string>{
 async function portableTree(value:any):Promise<any>{
  if(typeof value==='string'){
   if(/^(blobref:|blob:)/.test(value)||/^(\/(?![/*])|\.\.?\/)[^\s{}]+$/.test(value))return portable(value);
+  value=await portableCssImages(value);
   const matches=[...value.matchAll(/url\(\s*['"]?((?:blobref:|blob:|\/|\.\.?\/)[^'"\s)]+)['"]?\s*\)/g)];
   for(const m of matches)value=value.replace(m[0],`url("${await portable(m[1])}")`);
   return value;
@@ -90,6 +92,11 @@ export function readBubbleDecoration(bubbles:ChatTheme):Promise<DecorationPreset
  return portableDecoration({format:'sullyos-chat-decoration',version:1,name:bubbles.name,parts:{bubbles}});
 }
 export async function exportDecoration(name:string,theme:OSTheme,char:CharacterProfile|undefined,bubble:ChatTheme):Promise<DecorationPreset>{
+ const result=await portableDecoration(await snapshotDecoration(name,theme,char,bubble));
+ if(new Blob([JSON.stringify(result)]).size>40*1024*1024)throw Error('整套素材超过 40 MB，请精简背景或气泡图片后导出');return result;
+}
+/** Editable snapshot keeps primary CSS assets in IndexedDB. */
+export async function snapshotDecoration(name:string,theme:OSTheme,char:CharacterProfile|undefined,bubble:ChatTheme):Promise<DecorationPreset>{
  const effective=resolveDecorationTheme(theme,char);
  const layout=char?{...effective,...mergeChatFineTune(effective,char.chatFineTune)}:theme;
  const css=[effective.chatChromeCustomCss,char?.chromeCustomCss].filter(Boolean).join('\n');
@@ -98,7 +105,8 @@ export async function exportDecoration(name:string,theme:OSTheme,char:CharacterP
   layout:{...LAYOUT_DEFAULTS,...pickDecorationLayout(layout)},bubbles:structuredClone(bubble),background:{image:(char?.chatBackground??theme.chatBackground)||null,style:effective.chatBackgroundStyle||'plain'},
   sound:resolveActiveSound(char?.chromeCustomCss,char?.chatSound,effective.chatChromeCustomCss,theme.chatSound),css:stripWhiteboxSoundDirective(css),
  }};
- const result=validateDecoration(await portableTree(preset));if(new Blob([JSON.stringify(result)]).size>40*1024*1024)throw Error('整套素材超过 40 MB，请精简背景或气泡图片后导出');return result;
+ const {css:primaryCss,...other}=preset.parts;
+ return validateDecoration({...preset,parts:{...await portableTree(other),css:primaryCss}});
 }
 export type DecorationImport={kind:'preset';preset:DecorationPreset}|{kind:'image';image:string;name:string};
 export function parseDecorationText(text:string,name='导入的装扮'):DecorationPreset{
@@ -130,6 +138,7 @@ export async function decorationPatches(preset:DecorationPreset,parts:Decoration
   const scopedOnly=blocks.length>0&&!p.css.replace(workshopBlock('avatar'),'').replace(workshopBlock('background'),'').trim();
   let appliedCss=p.css;
   if(scopedOnly){appliedCss=scope==='global'?base.chatChromeCustomCss||'':char.chromeCustomCss||'';for(const block of blocks)appliedCss=replaceWorkshopCss(appliedCss,block[1] as 'avatar'|'background',block[2]);}
+  appliedCss=await localizeCssImages(appliedCss);
   // Importing just CSS must not silently change the current sound stored in a CSS comment.
   const keep=scope==='global'?resolveActiveSound(undefined,undefined,base.chatChromeCustomCss,base.chatSound):resolveActiveSound(char.chromeCustomCss,char.chatSound,base.chatChromeCustomCss,base.chatSound);
   if(scope==='global'){theme.chatChromeCustomCss=stripWhiteboxSoundDirective(appliedCss);theme.chatSound=keep||{src:'none'};}

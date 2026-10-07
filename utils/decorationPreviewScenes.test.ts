@@ -2,6 +2,13 @@ import {describe,it,expect} from 'vitest';
 import {decorationPreviewScenes} from './decorationPreviewScenes';
 const scenes=(parts:unknown)=>decorationPreviewScenes({parts}).map(scene=>scene.id);
 describe('preset-specific previews',()=>{
+ it('scans large embedded images once and ignores braces and selectors inside values',()=>{
+  const css = `.sully-chat-avatar-wrap::after{background:url("data:image/png;base64,${'a'.repeat(2_000_000)}");content:".sully-chat-card[data-card-kind='music_card'] {"}`;
+  const started = performance.now();
+  expect(scenes({css})).toEqual(['conversation']);
+  expect(performance.now()-started).toBeLessThan(1500);
+  expect(scenes({css:'@media(max-width:600px){.sully-psyche-card{color:red}}'})).toEqual(['psyche','psyche-open']);
+ });
  it('offers the full fixture catalog in the composer, even for a standalone part',()=>{
   const ids=decorationPreviewScenes({parts:{psyche:{styleId:'echo'}}},'all').map(scene=>scene.id);
   expect(ids).toEqual(expect.arrayContaining(['all','conversation','emoji','image','music_card','world_card','html_card','collaboration_file','transfer','voice','psyche']));

@@ -27,3 +27,6 @@
 @media(max-width:520px){.chat-camera-backdrop{padding:0}.chat-camera:not(.chat-camera-chooser){height:100dvh;max-width:none;border-radius:0;padding-top:var(--chrome-top,env(safe-area-inset-top))}.chat-camera-chooser{margin:16px}.chat-camera-editor{max-height:44%}}
 @media(prefers-reduced-motion:reduce){.chat-camera button{transition:none}}
 @media(max-height:650px){.chat-camera-tools button{min-height:40px}.chat-camera-tools{margin-bottom:5px}.chat-camera-stickers{padding:2px 0}.chat-camera-stickers button{min-height:40px}.chat-camera-layers{padding-top:3px}.chat-camera-layers button{min-height:36px}.chat-camera-adjust{padding-top:2px}.chat-camera-adjust input{height:18px}}
+
+.chat-camera fieldset.chat-camera-editor{border:0;border-top:1px solid var(--camera-line);margin:0;min-width:0}
+.chat-camera-gesture-hint{margin:6px 0;color:#73737e;font-size:11px;text-align:center}

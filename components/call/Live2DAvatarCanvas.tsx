@@ -1,4 +1,5 @@
 import { canPlayLive2DAction, installLive2DIdlePolicy, live2DPermissionSignature, live2DProceduralRestrictions } from '../../utils/live2dActionPolicy';
+import { revealLive2DAfterPaint } from '../../utils/live2DReveal';
 import React, { useEffect, useRef, useState } from 'react';
 import { Application, Assets, Cache, extensions } from 'pixi.js';
 import { AvatarAutonomy, getViewerEyeContactCompensation } from '../../utils/avatarAutonomy';
@@ -785,6 +786,9 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
     const host = hostRef.current;
     if (!host) return;
     let disposed = false;
+    let cancelReveal: (() => void) | undefined;
+    let revealed = false;
+    host.dataset.live2dReady = 'false';
     let app: Application | null = null;
     let resizeObserver: ResizeObserver | null = null;
     let internal: any = null;
@@ -867,6 +871,8 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
         if (maxFps && maxFps > 0) app.ticker.maxFPS = Math.max(15, Math.min(60, maxFps));
         if (disposed || !app) return;
         app.canvas.className = 'h-full w-full touch-none';
+        app.canvas.style.opacity = '0';
+        app.canvas.style.transition = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'none' : 'opacity 220ms ease-out';
         host.appendChild(app.canvas);
         document.addEventListener('visibilitychange', onDocumentVisibilityChange);
         if (typeof IntersectionObserver !== 'undefined') {
@@ -1506,14 +1512,15 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           // head parameters are zero.
           model.rotation = headMotionLockedRef.current || ambientAutonomyDisabledRef.current ? 0 : frame.rotation;
         };
-        app.ticker.add(() => updateStage());
-        if (onSnapshotReadyRef.current) updateStage(true);
+        // First placement must snap to saved framing, never lerp down from Pixi scale=1.
+        app.ticker.add(() => updateStage(!revealed));
+        updateStage(true);
 
         const initialPerformance = performanceRef.current;
         if (initialPerformance) {
           void triggerPerformance(initialPerformance).catch(() => { /* optional */ });
         }
-        host.dataset.live2dReady = 'true';
+        onLoadingChangeRef.current?.(true, '正在准备角色画面…');
         console.info('[live2d] renderer ready', {
           assetId: config.assetId,
           offscreenCount: cubismCoreCompatibility.offscreenCount,
@@ -1522,8 +1529,26 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
           cubismMs: Math.round(cubismMs),
           bootTotalMs: Math.round(window.performance.now() - bootStartedAt),
         });
-        onLoadingChangeRef.current?.(false, '角色已就绪');
-        onReadyRef.current?.();
+        cancelReveal = revealLive2DAfterPaint(() => {
+          if (disposed || !app || host.clientWidth <= 0 || host.clientHeight <= 0) return false;
+          // Resize and render while still hidden, including saved full-body composition.
+          app.resize();
+          fitModel();
+          updateStage(true);
+          app.render();
+          return true;
+        }, () => {
+          if (disposed || !app) return;
+          revealed = true;
+          app.canvas.style.opacity = '1';
+          host.dataset.live2dReady = 'true';
+          onLoadingChangeRef.current?.(false, '角色已就绪');
+          onReadyRef.current?.();
+        }, error => {
+          if (disposed) return;
+          onLoadingChangeRef.current?.(false);
+          onErrorRef.current?.(error instanceof Error ? error.message : '角色画面准备失败，请重新加载');
+        });
         onSnapshotReadyRef.current?.(() => {
           if (disposed || !app) throw new Error('Live2D 舞台已关闭');
           updateStage(true);
@@ -1570,6 +1595,8 @@ const Live2DAvatarCanvas: React.FC<Live2DAvatarCanvasProps> = ({
     void boot();
     return () => {
       disposed = true;
+      cancelReveal?.();
+      host.dataset.live2dReady = 'false';
       onSnapshotReadyRef.current?.(null);
       resizeObserver?.disconnect();
       intersectionObserver?.disconnect();

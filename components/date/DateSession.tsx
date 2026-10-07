@@ -1293,9 +1293,10 @@ const DateSession: React.FC<DateSessionProps> = ({
                 )}
             </div>
 
-            {/* Settings Overlay */}
+            {/* Settings measures its visible height on mount. A translateY entrance
+                animation here would measure the offscreen position and lock it at 0. */}
             {showSettings && (
-                <div className="absolute inset-0 z-[200] animate-slide-up bg-white">
+                <div className="absolute inset-0 z-[200] bg-white">
                     <DateSettings char={char} onBack={() => setShowSettings(false)} />
                 </div>
             )}

@@ -49,6 +49,18 @@ async function fixture(){
   return {db,env,files,pub,api,submit,approve,snapshot,fire,storage};
 }
 describe('公开装扮库：真实 SQL、审批和快照边界',()=>{
+  it('允许第 200 份作品，拒绝第 201 份，删除后释放作者名额',async()=>{
+    const f=await fixture();
+    const first=await f.submit();
+    const author=(f.db.prepare('SELECT author_code FROM submissions WHERE id=?').get(first.id) as any).author_code;
+    const insert=f.db.prepare("INSERT INTO submissions(id,author_code,kind,created_at,updated_at) VALUES(?,?,'chat-decoration',0,0)");
+    for(let i=1;i<199;i++)insert.run('quota-'+i,author);
+    await f.submit();
+    const blocked=await f.api('/submissions','author',{metadata,package:pack,catalogCover:cover});
+    expect(blocked.status).toBe(429);expect(JSON.stringify(blocked.value)).toContain('200');
+    f.db.prepare('UPDATE submissions SET deleted_at=1 WHERE id=?').run('quota-1');
+    await f.submit();
+  });
   it('目录发布后清理旧文件失败，重试仍移除已撤回的公开文件',async()=>{
     const f=await fixture(),one=await f.submit();await f.approve(one.revision);await f.fire();
     const entry=f.snapshot().entries[0];

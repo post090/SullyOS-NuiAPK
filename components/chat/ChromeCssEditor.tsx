@@ -2,6 +2,7 @@ import BeautyConfirmDialog from '../share/BeautyConfirmDialog';
 import {readCssAttribution,stampBeautyCss} from '../../utils/beautyCssAttribution';
 import BeautyPresetPreview from '../share/BeautyPresetPreview';
 import {WHITEBOX_AI_PROMPT as AI_PROMPT} from '../../utils/chatWhitebox';
+import {portableCssImages} from '../../utils/cssImageAssets';
 import React, { useEffect, useRef, useState } from 'react';
 import { DB } from '../../utils/db';
 import { shareOrDownloadFile } from '../../utils/shareExport';
@@ -286,11 +287,11 @@ const ChromeCssEditor: React.FC<{ value: string; onChange: (css: string) => void
     const handleExport = () => setExportMode('batch');
     const confirmShare=async()=>{
         if(exportMode==='batch'){
-            const list=custom.map(item=>({...item,code:signedCss(item.code,item.name)}));
+            const list=await Promise.all(custom.map(async item=>({...item,code:signedCss(await portableCssImages(item.code),item.name)})));
             if(!await copyText(encodePresets(list)))throw Error('复制失败，请重试');
             setExportNotice(`已复制 ${list.length} 套带署名的预设`);
         }else{
-            const content=signedCss(value,'白框样式');const author=readCssAttribution(content)!.credit;
+            const content=signedCss(await portableCssImages(value),'白框样式');const author=readCssAttribution(content)!.credit;
             await shareOrDownloadFile({card:{kind:'chrome-css',title:'白框样式',author},content,fileName:'sullyos-whitebox.css',mimeType:'text/css;charset=utf-8',shareTitle:'SullyOS·糯米机 白框样式'});
         }
     };

@@ -37,7 +37,7 @@ import {readDecorationFile,portableDecoration,readBubbleDecoration} from '../../
 import {readDecorationOrigin,writeDecorationOrigin,saveLibraryDecoration,saveLibraryDecorationBatch,canEditDecoration,importedOrigin,type DecorationOrigin} from '../../utils/decorationLibrary';
 import {shareOrDownloadBlob} from '../../utils/shareExport';
 import {safeShareFileName,isPng,pngHasShare,extractShareFromPng} from '../../utils/pngShare';
-import {exportDecoration} from '../../utils/chatDecoration';
+import {snapshotDecoration} from '../../utils/chatDecoration';
 import {PRESET_THEMES} from '../chat/ChatConstants';
 import {DECORATION_WORKSHOPS,workshopCss,makeWorkshopPreset,projectWorkshopPreset,type DecorationWorkshop} from '../../utils/decorationWorkshop';
 import {combineDecorationOrigins,writeDecorationOrigin as writeOrigin} from '../../utils/decorationLibrary';
@@ -121,7 +121,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
   const refreshSaved=async()=>setSaved(await readLibraryDecorations());
   const editEntry=async(entry:WardrobeEntry)=>{
     setBusy(true);onBusyChange(true);setError('');
-    try{const key=await entry.attributionKey();const origin=await readDecorationOrigin(key);if(!canEditDecoration(origin))throw Error('作者禁止二改，这份作品已锁定编辑');if(entry.kind==='appearance'){setDesktopEdit({entry,name:entry.name,origin,useCurrent:false});return;}const preset=validateDecoration(await entry.read());const categories=decorationCategories(preset).filter(item=>item!=='chat');const maker=(categories.length===1?categories[0]:'whitebox') as DecorationWorkshop;setDraft({preset:projectWorkshopPreset(preset,maker),origin,originalKey:entry.id.startsWith('local-chat-')?key:undefined,originalEntryId:entry.id,maker});}
+    try{const key=await entry.attributionKey();const origin=await readDecorationOrigin(key);if(!canEditDecoration(origin))throw Error('作者禁止二改，这份作品已锁定编辑');if(entry.kind==='appearance'){setDesktopEdit({entry,name:entry.name,origin,useCurrent:false});return;}const preset=validateDecoration(await (entry.readLocal || entry.read)());const categories=decorationCategories(preset).filter(item=>item!=='chat');const maker=(categories.length===1?categories[0]:'whitebox') as DecorationWorkshop;setDraft({preset:projectWorkshopPreset(preset,maker),origin,originalKey:entry.id.startsWith('local-chat-')?key:undefined,originalEntryId:entry.id,maker});}
     catch(e){setError(e instanceof Error?e.message:'无法打开编辑');}finally{setBusy(false);onBusyChange(false);}
   };
   const customize=async()=>{setBusy(true);setError('');try{
@@ -130,7 +130,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
     const slots=await DB.getAsset('decoration_slots_'+target);
     const origin:DecorationOrigin=slots?combineDecorationOrigins(await Promise.all(Object.values(JSON.parse(slots) as Record<string,string>).map(readDecorationOrigin))):key?await readDecorationOrigin(key):{kind:'self'};
     const bubbleId=targetCharacter.bubbleStyle||theme.chatDefaultBubbleStyle||'default';
-    const preset=await exportDecoration(`${targetCharacter.name}的搭配`,theme,targetCharacter,customThemes.find(item=>item.id===bubbleId)||PRESET_THEMES[bubbleId]||PRESET_THEMES.default);
+    const preset=await snapshotDecoration(`${targetCharacter.name}的搭配`,theme,targetCharacter,customThemes.find(item=>item.id===bubbleId)||PRESET_THEMES[bubbleId]||PRESET_THEMES.default);
     setDraft({preset,origin});if(guideStep!==null)setGuideStep(2);
   }catch(e){setError(e instanceof Error?e.message:'无法创建草稿');}finally{setBusy(false);}};
   const importFile=async(file:File)=>{setBusy(true);onBusyChange(true);setError('');setApplyAll(false);setApplyError('');try{
@@ -231,7 +231,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
   };
   const entries: (WardrobeEntry & { categories: BeautyCategory[] })[] = [
     ...presets.map(preset => ({ id: preset.id, bindingId:preset.id, name: preset.name, kind: 'appearance' as const, categories: ['appearance'] as BeautyCategory[], contents: '作者保存的桌面主题与搭配', revision: preset, attributionKey: async () => preset.id, read: async () => readBeautyPackage(new File([await onExport(preset.id)], 'preset.zip'), 'appearance') })),
-    ...saved.map(preset => ({ id:preset._libraryId,bindingId:preset._libraryId, name: preset.name, kind: 'chat-decoration' as const, categories: decorationCategories(preset), contents: decorationContents(preset), revision: preset, attributionKey: async () => preset._libraryId, read: async()=>portableDecoration(preset), readCurrent: async () => {const latest=(await readLibraryDecorations()).find(item=>item._libraryId===preset._libraryId);if(!latest)throw Error('原装扮已删除');return portableDecoration(latest);} })),
+    ...saved.map(preset => ({ id:preset._libraryId,bindingId:preset._libraryId, name: preset.name, kind: 'chat-decoration' as const, categories: decorationCategories(preset), contents: decorationContents(preset), revision: preset, attributionKey: async () => preset._libraryId, readLocal: async()=>preset, read: async()=>portableDecoration(preset), readCurrent: async () => {const latest=(await readLibraryDecorations()).find(item=>item._libraryId===preset._libraryId);if(!latest)throw Error('原装扮已删除');return portableDecoration(latest);} })),
     ...legacyCss.map((preset,index)=>({id:`legacy-${index}`,name:preset.name,kind:'chat-decoration' as const,categories:decorationCategories(preset),contents:decorationContents(preset),revision:preset,attributionKey:()=>decorationSourceKey(preset),read:async()=>preset})),
     ...customThemes.map(bubbles=>({id:'bubble-'+bubbles.id,bindingId:'bubble-'+bubbles.id,name:bubbles.name,kind:'chat-decoration' as const,categories:['bubbles'] as BeautyCategory[],contents:'聊天气泡',revision:bubbles,attributionKey:async()=>'bubble-'+bubbles.id,read:()=>readBubbleDecoration(bubbles)})),
   ];
@@ -252,7 +252,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
     try {
       if (entry.kind === 'appearance') { await applyAppearancePreset(entry.id); trackBeauty('apply','appearance'); closeApp(); }
       else {
-        const preset = validateDecoration(await entry.read());
+        const preset = validateDecoration(await (entry.readLocal || entry.read)());
         if(entry.attributionKey){
           const sourceKey=await entry.attributionKey();
           const presetKey=await decorationSourceKey(preset);

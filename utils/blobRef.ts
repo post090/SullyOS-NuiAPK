@@ -335,6 +335,20 @@ export async function resolveRefToDataUrl(value: string): Promise<string> {
 export async function resolveBlobRefsDeep(root: unknown): Promise<void> {
     if (root === null || typeof root !== 'object') return;
     await blobStore.resolveDeep(root);
+    // The SDK only resolves whole-field tokens. Decoration CSS embeds image
+    // references in url(...); character/appearance single-file exports need these too.
+    const {portableCssImages} = await import('./cssImageAssets');
+    const seen = new WeakSet<object>();
+    const visit = async (node: any): Promise<void> => {
+        if (!node || typeof node !== 'object' || seen.has(node)) return;
+        seen.add(node);
+        for (const key of Object.keys(node)) {
+            const value = node[key];
+            if (typeof value === 'string' && value.includes('blobref:')) node[key] = await portableCssImages(value);
+            else if (value && typeof value === 'object') await visit(value);
+        }
+    };
+    await visit(root);
 }
 
 // ─── React 渲染 hook ────────────────────────────────────────────

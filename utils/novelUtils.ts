@@ -25,57 +25,9 @@ export const extractWritingTags = (char: CharacterProfile): string[] => {
     if (!char) return ['风格未定'];
 
     const tags = new Set<string>();
-    const desc = ((char.description || '') + (char.worldview || '')).toLowerCase();
-    
-    // 1. 从 impression 提取（如果有）
-    if (char.impression) {
-        const traits = char.impression.personality_core?.observed_traits || [];
-        const mbti = char.impression.mbti_analysis?.type || '';
-        const likes = char.impression.value_map?.likes || [];
-        const dislikes = char.impression.value_map?.dislikes || [];
-
-        // MBTI 维度
-        if (mbti.includes('N')) { tags.add('意象丰富'); tags.add('跳跃'); }
-        else if (mbti.includes('S')) { tags.add('细节考据'); tags.add('写实'); }
-        if (mbti.includes('T')) { tags.add('逻辑严密'); tags.add('克制'); }
-        else if (mbti.includes('F')) { tags.add('情感细腻'); tags.add('渲染力强'); }
-        if (mbti.includes('J')) { tags.add('结构工整'); tags.add('伏笔'); }
-        else if (mbti.includes('P')) { tags.add('随性'); tags.add('反转'); }
-
-        // 特质映射
-        const traitMap: Record<string, string[]> = {
-            '冷': ['冷峻', '极简'], '傲娇': ['口是心非', '心理戏多'],
-            '温柔': ['治愈', '舒缓'], '乐天': ['轻快', '对话密集'],
-            '中二': ['燃', '夸张'], '电波': ['意识流', '抽象'],
-            '腹黑': ['暗喻', '悬疑'], '社恐': ['内心独白', '敏感'],
-            '强势': ['快节奏', '压迫感'], '猫': ['喵体文学', '慵懒'],
-            '活泼': ['轻快', '跳跃'], '理性': ['逻辑严密', '客观'],
-            '感性': ['情感细腻', '渲染力强'], '高冷': ['冷峻', '留白']
-        };
-        traits.forEach(t => {
-            Object.entries(traitMap).forEach(([key, values]) => {
-                if (t.includes(key)) values.forEach(v => tags.add(v));
-            });
-        });
-
-        // 价值观
-        if (likes.some(l => l.includes('美') || l.includes('艺术'))) tags.add('唯美');
-        if (dislikes.some(d => d.includes('虚伪'))) tags.add('犀利直白');
-    }
-    
-    // 2. 从描述提取（无论有没有 impression）
-    const descMap: Record<string, string[]> = {
-        '古风': ['古韵', '半文白'], '武侠': ['快意', '古韵'],
-        '科幻': ['硬核', '技术流'], '猫': ['喵体文学', '慵懒'],
-        '温柔': ['治愈', '舒缓'], '可爱': ['萌系', '轻快'],
-        '冷': ['冷峻', '克制'], '热血': ['燃', '快节奏'],
-        '搞笑': ['吐槽', '跳跃'], '暗黑': ['暗喻', '悬疑']
-    };
-    Object.entries(descMap).forEach(([key, values]) => {
-        if (desc.includes(key)) values.forEach(v => tags.add(v));
-    });
-
-    // 3. 从 writerPersona 提取
+    // Only the dedicated writing profile describes the author. User impressions,
+    // nicknames and mixed world settings cannot be treated as character traits.
+    // 从已保存的创作档案提取
     if (char.writerPersona) {
         const p = char.writerPersona;
         if (p.includes('新手')) tags.add('青涩');
@@ -88,13 +40,10 @@ export const extractWritingTags = (char: CharacterProfile): string[] => {
         if (p.includes('对话')) tags.add('对话密集');
     }
 
-    // 4. Fallback
+    // 未命中标签也不凭空猜测角色风格。
     let result = Array.from(tags);
     if (result.length === 0) {
-        // 基于角色名生成稳定的默认标签
-        const defaults = ['自然流', '平实', '日常', '稳定', '朴素'];
-        const seed = (char.name?.charCodeAt(0) || 0) % defaults.length;
-        result = [defaults[seed], defaults[(seed + 2) % defaults.length]];
+        result = [char.writerPersona?.trim() ? '自定义风格' : '待分析'];
     }
     
     // 稳定排序：基于角色名 + 标签名生成固定顺序，避免每次渲染都变化
@@ -117,138 +66,33 @@ export const extractWritingTags = (char: CharacterProfile): string[] => {
         .slice(0, 5);
 };
 
+// impression is the character's view OF THE USER, never a character personality.
+const writerIdentityBoundary = (char: CharacterProfile, user: UserProfile): string => `
+【人物归属边界】
+- 本次作者/分析对象只有角色「${char.name}」（char）；「${user.name}」（user）是共创搭档。
+- 核心设定、世界观、世界书和记忆可能同时描述多个人，必须按每句话的明确主语区分归属。挂载给角色不等于全部描述角色本人。
+- 世界书里属于 user、用户或「${user.name}」的经历、职业、性格、MBTI、喜好和习惯仍属于用户，不能移植为作者特征。
+- 「我眼中的${user.name} / 私密印象档案」是角色对用户的看法；其中观察到的特质和 TA 的喜好描述用户，不是角色本人的人格。这部分仅供判断共创互动方式。
+- 用户备注/爱称不能当作角色的身份或物种。不要把小说中的人物设定当成作者身份。
+- 归属不明或没有依据的能力、偏好、专业知识标记为未知或依据不足，不拿另一人的资料补齐；不要编造当前没有提供的剧情。
+`.trim();
+
 // --- Helper: Writer Persona Analysis (Simple) ---
 export const analyzeWriterPersonaSimple = (char: CharacterProfile): string => {
-    if (!char) return "未知风格"; 
-    
-    const traits = char.impression?.personality_core.observed_traits || [];
-    const mbti = char.impression?.mbti_analysis?.type || '';
-    const desc = char.description || '';
-    
-    const personaMap: Record<string, any> = {
-        '冷漠': { focus: '逻辑漏洞、战术细节', style: '简洁、克制，避免情感渲染', rhythm: '快节奏，少废话', taboo: '煽情、过度心理描写' },
-        '高冷': { focus: '逻辑漏洞、战术细节', style: '简洁、克制，避免情感渲染', rhythm: '快节奏，少废话', taboo: '煽情、过度心理描写' },
-        '冷静': { focus: '因果关系、客观事实', style: '冷静、旁观者视角', rhythm: '稳定', taboo: '情绪化表达' },
-        '乐天': { focus: '人物互动、温馨细节', style: '轻快、多对话，爱用"！"', rhythm: '跳跃式，可能突然插科打诨', taboo: '长篇阴郁描写、绝望氛围' },
-        '活泼': { focus: '人物互动、温馨细节', style: '轻快、多对话，爱用"！"', rhythm: '跳跃式，可能突然插科打诨', taboo: '长篇阴郁描写、绝望氛围' },
-        '感性': { focus: '情绪波动、微表情、内心戏', style: '细腻、意识流，大量心理活动', rhythm: '缓慢，停留在一个瞬间反复琢磨', taboo: '干巴巴的动作描写、快节奏战斗' },
-        '温柔': { focus: '情感交流、氛围营造', style: '柔和、细腻', rhythm: '舒缓', taboo: '粗暴、血腥' },
-        '傲娇': { focus: '口是心非、别扭的关心', style: '带有情绪色彩，心理活动丰富', rhythm: '起伏不定', taboo: '直球、坦率' },
-        '中二': { focus: '酷炫场景、角色帅气度', style: '夸张、比喻多、爱用"——"破折号', rhythm: '爆发式，高潮迭起', taboo: '平淡日常、琐碎细节' },
-        '电波': { focus: '奇怪的联想、超展开', style: '跳跃、抽象、不明觉厉', rhythm: '混乱', taboo: '循规蹈矩' },
-        '腹黑': { focus: '潜在危机、人性阴暗面', style: '优雅、暗藏玄机', rhythm: '从容', taboo: '傻白甜' },
-        '理性': { focus: '因果关系、世界观逻辑', style: '客观、有条理，像写报告', rhythm: '稳定，按时间线推进', taboo: '跳跃剪辑、模糊的意象' }
-    };
-
-    let matchedTrait = traits.find(t => personaMap[t]) || (traits.length > 0 ? traits[0] : '理性');
-    // Fuzzy Match
-    if (!personaMap[matchedTrait]) {
-        if (matchedTrait.includes('冷')) matchedTrait = '冷漠';
-        else if (matchedTrait.includes('热') || matchedTrait.includes('活')) matchedTrait = '乐天';
-        else if (matchedTrait.includes('柔') || matchedTrait.includes('感')) matchedTrait = '感性';
-        else matchedTrait = '理性';
-    }
-    
-    let persona = personaMap[matchedTrait] || personaMap['理性'];
-
-    const mbtiMap: Record<string, string> = {
-        'INTJ': '战略布局、权力博弈', 'INTP': '概念解构、设定严谨',
-        'ENTJ': '宏大叙事、征服感', 'ENTP': '脑洞大开、反转',
-        'INFJ': '宿命感、救赎', 'INFP': '理想主义、内心成长',
-        'ENFJ': '人际羁绊、群体命运', 'ENFP': '自由冒险、浪漫奇遇',
-        'ISTJ': '细节考据、现实逻辑', 'ISFJ': '守护、回忆',
-        'ESTJ': '秩序、规则冲突', 'ESFJ': '社交氛围、家庭伦理',
-        'ISTP': '动作细节、机械原理', 'ISFP': '美学体验、感官描写',
-        'ESTP': '感官刺激、即时反应', 'ESFP': '当下享乐、戏剧冲突'
-    };
-    let mbtiInsight = mbtiMap[mbti] || '剧情推进';
-
-    let output = `
-### ${char.name} 的创作人格档案 (Simple)
-**核心性格**: ${matchedTrait}
-**关注点**: ${persona.focus}，${mbtiInsight}
-**笔触**: ${persona.style}
-**节奏**: ${persona.rhythm}
-**审美**: 喜欢${char.impression?.value_map.likes.join('、') || '未知'}
-**禁忌**: ${persona.taboo}
-`;
-
-    if (desc.includes('猫') || desc.includes('喵') || traits.includes('猫')) {
-        output += `
-### ⚠️ 特别注意：你是猫！
-写作特征：
-1. 用短句（猫的注意力不持久）。
-2. 关注"能不能吃"、"舒不舒服"、"好不好玩"。
-3. 突然走神写一段环境描写（如"阳光真暖"）。
-4. 吐槽时必须带"喵"。
-禁止：写出像人类一样的理性长篇大论。
-`;
-    }
-
-    return output;
+    if (!char) return '未知风格';
+    return `### ${char.name} 的创作人格档案 (Simple)
+**核心性格**: 尚未进行写作风格分析，以角色核心设定中明确属于本人的特质为准。
+**笔触**: 随角色本人设定和当前创作内容决定，不预设固定风格。
+**审美**: 未分析，不使用用户的喜好代替。
+**禁忌**: 仅遵循明确属于角色本人的创作偏好，不把用户印象或其他人物设定当成作者特征。`;
 };
 
 // --- Helper: Extract Writing Taboos ---
-export const extractWritingTaboos = (char: CharacterProfile): string => {
-    const traits = char.impression?.personality_core.observed_traits || [];
-    const dislikes = char.impression?.value_map.dislikes || [];
-    
-    let taboos = `## ${char.name} 的写作禁区（你必须遵守）：\n`;
-    
-    // 根据性格生成禁忌
-    if (traits.some(t => t.includes('冷') || t.includes('高冷') || t.includes('理性'))) {
-        taboos += `
-- ❌ 禁止：煽情、超过2句话的心理描写、任何"感动"相关词汇。
-- ❌ 禁止：使用“仿佛”、“似乎”这种不确定的词。
-- ✅ 只能：白描动作、极简对话、留白。
-- 节奏：每段不超过3句话，快刀斩乱麻。
+export const extractWritingTaboos = (char: CharacterProfile): string => `
+## ${char.name} 的写作偏好与禁忌
+以角色核心设定及创作档案中明确属于作者本人的偏好为准；没有依据时不额外强加禁忌。
+用户的喜好、雷区和习惯仅用于共创互动，不自动变成作者本人的价值观或写作限制。
 `;
-    } else if (traits.some(t => t.includes('感性') || t.includes('温柔'))) {
-        taboos += `
-- ❌ 禁止：粗暴的动作描写、超过1个感叹号、脏话。
-- ❌ 禁止：干巴巴的说明文式描写。
-- ✅ 只能：细腻的感官描写、内心独白、慢节奏铺陈。
-- 节奏：可以在一个瞬间停留很久，写出呼吸感。
-`;
-    } else if (traits.some(t => t.includes('乐天') || t.includes('活泼'))) {
-        taboos += `
-- ❌ 禁止：超过3句话不出现对话、阴郁氛围、死亡话题。
-- ✅ 只能：大量"！"、俏皮话、突然的吐槽。
-- 节奏：跳跃式，可以突然岔开话题。
-`;
-    } else if (traits.some(t => t.includes('中二'))) {
-        taboos += `
-- ❌ 禁止：平淡的日常、"普通"这个词、任何自嘲。
-- ✅ 只能：夸张比喻、破折号、酷炫的动作描写。
-- 节奏：高潮迭起，每段都要有"燃点"。
-`;
-    } else {
-        taboos += `
-- ❌ 禁止：情绪化表达、模糊的意象、跳跃的时间线。
-- ✅ 只能：客观描述、因果逻辑、线性叙事。
-- 节奏：稳定推进，像纪录片。
-`;
-    }
-    
-    // 根据厌恶的事物追加禁忌
-    if (dislikes.length > 0) {
-        taboos += `\n### 额外禁忌（基于你的价值观）：\n`;
-        dislikes.forEach(d => {
-            taboos += `- 如果剧情涉及"${d}"，你会下意识回避细节描写，或者表达出厌恶。\n`;
-        });
-    }
-    
-    // 特殊人格追加
-    if (char.description?.includes('猫') || traits.includes('猫')) {
-        taboos += `\n### 🐱 猫属性强制规则：\n`;
-        taboos += `- 注意力最多持续3句话就要走神。\n`;
-        taboos += `- 必须关注"舒适度"、"食物"、"好玩的东西"。\n`;
-        taboos += `- 吐槽时必须带"喵"。\n`;
-        taboos += `- 禁止写出人类式的长篇大论。\n`;
-    }
-    
-    return taboos;
-};
 
 // --- Helper: Writer Persona Analysis (Deep) ---
 export const generateWriterPersonaDeep = async (
@@ -267,46 +111,7 @@ export const generateWriterPersonaDeep = async (
         }
     }
     
-    const analysisPrompt = `你是一位人物心理分析专家和写作教练。我会给你一个虚拟角色的完整档案，以及与他/她互动的用户档案。请你深入理解这个角色，然后告诉我：
-
-**如果这个角色本人来写小说，他/她会有什么样的创作风格？**
-
----
-
-### 角色档案
-
-**姓名**: ${char.name}
-
-**基础描述**: 
-${char.description || '无'}
-
-**背景故事**: 
-${char.worldview || '无详细背景'}
-
-**性格特质**: 
-${char.impression?.personality_core.observed_traits.join('、') || '未知'}
-
-**MBTI类型**: 
-${char.impression?.mbti_analysis?.type || '未知'}
-
-**核心价值观**:
-- 珍视/喜欢: ${char.impression?.value_map.likes.join('、') || '未知'}
-- 厌恶/讨厌: ${char.impression?.value_map.dislikes.join('、') || '未知'}
-
-**个人癖好/习惯**:
-${char.impression?.behavior_profile.response_patterns || '- 无'}
-
-**近期记忆片段**（了解当前心境）:
-${char.memories?.slice(-3).map(m => `- ${m.summary}`).join('\n') || '- 无记忆'}
-
----
-
-### 互动对象（用户背景）
-(角色的记忆和性格形成深受用户影响)
-**用户昵称**: ${userProfile.name}
-**用户描述**: ${userProfile.bio || '无'}
-
----
+    const analysisPrompt = `本次任务是人物写作风格分析，不是继续角色扮演。请作为写作教练，根据提供的分区资料分析「${char.name}」本人写小说时的风格。
 
 ### 分析任务
 
@@ -398,7 +203,11 @@ ${char.memories?.slice(-3).map(m => `- ${m.summary}`).join('\n') || '- 无记忆
             },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: [{ role: 'user', content: analysisPrompt }],
+                messages: ContextBuilder.buildCharacterRequest({
+                    char, user: userProfile,
+                    timeOptions: { skipTimeAwareness: true },
+                    instructions: `${writerIdentityBoundary(char, userProfile)}\n\n${analysisPrompt}`,
+                }, [{ role: 'user', content: `请分析${char.name}本人的写作风格；${userProfile.name}是共创搭档。` }]),
                 temperature: 0.7,
                 max_tokens: 8000
             })
@@ -407,6 +216,7 @@ ${char.memories?.slice(-3).map(m => `- ${m.summary}`).join('\n') || '- 无记忆
         if (response.ok) {
             const data = await safeResponseJson(response);
             const rawPersona = extractLlmContent(data).trim();
+            if (!rawPersona) throw new Error('分析未返回有效内容，请重试');
             
             const formattedPersona = `
 ### ${char.name} 的创作人格档案（AI深度分析）
@@ -428,53 +238,16 @@ ${rawPersona}
         }
     } catch (e: any) {
         console.error('Deep analysis failed:', e);
-        return analyzeWriterPersonaSimple(char);
+        throw e;
     }
 };
 
-export const getFewShotExamples = (char: CharacterProfile) => {
-    const traits = char.impression?.personality_core.observed_traits || [];
-    let trait = traits.find(t => ['冷漠','高冷','感性','温柔','乐天','活泼','中二','电波'].some(k => t.includes(k))) || '理性';
-    if (trait.includes('冷')) trait = '冷漠';
-    if (trait.includes('柔') || trait.includes('感')) trait = '感性';
-    if (trait.includes('乐') || trait.includes('活')) trait = '乐天';
-
-    const examples: Record<string, string> = {
-        '冷漠': `
-**错误示范（AI机械味）**：
-"他的内心充满了愤怒，那种无法言说的痛苦让他几乎无法呼吸。他的心跳加速到每分钟120次，肌肉紧绷。月光透过窗户洒在他的脸上，仿佛在诉说着什么。"
-
-**正确示范（${char.name}的风格）**：
-"他盯着那人。指节捏得咯咯响。"
-（短句，不解释情绪，不量化生理反应）
-`,
-        '感性': `
-**错误示范（数字量化+干巴）**：
-"他难过地离开了房间。他的眼泪流了大约8滴，呼吸频率降低了15%。"
-
-**正确示范（${char.name}的风格）**：
-"他转身的时候，肩膀抖了一下。走到门口，停了很久。手放在门把上，又放下，又放上去。最终还是推开了。外面在下雨。他没带伞。雨水混着眼泪，分不清了。"
-（慢节奏，停留在细节里，用感受代替数字）
-`,
-        '乐天': `
-**错误示范（量化+死板）**：
-"虽然遭遇了挫折，但他依然保持乐观，心率恢复到正常的每分钟70次，决定继续前行。"
-
-**正确示范（${char.name}的风格）**：
-"'嘿，至少没摔断腿！'他龇牙咧嘴地爬起来，拍拍灰，'下次肯定能飞更远！哎，裤子破了，回头得缝缝...算了，这样更酷！'"
-（用对话和动作，不要数字，要有人味）
-`,
-        '理性': `
-**错误示范（过度量化）**：
-"这东西的辐射值为342.7贝克勒尔，温度上升了23.5摄氏度，他的瞳孔放大了2.3毫米。"
-
-**正确示范（${char.name}的风格）**：
-"读数显示辐射超标。仪器开始发烫。建议立即撤离。"
-（用事实，但避免无意义的精确，专注关键信息）
-`
-    };
-    return examples[trait] || examples['理性'];
-};
+export const getFewShotExamples = (_char: CharacterProfile) => `
+**通用表达参考（不代表作者性格）**：
+避免没有剧情依据的机械量化，例如「他的眼泪流了8滴，呼吸频率降低了15%」。
+可以用具体动作承载情绪，例如「他在门口停下，握住门把，又松开」。
+这只是表达方法示例；实际语气、节奏和详略仍按作者本人的设定与创作档案决定。
+`;
 
 // --- Prompt Builder ---
 export const buildPrompt = (
@@ -507,8 +280,10 @@ ${protagonistContext}
 你正在与 **${userProfile.name}** (用户) 合作撰写小说。
 书名：《${activeBook?.title}》
 
+${writerIdentityBoundary(char, userProfile)}
+
 **你的角色**：
-1. 你既是小说作者之一，也是${userProfile.name}的${char.impression?.personality_core.summary || '伙伴'}。
+1. 你是小说作者之一，${userProfile.name}是本次共创搭档；你对搭档的态度参考关系背景，但不能把搭档的人格当成自己的人格。
 2. 在【分析】和【吐槽】环节，请完全保持你的人设（语气、性格、对用户的态度）。
 3. 如果你们关系亲密，不要表现得像个陌生的AI工具人；如果你们关系紧张/傲娇，也要体现出来。
 

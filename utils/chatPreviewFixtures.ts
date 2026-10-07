@@ -1,12 +1,13 @@
 import type {Message, MessageType} from '../types';
+import {BEAUTY_PREVIEW_AVATAR} from './beautyPreviewAssets';
 
 // Synthetic only: no DB reads, real identities, API calls, payments or app navigation.
 const base = {charId:'whitebox-preview',role:'assistant' as const,timestamp:1790386860000};
 const msg = (id:number,type:MessageType,content:string,metadata?:Record<string,unknown>,role:Message['role']='assistant'):Message => ({...base,id,type,content,metadata,role});
 export const CHAT_TYPE_SAMPLES = {
  text:msg(1,'text','欢迎回家。今天也有想和你分享的小事。'),
- image:msg(2,'image','/sully/head.png'),
- emoji:msg(3,'emoji','/sully/head.png'),
+ image:msg(2,'image',BEAUTY_PREVIEW_AVATAR),
+ emoji:msg(3,'emoji',BEAUTY_PREVIEW_AVATAR),
  voice:msg(4,'voice','晚安，明天见。',{duration:6}),
  audio:msg(31,'audio','',{fileName:'海边录音.mp3',mimeType:'audio/mpeg',fileSize:1843200,duration:46},'user'),
  collaboration_file:msg(5,'collaboration_file','一起整理的旅行手册.pdf',{fileName:'一起整理的旅行手册.pdf',mimeType:'application/pdf',fileSize:286720,format:'pdf'}),

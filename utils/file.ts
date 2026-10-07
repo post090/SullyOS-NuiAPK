@@ -94,71 +94,29 @@ export const processImage = (file: File, options?: { maxWidth?: number, quality?
  * 场景（壁纸、小屋等，见 utils/blobRef.ts）使用，省掉一次 base64 编码 + 常驻内存。
  * GIF / skipCompression 直接返回原文件（File 本身即 Blob，不经 Canvas 重绘）。
  */
-export const processImageToBlob = (file: File, options?: { maxWidth?: number, quality?: number, forceJpeg?: boolean, skipCompression?: boolean }): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-        if (!file.type.startsWith('image/')) {
-            reject(new Error('请上传图片文件'));
-            return;
-        }
-
-        // 壁纸等：不重绘，原文件即结果（File 继承自 Blob）。
-        if (options?.skipCompression) {
-            resolve(file);
-            return;
-        }
-
-        // GIF 不压缩直接用原文件（放宽限制至 50MB）。
-        if (file.type === 'image/gif') {
-            if (file.size > 50 * 1024 * 1024) {
-                reject(new Error('GIF 图片过大(>50MB)，可能导致应用崩溃'));
-                return;
-            }
-            resolve(file);
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target?.result as string;
-            img.onload = () => {
-                const MAX_WIDTH = options?.maxWidth || 1200;
-                const MAX_HEIGHT = MAX_WIDTH;
-
-                let width = img.width;
-                let height = img.height;
-                if (width > height) {
-                    if (width > MAX_WIDTH) { height *= MAX_WIDTH / width; width = MAX_WIDTH; }
-                } else {
-                    if (height > MAX_HEIGHT) { width *= MAX_HEIGHT / height; height = MAX_HEIGHT; }
-                }
-
-                const canvas = document.createElement('canvas');
-                canvas.width = width;
-                canvas.height = height;
-                const ctx = canvas.getContext('2d');
-                if (!ctx) { reject(new Error('Canvas context error')); return; }
-                ctx.clearRect(0, 0, width, height);
-                ctx.drawImage(img, 0, 0, width, height);
-
-                let mimeType = 'image/jpeg';
-                if (!options?.forceJpeg && (file.type === 'image/png' || file.type === 'image/webp')) {
-                    mimeType = file.type;
-                }
-                const quality = options?.quality || 0.85;
-
-                canvas.toBlob(
-                    (blob) => {
-                        if (blob) resolve(blob);
-                        else reject(new Error('图片压缩失败'));
-                    },
-                    mimeType,
-                    quality
-                );
-            };
-            img.onerror = () => reject(new Error('图片加载失败'));
-        };
-        reader.onerror = () => reject(new Error('文件读取失败'));
-    });
+export const processImageToBlob = async (file: File, options?: { maxWidth?: number, quality?: number, forceJpeg?: boolean, skipCompression?: boolean }): Promise<Blob> => {
+    if (!file.type.startsWith('image/')) throw new Error('请上传图片文件');
+    if (options?.skipCompression) return file;
+    if (file.type === 'image/gif') {
+        if (file.size > 50 * 1024 * 1024) throw new Error('GIF 图片过大(>50MB)，可能导致应用崩溃');
+        return file;
+    }
+    const url = URL.createObjectURL(file);
+    try {
+        const img = new Image();
+        await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve(); img.onerror = () => reject(new Error('图片加载失败')); img.src = url;
+        });
+        const scale = Math.min(1, (options?.maxWidth || 1200) / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.max(1, Math.round(img.width * scale));
+        canvas.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error('Canvas context error');
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const mimeType = !options?.forceJpeg && (file.type === 'image/png' || file.type === 'image/webp') ? file.type : 'image/jpeg';
+        return await new Promise<Blob>((resolve, reject) => canvas.toBlob(
+            blob => blob ? resolve(blob) : reject(new Error('图片压缩失败')), mimeType, options?.quality ?? 0.85,
+        ));
+    } finally { URL.revokeObjectURL(url); }
 };

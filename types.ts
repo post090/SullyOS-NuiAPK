@@ -3274,6 +3274,7 @@ export interface CharacterProfile {
 
   mountedWorldbooks?: MountedWorldbook[];
 
+  /** 角色对用户的私密印象；其中的性格、MBTI 和喜好属于用户，不是角色本人。 */
   impression?: UserImpression;
 
   bubbleStyle?: string;

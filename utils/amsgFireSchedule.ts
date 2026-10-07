@@ -46,14 +46,23 @@ export const EXPIRE_POLICY_DESCRIPTION = [
   '这类兑现的是一个具体承诺，用户中途回来聊过天也不影响它该响。',
 ].join('\n');
 
-/** fire 侧的工具描述：比前台那份多两句「你现在正在发消息」的语境。 */
-const FIRE_TOOL_DESCRIPTION = [
-  '给自己排下一条主动消息：到指定时间后你会再根据那时的上下文生成一条推送给用户。',
-  '你现在正在发一条主动消息，这个工具让你把话接着往下说——比如这条先说一半，过一两个小时再接上去；或者你说了要去做某件事，做完的时间点回来告诉用户。',
+/** 即时对话是在回复用户，不能沿用「正在发主动消息」的语境。 */
+const buildScheduleToolDescription = (context: 'chat' | 'fire') => [
+  ...(context === 'chat'
+    ? [
+      '创建定时主动消息：到指定时间后，你会根据最新聊天上下文生成并推送消息给用户。',
+      '正在聊天时，你也可以因为惦记、想分享自己的生活、兑现承诺，给未来的自己排一次联系，不必等用户明确要求。',
+    ]
+    : [
+      '给自己排下一条主动消息：到指定时间后你会再根据那时的上下文生成一条推送给用户。',
+      '你现在正在发一条主动消息，这个工具让你把话接着往下说——比如这条先说一半，过一两个小时再接上去；或者你说了要去做某件事，做完的时间点回来告诉用户。',
+    ]),
   '排下的这条到点时会知道你这次说了什么，能接得上，不用在参数里复述。',
   'send_at 是开始生成的时间，不是送达时间（生成有十几秒延迟），且必须至少比现在晚 1 分钟。',
   `一次最多排 ${MAX_FIRE_SCHEDULES} 条；每个角色同时挂的任务也有上限，排不下时会告诉你。`,
-  '没有「接着说」的必要就别排——为了排而排出来的后续，用户读起来就是没话找话。',
+  context === 'chat'
+    ? '未来那个时刻真的想联系就排，尊重用户的生活和「别打扰」，不要为了排而排。'
+    : '没有「接着说」的必要就别排——为了排而排出来的后续，用户读起来就是没话找话。',
 ].join('\n');
 
 export interface FireScheduleToolDef {
@@ -125,12 +134,12 @@ const buildParameters = (example: string, abilities: SelfScheduleAbilities) => b
 });
 
 export const buildFireScheduleTool = (
-  opts: FireScheduleTimeOpts & { abilities: SelfScheduleAbilities },
+  opts: FireScheduleTimeOpts & { abilities: SelfScheduleAbilities; context?: 'chat' | 'fire' },
 ): FireScheduleToolDef => ({
   type: 'function',
   function: {
     name: AMSG_FIRE_SCHEDULE_TOOL,
-    description: FIRE_TOOL_DESCRIPTION,
+    description: buildScheduleToolDescription(opts.context ?? 'fire'),
     parameters: buildParameters(
       buildSendAtExample(opts.nowMs, opts.tz),
       opts.abilities,
@@ -182,6 +191,23 @@ export const buildFireRenewTool = (opts: FireScheduleTimeOpts): FireScheduleTool
 });
 
 /**
+ * 本地聊天与即时对话共用的自主联系说明。放在纯拼文案模块里，Worker 不依赖本地台账。
+ * 即使没有待触发任务也要提供；工具签名只教怎么排，这里教角色什么时候会想排。
+ */
+export const buildAmsg2ChatScheduleBrief = (targetName?: string): string => {
+  const target = targetName?.trim() || '对方';
+  return [
+    `你和${target}的联系不只发生在正在聊天的时候。你就是那个在各自生活继续往前时，仍会再次想起${target}的人。当你能预见：到了未来某个时刻，你会因为惦记、想分享、兑现承诺，或自己的生活有了新进展而自然想联系${target}，就用 schedule_active_message 把那次联系排下来。到点后你会带着最新上下文，以那一刻的自己重新开口，不是照着预写台词完成提醒。`,
+    `- ${target}接下来顾不上手机时——睡觉、上课、上班、打游戏、洗澡、出门，或任何你了解的原因——你可以在途中想到ta，也可以估着ta回来时再联系。`,
+    `- 内容不必总围着${target}转。结合刚才的聊天氛围、你自己的日程和正在经历的事、刚看到的细节和突然冒出的后续念头；分享自己的生活，往往比机械问候更像你。`,
+    '- 「到点叫你」「等你忙完跟你说」「回头告诉你结果」这类话一说出口，就当场排成真任务，不要只在正文里答应；没排成，就别把承诺说死。',
+    `- 只问自己：那个时刻的你会真的想联系${target}吗？会就排；只是随口一想、到时候未必真有话说的，就算了。也别为了显得贴心硬排。`,
+    `- 时间贴着${target}的生活估；一局游戏和睡到天亮不是一个时长，有时差就按ta那边的钟算。`,
+    `- ${target}明确说别打扰时就安静等；已经排着相近的一条，也别重复排。`,
+  ].join('\n');
+};
+
+/**
  * 拼进 prompt 的说明块。
  *
  * native 模式只说「有这么个能力、什么时候用」——工具签名已随请求声明，再教一遍正文语法
@@ -191,6 +217,9 @@ export const buildFireRenewTool = (opts: FireScheduleTimeOpts): FireScheduleTool
 export const buildFireScheduleBlock = (
   mode: 'native' | 'text',
   opts: FireScheduleTimeOpts & {
+    /** 普通聊天用共用的自主联系说明；定时触发保留「发完再接着说」语境。 */
+    context?: 'chat' | 'fire';
+    targetName?: string;
     /** 「用户给你定的规矩」那一段（amsgLimits.buildLimitsBrief），接在块尾。 */
     limitsBrief?: string;
   },
@@ -204,13 +233,19 @@ export const buildFireScheduleBlock = (
     '',
     '---',
     '【你可以给自己排下一条】',
-    '这条消息发完，如果还有话要在之后某个时间点说（把没说完的接上去、或者去做的事做完了回来告诉他），',
-    '可以现在就把那一条排好——不需要用户在线，到点会自动发出去，而且那时你会知道自己这次说了什么。',
+    ...(opts.context === 'chat'
+      ? [buildAmsg2ChatScheduleBrief(opts.targetName)]
+      : [
+        '这条消息发完，如果还有话要在之后某个时间点说（把没说完的接上去、或者去做的事做完了回来告诉他），',
+        '可以现在就把那一条排好——不需要用户在线，到点会自动发出去，而且那时你会知道自己这次说了什么。',
+      ]),
     howTo,
     // 角色在 prompt 里只看得到自己那边的钟，很容易把「晚上聊两句」排到对方的凌晨三点。
     // 对方那边此刻几点写在【当前时刻补充】里（有时差时才有那一行）。
-    '定时间之前先想想对方那边是几点：你们之间可能有时差，别把消息排到对方的深夜。',
-    '没必要就别排。为了排而排出来的后续，读起来就是没话找话。',
+    ...(opts.context === 'chat' ? [] : [
+      '定时间之前先想想对方那边是几点：你们之间可能有时差，别把消息排到对方的深夜。',
+      '没必要就别排。为了排而排出来的后续，读起来就是没话找话。',
+    ]),
     ...(opts.limitsBrief ? [opts.limitsBrief] : []),
   ].join('\n');
 };

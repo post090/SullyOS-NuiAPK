@@ -14,6 +14,7 @@
 import { ActiveMsg2TaskRecord, Amsg2ExpiredNoticeRecord, CharacterProfile } from '../types';
 import { ActiveMsgStore } from './activeMsgStore';
 import { resolveCharTimeZone } from './timezone';
+import { buildAmsg2ChatScheduleBrief } from './amsgFireSchedule';
 import {
   AMSG2_SCHEDULE_NOT_YET_NOTE, AMSG2_SCHEDULE_SECRECY_NOTE, currentOccurrenceMs, describeExpirePolicy,
   describeRecurrence, describeTaskMode, formatTaskTime, getPendingTasks, isPendingTask,
@@ -47,30 +48,6 @@ export function buildUserCancelledNotices(
       createdAt: nowMs,
     }));
 }
-
-/**
- * 常驻能力简介：平时聊天时就让角色把「未来会再想起对方」当成自己的念头。
- *
- * 只靠 schedule_active_message 的工具 description，角色基本只在用户明说「八点叫我」
- * 时才想起排程；「聊着聊着自己想到给稍后排一条」得有人在正文里先说一声——fire 侧的
- * 【你可以给自己排下一条】（amsgFireSchedule.buildFireScheduleBlock）就是同一件事
- * 在到点侧的那半，这里补的是平时聊天这半。判断口径：联系来自未来那个自己的
- * 真实念头，内容不只围着对方、也从自己的日程和生活里长出来；嘴上许了就排成真任务，
- * 人设优先不硬排，也尊重「别打扰」。语法不在这里教：工具签名已随请求声明，
- * 正文再教一遍反而勾引模型往正文里写（与 fire 侧 native 模式同一个判断）。
- */
-const buildAmsg2ChatScheduleBrief = (targetName?: string): string => {
-  const target = targetName?.trim() || '对方';
-  return [
-    `你和${target}的联系不只发生在正在聊天的时候。你就是那个在各自生活继续往前时，仍会再次想起${target}的人。当你能预见：到了未来某个时刻，你会因为惦记、想分享、兑现承诺，或自己的生活有了新进展而自然想联系${target}，就用 schedule_active_message 把那次联系排下来。到点后你会带着最新上下文，以那一刻的自己重新开口，不是照着预写台词完成提醒。`,
-    `- ${target}接下来顾不上手机时——睡觉、上课、上班、打游戏、洗澡、出门，或任何你了解的原因——你可以在途中想到ta，也可以估着ta回来时再联系。`,
-    `- 内容不必总围着${target}转。结合刚才的聊天氛围、你自己的日程和正在经历的事、刚看到的细节和突然冒出的后续念头；分享自己的生活，往往比机械问候更像你。`,
-    '- 「到点叫你」「等你忙完跟你说」「回头告诉你结果」这类话一说出口，就当场排成真任务，不要只在正文里答应；没排成，就别把承诺说死。',
-    `- 只问自己：那个时刻的你会真的想联系${target}吗？会就排；只是随口一想、到时候未必真有话说的，就算了。也别为了显得贴心硬排。`,
-    `- 时间贴着${target}的生活估；一局游戏和睡到天亮不是一个时长，有时差就按ta那边的钟算。`,
-    `- ${target}明确说别打扰时就安静等；已经排着相近的一条，也别重复排。`,
-  ].join('\n');
-};
 
 /** 「到点没发」那一行末尾补的原因。角色自己决定不说的不用再解释。 */
 const describeSkipReason = (reason: Amsg2ExpiredNoticeRecord['reason'], target: string): string => {
@@ -146,7 +123,7 @@ const buildNoticeSections = (
 /**
  * 回执单独成块（即时对话云端路径用）。
  *
- * 云端到点会自己渲染排程清单和「给自己排下一条」（instant timely block），chat 段里
+ * 云端自己渲染排程清单，并用共用的 buildAmsg2ChatScheduleBrief 提供聊天能力简介；chat 段里
  * 只欠回执这一样——所以这里不带常驻简介、不带进行中清单，避免和到点渲染的那份撞车。
  * 没有回执时返回 null，整块不出现（与本地「有料才出现」同一个做法）。
  */
