@@ -19,6 +19,8 @@ import {
     isAccountScopedToken,
     uploadWorkerScript,
     ensureSubdomain,
+    checkRelayAvailable,
+    explainRelayFailure,
     type AmsgSecrets,
 } from './cfProvision';
 
@@ -321,6 +323,104 @@ describe('uploadWorkerScript', () => {
 
         expect(result.ok).toBe(false);
         expect(metadatas).toHaveLength(1);
+    });
+});
+
+describe('checkRelayAvailable', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        vi.restoreAllMocks();
+    });
+
+    it('200 且 relay 认得上 → 可用', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(
+            JSON.stringify({ relay: 'cf-api' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )));
+
+        expect(await checkRelayAvailable()).toEqual({ ok: true });
+    });
+
+    /**
+     * 回归守卫：三种失败要分得开，尤其这条——网络不通（DNS 解析失败、超时、被墙）跟
+     * Worker 版本新旧没关系。以前一律说「缺 /cf-api，把代理地址改回默认的」，用默认
+     * 地址、只是断网的人被指使着反复折腾一个本来就没问题的设置。
+     */
+    it('fetch 直接抛（网络不通）→ reason 是 network', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+
+        expect(await checkRelayAvailable()).toEqual({ ok: false, reason: 'network' });
+    });
+
+    it('404 → reason 是 http-status，状态码带回去给排查用', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('Not Found', { status: 404 })));
+
+        expect(await checkRelayAvailable()).toEqual({ ok: false, reason: 'http-status', status: 404 });
+    });
+
+    it('200 但 relay 字段对不上 → bad-response（指的不是 SullyOS 的代理）', async () => {
+        vi.stubGlobal('fetch', vi.fn(async () => new Response(
+            JSON.stringify({ hello: 'world' }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } },
+        )));
+
+        expect(await checkRelayAvailable()).toEqual({ ok: false, reason: 'bad-response' });
+    });
+
+    it('200 但压根不是 JSON → 也算响应内容不对，不当网络错误报', async () => {
+        // 浏览器的 fetch 只有网络层失败才抛；能收到 200 的 HTML 说明路是通的，
+        // 说「连不上」会把人指去查一个没问题的网络。
+        vi.stubGlobal('fetch', vi.fn(async () => new Response('<html>不是代理 Worker</html>', {
+            status: 200,
+            headers: { 'Content-Type': 'text/html' },
+        })));
+
+        expect(await checkRelayAvailable()).toEqual({ ok: false, reason: 'bad-response' });
+    });
+});
+
+describe('explainRelayFailure', () => {
+    // 三种失败 × 默认/自定义代理，指路方向不能串：网络不通的查网络、版本旧的更新
+    // Worker、指错地址的改地址。钉住每条话里的关键词，串了立刻能看出来。
+
+    it('网络不通 + 默认代理：指去查网络或配自定义地址，不赖 Worker 版本', () => {
+        const msg = explainRelayFailure('network', false, '一键部署');
+
+        expect(msg).toContain('无法连接到默认代理 Worker');
+        expect(msg).toContain('一键部署');
+        expect(msg).toContain('设置 → 网络代理');
+        expect(msg).not.toContain('版本过旧');
+    });
+
+    it('网络不通 + 自定义代理：指去检查自己的地址，而不是叫人改回默认', () => {
+        const msg = explainRelayFailure('network', true, '一键部署');
+
+        expect(msg).toContain('无法连接到你配置的自定义代理 Worker');
+        expect(msg).toContain('检查网络连接和代理地址');
+    });
+
+    it('HTTP 非 2xx + 默认代理：说的是版本过旧、缺 /cf-api', () => {
+        const msg = explainRelayFailure('http-status', false, '这个操作');
+
+        expect(msg).toContain('这个操作');
+        expect(msg).toContain('版本过旧');
+        expect(msg).toContain('/cf-api');
+    });
+
+    it('HTTP 非 2xx + 自定义代理：指去更新自己的 Worker，或临时改回默认', () => {
+        const msg = explainRelayFailure('http-status', true, '这个操作');
+
+        expect(msg).toContain('版本过旧');
+        expect(msg).toContain('更新你的 Worker');
+        expect(msg).toContain('改回默认代理地址');
+    });
+
+    it('响应内容不对：说是指向了错误的地址，三种失败里只有这条提这个', () => {
+        const msg = explainRelayFailure('bad-response', false, '一键部署');
+
+        expect(msg).toContain('响应异常');
+        expect(msg).toContain('指向了错误的地址');
+        expect(msg).toContain('SullyOS 代理');
     });
 });
 

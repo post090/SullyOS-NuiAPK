@@ -12,7 +12,7 @@
  * （worker/amsg/src/selfUpdate.ts），能保住密钥；这里是从零装，密钥是新生成的。
  */
 
-import { getProxyWorkerUrl } from './proxyWorker';
+import { getProxyWorkerUrl, isCustomProxyWorker } from './proxyWorker';
 import { generateVapidKeyPair, generateClientToken } from './vapidGen';
 
 /** 部署出来的 Worker / D1 默认叫这个，跟 worker/amsg/wrangler.toml 对齐。 */
@@ -134,6 +134,18 @@ export interface ProvisionSuccess {
 }
 
 export type ProvisionResult = ProvisionSuccess | ProvisionFailure;
+
+/** relay 探测失败的三种原因。哪种都不是同一句话能说清的，见 explainRelayFailure。 */
+export type RelayCheckReason = 'network' | 'http-status' | 'bad-response';
+
+export type RelayCheckResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: RelayCheckReason;
+      /** http-status 时的 HTTP 状态码，排查用。 */
+      status?: number;
+    };
 
 // ---------------------------------------------------------------------------
 // 纯函数部分（可单测，不碰网络）
@@ -308,6 +320,41 @@ export function explainCfError(status: number, body: unknown, request?: string):
 }
 
 /**
+ * 把 relay 探测失败翻成能照着做的话。
+ *
+ * 三种失败长得不一样，治法也不一样：网络不通该查网络、版本太旧该更新 Worker、
+ * 指错地址该改地址——笼统一句「不支持这个操作」会把三种人打发去反复折腾同一个
+ * 地方。默认代理和自定义代理的出路也不同（一个「等等再试 / 换个地址」，一个
+ * 「检查你自己的部署」），所以把 customProxy 做成参数由调用方问进来，保持纯函数好单测。
+ *
+ * @param reason checkRelayAvailable 的失败原因。
+ * @param customProxy 是否在用自定义（非默认）的代理 Worker。
+ * @param action 出错时正在做的事（「这个操作」「一键部署」），拼进第一句。
+ */
+export function explainRelayFailure(
+  reason: RelayCheckReason,
+  customProxy: boolean,
+  action: string,
+): string {
+  if (reason === 'network') {
+    return customProxy
+      ? `无法连接到你配置的自定义代理 Worker，${action}做不了。请检查网络连接和代理地址是否正确。`
+      : `无法连接到默认代理 Worker，${action}做不了（可能是网络问题或代理服务暂时不可用）。`
+        + '请检查网络连接后重试，或在设置 → 网络代理中配置一个自定义的代理 Worker 地址。';
+  }
+  if (reason === 'http-status') {
+    return customProxy
+      ? `你配置的自定义代理 Worker 版本过旧，缺少 /cf-api 路由，${action}做不了。`
+        + '请参考项目文档更新你的 Worker 到最新版本，或临时改回默认代理地址再试。'
+      : `默认代理 Worker 版本过旧，缺少 /cf-api 路由，${action}做不了。`
+        + '这可能是部署的 Worker 版本较老，需要更新到最新版本。'
+        + '你可以稍后再试，或配置一个自定义的代理 Worker 地址。';
+  }
+  return `代理 Worker 响应异常，可能指向了错误的地址，${action}做不了。`
+    + '请检查代理 Worker 地址是否指向正确的 SullyOS 代理。';
+}
+
+/**
  * 校验用户想要的 workers.dev 子域。CF 的规矩是小写字母数字和连字符，
  * 不能以连字符开头结尾。这里先挡一道，省得为一个明显不合法的名字跑一趟网络。
  */
@@ -424,15 +471,31 @@ export async function uploadWorkerScript(
   return second.ok ? { ...second, reusedExistingWorker: true } : second;
 }
 
-/** 当前生效的网络代理 Worker 支不支持一键部署（老版本没有 /cf-api 这条路由）。 */
-export async function checkRelayAvailable(): Promise<boolean> {
+/**
+ * 探一下当前生效的网络代理 Worker 能不能当 Cloudflare API 的中转（老版本没有
+ * /cf-api 这条路由）。
+ *
+ * 失败分三种，各自的含义和治法都不一样，调用方要按 reason 挑提示（见
+ * explainRelayFailure），别全说成「不支持」：
+ * - network：fetch 本身抛了——网络不通 / DNS 解析失败 / 被墙，跟 Worker 新旧无关；
+ * - http-status：收到了响应但不是 2xx——多半是旧版 Worker 没有 /cf-api 路由（404）；
+ * - bad-response：200 但响应体不是 { relay: 'cf-api' }——指向的根本不是 SullyOS 的代理。
+ */
+export async function checkRelayAvailable(): Promise<RelayCheckResult> {
   try {
     const res = await fetch(`${getProxyWorkerUrl()}/cf-api`, { method: 'GET' });
-    if (!res.ok) return false;
-    const body = (await res.json()) as { relay?: string };
-    return body?.relay === 'cf-api';
+    if (!res.ok) return { ok: false, reason: 'http-status', status: res.status };
+    // 200 但不是 JSON，跟 relay 字段对不上是一回事：响应内容不对，都归 bad-response。
+    let body: { relay?: string } | null = null;
+    try {
+      body = (await res.json()) as { relay?: string };
+    } catch {
+      /* 非 JSON 也算响应内容不对 */
+    }
+    if (body?.relay !== 'cf-api') return { ok: false, reason: 'bad-response' };
+    return { ok: true };
   } catch {
-    return false;
+    return { ok: false, reason: 'network' };
   }
 }
 
@@ -704,11 +767,12 @@ export async function attachUpdateCapability(input: {
   const report = (step: ProvisionStepId, message: string) => input.onProgress?.({ step, message });
 
   report('relay', '检查中转是否可用…');
-  if (!(await checkRelayAvailable())) {
+  const relay = await checkRelayAvailable();
+  if (!relay.ok) {
     return {
       ok: false,
       code: 'RELAY_UNSUPPORTED',
-      message: '当前的网络代理 Worker 不支持这个操作（缺 /cf-api）。把代理地址改回默认的再试。',
+      message: explainRelayFailure(relay.reason, isCustomProxyWorker(), '这个操作'),
     };
   }
 
@@ -803,13 +867,12 @@ export async function provisionAmsgBackend(input: ProvisionInput): Promise<Provi
   const warnings: string[] = [];
 
   report('relay', '检查中转是否可用…');
-  if (!(await checkRelayAvailable())) {
+  const relay = await checkRelayAvailable();
+  if (!relay.ok) {
     return {
       ok: false,
       code: 'RELAY_UNSUPPORTED',
-      message:
-        '当前的网络代理 Worker 不支持一键部署（缺 /cf-api）。'
-        + '如果你在设置里换过代理地址，把它改回默认的，或者把代理 Worker 更新到最新版。',
+      message: explainRelayFailure(relay.reason, isCustomProxyWorker(), '一键部署'),
     };
   }
 
