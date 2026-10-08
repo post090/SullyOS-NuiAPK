@@ -276,6 +276,28 @@ describe.skipIf(!sqlite)('定时任务细账（真 SQLite）', () => {
       })).toBeNull();
     });
 
+    it('清理云端数据那一段出错、消息照常投递的一跳：记清理的错', () => {
+      expect(pickTickFailure({
+        ok: true,
+        summary: { details: { failedTasks: [] } },
+        cloudCleanupCause: { stage: 'cloud-cleanup', name: 'D1_ERROR', message: 'no such table: x', code: null },
+      })).toEqual({ stage: 'cloud-cleanup', name: 'D1_ERROR', message: 'no such table: x', code: null });
+    });
+
+    it('投递和清理同一跳都出错：记投递的那个', () => {
+      const cloudCleanupCause = { stage: 'cloud-cleanup', name: 'D1_ERROR', message: 'cleanup boom' };
+      expect(pickTickFailure({
+        ok: false,
+        cause: { stage: 'tick', name: 'D1_ERROR', message: 'tick boom' },
+        cloudCleanupCause,
+      })?.message).toBe('tick boom');
+      expect(pickTickFailure({
+        ok: true,
+        summary: { details: { failedTasks: [{ taskId: 3, reason: 'write boom', status: 'claim_failed' }] } },
+        cloudCleanupCause,
+      })?.stage).toBe('claim_failed');
+    });
+
     it('scheduled() 整轮挂了会记进库，细账里读得到原话', async () => {
       vi.spyOn(console, 'error').mockImplementation(() => {});
       vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -286,8 +308,8 @@ describe.skipIf(!sqlite)('定时任务细账（真 SQLite）', () => {
       await (worker as any).scheduled({ scheduledTime: Date.now(), cron: '* * * * *' }, envWith(d1));
 
       const record = await readTickFailure(d1 as unknown as TickReportDb);
-      // next.34 runs cloud cleanup before loading tasks; the empty DB fails there first.
-      expect(record?.stage).toBe('cloud-cleanup');
+      // 空库上清理云端数据和捞任务两段都会挂，记下来的是拦住投递的那个。
+      expect(record?.stage).toBe('tick');
       expect(record?.message).toContain('no such table');
       expect(record?.ongoing).toBe(true);
     });

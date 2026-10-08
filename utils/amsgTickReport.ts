@@ -32,6 +32,9 @@ const SAME_WRITE_TOLERANCE_MS = 5_000;
 /** 整轮报错多久没再出现，就当那一串已经停了。cron 一分钟一跳，隔两跳没再报就算停。 */
 export const TICK_FAILURE_SERIES_GAP_MS = 3 * 60_000;
 
+/** 清理云端数据那一段的阶段代号。这一段出错不拦消息投递，面板拿它跟「消息发不出去」分开说。 */
+export const CLOUD_CLEANUP_STAGE = 'cloud-cleanup';
+
 // ─── 判定 ───
 
 /** 判定一条过期任务要用到的事实，全是任务行上的明文列（时刻一律 epoch 毫秒）。 */
@@ -208,7 +211,8 @@ export interface AmsgTickReportFailure {
  */
 export interface AmsgTickFailureRecord {
   /**
-   * 挂在哪一步：`config` 读配置、`tick` 整轮处理；任务写库失败时是上游的收尾状态
+   * 挂在哪一步：`config` 读配置、`tick` 整轮处理、`cloud-cleanup` 清理云端数据（消息照常
+   * 投递）；任务写库失败时是上游的收尾状态
    * （`claim_failed` / `retry_update_failed` / `stale_update_failed` / `post_send_cleanup_failed…`）。
    */
   stage: string;

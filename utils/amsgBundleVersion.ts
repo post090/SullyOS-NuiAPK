@@ -12,4 +12,4 @@
 //   - utils/amsgWorkerVersion.ts 比的是**上游库** @rei-standard/amsg-server 的 semver；
 //   - utils/buildInfo.ts 的 APP_VERSION 是整个 SullyOS App 的版本。
 //   这里管的只有一样：用户自己那台 Worker 上跑的这份 bundle 是哪天的。
-export const AMSG_BUNDLE_VERSION = '2026-10-08.1'; // Fork：上游 6bb9e472（amsg2 云数据管理、D1 配额修复等）+ fork 的 nativeFcm 改动，bundle 内容与两边都不同
+export const AMSG_BUNDLE_VERSION = '2026-10-09'; // Fork：上游 babaa9c5（cloud-cleanup 修复、amsg-server next.36）+ fork 的 nativeFcm 改动，bundle 内容与两边都不同

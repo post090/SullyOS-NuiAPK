@@ -784,6 +784,34 @@ describe('buildAmsgDiagnosticRows — 定时任务的逐条细账', () => {
     expect(item?.raw).toContain('D1_ERROR');
   });
 
+  it('只有清理云端数据那一步在报错 → 提醒但不报红，说明消息照常投递', () => {
+    const row = tickRow('healthy', {
+      tickReport: {
+        ok: true,
+        report: tickReport({
+          tickFailure: {
+            stage: 'cloud-cleanup',
+            name: 'D1_ERROR',
+            message: 'no such table: cloud_cleanup_work',
+            code: null,
+            firstAt: at(30),
+            lastAt: at(1),
+            count: 30,
+            ongoing: true,
+          },
+        }),
+      },
+    });
+
+    expect(row.level).toBe('warn');
+    expect(row.detail).toContain('清理云端数据');
+    expect(row.detail).toContain('消息照常投递');
+    const item = row.items?.find((entry) => entry.text.includes('每分钟那一跳'));
+    expect(item?.text).toContain('清理云端数据那一步');
+    expect(item?.text).toContain('消息照常投递');
+    expect(item?.raw).toContain('no such table: cloud_cleanup_work');
+  });
+
   it('整轮报错认得出来的另外两种各给一句该怎么办；阶段代号翻成中文', () => {
     const failureRow = (patch: Record<string, unknown>) => tickRow('healthy', {
       tickReport: {

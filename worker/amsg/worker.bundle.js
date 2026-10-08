@@ -8363,7 +8363,7 @@ function reconcileStoppedReplies(log, rows) {
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.35_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2_e58895bbc7678f9fbc5c347eb1fea38c/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -9575,7 +9575,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.35_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-INQD6LRY.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2_e58895bbc7678f9fbc5c347eb1fea38c/node_modules/@rei-standard/amsg-server/dist/chunk-67RM2E46.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -14930,7 +14930,7 @@ var D1Adapter = class {
       WHERE w.kind='operation' AND w.next_run_at IS NOT NULL AND w.next_run_at<=?
         AND (r.lease_until IS NULL OR r.lease_until<=?)
       ORDER BY w.next_run_at LIMIT ?`).bind(now, now, limit).all();
-    return Promise.all((result.results || []).map((row) => this._cloudRecordForList(row)));
+    return Promise.all((result.results || []).map(async (row) => ({ ...await this._cloudRecordForList(row), writeToken: row.write_token })));
   }
   async cleanupExpiredCloudDataRecords(now = Date.now(), limit = 100) {
     const result = await this._db.prepare(`DELETE FROM cloud_data_records WHERE rowid IN (
@@ -14950,17 +14950,34 @@ var D1Adapter = class {
       marker = await this._db.prepare("SELECT * FROM cloud_data_maintenance WHERE name=?").bind(name).first();
     }
     if (marker.completed) return { rows: [], completed: true };
-    const result = await this._db.prepare(`SELECT rowid AS maintenance_rowid,* FROM ${table}
+    const columns = table === "cloud_data_records" ? "rowid AS maintenance_rowid,user_id,kind,id,updated_at,write_token,CASE WHEN kind='operation' THEN data END AS data" : "rowid AS maintenance_rowid";
+    const result = await this._db.prepare(`SELECT ${columns} FROM ${table}
       WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?`).bind(marker.cursor, marker.upper_bound, limit).all();
     return { rows: result.results || [], upperBound: marker.upper_bound, cursor: marker.cursor, completed: false };
   }
   async finishCloudMaintenanceBatch(name, cursor, completed) {
     await this._db.prepare(`UPDATE cloud_data_maintenance SET cursor=MAX(cursor,?),completed=MAX(completed,?) WHERE name=?`).bind(cursor, completed ? 1 : 0, name).run();
   }
-  async indexCloudDataRecordWork(userId, kind, id, work, expectedWriteToken = null) {
+  /**
+   * Index a whole repair batch in one statement. Never overwrites an existing schedule, and
+   * skips a record that was rewritten after the batch was read.
+   */
+  async indexCloudDataRecordWorkBatch(entries2) {
+    if (!entries2.length) return;
+    const rows = entries2.map(({ userId, kind, id, work, writeToken }) => [userId, kind, id, work.nextRunAt ?? null, work.expiresAt ?? null, writeToken ?? null]);
     await this._db.prepare(`INSERT INTO cloud_data_work (user_id,kind,id,next_run_at,expires_at)
-      SELECT user_id,kind,id,?,? FROM cloud_data_records WHERE user_id=? AND kind=? AND id=? AND write_token IS ?
-      ON CONFLICT (user_id,kind,id) DO NOTHING`).bind(work.nextRunAt ?? null, work.expiresAt ?? null, userId, kind, id, expectedWriteToken).run();
+      SELECT r.user_id,r.kind,r.id,json_extract(j.value,'$[3]'),json_extract(j.value,'$[4]')
+      FROM json_each(?) j JOIN cloud_data_records r ON r.user_id=json_extract(j.value,'$[0]')
+        AND r.kind=json_extract(j.value,'$[1]') AND r.id=json_extract(j.value,'$[2]')
+        AND r.write_token IS json_extract(j.value,'$[5]')
+      WHERE 1 ON CONFLICT (user_id,kind,id) DO NOTHING`).bind(JSON.stringify(rows)).run();
+  }
+  /** Move an indexed record's schedule, unless the record was rewritten since the caller read it. */
+  async rescheduleCloudDataRecordWork(userId, kind, id, work, expectedWriteToken = null) {
+    const result = await this._db.prepare(`UPDATE cloud_data_work SET next_run_at=?,expires_at=?
+      WHERE user_id=? AND kind=? AND id=? AND EXISTS (SELECT 1 FROM cloud_data_records r
+        WHERE r.user_id=cloud_data_work.user_id AND r.kind=cloud_data_work.kind AND r.id=cloud_data_work.id AND r.write_token IS ?)`).bind(work.nextRunAt ?? null, work.expiresAt ?? null, userId, kind, id, expectedWriteToken).run();
+    return result.meta.changes > 0;
   }
   async readCloudMaintenanceRecord(row) {
     return this._cloudRecordForList(row);
@@ -16446,7 +16463,7 @@ function createClientStateNamespacesHandler(ctx) {
   }
   return { GET };
 }
-var SERVER_VERSION = true ? "2.6.0-next.35" : "0.0.0-dev";
+var SERVER_VERSION = true ? "2.6.0-next.36" : "0.0.0-dev";
 var SERVER_FEATURES = Object.freeze([
   "client-state",
   "client-state-chunking",
@@ -17245,12 +17262,23 @@ async function advanceCleanup(ctx, db, userId, key, operation) {
   }
   return operation;
 }
+var WORK_INDEX_METHODS = [
+  "listDueCloudDataOperations",
+  "cleanupExpiredCloudDataRecords",
+  "rescheduleCloudDataRecordWork",
+  "getCloudMaintenanceBatch",
+  "finishCloudMaintenanceBatch",
+  "readCloudMaintenanceRecord",
+  "indexCloudDataRecordWorkBatch",
+  "repairCloudResourceMetadata"
+];
+var UNREADABLE_RETRY_MS = 15 * 6e4;
 async function repairLegacyWorkIndex(ctx) {
   const db = ctx.db;
-  if (typeof db.getCloudMaintenanceBatch !== "function") return;
   const name = "management-work-v1";
   const batch = await db.getCloudMaintenanceBatch(name, "cloud_data_records", 100);
   if (batch.completed) return;
+  const entries2 = [];
   for (const row of batch.rows) {
     let work;
     if (["inventory", "plan"].includes(row.kind)) {
@@ -17261,31 +17289,59 @@ async function repairLegacyWorkIndex(ctx) {
         const key = await deriveUserEncryptionKey(row.user_id, ctx.masterKey);
         work = operationWork(JSON.parse(await decryptFromStorage(record3.data, key)));
       } catch {
-        console.warn("[amsg] Legacy cleanup operation could not be indexed");
-        continue;
+        console.warn("[amsg] Legacy cleanup operation could not be read; queued for retry");
+        work = { nextRunAt: 0, expiresAt: null };
       }
     } else continue;
-    await db.indexCloudDataRecordWork(row.user_id, row.kind, row.id, work, row.write_token);
+    entries2.push({ userId: row.user_id, kind: row.kind, id: row.id, work, writeToken: row.write_token });
   }
+  await db.indexCloudDataRecordWorkBatch(entries2);
   const cursor = batch.rows.at(-1)?.maintenance_rowid ?? batch.upperBound;
   await db.finishCloudMaintenanceBatch(name, cursor, batch.rows.length < 100 || cursor >= batch.upperBound);
 }
 async function resumeCloudDataCleanups(ctx) {
   const db = ctx.db;
   if (!db?.cloudDataManagement) return;
-  await repairLegacyWorkIndex(ctx);
-  if (typeof db.repairCloudResourceMetadata === "function") await db.repairCloudResourceMetadata(100);
-  if (typeof db.cleanupExpiredCloudDataRecords === "function") await db.cleanupExpiredCloudDataRecords(Date.now(), 100);
-  const rows = typeof db.listDueCloudDataOperations === "function" ? await db.listDueCloudDataOperations(Date.now(), 25) : await db.listCloudDataRecordsAcrossUsers("operation");
+  const indexed = WORK_INDEX_METHODS.every((method) => typeof db[method] === "function");
+  let rows;
+  if (indexed) {
+    await repairLegacyWorkIndex(ctx);
+    await db.repairCloudResourceMetadata(100);
+    await db.cleanupExpiredCloudDataRecords(Date.now(), 100);
+    rows = await db.listDueCloudDataOperations(Date.now(), 25);
+  } else {
+    await db.cleanupCloudDataRecords("inventory", Date.now() - 36e5);
+    await db.cleanupCloudDataRecords("plan", Date.now() - 36e5);
+    rows = await db.listCloudDataRecordsAcrossUsers("operation");
+  }
   for (const row of rows) {
     try {
       const key = await deriveUserEncryptionKey(row.userId, ctx.masterKey);
       const operation = JSON.parse(await decryptFromStorage(row.data, key));
+      const work = operationWork(operation);
+      if (indexed) {
+        if (work.nextRunAt === null || work.nextRunAt > Date.now()) {
+          await db.rescheduleCloudDataRecordWork(row.userId, "operation", row.id, work, row.writeToken);
+          continue;
+        }
+      } else if (work.expiresAt !== null && work.expiresAt <= Date.now()) {
+        await db.deleteCloudDataRecord(row.userId, "operation", row.id);
+        continue;
+      }
       if (["pending", "running"].includes(operation.status)) {
         await advanceCleanup(ctx, db, row.userId, key, operation);
       }
-    } catch {
+    } catch (error) {
       console.warn("[amsg] A cloud cleanup operation could not be resumed");
+      if (!indexed || error?.code === "CLOUD_LEASE_LOST") continue;
+      await db.rescheduleCloudDataRecordWork(
+        row.userId,
+        "operation",
+        row.id,
+        { nextRunAt: Date.now() + UNREADABLE_RETRY_MS, expiresAt: null },
+        row.writeToken
+      ).catch(() => {
+      });
     }
   }
 }
@@ -17764,9 +17820,11 @@ async function getSchemaVersion(db) {
   for (const index of SQLITE_REQUIRED_SCHEMA.indexes) {
     if (!liveIndexes.has(index)) missing.push(`index:${index}`);
   }
-  const liveTriggers = new Set(live?.triggers || []);
-  for (const name of SQLITE_REQUIRED_SCHEMA.triggers) {
-    if (!liveTriggers.has(name)) missing.push(`trigger:${name}`);
+  if (Array.isArray(live?.triggers)) {
+    const liveTriggers = new Set(live.triggers);
+    for (const name of SQLITE_REQUIRED_SCHEMA.triggers) {
+      if (!liveTriggers.has(name)) missing.push(`trigger:${name}`);
+    }
   }
   const ok = missing.length === 0;
   return { current: ok ? SCHEMA_VERSION : null, required: SCHEMA_VERSION, ok, missing };
@@ -18022,12 +18080,13 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
       await reportError({ stage: "config", error, cause, path: null });
       return { ok: false, cause };
     }
+    const cleanup = {};
     try {
       await resumeCloudDataCleanups(buildTickContext(cfg));
     } catch (error) {
-      const cause = summarizeErrorCause(error, "cloud-cleanup");
-      await reportError({ stage: "cloud-cleanup", error, cause, path: null });
-      return { ok: false, cause };
+      console.error("[amsg single-user] scheduled(): cloud cleanup failed:", error && error.message);
+      cleanup.cloudCleanupCause = summarizeErrorCause(error, "cloud-cleanup");
+      await reportError({ stage: "cloud-cleanup", error, cause: cleanup.cloudCleanupCause, path: null });
     }
     if (!pushConfigured(cfg)) {
       console.error("[amsg single-user] scheduled(): VAPID/webpush not configured; skipping tick");
@@ -18036,16 +18095,16 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
         "config"
       );
       await reportError({ stage: "config", error: null, cause, path: null });
-      return { ok: false, cause };
+      return { ok: false, cause, ...cleanup };
     }
     try {
       const summary = await runScheduledTick(buildTickContext(cfg));
-      return { ok: true, summary };
+      return { ok: true, summary, ...cleanup };
     } catch (error) {
       console.error("[amsg single-user] scheduled(): tick failed:", error && error.message);
       const cause = summarizeErrorCause(error, "tick");
       await reportError({ stage: "tick", error, cause, path: null });
-      return { ok: false, cause };
+      return { ok: false, cause, ...cleanup };
     }
   }
   async function runTask2(uuid, env) {
@@ -18065,7 +18124,7 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-10-08.1";
+var AMSG_BUNDLE_VERSION = "2026-10-09";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -20120,6 +20179,7 @@ var TICK_STALL_MS = 5 * 6e4;
 var LATE_START_MS = 3 * 6e4;
 var SAME_WRITE_TOLERANCE_MS = 5e3;
 var TICK_FAILURE_SERIES_GAP_MS = 3 * 6e4;
+var CLOUD_CLEANUP_STAGE = "cloud-cleanup";
 var classifyOverdueTasks = (tasks, nowMs) => {
   const verdicts = tasks.map((task) => {
     const state = task.leaseUntilMs !== null && task.leaseUntilMs > nowMs ? "sending" : task.retryAfterMs !== null && task.retryAfterMs > nowMs ? "retry-wait" : "ready";
@@ -20336,22 +20396,21 @@ var TASK_WRITE_FAILURE_STATUSES = /* @__PURE__ */ new Set([
   "stale_update_failed",
   "post_send_cleanup_failed"
 ]);
+var failureFromCause = (cause, fallbackStage) => ({
+  stage: typeof cause?.stage === "string" && cause.stage ? cause.stage : fallbackStage,
+  name: typeof cause?.name === "string" && cause.name ? cause.name : "Error",
+  message: typeof cause?.message === "string" ? cause.message : "",
+  code: typeof cause?.code === "string" && cause.code ? cause.code : null
+});
 var pickTickFailure = (outcome) => {
   const value = outcome;
   if (!value || typeof value !== "object") return null;
-  if (value.ok === false) {
-    const cause2 = value.cause;
-    return {
-      stage: typeof cause2?.stage === "string" && cause2.stage ? cause2.stage : "tick",
-      name: typeof cause2?.name === "string" && cause2.name ? cause2.name : "Error",
-      message: typeof cause2?.message === "string" ? cause2.message : "",
-      code: typeof cause2?.code === "string" && cause2.code ? cause2.code : null
-    };
-  }
+  if (value.ok === false) return failureFromCause(value.cause, "tick");
+  const cleanupFailure = value.cloudCleanupCause && typeof value.cloudCleanupCause === "object" ? failureFromCause(value.cloudCleanupCause, CLOUD_CLEANUP_STAGE) : null;
   const failedTasks = value.summary?.details?.failedTasks;
-  if (!Array.isArray(failedTasks)) return null;
+  if (!Array.isArray(failedTasks)) return cleanupFailure;
   const hit = failedTasks.find((entry) => TASK_WRITE_FAILURE_STATUSES.has(entry?.status));
-  if (!hit) return null;
+  if (!hit) return cleanupFailure;
   const reason = typeof hit.reason === "string" ? hit.reason : "";
   const updateError = typeof hit.updateError === "string" ? hit.updateError : "";
   const rawMessage = updateError ? `${updateError}\uFF08\u672C\u6765\u8981\u8BB0\u4E0B\u7684\u5931\u8D25\u539F\u56E0\uFF1A${reason || "\u65E0"}\uFF09` : reason;

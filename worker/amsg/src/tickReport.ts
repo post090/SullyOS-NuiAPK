@@ -21,6 +21,7 @@ import {
 } from '@rei-standard/amsg-server/cloudflare';
 import {
   classifyOverdueTasks,
+  CLOUD_CLEANUP_STAGE,
   judgeOverdueTasks,
   TICK_FAILURE_SERIES_GAP_MS,
   type AmsgTaskErrorRecord,
@@ -333,31 +334,43 @@ const TASK_WRITE_FAILURE_STATUSES = new Set([
 
 type StoredTickFailure = Omit<AmsgTickFailureRecord, 'ongoing'>;
 
-/** 从上游 scheduled() 的返回值里认出这一跳要记的那个错。没出错返回 null。 */
-export const pickTickFailure = (outcome: unknown): Pick<StoredTickFailure, 'stage' | 'name' | 'message' | 'code'> | null => {
+type TickFailureFields = Pick<StoredTickFailure, 'stage' | 'name' | 'message' | 'code'>;
+type UpstreamCause = { stage?: unknown; name?: unknown; message?: unknown; code?: unknown };
+
+const failureFromCause = (cause: UpstreamCause | undefined, fallbackStage: string): TickFailureFields => ({
+  stage: typeof cause?.stage === 'string' && cause.stage ? cause.stage : fallbackStage,
+  name: typeof cause?.name === 'string' && cause.name ? cause.name : 'Error',
+  message: typeof cause?.message === 'string' ? cause.message : '',
+  code: typeof cause?.code === 'string' && cause.code ? cause.code : null,
+});
+
+/**
+ * 从上游 scheduled() 的返回值里认出这一跳要记的那个错。没出错返回 null。
+ *
+ * 一跳里可能同时有两个错：投递消息那一段的，和清理云端数据那一段的（`cloudCleanupCause`，
+ * 它不拦投递）。只记一个，投递的优先——那个才是「消息为什么没来」。
+ */
+export const pickTickFailure = (outcome: unknown): TickFailureFields | null => {
   const value = outcome as {
     ok?: unknown;
-    cause?: { stage?: unknown; name?: unknown; message?: unknown; code?: unknown };
+    cause?: UpstreamCause;
+    cloudCleanupCause?: UpstreamCause;
     summary?: { details?: { failedTasks?: unknown } };
   } | null;
   if (!value || typeof value !== 'object') return null;
 
-  if (value.ok === false) {
-    const cause = value.cause;
-    return {
-      stage: typeof cause?.stage === 'string' && cause.stage ? cause.stage : 'tick',
-      name: typeof cause?.name === 'string' && cause.name ? cause.name : 'Error',
-      message: typeof cause?.message === 'string' ? cause.message : '',
-      code: typeof cause?.code === 'string' && cause.code ? cause.code : null,
-    };
-  }
+  if (value.ok === false) return failureFromCause(value.cause, 'tick');
+
+  const cleanupFailure = value.cloudCleanupCause && typeof value.cloudCleanupCause === 'object'
+    ? failureFromCause(value.cloudCleanupCause, CLOUD_CLEANUP_STAGE)
+    : null;
 
   const failedTasks = value.summary?.details?.failedTasks;
-  if (!Array.isArray(failedTasks)) return null;
+  if (!Array.isArray(failedTasks)) return cleanupFailure;
   const hit = failedTasks.find((entry) => TASK_WRITE_FAILURE_STATUSES.has(entry?.status)) as
     | { status: string; reason?: unknown; updateError?: unknown }
     | undefined;
-  if (!hit) return null;
+  if (!hit) return cleanupFailure;
 
   const reason = typeof hit.reason === 'string' ? hit.reason : '';
   const updateError = typeof hit.updateError === 'string' ? hit.updateError : '';
