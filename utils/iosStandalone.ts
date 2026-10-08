@@ -220,6 +220,14 @@ export const installIOSStandaloneWorkaround = () => {
     // 不锁的话 iOS 会在输入框聚焦时随手势把整页顶飞（visualViewport.offsetTop 漂移、露出底层色块、闪烁）。
     const handleTouchMove = (event: TouchEvent) => {
         if (!document.body.classList.contains('ios-keyboard-open')) return;
+        // 自愈：App 卸载（回桌面）后聚焦输入框被移除，iOS 可能不派发 visualViewport resize
+        // → ios-keyboard-open 类残留 → 桌面滑动被本拦截器掐死。
+        // activeElement 不是输入元素时键盘必然已收起（或从未弹出），主动摘类自愈并放行；
+        // 残留状态下 CSS 变量（--app-height 等）可能仍停在键盘态，等下次 focusin / resize
+        // 事件触发 setViewportVars 时会自然恢复。
+        if (!isTextEntryElement(document.activeElement)) {
+            document.body.classList.remove('ios-keyboard-open');
+        }
         const target = event.target as Element | null;
         // textarea 有自己的原生滚动与选区手势，不能按外层背景拦截。
         if (target?.closest('textarea, input, [contenteditable="true"], .overflow-y-auto')) return;

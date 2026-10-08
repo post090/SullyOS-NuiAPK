@@ -75,6 +75,9 @@ const emitViewportResize = (height: number) => {
 const focusTextarea = () => {
     const textarea = document.createElement('textarea');
     document.body.appendChild(textarea);
+    // 真机的键盘态必然伴随真实焦点（activeElement 就是输入框本身）。只派发合成 focusin
+    // 而不 focus() 的话 activeElement 还停在 body，会被 touchmove 自愈逻辑当成「键盘已收起」。
+    textarea.focus();
     textarea.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     return textarea;
 };
@@ -144,6 +147,28 @@ describe('iOS 全屏 PWA 键盘态', () => {
 
         expect(inKeyboardMode()).toBe(false);
         expect(appHeight()).toBe(`${SCREEN_H + SAFE_BOTTOM}px`);
+    });
+
+    // 回归守卫：App 卸载（回桌面）后聚焦输入框被移除，iOS 可能不派发 visualViewport resize（已知 WebKit bug），
+    // ios-keyboard-open 类残留 → 桌面横向滑动容器（overflow-x，不在放行白名单）的 touchmove 被拦死，桌面滑不动。
+    // 自愈逻辑：activeElement 已不是输入元素（焦点随卸载回到 body）→ 下一次 touchmove 主动摘类，滑动恢复。
+    it('类残留且无 resize → 下一次 touchmove 自愈摘类，滑动恢复', async () => {
+        await install();
+        const textarea = focusTextarea();
+        emitViewportResize(SCREEN_H - KEYBOARD_H);
+        expect(inKeyboardMode()).toBe(true);
+
+        textarea.remove();
+        // 模拟 iOS 不派发 resize：类残留（焦点已随卸载回到 body）。
+        expect(inKeyboardMode()).toBe(true);
+
+        const heal = new Event('touchmove', { bubbles: true, cancelable: true });
+        document.body.dispatchEvent(heal);
+        expect(inKeyboardMode()).toBe(false);
+
+        const swipe = new Event('touchmove', { bubbles: true, cancelable: true });
+        document.body.dispatchEvent(swipe);
+        expect(swipe.defaultPrevented).toBe(false);
     });
 
     it('键盘动画期可视高度报脏值 → 退化成无键盘态，不把布局撑崩', async () => {

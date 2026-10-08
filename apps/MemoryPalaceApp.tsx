@@ -2377,7 +2377,7 @@ export default function MemoryPalaceApp() {
             <div
                 style={{
                     paddingLeft: 20, paddingRight: 20, paddingBottom: 28, paddingTop: SAFE_PAD_TOP,
-                    maxHeight: '100%', overflowY: 'auto',
+                    maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden',
                     background: 'linear-gradient(180deg, #faf5ff 0%, #f5f3ff 40%, #ffffff 100%)',
                     minHeight: '100%',
                     position: 'relative',
@@ -2982,7 +2982,7 @@ export default function MemoryPalaceApp() {
 
     if (char && !char.memoryPalaceEnabled && view !== 'globalSettings') {
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <div
                     onClick={() => setView('picker')}
                     style={{ fontSize: 13, color: '#6b7280', cursor: 'pointer', marginBottom: 16, padding: '4px 0' }}
@@ -3175,7 +3175,7 @@ export default function MemoryPalaceApp() {
         const backTarget: 'palace' | 'picker' = isGlobal ? 'picker' : 'palace';
         const backLabel = isGlobal ? '← 返回选择角色' : '← 返回宫殿';
         return (
-            <div data-guide={guideSetup ? 'memory-apis' : undefined} style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: guideSetup ? 16 : SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div data-guide={guideSetup ? 'memory-apis' : undefined} style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: guideSetup ? 16 : SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 {!guideSetup && <>
                 <div
                     onClick={() => setView(backTarget)}
@@ -4393,7 +4393,7 @@ create table if not exists memory_vectors (
 
                                 {/* 消息列表 */}
                                 <div style={{
-                                    flex: 1, minHeight: 0, overflowY: 'auto', padding: '8px 10px',
+                                    flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '8px 10px',
                                     WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain', touchAction: 'pan-y',
                                 }}>
                                     {rangeLoading && (
@@ -4582,7 +4582,7 @@ create table if not exists memory_vectors (
                                 )}
                             </div>
 
-                            <div style={{ flex: 1, overflowY: 'auto', padding: '0 18px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '0 18px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                                 {rangeResultData.memories.map((m, i) => {
                                     const roomMeta: Record<string, { label: string; color: string }> = {
                                         living_room: { label: '客厅', color: '#f59e0b' },
@@ -5209,7 +5209,7 @@ create table if not exists memory_vectors (
 
     if (view === 'palace' && char) {
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 {/* 标题 + 返回 + 设置 */}
                 <div style={{ textAlign: 'center', marginBottom: 20, position: 'relative' }}>
                     {/* 返回（到选角界面）按钮 */}
@@ -5382,7 +5382,7 @@ create table if not exists memory_vectors (
                                     display: 'flex', alignItems: 'flex-start', gap: 8,
                                 }}>
                                     <div style={{ flex: 1, cursor: 'pointer' }} onClick={() => openMemory(node, 'all')}>
-                                        <div style={{ fontSize: 13, lineHeight: 1.5, color: '#1f2937' }}>
+                                        <div style={{ fontSize: 13, lineHeight: 1.5, color: '#1f2937', overflowWrap: 'anywhere' }}>
                                             <MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                         </div>
                                         <div style={{ fontSize: 10, color: '#92400e', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -5430,7 +5430,7 @@ create table if not exists memory_vectors (
                                         cursor: 'pointer',
                                     }}
                                 >
-                                    <div style={{ fontSize: 13, lineHeight: 1.5, color: '#1f2937' }}>
+                                    <div style={{ fontSize: 13, lineHeight: 1.5, color: '#1f2937', overflowWrap: 'anywhere' }}>
                                         <MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={100} />
                                     </div>
                                     <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -5533,7 +5533,7 @@ create table if not exists memory_vectors (
                                     />
                                 </span>
                                 <div style={{ minWidth: 0, flex: 1 }}>
-                                    <div style={{ lineHeight: 1.5, color: '#1f2937', whiteSpace: 'pre-wrap' }}>{ant.content}</div>
+                                    <div style={{ lineHeight: 1.5, color: '#1f2937', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{ant.content}</div>
                                     <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
                                         {new Date(ant.createdAt).toLocaleDateString('zh-CN')} · {ant.status}
                                     </div>
@@ -5639,7 +5639,7 @@ create table if not exists memory_vectors (
         });
 
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <div
                         onClick={() => { setView('palace'); }}
@@ -5700,7 +5700,7 @@ create table if not exists memory_vectors (
                                 backgroundColor: '#fafafa',
                             }}
                         >
-                            <div style={{ fontSize: 13, lineHeight: 1.5 }}><MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
+                            <div style={{ fontSize: 13, lineHeight: 1.5, overflowWrap: 'anywhere' }}><MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
                             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                                     <RoomIcon room={node.room} size={12} style={{ color: ROOM_COLORS[node.room] }} />
@@ -5732,7 +5732,7 @@ create table if not exists memory_vectors (
 
     if (view === 'boxes') {
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <div
                         onClick={() => { setView('palace'); }}
@@ -5955,7 +5955,7 @@ create table if not exists memory_vectors (
                                                             cursor: 'pointer',
                                                         }}
                                                     >
-                                                        <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1f2937' }}>
+                                                        <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1f2937', overflowWrap: 'anywhere' }}>
                                                             <MemoryTimeText node={n} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                                         </div>
                                                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -5984,7 +5984,7 @@ create table if not exists memory_vectors (
                                                             position: 'relative',
                                                         }}
                                                     >
-                                                        <div style={{ fontSize: 12, lineHeight: 1.5, color: '#4b5563', paddingRight: 56 }}>
+                                                        <div style={{ fontSize: 12, lineHeight: 1.5, color: '#4b5563', paddingRight: 56, overflowWrap: 'anywhere' }}>
                                                             <MemoryTimeText node={n} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                                         </div>
                                                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -6033,7 +6033,7 @@ create table if not exists memory_vectors (
         const roomColor = ROOM_COLORS[selectedRoom];
 
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <div
                         onClick={() => { setView('palace'); setSelectedRoom(null); setSelectMode(false); setSelectedIds(new Set()); }}
@@ -6107,7 +6107,7 @@ create table if not exists memory_vectors (
                                     <Icon name={selectedIds.has(node.id) ? 'square-check' : 'square'} size={16} />
                                 </div>
                             )}
-                            <div style={{ fontSize: 13, lineHeight: 1.5 }}><MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
+                            <div style={{ fontSize: 13, lineHeight: 1.5, overflowWrap: 'anywhere' }}><MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
                             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, display: 'flex', gap: 8 }}>
                                 <span>重要性: {node.importance}</span>
                                 <span>{node.mood}</span>
@@ -6138,7 +6138,7 @@ create table if not exists memory_vectors (
         const MOODS = ['happy', 'sad', 'angry', 'anxious', 'tender', 'peaceful', 'excited', 'nostalgic', 'frustrated', 'hopeful', 'lonely', 'grateful'];
 
         return (
-            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto' }}>
+            <div style={{ paddingLeft: 16, paddingRight: 16, paddingBottom: 16, paddingTop: SAFE_PAD_TOP, maxHeight: '100%', overflowY: 'auto', overflowX: 'hidden' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                     <div
                         onClick={() => { setView(prevView); setSelectedNode(null); setEditing(false); }}
@@ -6253,7 +6253,7 @@ create table if not exists memory_vectors (
                     ) : (
                         /* ─── 查看模式 ─── */
                         <>
-                            <div style={{ fontSize: 15, lineHeight: 1.6, marginBottom: 12 }}><MemoryTimeText node={selectedNode} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
+                            <div style={{ fontSize: 15, lineHeight: 1.6, marginBottom: 12, overflowWrap: 'anywhere' }}><MemoryTimeText node={selectedNode} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} /></div>
 
                             <div style={{ fontSize: 12, color: '#6b7280', lineHeight: 1.8 }}>
                                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -6339,7 +6339,7 @@ create table if not exists memory_vectors (
                                                     opacity: alreadyLinked ? 0.5 : 1,
                                                 }}>
                                                     <div style={{ flex: 1 }}>
-                                                        <div style={{ fontSize: 11, lineHeight: 1.5, color: '#1f2937' }}>
+                                                        <div style={{ fontSize: 11, lineHeight: 1.5, color: '#1f2937', overflowWrap: 'anywhere' }}>
                                                             <MemoryTimeText node={node} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={60} />
                                                         </div>
                                                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -6428,7 +6428,7 @@ create table if not exists memory_vectors (
                                                     <Icon name={relationIcon} size={11} />
                                                     <span>{relationText}</span>
                                                 </div>
-                                                <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1f2937' }}>
+                                                <div style={{ fontSize: 12, lineHeight: 1.5, color: '#1f2937', overflowWrap: 'anywhere' }}>
                                                     <MemoryTimeText node={linkedNode} enabled={memoryPalaceConfig.relativeTimeAnnotations === true} maxLength={80} />
                                                 </div>
                                                 <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 4 }}>

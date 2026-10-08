@@ -17,7 +17,7 @@ export function MemoryContentEditor({ node, value, onChange, enabled, className 
             </div>
             {node.relativeTimeAnchor && <div style={{ marginTop: 10, padding: 12, borderRadius: 8, background: '#f5f3ff' }}>
                 <div style={{ color: '#7c3aed', fontWeight: 600, marginBottom: 6 }}>补注预览 · 只读</div>
-                <div aria-label="时间补注预览" aria-live="polite" style={{ whiteSpace: 'pre-wrap', color: '#374151' }}>
+                <div aria-label="时间补注预览" aria-live="polite" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', color: '#374151' }}>
                     <MemoryTimeText enabled node={{ ...node, content: value }} />
                 </div>
                 <div style={{ color: '#6b7280', marginTop: 6, fontSize: 11 }}>固定参照日：{node.relativeTimeAnchor.dateKey}（原消息日期）</div>
