@@ -44,6 +44,7 @@ import { ActiveMsgClient, clearNamespaceValuesOrThrow } from './activeMsgClient'
 import { ActiveMsgStore } from './activeMsgStore';
 import { amsgStateNamespace } from './amsgFirePack';
 import { forgetAllCredIds } from './amsgLlmCredentials';
+import { invalidateCloudOwnerWrites } from './amsgCloudOwnerGeneration';
 import { resetStateClock } from './amsgStateClock';
 import { ChatPrompts } from './chatPrompts';
 import { DB } from './db';
@@ -142,7 +143,7 @@ describe('clearClientStateValue（取回旁路内容后的清理）', () => {
     await ActiveMsgClient.clearClientStateValue(NAMESPACE, 'reasoning:abc');
 
     expect(putEntries(0)).toEqual([
-      { namespace: NAMESPACE, key: 'reasoning:abc', value: null, updatedAt: expect.any(Number) },
+      { namespace: NAMESPACE, key: 'reasoning:abc', value: null, updatedAt: expect.any(Number), owner: { type: 'character', id: CHAR_ID }, ownerGeneration: 0 },
     ]);
   });
 
@@ -218,6 +219,9 @@ describe('存量空壳清理（挂在 syncCharFirePacks 末尾）', () => {
 
     expect(reiClient.getClientState).toHaveBeenCalledTimes(1);
     expect(reiClient.getClientState).toHaveBeenCalledWith(NAMESPACE);
+    // 名称快照随加密状态上传，角色本地删除后云端仍能识别。
+    expect(putEntries(0).find((entry: any) => entry.key === 'fire_pack').owner)
+      .toEqual({ type: 'character', id: CHAR_ID, label: '小满' });
     // 第 0 次是常规同步（fire_pack / tool_pack），第 1 次才是清空壳。
     expect(reiClient.putClientState).toHaveBeenCalledTimes(2);
     const deletes = putEntries(1);
@@ -350,4 +354,32 @@ describe('probeWorkerFeatures（握手时一次探测存两个能力位）', () 
       .resolves.toEqual({ llmCredentialsSupported: false, clientStateDeleteSupported: false });
     expect(savedFlags().at(-1)).toEqual({ llmCredentialsSupported: false, clientStateDeleteSupported: false });
   });
+});
+
+it('构建同步包期间角色已停用或恢复，不把旧快照交给新的连接上传', async () => {
+  let current = true;
+  vi.mocked(DB.getEmojis).mockImplementationOnce(async () => { current = false; return []; });
+  await ActiveMsgClient.syncCharFirePacks([{
+    char: CHAR, config: CHAR.activeMsg2Config, userProfile: { name: '用户' } as any, groups: [],
+    isCurrent: () => current,
+  }]);
+  expect(reiClient.putClientState).not.toHaveBeenCalled();
+});
+
+
+it('连接初始化等待期间生命周期改变，旧调用不能取得新授权', async () => {
+  vi.spyOn(ActiveMsgStore, 'getGlobalConfig').mockImplementationOnce(async () => {
+    invalidateCloudOwnerWrites({ type: 'character', id: CHAR_ID });
+    return { ...globalConfig } as any;
+  });
+  await expect(sync()).rejects.toThrow('发生变化');
+  expect(reiClient.putClientState).not.toHaveBeenCalled();
+});
+
+it('同步带停止回执时也按角色命名空间授权，不要求每个旧条目已有owner字段', async () => {
+  const { stageStoppedReplyReceipt } = await import('./amsgStoppedReplyClient');
+  const character = { ...CHAR, id: 'stopped-reply-owner' };
+  await stageStoppedReplyReceipt(character.id, 'reply-before-stop', Promise.resolve('已停在这里'));
+  await sync([character]);
+  expect(putEntries(0).some(entry => entry.key.includes('reply-before-stop'))).toBe(true);
 });

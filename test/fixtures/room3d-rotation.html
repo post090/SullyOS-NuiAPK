@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>家具旋转放下验证</title><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';import {createHome} from '/apps/room3d/model.js';import '/apps/room3d/editor.css';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog),room=home.rooms[0],cab=catalog.find(a=>a.id==='media_cabinet');
+room.items=[{id:'cabinet',assetId:'media_cabinet',x:0,y:.15,z:-1.9,rotation:0,color:null,stored:false},{id:'console',assetId:'little_console',x:1.28,y:.15+cab.support.height,z:-1.9,rotation:0,color:null,stored:false,supportId:'cabinet'}];
+if(new URLSearchParams(location.search).has('collision')){for(const i of room.items)i.z=0;room.items.push({id:'plant',assetId:'monstera',x:0,y:.15,z:1.4,rotation:0,color:null,stored:false});}
+window.__homeEditor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:home});window.render_game_to_text=()=>JSON.stringify(window.__homeEditor.inspect());window.advanceTime=ms=>window.__homeEditor.advanceTime(ms);
+</script></body></html>

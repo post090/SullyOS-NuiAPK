@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';
+import JSZip from 'jszip';
+const zip=new JSZip(),catalog=JSON.parse(await fs.readFile('public/room3d/catalog.json','utf8')).filter(a=>a.petSpecies);
+for(const a of catalog)zip.file(a.url,await fs.readFile('public/room3d/'+a.url));
+zip.file('catalog.json',JSON.stringify(catalog,null,2));
+zip.file('manifest.json',await fs.readFile('art/pets/manifest.json'));
+zip.file('README.txt','七只纯色宠物素材：小鸟、盘蛇、史莱姆、猫、狗、乌龟、鲨鱼。\n每只低于 4000 三角面，无图片贴图、UV 或顶点色。\nGLB 坐标：+Y 向上，底部 y=0，水平居中。\n猫狗各四只脚；乌龟两只眼睛。\ncatalog.json 包含每只的 colorParts、8 套 colorPresets 及占地尺寸。\n自定义颜色按材质名 pet-* 修改；不要直接修改所有实例共用的材质。\n本包为静态素材，没有骨骼、动作或自主行为。\n');
+zip.file('preview.png',await fs.readFile('output/pets/gallery.png'));
+await fs.writeFile('output/pets/sully-pets-solid-color.zip',await zip.generateAsync({type:'nodebuffer',compression:'DEFLATE'}));
+console.log('Packaged seven GLBs, palette catalog, manifest and preview.');

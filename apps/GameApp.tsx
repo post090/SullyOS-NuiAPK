@@ -364,26 +364,14 @@ const GameApp: React.FC = () => {
 
         for (const p of players) {
             // 1. Base Context (Identity & Worldview)
-            // [优化] 记忆读取：跑团多人同场，不再倾倒每个角色逐日的详细日记（极易让 LLM 把
-            //   A 的记忆安到 B 头上 = 串台）。改为 includeDetailedMemories=false（仅长期核心记忆）
-            //   + 下方按需注入的记忆宫殿向量召回（只取与当前情境相关的片段）。
-            //   同时跳过共享场景里已铺过的用户档案 / 世界书 / 世界观，彻底去重。
+            // false 仅省略传统详细日志，向量召回由核心上下文统一注入。
             await injectMemoryPalace(p);
-            const core = ContextBuilder.buildCoreContext({ ...p, mountedWorldbooks: [] }, userProfile, false, undefined, {
+            const core = (await ContextBuilder.buildCoreContext({ ...p, mountedWorldbooks: [] }, userProfile, false, undefined, {
                 skipUserProfile: true,
                 skipWorldview: sharedScene.worldviewIsShared,
                 skipWorldbookIds: sharedScene.sharedWorldbookIds,
-            });
-            fullContext += `\n<<< 角色档案: ${p.name} (ID: ${p.id}) >>>\n${core}\n`;
-
-            // 记忆宫殿召回（includeDetailedMemories=false 时 buildCoreContext 不会自动带，这里按需补回）
-            // [防串台] 召回文本自带的标题是泛指的"你脑海中浮现…"，多角色同场时"你"会混淆。
-            //   这里用显式归属把它锁死到当前角色名下，并提醒 LLM 严禁挪用给别人。
-            if (p.memoryPalaceEnabled && p.memoryPalaceInjection && p.memoryPalaceInjection.trim()) {
-                fullContext += `\n【注意：以下记忆宫殿召回【仅属于 ${p.name}】，是 TA 一个人的私人记忆，绝不可当成其他角色的经历或挪用给别人】\n`;
-                fullContext += `${p.memoryPalaceInjection}\n`;
-                fullContext += `【${p.name} 的私人记忆结束】\n`;
-            }
+            }));
+            fullContext += `\n<<< 角色档案: ${p.name} (ID: ${p.id}) >>>\n本档案中的记忆仅属于 ${p.name}，不得挪用为其他角色的经历。\n${core}\n<<< ${p.name} 的角色档案结束 >>>\n`;
 
             // 2. Neural Link: Private Chat Sync
             try {
@@ -478,6 +466,7 @@ ${worldIdea.trim() ? `**玩家的灵感/想法（请务必围绕它发挥）**: 
 
     // --- Creation Logic ---
     const handleCreateGame = async () => {
+
         if (!newTitle.trim() || !newWorld.trim() || selectedPlayers.size === 0) {
             addToast('请填写完整信息并选择至少一名角色', 'error');
             return;
@@ -645,6 +634,7 @@ ${playerContext}
 
     // --- Gameplay Logic ---
     const handleAction = async (actionText: string, isReroll: boolean = false) => {
+
         if (!activeGame || !apiConfig.apiKey) return;
 
         let contextLogs = activeGame.logs;

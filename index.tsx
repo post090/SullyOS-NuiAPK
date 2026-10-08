@@ -1,6 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import DatabaseGuard from './components/DatabaseGuard';
+import { openDB } from './utils/db';
+import { checkDatabaseReadable } from './utils/databaseHealth';
 import { installTranslateCrashGuard } from './utils/translateCrashGuard';
 import { ActiveMsgRuntime } from './utils/activeMsgRuntime';
 import { KeepAlive } from './utils/keepAlive';
@@ -20,8 +23,10 @@ if (import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true' && Capacitor.isNativePlatfo
   }
 }
 
-// Register the keep-alive Service Worker early so it's ready before any AI calls
-KeepAlive.init().then(() => {
+// Finish opening/upgrading the archive before our SW registration starts update
+// inspection, offline-shell preparation or cache cleanup. DatabaseGuard gates AI callers too.
+checkDatabaseReadable(openDB).then(async () => {
+  await KeepAlive.init();
   // Resume any active proactive schedule after SW is ready
   ProactiveChat.resume();
   // Resume 「彼方」 autonomous-login schedules
@@ -29,7 +34,7 @@ KeepAlive.init().then(() => {
   void ActiveMsgRuntime.init();
   // Record every wake the SW reports so the diagnostic panel can show "last received".
   installWakeListener();
-});
+}).catch(error => console.error('后台任务暂未启动：本地数据或保活服务未就绪', error));
 
 installIOSStandaloneWorkaround();
 
@@ -49,6 +54,6 @@ if (!rootElement) {
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
-    <App />
+    <DatabaseGuard><App /></DatabaseGuard>
   </React.StrictMode>
 );

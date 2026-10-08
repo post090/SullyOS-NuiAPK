@@ -1,0 +1,24 @@
+import {createRequire} from 'node:module';
+import {writeFile} from 'node:fs/promises';
+const require=createRequire('C:/Users/tiaotiao/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json');
+const {chromium}=require('playwright');
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--no-sandbox']});
+const page=await browser.newPage({viewport:{width:430,height:860},deviceScaleFactor:2,hasTouch:true});const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+await page.goto('http://127.0.0.1:4178/assets/editor.html');await page.waitForFunction(()=>window.__homeEditor);
+const inspect=()=>page.evaluate(()=>window.__homeEditor.inspect());
+await page.waitForTimeout(300);const a=await inspect();await page.waitForTimeout(400);if((await inspect()).renderedFrames!==a.renderedFrames||a.quality!=='eco')throw Error('Eco idle not stopped');
+await page.locator('[data-panel="room-style"]').click();await page.locator('[data-action="house-theme"][data-value="1"]').click();
+const colors=(await inspect()).rooms[0];if(colors.trim!=='#F2B8D5'||colors.floor!=='#E6C9B1')throw Error('House colors missing');
+await page.locator('[data-action="close"]').click();await page.locator('[data-action="edit"]').click();
+const before=(await inspect()).cameraPosition;await page.locator('[data-action="turn-view"]').first().click();await page.waitForTimeout(100);
+if(JSON.stringify((await inspect()).cameraPosition)===JSON.stringify(before)||(await inspect()).edit!==true)throw Error('Editing rotation failed');
+const old=(await inspect()).cameraPosition;const items=JSON.stringify((await inspect()).rooms[0].items);
+await page.mouse.move(240,300);await page.mouse.down();await page.mouse.move(310,350,{steps:8});await page.mouse.up();await page.waitForTimeout(300);
+if(JSON.stringify((await inspect()).cameraPosition)===JSON.stringify(old)||JSON.stringify((await inspect()).rooms[0].items)!==items)throw Error('Orbit mode moved furniture or not camera');
+await page.locator('[data-panel="quality"]').click();
+const samples=[];for(const q of ['clear','balanced','eco']){await page.locator(`[data-action="quality"][data-value="${q}"]`).click();await page.waitForTimeout(180);samples.push(await inspect())}
+if(samples.map(s=>s.pixelRatio).join()!=='1.5,1,0.75')throw Error('Resolution selection failed');
+await page.waitForTimeout(500);const idle=await inspect();await page.waitForTimeout(500);if((await inspect()).renderedFrames!==idle.renderedFrames)throw Error('Eco idle after switching keeps drawing');
+await page.screenshot({path:'output/jellyfish-home/quality-editor.png'});
+await page.reload();await page.waitForFunction(()=>window.__homeEditor);const restored=await inspect();if(restored.quality!=='eco'||restored.rooms[0].trim!==colors.trim)throw Error('Settings not persisted');
+await writeFile('output/jellyfish-home/quality-qa.json',JSON.stringify({errors,samples:samples.map(s=>({quality:s.quality,pixelRatio:s.pixelRatio,drawCalls:s.drawCalls})),idleFrames:idle.renderedFrames},null,2));console.log({errors,quality:restored.quality});await browser.close();if(errors.length)process.exitCode=1;

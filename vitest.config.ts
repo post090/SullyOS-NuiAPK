@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Transform the UI library's CSS modules in browser component tests.
+    server: { deps: { inline: ['animal-island-ui'] } },
     environment: 'node',
     setupFiles: ['./test-setup.ts'],
     include: [

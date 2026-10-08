@@ -72,8 +72,8 @@ importers:
         specifier: 3.5.3
         version: 3.5.3(three@0.185.1)
       '@rei-standard/amsg-client':
-        specifier: 2.9.0-next.14
-        version: 2.9.0-next.14
+        specifier: 2.9.0-next.16
+        version: 2.9.0-next.16
       '@rei-standard/amsg-instant':
         specifier: 0.11.0-next.6
         version: 0.11.0-next.6
@@ -92,6 +92,12 @@ importers:
       ag-psd:
         specifier: ^31.0.2
         version: 31.0.2
+      animal-island-ui:
+        specifier: 2.1.0
+        version: 2.1.0(classnames@2.5.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      classnames:
+        specifier: ^2.5.1
+        version: 2.5.1
       html2canvas:
         specifier: 1.4.1
         version: 1.4.1
@@ -131,6 +137,9 @@ importers:
       three:
         specifier: ^0.185.1
         version: 0.185.1
+      three-mesh-bvh:
+        specifier: 0.9.15
+        version: 0.9.15(three@0.185.1)
       untitled-pixi-live2d-engine:
         specifier: ^1.3.5
         version: 1.3.5(@pixi/sound@6.0.1(pixi.js@8.19.0))(pixi.js@8.19.0)
@@ -142,8 +151,8 @@ importers:
         specifier: ^6.0.0
         version: 6.2.1
       '@rei-standard/amsg-server':
-        specifier: 2.6.0-next.33
-        version: 2.6.0-next.33(@neondatabase/serverless@1.1.0)(pg@8.22.0)
+        specifier: 2.6.0-next.35
+        version: 2.6.0-next.35(@neondatabase/serverless@1.1.0)(pg@8.22.0)
       '@types/jsdom':
         specifier: ^30.0.0
         version: 30.0.0
@@ -171,6 +180,9 @@ importers:
       jsdom:
         specifier: ^30.0.1
         version: 30.0.1
+      mmd-parser:
+        specifier: 1.0.4
+        version: 1.0.4
       tailwindcss:
         specifier: 3.4.17
         version: 3.4.17
@@ -796,16 +808,16 @@ packages:
   '@pixiv/types-vrmc-vrm-1.0@3.5.3':
     resolution: {integrity: sha512-3HsBZWKXU/CnY2J6uAVuYmM0NPt/e5jroQZH85WYK0EzYmebqTmWKF/fllguNliJQAovdhn8sIA8NbHZoQvbUA==}
 
-  '@rei-standard/amsg-client@2.9.0-next.14':
-    resolution: {integrity: sha512-1fv//cgJKwPaA9is4GeD1LkjVm+Hc5/RCIMjwJWxvqXQZ+mgvrqmUG4vSTdVsI35p0Rp1HYkydF1lhRvhO3tmA==}
+  '@rei-standard/amsg-client@2.9.0-next.16':
+    resolution: {integrity: sha512-ASKflWjvj/1mbyB9q4WK9+J7KhQ75SUh07O5Kgk4etXwjJBI8qlPm351GxycF9voUAgeiCupw7krUJQFTHjoeQ==}
     engines: {node: '>=20'}
 
   '@rei-standard/amsg-instant@0.11.0-next.6':
     resolution: {integrity: sha512-jpOmxbsVcRejhQLFJ9bJsjvXiO56z7ET95UU3GX3iUY2afVLK4xbdmt0DK0hPKCZlRBBppqMfz2beoutfLBeaQ==}
     engines: {node: '>=20'}
 
-  '@rei-standard/amsg-server@2.6.0-next.33':
-    resolution: {integrity: sha512-XxLGdxpjCavRBmzxbbXDUUPA+R6Bo45yTpV2AE5X+dyOaLyIj/8qLub6+XfPMFCsl6tiSEIibQVyhExCjbvY+g==}
+  '@rei-standard/amsg-server@2.6.0-next.35':
+    resolution: {integrity: sha512-ZmwovFLsZJcvfE7/579to4oksYOrCHmuqpU9a7r2RSASyV3HUq6bHMYk6Sxp37Twh5wV66pPMV1nOvLiWCeeqw==}
     engines: {node: '>=20'}
     peerDependencies:
       '@neondatabase/serverless': '>=0.9.0'
@@ -1126,6 +1138,14 @@ packages:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
 
+  animal-island-ui@2.1.0:
+    resolution: {integrity: sha512-tGnqc71l6mE3pPthzOsuF7Njo2txPApcF3f3dgBGP9WdaV4q/1Ehv8S/68lRhJ2TrhMrr9dOeMG43/vLtakvyQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      classnames: ^2.5.1
+      react: '>=17.0.0'
+      react-dom: '>=17.0.0'
+
   ansi-regex@5.0.1:
     resolution: {integrity: sha512-quJQXlTSUGL2LH9SUXo8VwsY4soanhgo6LNSm84E1LBcE8s3O0wpdiRzyR9z/ZZJMlMWv37qOOb9pdJlMUEKFQ==}
     engines: {node: '>=8'}
@@ -1272,6 +1292,9 @@ packages:
 
   cjs-module-lexer@2.2.0:
     resolution: {integrity: sha512-4bHTS2YuzUvtoLjdy+98ykbNB5jS0+07EvFNXerqZQJ89F7DI6ET7OQo/HJuW6K0aVsKA9hj9/RVb2kQVOrPDQ==}
+
+  classnames@2.5.1:
+    resolution: {integrity: sha512-saHYOzhIQs6wy2sVxTM6bUDsQO4F50V9RQ22qBpEdCW+I+/Wmke2HOl6lS6dTpdxVhb88/I6+Hs+438c3lfUow==}
 
   cliui@6.0.0:
     resolution: {integrity: sha512-t6wbgtoCXvAzst7QgXxJYqPt0usEfbgQdftEPbLL/cvv6HPE5VgvqCuAIDR0NgU52ds6rFwqrgakNLrHEjCbrQ==}
@@ -1778,6 +1801,9 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  mmd-parser@1.0.4:
+    resolution: {integrity: sha512-Qi0VCU46t2IwfGv5KF0+D/t9cizcDug7qnNoy9Ggk7aucp0tssV8IwTMkBlDbm+VqAf3cdQHTCARKSsuS2MYFg==}
+
   module-details-from-path@1.0.4:
     resolution: {integrity: sha512-EGWKgxALGMgzvxYF1UyGTy0HXX/2vHLkw6+NvDKW2jypWbHpjQuj4UMcqQWXHERJhVGKikolT06G3bcKe4fi7w==}
 
@@ -1786,6 +1812,12 @@ packages:
 
   mz@2.7.0:
     resolution: {integrity: sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q==}
+
+  naive-icons@1.3.0:
+    resolution: {integrity: sha512-sklPOOdrZa74Sb+b47esqvAUkozH2ezqoE+jUmm+MIHelLU1fT8pBixFja1C/Iqfne8UOWUEH4jCsNtxVmluag==}
+    engines: {node: '>=16'}
+    peerDependencies:
+      react: '>=16.8.0'
 
   nan@2.28.0:
     resolution: {integrity: sha512-fTsDz99OTq2sVePhGdp4qQhggZFtKr64ZNVyVajRKtMOkJxYekplBh577PiJB12v/D3s2E5cGtOI45LWp6rnLQ==}
@@ -2262,6 +2294,11 @@ packages:
 
   thenify@3.3.1:
     resolution: {integrity: sha512-RVZSIV5IG10Hk3enotrhvz0T9em6cyHBLkH/YAZuKqd8hRkKhSfCGIcP2KUY0EPxndzANBmNllzWPwak+bheSw==}
+
+  three-mesh-bvh@0.9.15:
+    resolution: {integrity: sha512-9xdEDkCzFoT8VPFH9DznwFSdbaIEjMvM106Iqq7TJurrIheUKDcdW4prfJTCxryih4XS/UxWs0H3K4MLMRFyOQ==}
+    peerDependencies:
+      three: '>= 0.159.0'
 
   three@0.185.1:
     resolution: {integrity: sha512-5aojFCXKwnjBRZvUnt3WFfEcvUJgkN5LlijRFN95hMy8WVkG4I0QNcJE+OuWvuJ0bOdStrbfXn0pkd6/QyiAlg==}
@@ -3206,15 +3243,15 @@ snapshots:
 
   '@pixiv/types-vrmc-vrm-1.0@3.5.3': {}
 
-  '@rei-standard/amsg-client@2.9.0-next.14':
+  '@rei-standard/amsg-client@2.9.0-next.16':
     dependencies:
-      '@rei-standard/amsg-shared': 0.4.0-next.10
+      '@rei-standard/amsg-shared': 0.4.0-next.11
 
   '@rei-standard/amsg-instant@0.11.0-next.6':
     dependencies:
       '@rei-standard/amsg-shared': 0.4.0-next.10
 
-  '@rei-standard/amsg-server@2.6.0-next.33(@neondatabase/serverless@1.1.0)(pg@8.22.0)':
+  '@rei-standard/amsg-server@2.6.0-next.35(@neondatabase/serverless@1.1.0)(pg@8.22.0)':
     dependencies:
       '@netlify/blobs': 8.2.0
       '@rei-standard/amsg-shared': 0.4.0-next.11
@@ -3496,6 +3533,13 @@ snapshots:
 
   agent-base@7.1.4: {}
 
+  animal-island-ui@2.1.0(classnames@2.5.1)(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
+    dependencies:
+      classnames: 2.5.1
+      naive-icons: 1.3.0(react@18.3.1)
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+
   ansi-regex@5.0.1: {}
 
   ansi-styles@4.3.0:
@@ -3637,6 +3681,8 @@ snapshots:
   chownr@2.0.0: {}
 
   cjs-module-lexer@2.2.0: {}
+
+  classnames@2.5.1: {}
 
   cliui@6.0.0:
     dependencies:
@@ -4131,6 +4177,8 @@ snapshots:
 
   mkdirp@1.0.4: {}
 
+  mmd-parser@1.0.4: {}
+
   module-details-from-path@1.0.4: {}
 
   ms@2.1.3: {}
@@ -4140,6 +4188,10 @@ snapshots:
       any-promise: 1.3.0
       object-assign: 4.1.1
       thenify-all: 1.6.0
+
+  naive-icons@1.3.0(react@18.3.1):
+    dependencies:
+      react: 18.3.1
 
   nan@2.28.0:
     optional: true
@@ -4644,6 +4696,10 @@ snapshots:
   thenify@3.3.1:
     dependencies:
       any-promise: 1.3.0
+
+  three-mesh-bvh@0.9.15(three@0.185.1):
+    dependencies:
+      three: 0.185.1
 
   three@0.185.1: {}
 

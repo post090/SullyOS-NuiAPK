@@ -1,0 +1,15 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {OSProvider} from '../../context/OSContext';
+import {MusicProvider} from '../../context/MusicContext';
+import {DB} from '../../utils/db';
+import Home3DView from '../../apps/room3d/Home3DView';
+import {testCharacter} from './room3d-test-character';
+import {createHome} from '../../apps/room3d/model.js';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog);
+const character={id:'qa-phone-only',name:'小栗',systemPrompt:'你是小栗。',contextLimit:30,timeAwarenessEnabled:false,homeDefinition:{kind:'between-worlds',notes:''},chibiStudio:{home3D:{state:testCharacter.state,hair:{bodyShape:'blank'}}}} as any;
+await DB.saveCharacter(character);
+localStorage.setItem('os_api_config',JSON.stringify({baseUrl:'/__phone_qa__',apiKey:'fixture',model:'fixture'}));
+const original=window.fetch;const requests:any[]=[];(window as any).__phoneRequests=requests;
+window.fetch=async(input,init)=>{if(String(input).includes('/__phone_qa__/')){requests.push(JSON.parse(String(init?.body)));return new Response(JSON.stringify({choices:[{message:{content:'我就在旁边，也想收到你的消息。'}}]}),{headers:{'Content-Type':'application/json'}});}return original(input,init);};
+createRoot(document.getElementById('root')!).render(<OSProvider><MusicProvider><Home3DView value={home} character={character} residents={[{id:'user',label:'小雨',state:testCharacter.state,hair:{bodyShape:'blank'}}]} user={{name:'小雨'} as any} onChange={()=>{}} onBack={()=>{}} onEditor={e=>{(window as any).__homeEditor=e;}}/></MusicProvider></OSProvider>);

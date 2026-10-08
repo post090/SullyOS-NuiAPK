@@ -51,6 +51,26 @@
 
 ## 验证范围
 
+### 数据库打不开但界面像被清空
+
+`Index with the same ID already exists` 是 WebKit 读取 IndexedDB 内部索引元数据时的错误，不是应用层同名索引的 `ConstraintError`，也不能据此认定 3D 资源触发配额驱逐或记录已被删除。网页拿不到数据库连接时，不能通过 bump schema、删索引或删库重建来承诺恢复。先保留原设备、浏览器、原网址和备份，采集系统版本、浏览器与错误信息。不要让用户清网站数据、卸载浏览器或覆盖旧备份。
+
+2026-10-08 排查：3D 发布 `1706962e` 相对发布前 master `0e8d3534` 将主库 v72 升至 v74，新增 `messages.charId_source` 与 `messages.charId_homeTurn` 两个非唯一复合索引。新建索引需要处理既有消息；尚未在受影响 iOS PWA 上复现内部 ID 冲突，不能据此认定迁移已损坏数据。静态缓存自身不打开主库，但原入口在主库检查前注册 SW，注册会启动更新检查、离线准备与缓存整理。现在入口先完成主库检查，再启动我们自己的 SW 注册和后台任务；浏览器自行触发的 SW 更新不受这个顺序控制。这是减少启动工作重叠，不是已损坏库的恢复方案。
+
+`utils/databaseOpenDiagnostics.ts` 在独立 localStorage 保存最近 16 条主库打开/升级阶段记录，包括开始、提交、回滚、成功及强关，诊断页手动复制时带上。仅记录构建、设备绝对时间戳、阶段和版本号；不收集记录内容，不上传。localStorage 拒绝访问时保留本页内存记录。旧构建没有记录，不能补推先前哪次升级出错；新的记录用于区分升级前失败、升级中断和升级提交后的重新打开失败。
+
+`DatabaseGuard` 在主界面及其 Provider 挂载前，打开现有数据库并以 readonly 事务检查核心表可读性；失败展示独立诊断，不继续加载空桌面。`openDB` 后续失败也会通知保护界面，即使业务调用方吞掉了异常。入口后台任务同样等待读取检查，角色读取失败后停止默认角色、后续迁移与启动补传。保护页不读取聊天内容、不清存储、不上传诊断；手动复制只含构建、网址路径、浏览器与错误信息。这是失败保护，不是浏览器内部数据库修复，不承诺已损坏存档可恢复。
+
+参考：[WebKit SQLiteIDBBackingStore.cpp](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/indexeddb/server/SQLiteIDBBackingStore.cpp)。测试：`utils/databaseHealth.test.ts`、`utils/databaseGuard.test.ts`；独立失败 fixture：`test/fixtures/database-guard.html`（模拟 open 错误，不连接用户数据库）。
+
+### 主程序加载前的纯黑屏
+
+`scripts/startup-recovery-plugin.ts` 把无依赖的 `public/startup-recovery.js` 内联在入口头部，早于主模块和 Tailwind。入口模块解析/初始化失败时，React 内的报错面板本身也无法启动；此时显示独立的启动诊断和手动更新按钮。12 秒后根节点仍空也显示等待/恢复入口；主程序随后成功挂载时立即收起，不覆盖正常聊天，也不自动循环刷新。
+
+已经困在旧入口的用户可以打开**同一个站点路径下的 `recover.html`**（根目录站点为 `/recover.html`，GitHub Pages 为 `/SullyOS/recover.html`）。不要让用户换域名来修复，存档按原域名保存。此页不依赖主模块；检查更新复用原 SW 注册，只调用 update 与已有的 `SULLY_ACTIVATE_UPDATE` 协议，接管后返回原站首页。不注销 SW、不删除缓存或数据库、不修改推送订阅。网络失败/安装超时保留重试按钮。
+
+诊断仅本页显示，在用户点击时复制，不上报；包含构建标识、浏览器、无查询参数的页面路径和启动错误。它提供排查入口，不能仅凭纯黑屏认定某个用户一定是缓存问题。
+
 单元测试覆盖构建清单与完整性、子路径部署、请求排除、离线命中、失败不污染缓存、缓存上限与淘汰顺序、站点换版后的导航、更新等待与用户确认、多标签页不自动刷新。改动这部分之后跑一次正式构建，并在浏览器里验证缓存后的离线启动和更新流程。
 
 各托管平台的响应头和重定向行为要部署后实测。GitHub Pages 不读取 `_headers`，主要靠浏览器默认缓存和 SW 缓存。

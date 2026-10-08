@@ -14,6 +14,12 @@ export interface EmotionEvalApi { baseUrl: string; apiKey: string; model: string
 export const EMOTION_EVAL_SYSTEM_SLOT = '__EMOTION_EVAL_SYSTEM_PROMPT__';
 export const EMOTION_EVAL_HISTORY_SLOT = '__EMOTION_EVAL_HISTORY__';
 
+/** Trusted transport marker keeps the expected task ID even if the model omits its mandatory fields. */
+export const tagHomeSecretEval = (raw: string, requestId?: string): string =>
+  requestId && /^[\w-]+$/.test(requestId) ? `HOME_SECRET_REQUEST:${requestId}\n${raw}` : raw;
+export const homeSecretEvalRequestId = (raw: string): string | undefined =>
+  raw.match(/^HOME_SECRET_REQUEST:([\w-]+)\r?\n/)?.[1];
+
 /** 单次评估请求的上限；副 API 卡住的话，主流程不该跟着一起被扣在这儿。 */
 export const EMOTION_EVAL_TIMEOUT_MS = 120_000;
 

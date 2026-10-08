@@ -1,0 +1,18 @@
+import {it,expect,vi,beforeEach} from 'vitest';
+import {parseHomeEmotion,emotionCompanionPolicy,emotionCooldown,structuredHomeEmotion} from './homeEmotion';
+import {loadHomeEmotion} from './homeEmotionLoader';
+const mocks=vi.hoisted(()=>({get:vi.fn(),save:vi.fn()}));
+vi.mock('./db',()=>({DB:{getAssetRaw:mocks.get,saveAssetRaw:mocks.save}}));
+vi.mock('./safeApi',()=>({safeResponseJson:(r:Response)=>r.json()}));
+const base={approach:.2,follow:.2,sit:.3,warmth:.4};
+const value={energy:-.5,approach:.5,interaction:-.5};
+const char={id:'c',scheduleFeatureEnabled:true,emotionConfig:{enabled:true},activeBuffs:[{name:'m',label:'委屈但想靠近',intensity:2,homeBehavior:value,homeBehaviorAt:100}]} as any;
+beforeEach(()=>{vi.clearAllMocks();mocks.get.mockResolvedValue(null);});
+it('validates all three numbers without keyword assumptions',()=>{expect(parseHomeEmotion({energy:5,approach:-3,interaction:.2})).toEqual({energy:1,approach:-1,interaction:.2});expect(parseHomeEmotion({energy:'开心',approach:0,interaction:0})).toBeUndefined();});
+it('tired and wanting closeness can coexist without forcing a smile',()=>{const state={value,at:100},result=emotionCompanionPolicy(base,state,100);expect(result.approach).toBeGreaterThan(base.approach);expect(result.sit).toBeGreaterThan(base.sit);expect(result.warmth).toBeLessThan(base.warmth);expect(emotionCooldown(state,100)).toBeGreaterThan(45000);});
+it('eases motion bias to baseline without mutating relationship or emotion',()=>{expect(emotionCompanionPolicy(base,{value,at:100},1800100)).toEqual(base);expect(value.approach).toBe(.5);});
+it('cannot create following where relationship disallows following',()=>{expect(emotionCompanionPolicy({...base,follow:0},{value,at:100},100).follow).toBe(0);});
+it('new structured buffs need no extra model or cache access',async()=>{expect(await loadHomeEmotion(char,undefined,new AbortController().signal)).toEqual({value,at:100});expect(mocks.get).not.toHaveBeenCalled();});
+it('disabled emotion or schedule ignores residual buffs',async()=>{expect(await loadHomeEmotion({...char,scheduleFeatureEnabled:false},undefined,new AbortController().signal)).toBeUndefined();expect(await loadHomeEmotion({...char,emotionConfig:{enabled:false}},undefined,new AbortController().signal)).toBeUndefined();});
+it('uses the oldest constituent timestamp and requires all buffs to be interpreted',()=>{expect(structuredHomeEmotion([...char.activeBuffs,{...char.activeBuffs[0],homeBehaviorAt:50}])?.at).toBe(50);expect(structuredHomeEmotion([...char.activeBuffs,{label:'旧buff',intensity:2} as any])).toBeUndefined();});
+it('reuses legacy text interpretation and invalidates when text changes',async()=>{const legacy={...char,activeBuffs:[{name:'old',label:'累了但想陪着',intensity:2}]};const fetcher=vi.spyOn(globalThis,'fetch').mockImplementation(async()=>new Response(JSON.stringify({choices:[{message:{content:JSON.stringify(value)}}]})));const api={baseUrl:'https://example.test',model:'fake'} as any;try{await loadHomeEmotion(legacy,api,new AbortController().signal);mocks.get.mockResolvedValue(mocks.save.mock.calls[0][1]);await loadHomeEmotion(legacy,api,new AbortController().signal);expect(fetcher).toHaveBeenCalledOnce();await loadHomeEmotion({...legacy,buffInjection:'现在想独处'},api,new AbortController().signal);expect(fetcher).toHaveBeenCalledTimes(2);}finally{fetcher.mockRestore();}});

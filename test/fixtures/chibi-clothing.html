@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Garment length check</title></head><body><p id="result">Checking garment coverage…</p><script type="module">
+import {composeGarments,clothingCanvas} from '/apps/room3d/chibi/partSurfaces.ts';
+async function layer(color,height){const c=document.createElement('canvas');c.width=c.height=472;const ctx=c.getContext('2d');ctx.fillStyle=color;ctx.fillRect(180,320,100,height);const image=new Image();image.src=c.toDataURL();await image.decode();return image;}
+const parts={outfit:await layer('#ff0000',100),outer:await layer('#0000ff',70)};
+const garment=composeGarments(parts,{outfit:.5,outer:.25});
+const front=clothingCanvas(garment,'#ffccaa',false),rear=clothingCanvas(garment,'#ffccaa',true);
+const pixel=(c,x,y)=>[...c.getContext('2d').getImageData(x,y,1,1).data].slice(0,3).join(',');
+const checks=[pixel(front,220,325)==='0,0,255',pixel(front,220,350)==='255,0,0',pixel(front,220,390)==='255,204,170',pixel(rear,220,390)==='255,204,170',pixel(clothingCanvas(composeGarments(parts,{outfit:0,outer:0}),'#ffccaa',false),220,350)==='255,204,170'];
+document.getElementById('result').textContent=(checks.every(Boolean)?'PASS':'FAIL')+' · independent garment lengths, exposed front/back skin, zero length';document.body.append(front,rear);
+</script></body></html>

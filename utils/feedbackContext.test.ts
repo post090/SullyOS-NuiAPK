@@ -30,7 +30,7 @@ describe('各入口共用角色上下文范围', () => {
         const c = { ...char('manual'), contextLimit: 60 };
         const result = await DatePrompts.buildSessionPayload({ char: c, userProfile: { name: '用户' } as UserProfile, allMsgs: rows(), emojis: [], userText: '现在', variant: 'send' });
         expect(JSON.stringify(result.messages)).toContain('原文标记1结束');
-        expect(JSON.stringify(DatePrompts.buildPeekPayload({ char: c, userProfile: { name: '用户' } as UserProfile, allMsgs: rows(), emojis: [] }))).toContain('原文标记1结束');
+        expect(JSON.stringify((await DatePrompts.buildPeekPayload({ char: c, userProfile: { name: '用户' } as UserProfile, allMsgs: rows(), emojis: [] })))).toContain('原文标记1结束');
     });
     it('数据库入口支持按角色对象和 ID 读取，手动模式可跨过归档线', async () => {
         const c = { ...char('adaptive'), id: 'feedback-db' };

@@ -6,12 +6,12 @@
  *
  * 与聊天侧注入面的差异（刻意为之，不是漏配）：
  *   - 注入：ContextBuilder.buildCoreContext 全量（人设 / 世界书 / 印象 / 记忆 /
- *     记忆宫殿召回 / 情绪 buff）+ 当前虚拟时间。
+ *     记忆宫殿召回 / 已开启的日程）+ 当前虚拟时间；情绪上下文不在此入口启用。
  *   - 不注入：聊天 App 行为规范（IM 气泡 / 表情包 / 语音 / 引用 / 转账 / 小红书 /
  *     日记等工具块）——这些是线上聊天专属指令，面对面场景里输出会破坏 VN 格式。
  *   - 不注入：实时天气 / 新闻、群聊背景、Notion / 飞书日记标题——见面是高沉浸短会话，
  *     这些背景块收益低，还会稀释 VN 格式指令的权重。
- *   - 日程 / 音乐氛围目前也不进见面场景；以后要加请在这里统一加，别在组件里散拼。
+ *   - 日程由 ContextBuilder 统一读取，所有入口遵守角色总开关；音乐氛围仍为私聊额外内容。
  *   - 角色表达原则与 ChatApp 共用；三条路径均在世界书和模式指令之后追加 system 收尾。
  *     收尾不参与世界书关键词扫描或对话深度计数，也不按模型供应商分流。
  *
@@ -643,14 +643,15 @@ export const DatePrompts = {
      * 历史以纯文本块塞进 user 消息（保持"你不在和用户对话"的框定），
      * 但文本本身来自 buildMessageHistory，卡片/媒体已压成短摘要。
      */
-    buildPeekPayload: (input: {
+    buildPeekPayload: async (input: {
         char: CharacterProfile;
         userProfile: UserProfile;
         allMsgs: Message[];
         emojis: Emoji[];
         useVisionDescriptions?: boolean;
         openingMode?: 'approach' | 'invite';
-    }): { messages: ApiMessage[] } => {
+    }): Promise<{ messages: ApiMessage[] }> => {
+
         const { char, userProfile, allMsgs, emojis } = input;
         const charTz = resolveCharTimeZone(char);
         const dateTimeOn = isDateTimeAwarenessOn(char);
@@ -675,13 +676,13 @@ export const DatePrompts = {
         // 线下时间感知关掉 → 抑制 buildCoreContext 的时间注入，让见面真正脱离现实时间线（纯架空）
         // conversational 不给：peek 是「用户还没走过去」的第三人称镜头，时间块末尾那句
         // 语境框定说的是「对方还在跟你说话」，跟这里的框定正好相反（见下面的 peekInstructions）。
-        const context = ContextBuilder.buildCharacterContext({
+        const context = (await ContextBuilder.buildCharacterContext({
             char, user: userProfile,
             history: apiMessages.map(message => ({ ...message, content: typeof message.content === 'string'
                 ? message.content : message.content.filter((part: any) => part?.type === 'text').map((part: any) => part.text).join(' ') })),
             includeDetailedMemories: false,
             timeOptions: { skipTimeAwareness: !isDateTimeAwarenessOn(char) },
-        });
+        }));
 
         // 文风预设也作用于开场感知；人称（pov）刻意不作用——peek 的设计就是
         // 第三人称旁观镜头（用户还没"走过去"），人称指令只影响 session 内叙述
@@ -737,6 +738,7 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
         variant: 'send' | 'reroll';
         useVisionDescriptions?: boolean;
     }): Promise<{ messages: ApiMessage[] }> => {
+
         const { char, userProfile, allMsgs, emojis, userText, variant } = input;
 
         const historyMsgs = buildDateHistory(
@@ -751,10 +753,10 @@ ${extraBlock ? `\n${extraBlock}` : ''}${isObserveOn(char) ? `\n${buildObserveBlo
 
         // 向量召回挂到 char.memoryPalaceInjection，buildCoreContext 会读取
         await injectMemoryPalace(char, allMsgs, undefined, userProfile?.name);
-        const context = ContextBuilder.buildCharacterContext({
+        const context = (await ContextBuilder.buildCharacterContext({
             char, user: userProfile, history: conversation,
             timeOptions: { skipTimeAwareness: !isDateTimeAwarenessOn(char), conversational: true },
-        });
+        }));
         const systemPrompt = context.coreContext
             + buildVNModeBlock(char, userProfile?.name || '')
             + ContextBuilder.buildSARModuleContext(char, userProfile, 'date');

@@ -27,40 +27,40 @@ const makeChar = (overrides: Partial<CharacterProfile>): CharacterProfile => ({
     ...overrides,
 } as CharacterProfile);
 
-const peekText = (char: CharacterProfile): string => {
-    const { messages } = DatePrompts.buildPeekPayload({
+const peekText = async (char: CharacterProfile): Promise<string> => {
+    const { messages } = (await DatePrompts.buildPeekPayload({
         char,
         userProfile,
         allMsgs: [],
         emojis: [],
-    });
+    }));
     return messages.map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
 };
 
 describe('见面 Peek 注入的当前时间跟随角色时区', () => {
-    it('角色在纽约时写的是纽约的 09:00，不是被多减一个时差的 07-25 21:00', () => {
+    it('角色在纽约时写的是纽约的 09:00，不是被多减一个时差的 07-25 21:00', async () => {
         process.env.TZ = 'Asia/Shanghai';
-        vi.useFakeTimers();
+        vi.useFakeTimers({toFake:['Date']});
         vi.setSystemTime(INSTANT);
 
-        const text = peekText(makeChar({
+        const text = (await peekText(makeChar({
             customTimezoneEnabled: true,
             customTimezone: 'America/New_York',
-        }));
+        })));
 
         expect(text).toContain('当前时间: 2026-07-26 09:00 周日');
         expect(text).not.toContain('2026-07-25');
     });
 
-    it('日期与星期必须自洽（旧实现里 07-25 会配上周日）', () => {
+    it('日期与星期必须自洽（旧实现里 07-25 会配上周日）', async () => {
         process.env.TZ = 'Asia/Shanghai';
-        vi.useFakeTimers();
+        vi.useFakeTimers({toFake:['Date']});
         vi.setSystemTime(INSTANT);
 
-        const text = peekText(makeChar({
+        const text = (await peekText(makeChar({
             customTimezoneEnabled: true,
             customTimezone: 'America/New_York',
-        }));
+        })));
 
         const matched = /当前时间: (\d{4}-\d{2}-\d{2}) \d{2}:\d{2} (周.)/.exec(text);
         expect(matched).not.toBeNull();
@@ -71,11 +71,11 @@ describe('见面 Peek 注入的当前时间跟随角色时区', () => {
         expect(weekday).toBe(days[new Date(y, m - 1, d).getDay()]);
     });
 
-    it('没开自定义时区的角色仍写设备时间', () => {
+    it('没开自定义时区的角色仍写设备时间', async () => {
         process.env.TZ = 'Asia/Shanghai';
-        vi.useFakeTimers();
+        vi.useFakeTimers({toFake:['Date']});
         vi.setSystemTime(INSTANT);
 
-        expect(peekText(makeChar({}))).toContain('当前时间: 2026-07-26 21:00 周日');
+        expect((await peekText(makeChar({})))).toContain('当前时间: 2026-07-26 21:00 周日');
     });
 });

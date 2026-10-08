@@ -1,0 +1,12 @@
+{
+  "id": "little-cardigan-slouch",
+  "label": "半落肩开衫",
+  "slot": "outer",
+  "status": "user-approved-preview",
+  "triangles": 5720,
+  "bodyTriangles": 6136,
+  "rigAsset": "output/cardigan-controller/cardigan-rig-detail.glb",
+  "editableAsset": "output/cardigan-controller/cardigan-detail.blend",
+  "defaultPose": "output/cardigan-controller/default-pose.json",
+  "notes": "用户确认 Q 版粗罗纹与大纽扣版，接受轻微穿模。已登记为外套素材，尚未接入正式游戏衣橱；原版保留。"
+}

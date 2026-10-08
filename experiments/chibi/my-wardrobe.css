@@ -1,0 +1,19 @@
+.my-wardrobe{color:var(--animal-text-color,#775536)}
+.my-wardrobe-tools,.my-wardrobe-name,.my-outfit-actions{display:flex;align-items:center;gap:8px}
+.my-wardrobe-tools{margin:4px 0 16px;flex-wrap:wrap}
+.my-wardrobe-tools button{display:flex;align-items:center;gap:6px;padding:10px 14px!important;border-radius:22px!important}
+.my-wardrobe-name{flex-wrap:wrap;margin-bottom:14px}
+.my-wardrobe-name input{flex:1;min-width:120px;border:1px solid #e4d9bf;border-radius:14px;padding:10px;background:#fffdf5;color:inherit}
+.my-wardrobe-empty{text-align:center;padding:30px 10px;color:#957b5c}
+.my-wardrobe-empty svg{margin:auto}
+.my-wardrobe-empty p{margin:12px 0 6px}
+.my-outfit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:12px}
+.my-outfit-grid article{background:var(--island-paper,#faf7e9);border:1px solid #e8dfc8;border-radius:20px;overflow:hidden;min-width:0}
+.my-outfit-wear{display:block;width:100%;border:0!important;background:transparent!important;padding:10px!important;color:inherit}
+.my-outfit-wear .outfit-preview{height:112px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-content:center;gap:2px}
+.my-outfit-wear img{width:100%;height:50px;object-fit:contain}
+.my-outfit-wear strong{display:block;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-top:8px}
+.my-outfit-actions{justify-content:center;border-top:1px solid #e8dfc8;padding:3px}
+.my-outfit-actions button{display:grid;place-items:center;min-width:40px;min-height:40px;border:0!important;background:transparent!important;color:inherit}
+.my-outfit-confirm{padding:8px;display:flex;flex-wrap:wrap;gap:6px;font-size:12px}
+.my-outfit-confirm span{width:100%}

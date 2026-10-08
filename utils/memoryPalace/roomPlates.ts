@@ -1,3 +1,4 @@
+import { ContextBuilder } from '../context';
 /**
  * Memory Palace — 房间门牌（Room Plates）
  *
@@ -63,7 +64,7 @@ async function callPlateLLM(
     materials: PlateMaterial[],
     llmConfig: LightLLMConfig,
     identityContext: string,
-): Promise<PlateLLMItem[]> {
+    ): Promise<PlateLLMItem[]> {
     const systemPrompt = buildPlateConsolidationPrompt({
         charName,
         userName,
@@ -176,16 +177,16 @@ async function consolidatePlates(
 
     // 身份上下文：直接走 ContextBuilder.buildCoreContext(char, user, false)——
     // 与全 App 统一的人设口径（身份/核心指令/世界观/用户画像/印象/核心记忆），不重复造轮子。
-    // includeDetailedMemories=false：不带详细日志与向量召回，整理 LLM 用不上。
+    // includeDetailedMemories=false：只省略神经链接详细日志；已有向量召回仍统一注入。
     // 尤其是回填场景，材料横跨几个月，没有人设参照时蒸馏视角会飘。
+
     let identityContext = '';
     try {
         const { DB } = await import('../db');
-        const { ContextBuilder } = await import('../context');
         const chars = await DB.getAllCharacters();
         const profile = chars.find(c => c.id === charId);
         const up = await DB.getUserProfile();
-        if (profile && up) identityContext = ContextBuilder.buildCoreContext(profile, up, false);
+        if (profile && up) identityContext = (await ContextBuilder.buildCoreContext(profile, up, false));
     } catch { /* 拿不到就裸跑，prompt 里仍有名字与身份确认段 */ }
 
     if (preferCloud && !readMaintenanceSettings().enabled) {

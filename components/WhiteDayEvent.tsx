@@ -641,6 +641,7 @@ export const WhiteDaySession: React.FC<WhiteDaySessionProps> = ({ charId, onClos
     // API 调用 1：生成题目
     // ============================================================
     const generateQuiz = async (cId: string) => {
+
         const c = characters.find(ch => ch.id === cId);
         if (!c || !apiConfig) {
             setErrorMsg('找不到角色或 API 未配置');
@@ -721,9 +722,9 @@ export const WhiteDaySession: React.FC<WhiteDaySessionProps> = ({ charId, onClos
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
                         { role: 'user', content: `[最近记录]:\n${recentMsgs}\n\n---\n\n${prompt}` },
-                    ]),
+                    ])),
                     temperature: 0.85,
                 }),
             });
@@ -788,6 +789,7 @@ export const WhiteDaySession: React.FC<WhiteDaySessionProps> = ({ charId, onClos
     // API 调用 2：评阅答卷
     // ============================================================
     const generateReview = async () => {
+
         if (!char || !quizData || !apiConfig) return;
         setPhase('loading_review');
         try {
@@ -849,9 +851,9 @@ ${answerSummary}
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
                         { role: 'user', content: prompt },
-                    ]),
+                    ])),
                     temperature: 0.82,
                 }),
             });
@@ -901,6 +903,7 @@ ${answerSummary}
     // API 调用 3：角色评价巧克力（vision，可选）
     // ============================================================
     const generateComment = async () => {
+
         if (!char || !apiConfig || !canvasRef.current) return;
         try {
             // 截图必须在 setPhase 之前完成，否则元素会被卸载导致 html2canvas 报错
@@ -935,7 +938,7 @@ ${answerSummary}
                 headers,
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
                         {
                             role: 'user',
                             content: [
@@ -943,7 +946,7 @@ ${answerSummary}
                                 { type: 'image_url', image_url: { url: imageBase64 } },
                             ],
                         },
-                    ]),
+                    ])),
                     temperature: 0.88,
                 }),
             });
@@ -956,9 +959,9 @@ ${answerSummary}
                     headers,
                     body: JSON.stringify({
                         model: apiConfig.model,
-                        messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+                        messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
                             { role: 'user', content: fallbackPrompt },
-                        ]),
+                        ])),
                         temperature: 0.88,
                     }),
                 });

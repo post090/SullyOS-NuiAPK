@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { CharacterProfile, Message } from '../../types';
 import Modal from '../os/Modal';
+import SecretNote from './SecretNote';
 import { formatRangeTimestamp, loadRangeMessagePage } from '../../utils/memoryPalace/rangeMessagePage';
 import { CHAT_CLEANUP_CONFIRMATION, deleteChatHistoryCleanup, prepareChatHistoryCleanup, type ChatCleanupPlan } from '../../utils/chatHistoryCleanup';
 
@@ -10,7 +11,7 @@ interface Props {
     onDeleted: (plan: ChatCleanupPlan) => void | Promise<void>;
 }
 type Phase = 'select' | 'review' | 'confirm' | 'deleting' | 'done';
-const sourceLabels: Record<string, string> = { date: '见面', call: '通话', story_theater_memory: '剧情陪伴' };
+const sourceLabels: Record<string, string> = { date: '见面', call: '通话', home: '3D 小屋', story_theater_memory: '剧情陪伴' };
 const sourceLabel = (message: Message) => sourceLabels[String(message.metadata?.source)] || '聊天';
 
 /** 独立清理入口；不调用总结 API，也不更改 AI 可见范围和记忆水位线。 */
@@ -146,7 +147,7 @@ export default function ChatHistoryCleanupModal({ character, onClose, onDeleted 
                     </div>
                     {!loading && rows.map(message => <div key={message.id} className={`rounded-xl border p-3 space-y-2 ${start && end && message.id >= Math.min(start.id, end.id) && message.id <= Math.max(start.id, end.id) ? 'border-red-200 bg-red-50' : 'border-slate-200'}`}>
                         <div className='text-[10px] text-slate-400'>{message.role === 'user' ? '你' : message.role === 'assistant' ? character.name : '系统'} · {sourceLabel(message)} · {formatRangeTimestamp(message.timestamp)} · #{message.id}</div>
-                        <p className='whitespace-pre-wrap break-all leading-relaxed'>{message.content}</p>
+                        {message.type === 'secret_note' ? <SecretNote text={message.content}/> : <p className='whitespace-pre-wrap break-all leading-relaxed'>{message.content}</p>}
                         <div className='flex gap-4 text-violet-700'>
                             <button type='button' disabled={preparing} onClick={() => setStart(message)}>{start?.id === message.id ? '已设为起点' : '设为起点'}</button>
                             <button type='button' disabled={preparing} onClick={() => setEnd(message)}>{end?.id === message.id ? '已设为终点' : '设为终点'}</button>

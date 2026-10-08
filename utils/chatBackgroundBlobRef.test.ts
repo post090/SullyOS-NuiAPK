@@ -20,13 +20,13 @@ describe('聊天背景的 blobref 读写路径', () => {
   });
 
   it('聊天页背景先用 useBlobRefUrl 解析再拼进 CSS url()', () => {
-    expect(chatSource).toContain('const resolvedChatBackground = useBlobRefUrl(char?.chatBackground ?? osTheme.chatBackground);');
+    expect(chatSource).toContain('const resolvedChatBackground = useBlobRefUrl(homePhone?undefined:char?.chatBackground ?? osTheme.chatBackground);');
     expect(chatSource).toContain('url("${resolvedChatBackground}")');
     expect(chatSource).not.toContain('url(${char.chatBackground})');
   });
 
   it('解析 hook 在「角色为空」的早退之前调用（hook 顺序不能随空态变化）', () => {
-    const hookAt = chatSource.indexOf('useBlobRefUrl(char?.chatBackground ?? osTheme.chatBackground)');
+    const hookAt = chatSource.indexOf('useBlobRefUrl(homePhone?undefined:char?.chatBackground ?? osTheme.chatBackground)');
     const guardAt = chatSource.indexOf('if (!char) {');
     expect(hookAt).toBeGreaterThan(-1);
     expect(guardAt).toBeGreaterThan(-1);

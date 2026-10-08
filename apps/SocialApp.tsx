@@ -455,6 +455,7 @@ const SocialApp: React.FC = () => {
     };
 
     const handleRefresh = async () => {
+
         if (!apiConfig.apiKey) { addToast('请配置 API Key', 'error'); return; }
         if (refreshRequestRef.current) return;
         const controller = new AbortController();
@@ -560,6 +561,7 @@ const SocialApp: React.FC = () => {
     };
 
     const generateComments = async (post: SocialPost) => {
+
         if (!post || !apiConfig.apiKey) return;
         const livePost = feedRef.current.find(item => item.id === post.id) || post;
         if (livePost.comments.length > 0) return;
@@ -660,6 +662,7 @@ ${post.content || '(楼主没写正文)'}
     };
 
     const generateRepliesToUser = async (post: SocialPost, userContent: string) => {
+
         if (!apiConfig.apiKey) return;
         if (replyRequestRef.current) return;
         const controller = new AbortController();

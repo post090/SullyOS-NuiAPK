@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { useOS } from '../../context/OSContext';
 import { CharacterProfile, ChibiStudioSlotId } from '../../types';
+import HomeFigureStudio from './HomeFigureStudio';
 import { CreatorIframe, type ChibiResult, LIKE520_RECORD_KEY, isSullyChar, sullyPresets } from '../Like520Event';
 import CreatorPartsUploader from './CreatorPartsUploader';
 import { useBlobRefUrl, putImageBlob, dataUrlToBlob, resolveRefToDataUrl } from '../../utils/blobRef';
@@ -218,6 +219,7 @@ const ChibiStudio: React.FC<{ charId: string; onClose: () => void }> = ({ charId
     const [syncConfirm, setSyncConfirm] = useState<ChibiStudioSlotId | null>(null);
     const [syncing, setSyncing] = useState(false);
     const [showUploader, setShowUploader] = useState(false); // 自定义素材工坊（PSD 批量导入）
+    const [showHomeFigure, setShowHomeFigure] = useState(false);
 
     const studio = char?.chibiStudio;
     const rec = char?.specialMomentRecords?.[LIKE520_RECORD_KEY];
@@ -344,6 +346,7 @@ const ChibiStudio: React.FC<{ charId: string; onClose: () => void }> = ({ charId
                         },
                     } : {}),
                     chibiStudio: {
+                        ...prev.chibiStudio,
                         room: { state, updatedAt: now },
                         vr: { state, updatedAt: now },
                         like520: { state, img: dataUrl, updatedAt: now },
@@ -358,6 +361,7 @@ const ChibiStudio: React.FC<{ charId: string; onClose: () => void }> = ({ charId
         setSyncConfirm(null);
     };
 
+    if (showHomeFigure) return <HomeFigureStudio charId={charId} onClose={() => setShowHomeFigure(false)} />;
     // ── 自定义素材工坊（PSD 批量导入）──
     if (showUploader) {
         return <CreatorPartsUploader onClose={() => setShowUploader(false)} />;
@@ -424,6 +428,7 @@ const ChibiStudio: React.FC<{ charId: string; onClose: () => void }> = ({ charId
             {/* 展示柜（三层展台）——底部给 home 条留白（iOS 全屏 PWA 用 --safe-bottom 兜底） */}
             <div className="flex-1 overflow-y-auto no-scrollbar px-4 space-y-4"
                 style={{ paddingBottom: STUDIO_BOTTOM }}>
+                <button onClick={() => setShowHomeFigure(true)} className="w-full min-h-[64px] rounded-2xl border border-white/20 bg-white/10 px-5 py-4 text-left text-white">3D 家园形象 <span className="block text-xs opacity-60 mt-1">{studio?.home3D?.state ? '编辑形象、衣服与体型' : '基于已有手办，捏出家园里的你'}</span></button>
                 {views.map(v => (
                     <DisplayCase key={v.meta.id} view={v}
                         onEdit={() => setEditing(v.meta.id)}

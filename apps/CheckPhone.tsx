@@ -708,6 +708,7 @@ const CheckPhone: React.FC = () => {
 
     // --- Core Generation Logic ---
     const handleGenerate = async (type: string, customPrompt?: string, layout?: LayoutId) => {
+
         if (!targetChar || !effectiveApiConfig.apiKey) {
             addToast('配置错误', 'error');
             return;
@@ -849,7 +850,7 @@ ${realCharRule}
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: effectiveApiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: fullPrompt }]),
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: fullPrompt }])),
                     temperature: 0.8
                 })
             });
@@ -987,9 +988,9 @@ ${realCharRule}
     // 裸 LLM 调用（智能体生成 / 互动续写共用）
     const callLLM = async (prompt: string, temperature = 0.85, withCharacter = true): Promise<string> => {
         const recent = withCharacter && targetChar ? await loadCharacterContextMessages(targetChar) : [];
-        const messages = withCharacter && targetChar ? ContextBuilder.buildCharacterRequest({
+        const messages = withCharacter && targetChar ? (await ContextBuilder.buildCharacterRequest({
             char: targetChar, user: userProfile, timeOptions: { lastInteractionTs: recent[recent.length - 1]?.timestamp },
-        }, [{ role: 'user', content: prompt }]) : [{ role: 'user', content: prompt }];
+        }, [{ role: 'user', content: prompt }])) : [{ role: 'user', content: prompt }];
         const response = await fetch(`${effectiveApiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApiConfig.apiKey}` },
@@ -1016,6 +1017,7 @@ ${realCharRule}
 
     // 生成：偷看机主在某个 AI 服务里的使用记录
     const handleGenerateAiAgent = async (service: AiServiceKind) => {
+
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('配置错误', 'error'); return; }
         setIsLoading(true);
         trackEvent('偷看 AI 助手使用记录', { service });
@@ -1223,6 +1225,7 @@ ${olderText}
 
     // 互动续写：assistant/claude = 你替机主问、AI 答；tavern = 你以卡片身份回、机主本色反应
     const handleAiSend = async () => {
+
         const session = selectedAiSession;
         const text = aiInput.trim();
         if (!session || !text || !targetChar || !effectiveApiConfig.apiKey) return;
@@ -1281,6 +1284,7 @@ ${olderText}
 
     // 自然推进：不用 user 开口，让 LLM 接着剧情自己往下写一轮（双方都由 AI 演）
     const handleAiAutoContinue = async () => {
+
         const session = selectedAiSession;
         if (!session || !targetChar || !effectiveApiConfig.apiKey || aiSending) return;
         const isTavern = session.service === 'tavern';
@@ -1420,6 +1424,7 @@ ${olderText}
 
     // 用指定的卡开一局：生成一段以这张卡为对手的酒馆剧情（卡片本身不新增、不顶掉）
     const handlePlayCard = async (card: TavernCard) => {
+
         if (!targetChar || !effectiveApiConfig.apiKey) { addToast('配置错误', 'error'); return; }
         setIsLoading(true);
         trackEvent('用角色卡开一局');

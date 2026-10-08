@@ -1,0 +1,19 @@
+[
+  {
+    "id": "maid-sleeves",
+    "label": "女仆手袖",
+    "slot": "accessory",
+    "sleeveOnly": true,
+    "asset": "maid-sleeves-rig.glb",
+    "prefix": "Apparel_",
+    "triangles": 1728,
+    "drawCalls": 2,
+    "status": "standalone-tryon",
+    "construction": "body-surface-offset",
+    "offset": 0.018,
+    "forearmRange": [
+      1.1600001309027714,
+      1.6070001309027715
+    ]
+  }
+]

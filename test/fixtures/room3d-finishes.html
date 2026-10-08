@@ -1,0 +1,6 @@
+<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';import {createHome,addRoom} from '/apps/room3d/model.js';import {gamingPreset} from '/apps/room3d/gaming.js';import '/apps/room3d/editor.css';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog),a=home.rooms[0];a.items=gamingPreset('race',catalog);a.name='赛车房';a.wall='#91C9F4';a.wallStyle='stripe';a.floorStyle='checker';a.floor='#91C9F4';const b=addRoom(home,'right');b.name='奶油客厅';b.wall='#F2B8D5';b.wallStyle='dot';b.floorStyle='wood';b.floor='#E8BD8F';home.activeRoomId=a.id;
+const key='test-room3d-finishes',editor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:localStorage.getItem(key)?undefined:home,storageKey:key});window.__homeEditor=editor;window.render_game_to_text=()=>JSON.stringify(editor.inspect());window.advanceTime=ms=>editor.advanceTime(ms);
+if(new URLSearchParams(location.search).has('panel'))document.querySelector('[data-panel="room-style"]').click();
+</script></body></html>

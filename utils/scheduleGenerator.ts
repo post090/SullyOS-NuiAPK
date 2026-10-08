@@ -12,6 +12,7 @@ import { loadCharacterContextRange } from './chatContextRange';
 import { ChatPrompts } from './chatPrompts';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
+import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
 
 export { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 
@@ -274,6 +275,7 @@ export async function generateDailyScheduleForChar(
     apiConfig: ApiConfig,
     forceRegenerate: boolean = false
 ): Promise<DailySchedule | null> {
+
     // 总开关关闭时直接短路，避免副 API / 兜底调用
     if (!isScheduleFeatureOn(char)) return null;
 
@@ -321,9 +323,10 @@ export async function generateDailyScheduleForChar(
     const dayOfWeek = ['日', '一', '二', '三', '四', '五', '六'][now.getDay()];
 
     const style = char.scheduleStyle || 'lifestyle';
-    const prompt = style === 'mindful'
+    const homePrompt = buildHomeSchedulePrompt(char);
+    const prompt = (style === 'mindful'
         ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
-        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock);
+        : buildLifestylePrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)) + homePrompt;
 
     try {
         const response = await resilientFetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
@@ -331,7 +334,7 @@ export async function generateDailyScheduleForChar(
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
+                messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])),
                 temperature: 0.85,
                 max_tokens: 8000
             }),
@@ -355,15 +358,18 @@ export async function generateDailyScheduleForChar(
             console.error('[Schedule] Generation failed: 无法从模型输出解析出JSON:', content.slice(0, 200));
             return null;
         }
-        const slots: ScheduleSlot[] = (parsed.slots || []).map((s: any) => ({
+        const slots: ScheduleSlot[] = (parsed.slots || []).map((s: any) => {
+            const homePosition = parseHomePosition(s.homePosition, char);
+            return {
             // 补零规范化（"9:30" → "09:30"）：排序和修订引擎的字符串比较都依赖 HH:MM 定长格式
             startTime: (typeof s.startTime === 'string' && /^\d{1,2}:\d{2}$/.test(s.startTime.trim())) ? s.startTime.trim().padStart(5, '0') : '00:00',
             activity: s.activity || '',
             description: s.description,
             emoji: s.emoji,
-            location: s.location,
+            location: homePosition?.kind === 'home' ? char.home3D?.rooms.find(room => room.id === homePosition.roomId)?.name : typeof s.location === 'string' ? s.location : homePosition?.kind === 'away' ? '外出' : undefined,
+            homePosition,
             innerThought: s.innerThought,
-        })).filter((s: ScheduleSlot) => s.activity);
+        };}).filter((s: ScheduleSlot) => s.activity);
 
         if (slots.length === 0) return null;
 
@@ -392,6 +398,8 @@ export async function generateDailyScheduleForChar(
             flowNarrative,
         };
 
+        // Missing or stale room IDs must not overwrite a usable old schedule.
+        if (homePrompt && !hasHomeSchedulePositions(schedule, char)) return null;
         await DB.saveDailySchedule(schedule);
         return schedule;
     } catch (e) {

@@ -1,0 +1,281 @@
+{
+  "inputArchive": "Meshy_AI_assets_20260917_062133.zip",
+  "excludes": [
+    "exterior rock garden",
+    "source images, textures, UV and colors"
+  ],
+  "files": [
+    {
+      "name": "bed.glb",
+      "bytes": 219564,
+      "sha256": "0733e8bb7cc835e574a9f49e720e3bc35d121205c7669145e522c64cd9023e50"
+    },
+    {
+      "name": "bedroom_bench.glb",
+      "bytes": 223112,
+      "sha256": "ce8b1f814e341ad8b332725c3663b26c745f941b88ff166ca02988b5d553d4e6"
+    },
+    {
+      "name": "bedroom_dresser.glb",
+      "bytes": 225048,
+      "sha256": "a65b73e549f4ee8e8a9ce06b84e7f700e08b24c05c722b5903a5e8babd4b446b"
+    },
+    {
+      "name": "bedroom_low_shelf.glb",
+      "bytes": 224140,
+      "sha256": "1cc8162e289b371241b30258d497ff0c9af278dc21c1231a7bd8da0fdf63239d"
+    },
+    {
+      "name": "bedroom_pouf.glb",
+      "bytes": 126292,
+      "sha256": "afea505f6fcd7a1b63264c98dacaa2cf740dba8ba58dc7c9e8c1841853eaf7a6"
+    },
+    {
+      "name": "cat_tree.glb",
+      "bytes": 219560,
+      "sha256": "361afafe47c3f76d56d87a6be2cc771e8004aaaf6337309cd49244fa82b6c06a"
+    },
+    {
+      "name": "kitchen_bench.glb",
+      "bytes": 60464,
+      "sha256": "ca39f99dd2920b072eacd9681485a92647c18990a46b74073fbf69202730571c"
+    },
+    {
+      "name": "kitchen_counter.glb",
+      "bytes": 225148,
+      "sha256": "e115525e34403d5864b27f7e75fa855904001baa62d2d7fdbadd1b5cafa2ac71"
+    },
+    {
+      "name": "kitchen_island.glb",
+      "bytes": 224928,
+      "sha256": "a1f1e455289f1eaadda20e8bca874b672bd4a27a1c833b3e1d66e2a144813afc"
+    },
+    {
+      "name": "kitchen_range.glb",
+      "bytes": 225264,
+      "sha256": "ff70fe939a05a5beb336f4f265a3ba9ba4a83195312f0f195da3d482aa2558da"
+    },
+    {
+      "name": "living_console.glb",
+      "bytes": 223200,
+      "sha256": "a9a33de1137de8c12e8928f2e9d6c1ad085e38f81088b050c4db147136d2c007"
+    },
+    {
+      "name": "living_pouf.glb",
+      "bytes": 86172,
+      "sha256": "ab77539b4d6f86821f7b49411e2e7a329a0bbbbb7eb8e4b532aac25eb1b6511d"
+    },
+    {
+      "name": "living_sofa.glb",
+      "bytes": 218884,
+      "sha256": "803425aa718d606b99913f3b3471c71c029df0934a0c38c7d8a1582979dbf910"
+    },
+    {
+      "name": "living_table.glb",
+      "bytes": 225752,
+      "sha256": "7d69eed39d738cb80073453e5ff6846e75cd821db75258ecc90d9084cb0b72b0"
+    },
+    {
+      "name": "ribbon-door.glb",
+      "bytes": 52968,
+      "sha256": "837a7e7e673ddad31aecd4a2bf3d383c0bed2947a4834bd7aa355f6f44b877c0"
+    },
+    {
+      "name": "spa_bucket.glb",
+      "bytes": 219252,
+      "sha256": "8cb0a0c4ffcb333177b933f78b848f726d3d2e1793790fa16d17c8009458e9da"
+    },
+    {
+      "name": "spa_chest.glb",
+      "bytes": 220012,
+      "sha256": "2afa8e4d5d7725a37adc8f6ee565d98e223239575bf3a346b759c96767553b77"
+    },
+    {
+      "name": "spa_lantern.glb",
+      "bytes": 66912,
+      "sha256": "bf5aa551b11bc45cf1ec38b9b0bab34b9626b550a4212a5687fb623edeec13ba"
+    },
+    {
+      "name": "spa_pool.glb",
+      "bytes": 223216,
+      "sha256": "0e3bb3c9d4fc8a5b252cab9e1ea485e85380956dc6d0410515d750fd05e82251"
+    },
+    {
+      "name": "spa_stool.glb",
+      "bytes": 151136,
+      "sha256": "d17d835fca90934abaadbbd797533be23f226e6f410a559f7727c917d805845e"
+    },
+    {
+      "name": "study_desk.glb",
+      "bytes": 228396,
+      "sha256": "431e2976d6f29f815459fb1c5530eaa753c06f3e617c5cd9917578e7b98a9726"
+    },
+    {
+      "name": "study_pouf.glb",
+      "bytes": 145816,
+      "sha256": "99c0cb644b131e37d3e59812ce886e5b93ec406d10a0f1c666f1faf6009e5a3c"
+    },
+    {
+      "name": "study_shelf.glb",
+      "bytes": 218720,
+      "sha256": "2cd4b948711a7cc35f0762aa2ca4bd99bd744d9dfdf05bf9ac959d697292f1cf"
+    },
+    {
+      "name": "study_tea_table.glb",
+      "bytes": 221100,
+      "sha256": "d91acc935302413f6d9e5d8e3d59b88b993737d9c5f3a3ead48d1361cef500fa"
+    },
+    {
+      "name": "study_tower.glb",
+      "bytes": 223016,
+      "sha256": "57f67bcc0112a739cca8c887019c0a5d4c8ac8cd811525cc768be4d96b4cff49"
+    },
+    {
+      "name": "wardrobe.glb",
+      "bytes": 224364,
+      "sha256": "cdebe495d64fbf9dcfffcda821f02ec3a12a298aaf5d8896658dfb9d93e7a0cd"
+    },
+    {
+      "name": "curtain-window.glb",
+      "bytes": 223984,
+      "sha256": "b97ba37f6d2aaa745fce023e0a33c58c1bde5570b25aa15fc588e3b7a446875c"
+    },
+    {
+      "name": "plant-large.glb",
+      "bytes": 182732,
+      "sha256": "4fb03ed5ecf2dc9e9fdfbd16276e058ea30e544c8782d597d7e23b8eb2f73f9b"
+    },
+    {
+      "name": "plant-small.glb",
+      "bytes": 181956,
+      "sha256": "306345577d9555e4204aa26c68f7126c90d2583720ca155471007c8169ad028f"
+    }
+  ],
+  "parts": [
+    {
+      "source": 2,
+      "id": "spa_pool",
+      "name": "原石温泉浴池"
+    },
+    {
+      "source": 2,
+      "id": "spa_stool",
+      "name": "原木洗浴矮凳"
+    },
+    {
+      "source": 2,
+      "id": "spa_bucket",
+      "name": "木箍洗浴桶"
+    },
+    {
+      "source": 2,
+      "id": "spa_chest",
+      "name": "温泉毛巾木箱"
+    },
+    {
+      "source": 2,
+      "id": "spa_lantern",
+      "name": "日式地灯"
+    },
+    {
+      "source": 3,
+      "id": "study_shelf",
+      "name": "整排矮书柜"
+    },
+    {
+      "source": 3,
+      "id": "study_tower",
+      "name": "通顶开放书架"
+    },
+    {
+      "source": 3,
+      "id": "study_desk",
+      "name": "原木一字书桌"
+    },
+    {
+      "source": 3,
+      "id": "study_tea_table",
+      "name": "方形阅读茶几"
+    },
+    {
+      "source": 3,
+      "id": "study_pouf",
+      "name": "方形软坐墩"
+    },
+    {
+      "source": 4,
+      "id": "kitchen_counter",
+      "name": "整排水槽橱柜"
+    },
+    {
+      "source": 4,
+      "id": "kitchen_range",
+      "name": "原木灶台柜组"
+    },
+    {
+      "source": 4,
+      "id": "kitchen_island",
+      "name": "原木备餐中岛"
+    },
+    {
+      "source": 4,
+      "id": "kitchen_bench",
+      "name": "餐边长坐凳"
+    },
+    {
+      "source": 5,
+      "id": "living_sofa",
+      "name": "软毯双人沙发"
+    },
+    {
+      "source": 5,
+      "id": "living_table",
+      "name": "圆角客厅茶几"
+    },
+    {
+      "source": 5,
+      "id": "living_console",
+      "name": "整排开放电视柜"
+    },
+    {
+      "source": 5,
+      "id": "living_pouf",
+      "name": "客厅软垫脚凳"
+    },
+    {
+      "source": 5,
+      "id": "cat_tree",
+      "name": "三层猫爬架"
+    },
+    {
+      "source": 6,
+      "id": "bed",
+      "name": "软毯与抱枕双人床"
+    },
+    {
+      "source": 6,
+      "id": "wardrobe",
+      "name": "简约双门高柜"
+    },
+    {
+      "source": 6,
+      "id": "bedroom_low_shelf",
+      "name": "床边连排矮柜"
+    },
+    {
+      "source": 6,
+      "id": "bedroom_dresser",
+      "name": "原木宽抽屉斗柜"
+    },
+    {
+      "source": 6,
+      "id": "bedroom_bench",
+      "name": "床尾开放收纳凳"
+    },
+    {
+      "source": 6,
+      "id": "bedroom_pouf",
+      "name": "卧室软坐墩"
+    }
+  ]
+}

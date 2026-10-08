@@ -10,6 +10,14 @@
 
 import 'fake-indexeddb/auto';
 
+// jsdom does not implement native dialog methods. Match the open/close contract
+// for component tests; real top-layer layout/focus is verified in browser fixtures.
+if (typeof HTMLDialogElement !== 'undefined' && !HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function () { this.open = true; };
+  HTMLDialogElement.prototype.close = function () { this.open = false; this.dispatchEvent(new Event('close')); };
+}
+
+
 class MemStorage {
   private store = new Map<string, string>();
   getItem(k: string) { return this.store.has(k) ? this.store.get(k)! : null; }

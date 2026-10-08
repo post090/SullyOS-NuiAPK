@@ -46,6 +46,8 @@ export interface DevDebugFlags {
     sarExpressionReview: boolean;
     skipPromptBuild: boolean;
     skipEmotionEval: boolean;
+    /** 临时测试：秘密任务跳过概率抽签，其余前置条件不变。 */
+    forceHomeSecretRoll: boolean;
     /**
      * 把聊天请求里的多条 role:system 合并成开头一条再发送（utils/systemMessageMerge.ts）。
      * 排查逆向中转对「历史后 system」重复拼接导致 prompt_tokens 膨胀的兼容问题；
@@ -100,6 +102,7 @@ export const DEFAULT_DEV_DEBUG_FLAGS: DevDebugFlags = {
     sarExpressionReview: false,
     skipPromptBuild: false,
     skipEmotionEval: false,
+    forceHomeSecretRoll: false,
     mergeSystemMessages: false,
     captureEnabled: false,
     captureLogs: [],
@@ -155,6 +158,7 @@ function normalizeFlags(value: unknown): DevDebugFlags {
         skipPromptBuild: source.skipPromptBuild === true,
         sarExpressionReview: source.sarExpressionReview === true,
         skipEmotionEval: source.skipEmotionEval === true,
+        forceHomeSecretRoll: source.forceHomeSecretRoll === true,
         mergeSystemMessages: source.mergeSystemMessages === true,
         captureEnabled: source.captureEnabled === true || legacyHasCapture,
         captureLogs,
@@ -275,6 +279,10 @@ export function isPromptBuildSkipped(): boolean {
 
 export function isEmotionEvalSkipped(): boolean {
     return readDevDebugFlags().skipEmotionEval;
+}
+
+export function isHomeSecretRollForced(): boolean {
+    return readDevDebugFlags().forceHomeSecretRoll;
 }
 
 export function isSystemMessageMergeEnabled(): boolean {

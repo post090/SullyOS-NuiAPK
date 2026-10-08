@@ -15,7 +15,7 @@ import Modal from '../components/os/Modal';
 import { safeResponseJson, extractJson } from '../utils/safeApi';
 import { Door, Sparkle, Image, GearSix, Camera, MoonStars, ArrowUUpLeft, ArrowUUpRight, CopySimple, Images, Eye, EyeSlash } from '@phosphor-icons/react';
 import { FURNITURE_ICONS } from '../utils/furnitureIcons';
-import PixelHomeView from './pixelHome/PixelHomeView';
+const Home3DView = React.lazy(() => import('./room3d/Home3DSetupEntry'));
 import WorldHomeApp from './WorldHomeApp';
 import DreamTheater from './DreamTheater';
 import { useDreamSim, dreamSimStore } from '../utils/dreamSimStore';
@@ -312,7 +312,7 @@ const renderNotebookContent = (text: string) => {
 };
 
 const RoomApp: React.FC = () => {
-    const { closeApp, openApp, characters, characterGroups, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, addToast, userProfile } = useOS();
+    const { activeApp, closeApp, openApp, characters, characterGroups, activeCharacterId, setActiveCharacterId, updateCharacter, apiConfig, addToast, userProfile } = useOS();
 
     // 桌面主题的「进小屋意图」：惰性读取（不清空，consume 在下方 effect），首帧就落到
     // 目标视图，避免闪一下 select 页。真正的应用（进房间/开梦境/切角色）在 effect 里做。
@@ -321,13 +321,13 @@ const RoomApp: React.FC = () => {
     const launchedFromDesktopRef = useRef(!!launchIntent);
 
     // Core State
-    const [viewState, setViewState] = useState<'select' | 'room' | 'pixelHome'>(() => {
-        if (launchIntent?.tab === 'pixelHome' && launchIntent.charId) return 'pixelHome';
+    const [viewState, setViewState] = useState<'select' | 'room' | 'home3D'>(() => {
+        if (launchIntent?.tab === 'home3D' && launchIntent.charId) return 'home3D';
         if (launchIntent?.charId) return 'room'; // 房间 / 梦境
         return 'select';
     });
-    // 小小窝里的三个独立分区：房间 / 像素家园 / 家园（家园是另一套体系，单独成区）
-    const [homeTab, setHomeTab] = useState<'room' | 'pixelHome' | 'worldHome'>(() => launchIntent?.tab || 'room');
+    // 小小窝里的三个独立分区：房间 / 3D 拜访 / 家园（家园是另一套体系，单独成区）
+    const [homeTab, setHomeTab] = useState<'room' | 'home3D' | 'worldHome'>(() => launchIntent?.tab || 'room');
     // 家园「正式开始玩」（进世界/编辑）时全屏，隐去顶部三栏
     const [worldHomeFull, setWorldHomeFull] = useState(false);
     // 选人页（拜访谁的房间）的分组筛选
@@ -428,7 +428,7 @@ const RoomApp: React.FC = () => {
     const char = characters.find(c => c.id === activeCharacterId);
 
     // chibi 立绘 / 墙 / 地板都可能是 blobref 令牌，先解析成可直接渲染的 url（objectURL / http / data）。
-    // ⚠️ 这三个是 hook，必须放在 select/pixelHome 的 early-return **之前**无条件调用——
+    // ⚠️ 这三个是 hook，必须放在 select/home3D 的 early-return **之前**无条件调用——
     // 放在 early-return 之后会在「选择页 → 进小屋」的切换瞬间改变 hook 数量，
     // 触发 "Rendered more hooks than during the previous render" 崩溃。
     // char 为空时传 undefined，hook 原样返回 undefined，安全。
@@ -631,9 +631,9 @@ const RoomApp: React.FC = () => {
         const intent = roomLaunch.consume();
         if (!intent) return;
         const c = intent.charId ? characters.find(x => x.id === intent.charId) : null;
-        if (!c) return;
+        if (!c) { if (intent.charId) setViewState('select'); return; }
         setActiveCharacterId(c.id);
-        if (intent.tab === 'pixelHome') return; // viewState 已是 pixelHome，PixelHomeView 自渲染
+        if (intent.tab === 'home3D') return; // 3D 拜访直接进入，不触发 2D 房间初始化
         // 房间 / 梦境：载入家具（handleEnterRoom 会把 viewState 设成 room，已一致）
         handleEnterRoom(c);
         if (intent.openDream) setShowDream(true);
@@ -642,6 +642,7 @@ const RoomApp: React.FC = () => {
 
     // Fallback Initialization: Used when main generation fails due to Safety Block
     const initializeFallback = async (c: CharacterProfile) => {
+
         try {
             console.warn("Triggering Room Fallback Initialization");
             const characterContextInput = { char: c, user: userProfile, includeDetailedMemories: false };
@@ -653,7 +654,7 @@ const RoomApp: React.FC = () => {
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({ 
                     model: apiConfig.model, 
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: fallbackPrompt }]),
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: fallbackPrompt }])),
                     temperature: 0.5,
                     max_tokens: 8000 // Keep it tiny
                 })
@@ -703,6 +704,7 @@ const RoomApp: React.FC = () => {
     };
 
     const initializeRoomState = async (c: CharacterProfile, currentItems: RoomItem[], force: boolean = false) => {
+
         // 不能静默 return：API 配置缺失时「更新这一天」会变成点了毫无反应的死按钮
         // （用户现场：localStorage 被清 → os_api_config 丢失 → 此处静默退出）。
         if (!apiConfig?.baseUrl || !apiConfig?.apiKey) {
@@ -817,7 +819,7 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({ 
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }]),
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }])),
                     temperature: 0.5, // Lower temp for stability
                     max_tokens: 8000,
                     // Safety Settings injection for Gemini-based proxies
@@ -1684,23 +1686,16 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
 
     // --- Renderers ---
 
-    // PIXEL HOME SCREEN
-    if (viewState === 'pixelHome' && char) {
-        return (
-            <PixelHomeView
-                charId={char.id}
-                charName={char.name}
-                charAvatar={char.avatar}
-                userName={userProfile?.name || '用户'}
-                onBack={() => { if (launchedFromDesktopRef.current) closeApp(); else setViewState('select'); }}
-            />
-        );
+    // 3D VISIT SCREEN
+    if (viewState === 'home3D' && char) {
+        return <React.Suspense fallback={<div className="h-full grid place-items-center bg-[#e8dde7] text-sm text-purple-700">正在打开小屋…</div>}>
+            <Home3DView key={char.id} suspended={activeApp!==AppID.Room} character={char} onDefinitionChange={value => updateCharacter(char.id, { homeDefinition: value })} residents={[...(userProfile.vrState?.chibi?.state?[{id:'user',label:userProfile.name||'你',state:userProfile.vrState.chibi.state}]:[]),...characters.filter(c=>c.id!==char.id&&(c.chibiStudio?.home3D?.state||c.chibiStudio?.room?.state||c.chibiStudio?.vr?.state)).map(c=>({id:c.id,label:c.name,avatar:c.avatar,state:c.chibiStudio?.home3D?.state??c.chibiStudio?.room?.state??c.chibiStudio?.vr?.state,hair:c.chibiStudio?.home3D?.hair}))]} value={char.home3D} onChange={value => updateCharacter(char.id, { home3D: value })} onBack={() => { if (launchedFromDesktopRef.current) closeApp(); else setViewState('select'); }} />
+        </React.Suspense>;
     }
-
     // SELECT SCREEN
     if (viewState === 'select') {
-        // 像素家园=深色，小小窝/家园=浅色（参考稿）
-        const dark = homeTab === 'pixelHome';
+        // 3D 拜访=深色，小小窝/家园=浅色（参考稿）
+        const dark = homeTab === 'home3D';
         const th = dark ? {
             pageBg: 'linear-gradient(180deg,#0c1024 0%,#141031 45%,#1a1330 100%)',
             stars: 'radial-gradient(1px 1px at 12% 18%,rgba(255,255,255,.5),transparent),radial-gradient(1px 1px at 78% 12%,rgba(255,230,180,.5),transparent),radial-gradient(1.5px 1.5px at 40% 30%,rgba(207,226,255,.4),transparent),radial-gradient(1px 1px at 88% 40%,rgba(255,255,255,.4),transparent),radial-gradient(1px 1px at 24% 64%,rgba(255,255,255,.35),transparent),radial-gradient(1px 1px at 64% 78%,rgba(255,230,180,.35),transparent)',
@@ -1758,15 +1753,15 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                         {([
                             { id: 'room', label: '🏠 小小窝' },
                             { id: 'worldHome', label: '🌍 家园' },
-                            { id: 'pixelHome', label: '🎮 像素家园' },
+                            { id: 'home3D', label: '拜访（测试版）3D' },
                         ] as const).map(tab => {
                             const active = homeTab === tab.id;
                             return (
-                                <button key={tab.id}
+                                <button key={tab.id} aria-label={tab.label} aria-pressed={active}
                                     onClick={() => { setHomeTab(tab.id); trackEvent('切换小小窝分区', { tab: tab.id }); }}
                                     className="relative flex-1 py-2.5 rounded-xl text-[12px] font-bold tracking-wide transition-all"
                                     style={active ? th.tabActive : { color: th.tabIdle }}>
-                                    {tab.label}
+                                    {tab.id === 'home3D' ? <><span className="block">拜访 <span className="text-[9px] tracking-normal opacity-75">3D</span></span><span className="block text-[9px] font-normal tracking-normal opacity-75">（测试版）</span></> : tab.label}
                                     {active && <span className="absolute -bottom-[7px] left-1/2 -translate-x-1/2 w-2 h-2 rotate-45" style={{ background: th.diamond, boxShadow: `0 0 8px ${th.diamond}` }} />}
                                 </button>
                             );
@@ -1783,10 +1778,10 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                     <>
                         {/* 描述 */}
                         <p className={`relative z-10 text-center text-[11px] mt-4 px-8 leading-relaxed ${th.desc}`}>
-                            {homeTab === 'pixelHome' ? '像素风的家——自由装修、布置房间、潜入记忆。' : '走进谁的房间，看看 ta 此刻在做什么、翻翻屋里的小物件。'}
+                            {homeTab === 'home3D' ? '走进 ta 的 3D 家园，布置小屋、使用家具，也可以邀请你和其他角色一起玩。' : '走进谁的房间，看看 ta 此刻在做什么、翻翻屋里的小物件。'}
                         </p>
 
-                        {/* 分组筛选（没建分组时不渲染）：像素家园=深色底，其余浅色 */}
+                        {/* 分组筛选（没建分组时不渲染）：3D 拜访=深色底，其余浅色 */}
                         <CharacterGroupFilterBar characters={characters} groups={characterGroups} dark={dark}
                             value={visitGroupId} onChange={setVisitGroupId} className="relative z-10 px-5 mt-3 shrink-0" />
 
@@ -1799,10 +1794,10 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                             ) : (
                                 <div className="grid grid-cols-2 gap-4">
                                     {visitChars.map((c, i) => {
-                                        const pixel = homeTab === 'pixelHome';
+                                        const visit3D = homeTab === 'home3D';
                                         const tint = th.tints[i % th.tints.length];
                                         return (
-                                            <button key={c.id} onClick={() => { if (pixel) { setActiveCharacterId(c.id); setViewState('pixelHome'); } else handleEnterRoom(c); }}
+                                            <button key={c.id} onClick={() => { if (visit3D) { setActiveCharacterId(c.id); setViewState('home3D'); } else handleEnterRoom(c); }}
                                                 className="group relative rounded-2xl px-3 pt-8 pb-5 flex flex-col items-center active:scale-95 transition-all overflow-hidden"
                                                 style={{ background: tint, border: `1px solid ${th.cardBorder}`, boxShadow: th.cardShadow }}>
                                                 {/* 内描金细框 + 四角宝石 */}
@@ -1821,13 +1816,13 @@ ${!shouldGenerateTodo ? `(系统: 今日待办已存在，无需生成，请忽�
                                                         <TokenImg value={c.avatar} className="w-full h-full object-cover" alt={c.name} />
                                                     </div>
                                                     <div className="absolute bottom-0 right-1.5 w-[22px] h-[22px] rounded-full flex items-center justify-center" style={{ background: th.badgeBg, boxShadow: th.badgeShadow }}>
-                                                        {pixel ? <span className="text-[10px]">🎮</span> : (
+                                                        {visit3D ? <span className="text-[8px] font-bold">3D</span> : (
                                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={`w-3.5 h-3.5 ${th.badgeIcon}`}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75" /></svg>
                                                         )}
                                                     </div>
                                                 </div>
                                                 <span className={`mt-3 text-[14px] font-semibold tracking-wide ${th.name}`} style={{ fontFamily: `'Noto Serif SC',serif` }}>{c.name}</span>
-                                                <span className={`mt-0.5 text-[10px] ${th.cardSub}`}>{pixel ? '进 ta 的像素家园' : '拜访 ta 的房间'}</span>
+                                                <span className={`mt-0.5 text-[10px] ${th.cardSub}`}>{visit3D ? '拜访 ta 的 3D 家园' : '拜访 ta 的房间'}</span>
                                             </button>
                                         );
                                     })}

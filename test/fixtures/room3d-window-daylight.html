@@ -1,0 +1,7 @@
+<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';import {createHome} from '/apps/room3d/model.js';import {snapToWall} from '/apps/room3d/wallMount.js';import {ROOM_HALF} from '/apps/room3d/dimensions.js';import '/apps/room3d/editor.css';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog),room=home.rooms[0],a=catalog.find(a=>a.id==='wooden_window');room.items=[];room.floorStyle='wood';room.floor='#E8BD8F';
+for(const [id,x,z] of [['back-window',-.7,-ROOM_HALF.z],['left-window',-ROOM_HALF.x,1.2]])room.items.push(snapToWall({id,assetId:a.id,x,y:2,z,rotation:0,color:null,stored:false},a,room,catalog));
+const params=new URLSearchParams(location.search);if(params.has('table'))room.items.push({id:'table',assetId:'table',x:-.7,y:.15,z:-1.3,rotation:0,color:null,stored:false});
+const key='test-window-daylight',editor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:home,storageKey:key});window.__homeEditor=editor;window.render_game_to_text=()=>JSON.stringify(editor.inspect());window.advanceTime=ms=>editor.advanceTime(ms);
+</script></body></html>

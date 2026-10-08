@@ -1,0 +1,16 @@
+import {build} from 'esbuild';
+import {mkdir,readFile,writeFile,copyFile} from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+const here=path.dirname(fileURLToPath(import.meta.url));
+const out=path.resolve(here,'../../output/jellyfish-home');
+const site=path.join(out,'site');
+await mkdir(path.join(site,'assets'),{recursive:true});
+await build({entryPoints:[path.join(here,'viewer.js')],outfile:path.join(site,'scene.js'),bundle:true,format:'esm',minify:true,target:'es2022',legalComments:'eof'});
+let html=await readFile(path.join(here,'index.html'),'utf8');
+html=html.replace(/\s*<script type="importmap">.*?<\/script>/s,'').replace('./viewer.js','./scene.js');
+await writeFile(path.join(site,'index.html'),html);
+await copyFile(path.join(out,'jellyfish-home.glb'),path.join(site,'assets/jellyfish-home.glb'));
+await copyFile(path.join(here,'README.md'),path.join(out,'README.md'));
+await copyFile(path.resolve(here,'../../node_modules/three/LICENSE'),path.join(site,'THREE-LICENSE.txt'));
+console.log('Standalone preview bundled:',site);

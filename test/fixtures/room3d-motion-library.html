@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="icon" href="data:,"><title>家园 · 本地动作库</title><link rel="stylesheet" href="./room3d-motion-library.css"></head>
+<body><main><header><div><p class="eyebrow">家园 / MOTION LIBRARY</p><h1>确认的动作。</h1><p id="summary">读取本地素材…</p></div><a href="./room3d-social.html">在两种素体上看动作 ↗</a></header>
+<div class="view-switch" aria-label="素材类型"><button id="view-poses" aria-pressed="false">合照姿势 · 14</button><button id="view-motions" aria-pressed="true">动作原片</button></div>
+<p id="pose-intro" class="note" hidden>已保留选定的 14 个拍照姿势。点缩略图检查定格姿态；暂不加入家园互动菜单。</p>
+<section class="workspace"><div class="preview"><div class="clip-heading"><div><span id="category-label">已选原片</span><h2 id="title">加载中</h2><p id="original"></p></div><button id="save" disabled>＋ 收藏</button></div>
+<div id="stage"><div class="stage-hint">拖动旋转 · 滚轮缩放</div></div>
+<div id="pose-controls" class="pose-controls" hidden><button id="pose-prev">← 上一个</button><button id="pose-front">正面</button><button id="pose-side">侧面</button><button id="pose-back">背面</button><button id="pose-next">下一个 →</button><span>保持定格</span></div>
+<div class="transport"><button id="play" disabled>播放</button><button id="restart" disabled>重播</button><label>速度 <select id="speed"><option value=".25">¼×</option><option value=".5">½×</option><option value="1" selected>1×</option></select></label><label class="loop"><input id="loop" type="checkbox">循环</label><button id="fit">取景复位</button></div>
+<div class="timeline"><input id="seek" aria-label="动作进度" type="range" min="0" max="1" value="0" step=".01" disabled><output id="time">0 / 0 s</output></div>
+<div class="source-links"><button id="focus">聚焦当前姿势</button></div>
+<p id="status" role="status">准备载入…</p><p class="note">这里只保留选定的原片，方便核对来源。查看小人实际动作请点上方“两种素体”；拍照姿势暂存。</p>
+<div class="source-links"><a id="source" target="_blank" rel="noreferrer">原文件来源 ↗</a><a id="license" target="_blank" rel="noreferrer">来源说明 ↗</a><a id="local" download>本地文件 ↓</a></div>
+
+</div><aside><div class="filters"><label class="search-label">找动作<input id="search" type="search" placeholder="牵手、交谈、wave…"></label><div class="selects"><select id="category" aria-label="动作分类"><option value="">全部分类</option></select><select id="collection" aria-label="收藏筛选"><option value="">全部动作</option><option value="approved">已确认</option><option value="saved">我的收藏</option></select></div><div class="list-heading"><span id="count"></span><button id="export">导出清单 ↓</button></div></div><nav id="clips" aria-label="本地动作列表"></nav></aside></section>
+<footer>本地素材：output/social-motion-intake · 各来源许可独立保留。CMU 动捕由 NSF EIA-0196217 资助。</footer></main><script type="module" src="./room3d-motion-library.ts"></script></body></html>

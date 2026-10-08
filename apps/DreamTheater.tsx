@@ -143,6 +143,7 @@ export async function generateDreamScript(opts: {
     char: CharacterProfile; userProfile: UserProfile; apiConfig: DreamApiConfig;
     forcedArchetype?: DreamArchetype; // 仅本地测试：强制指定原型（管理员调试指令）
 }): Promise<DreamScript> {
+
     const { char, userProfile, apiConfig, forcedArchetype } = opts;
     // 记忆宫殿：内部按 memoryPalaceEnabled 自行把关，关闭时是 no-op
     await injectMemoryPalace(char, undefined, undefined, userProfile.name);
@@ -166,7 +167,7 @@ export async function generateDreamScript(opts: {
         // 中转的合法区间是 0~1，>1 会直接报错（OpenAI 虽允许到 2，但 1.0 已足够发散）。
         // max_tokens 用 8192：梦是一堆短碎片，足够用；16000 在 claude-3.5 等输出上限 8192 的
         // 模型上会 400。仍有「finish_reason==='length' → 截断」兜底。
-        body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]), temperature: 1.0, max_tokens: 8192 }),
+        body: JSON.stringify({ model: apiConfig.model, messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])), temperature: 1.0, max_tokens: 8192 }),
     });
     if (!res.ok) throw new Error('API');
     const data = await safeResponseJson(res);

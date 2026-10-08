@@ -19,6 +19,7 @@ import { CharacterProfile } from '../types';
 export const CARD_STRIPPED_FIELDS = [
   // 1) 凭据（含 apiKey，灾难级泄漏）
   'chatApiOverride',
+  'dialogueApi',             // 角色默认对话 API（上游 v3.13）：含 baseUrl/apiKey/model 的整套凭据快照
   'emotionConfig',
   'embeddingConfig',
   'proactiveConfig',
@@ -66,6 +67,9 @@ export const CARD_STRIPPED_FIELDS = [
   'specialMomentRecords',
   'vrState',
   'chibiStudio',
+  'home3D',
+  'homeDefinition',
+  'homeContextBridgeVersion',
 ] as const;
 
 /**

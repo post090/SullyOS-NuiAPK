@@ -1,3 +1,5 @@
+import { ContextBuilder } from '../utils/context';
+
 import MemoryMaintenancePanel from '../components/chat/MemoryMaintenancePanel';
 import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
 import { MemoryTimeText } from '../components/MemoryTimeText';
@@ -60,6 +62,14 @@ import {
     makeCustomMemoryPalaceWaterline,
     resolveMemoryPalaceWaterline,
 } from '../utils/memoryPalace/waterline';
+
+const PixelHomeView = React.lazy(() => import('./pixelHome/PixelHomeView'));
+
+function CharacterHomePages({pixel=false,onChange}:{pixel?:boolean;onChange:(page:'palace'|'pixelHome')=>void}) {
+    return <nav aria-label="角色房间页面" style={{display:'flex',gap:4,padding:4,margin:'12px 0',borderRadius:14,background:pixel?'#1e293b':'#f3f0fa'}}>
+        {([{id:'palace',label:'记忆房间'},{id:'pixelHome',label:'像素家园'}] as const).map(page=><button key={page.id} type="button" aria-pressed={(page.id==='pixelHome')===pixel} onClick={()=>onChange(page.id)} style={{flex:1,padding:'10px 8px',border:0,borderRadius:10,fontSize:12,fontWeight:600,cursor:'pointer',background:(page.id==='pixelHome')===pixel?(pixel?'#475569':'#fff'):'transparent',color:pixel?'#e2e8f0':'#715588'}}>{page.label}</button>)}
+    </nav>;
+}
 
 /** 手动总结面板：每页渲染多少条聊天记录（翻页，避免一次性塞几百条 DOM 卡顿） */
 const RANGE_PAGE_SIZE = 50;
@@ -672,7 +682,7 @@ export default function MemoryPalaceApp() {
     const char = characters.find(c => c.id === activeCharacterId);
     const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选角色页的分组筛选
 
-    const [view, setView] = useState<'picker' | 'palace' | 'room' | 'memory' | 'settings' | 'globalSettings' | 'all' | 'boxes'>(() => guideStep === 1 ? 'globalSettings' : 'picker');
+    const [view, setView] = useState<'picker' | 'palace' | 'pixelHome' | 'room' | 'memory' | 'settings' | 'globalSettings' | 'all' | 'boxes'>(() => guideStep === 1 ? 'globalSettings' : 'picker');
     useEffect(() => {
         const reveal = () => {
             if (guideStep === 1) setView('globalSettings');
@@ -1319,7 +1329,7 @@ export default function MemoryPalaceApp() {
                 char.name,
                 userProfile?.name,
                 remoteVectorConfig,
-            );
+                );
 
             const fresh = result.box;
             const live = (await Promise.all(
@@ -1972,8 +1982,8 @@ export default function MemoryPalaceApp() {
         setMigrationResult(null);
 
         try {
-            const { ContextBuilder } = await import('../utils/context');
-            const charContext = ContextBuilder.buildCoreContext(char, userProfile, false);
+
+            const charContext = (await ContextBuilder.buildCoreContext(char, userProfile, false));
             // selectedMonths 现在存的是分块 key（如 "2026-03 上旬"）
             const monthsToProcess = selectedMonths.size > 0 ? Array.from(selectedMonths) : undefined;
             const result = await migrateOldMemories(
@@ -2958,6 +2968,14 @@ export default function MemoryPalaceApp() {
         );
     }
 
+    // The pixel home keeps its existing per-character IndexedDB records. Opening
+    // it does not require enabling memory extraction or changing the active owner.
+    if (view === 'pixelHome' && char) {
+        return <React.Suspense fallback={<div role="status" className="h-full grid place-items-center bg-slate-900 text-slate-200">正在打开像素家园…</div>}>
+            <PixelHomeView key={char.id} charId={char.id} charName={char.name} charAvatar={char.avatar} userName={userProfile?.name || '用户'} onBack={()=>setView('palace')} navigation={<CharacterHomePages pixel onChange={setView}/>} />
+        </React.Suspense>;
+    }
+
     // ─── 未启用记忆宫殿 ─────────────────────────────────
     // 走到这里时只有全局配置页可能没有 char（上面的 picker 分支兜住了其它 view），
     // 下面各个角色视图都带上 char 判断，免得从选人页直接进全局配置时读空角色崩掉
@@ -2971,6 +2989,7 @@ export default function MemoryPalaceApp() {
                 >
                     ← 返回
                 </div>
+                <CharacterHomePages onChange={setView} />
                 <div style={{ textAlign: 'center', color: '#9ca3af' }}>
                     <div style={{ marginBottom: 16, color: '#c4b5fd', display: 'inline-flex' }}>
                         <Icon name="palace" size={56} />
@@ -4417,7 +4436,7 @@ create table if not exists memory_vectors (
                                         const isPending = m.id === rangePendingId;
                                         const inRange = lo != null && hi != null && m.id >= lo && m.id <= hi;
                                         const isEndpoint = !!endpointLabel;
-                                        const who = m.role === 'user' ? '我' : m.role === 'system' ? '系统' : char.name;
+                                        const who = m.type === 'secret_note' ? '✉ 秘密小纸条' : m.role === 'user' ? '我' : m.role === 'system' ? '系统' : char.name;
                                         const isDate = (m.metadata as any)?.source === 'date';
                                         const preview = (m.content || '').replace(/\s+/g, ' ').trim().slice(0, 48);
                                         return (
@@ -5259,6 +5278,7 @@ create table if not exists memory_vectors (
                         </div>
                     </div>
 
+                    <CharacterHomePages onChange={setView} />
                     {/* 全局搜索 */}
                     <div style={{ marginTop: 12, textAlign: 'left', position: 'relative' }}>
                         <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#9ca3af', display: 'inline-flex', pointerEvents: 'none' }}>

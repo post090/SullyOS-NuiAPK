@@ -1198,8 +1198,7 @@ ${sharedScene.text}${activeGroup ? buildGroupTopicContext(activeGroup) : ''}`;
     };
 
     // 两种模式共用：单个成员的角色档案块（记忆宫殿注入 + 私聊/群聊合并时间线）
-    const buildMemberBlock = async (
-        member: CharacterProfile,
+    const buildMemberBlock = async (member: CharacterProfile,
         currentMsgs: Message[],
         sharedScene: ReturnType<typeof ContextBuilder.buildGroupSharedScene>,
     ): Promise<string> => {
@@ -1210,13 +1209,13 @@ ${sharedScene.text}${activeGroup ? buildGroupTopicContext(activeGroup) : ''}`;
         const palaceQueryMsgs = liveGroupMsgs.slice(-30).filter(m => !m.type || m.type === 'text');
         await injectMemoryPalace(member, palaceQueryMsgs, undefined, userProfile.name);
         // 角色块：跳过共享场景已包含的部分（用户档案 / 共有 worldview / 共有世界书）
-        const coreContext = ContextBuilder.buildCoreContext({ ...member, mountedWorldbooks: [] }, userProfile, true, undefined, {
+        const coreContext = (await ContextBuilder.buildCoreContext({ ...member, mountedWorldbooks: [] }, userProfile, true, undefined, {
             skipUserProfile: true,
             skipWorldview: sharedScene.worldviewIsShared,
             skipWorldbookIds: sharedScene.sharedWorldbookIds,
             headerOverride: `[Group Member Profile: ${member.name}]`,
         // conversational：群聊同样是用户正在说话的场合（见 buildTimeAwarenessBlock）
-        }, { worldbookMessages: liveGroupMsgs, conversational: true });
+        }, { worldbookMessages: liveGroupMsgs, conversational: true }));
         // Get private gap string
         const privateGapInfo = await getPrivateTimeGap(member.id);
 
@@ -1424,6 +1423,7 @@ ${memberTimeline || '(暂无互动记录)'}
     };
 
     const triggerDirector = async (currentMsgs: Message[]) => {
+
         if (!activeGroup) return;
         if (!apiConfig.apiKey) {
             addToast('请先在设置里填好 API', 'error');
@@ -1540,6 +1540,7 @@ ${memberTimeline || '(暂无互动记录)'}
     // （串号天然无解可能 → 天然解决），角色可输出 [[SKIP]] 本轮沉默。
     // 单成员失败只跳过该成员，不杀整轮。
     const triggerRoundRobin = async (currentMsgs: Message[]) => {
+
         if (!activeGroup) return;
         if (!apiConfig.apiKey) {
             addToast('请先在设置里填好 API', 'error');

@@ -1,0 +1,415 @@
+{
+  "kind": "user-approved-motion-sources",
+  "originalExportSha256": "d200b54c458b046f16912e5689f9baf7b5c5d853de321c69e5c6ab102eef018e",
+  "scope": "Source motion approval only; character retargeting remains pending.",
+  "entries": [
+    {
+      "id": "cmu-22_07",
+      "name": "01 单手搭肩 A→B",
+      "original": "22_07 / 23_07",
+      "files": [
+        "/output/social-motion-intake/CMU/22_07.bvh",
+        "/output/social-motion-intake/CMU/23_07.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_07.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_05",
+      "name": "02 双手扶肩 A→B",
+      "original": "22_05 / 23_05",
+      "files": [
+        "/output/social-motion-intake/CMU/22_05.bvh",
+        "/output/social-motion-intake/CMU/23_05.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_05.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-13_17",
+      "name": "03 单人拳击",
+      "original": "13_17",
+      "files": [
+        "/room3d/motions/social-source/13_17.bvh"
+      ],
+      "sourceUrl": "https://mocap.cs.cmu.edu/search.php?subjectnumber=13",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-9563c582418bd5b5",
+      "name": "待机 · idle",
+      "original": "idle",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/idle.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/idle.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-0c64f7e2cbde3af4",
+      "name": "交谈手势 · idle-talking-2",
+      "original": "idle-talking-2",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/extra/idle-talking-2.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/extra/idle-talking-2.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-fdcc1a71495a8b1b",
+      "name": "交谈手势 · idle-talking-3",
+      "original": "idle-talking-3",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/extra/idle-talking-3.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/extra/idle-talking-3.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-3b1c1155dfac93d4",
+      "name": "交谈手势 · rb-idle-talking",
+      "original": "rb-idle-talking",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-idle-talking.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-idle-talking.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-e3d9fa72f0bd27cc",
+      "name": "倾听 · rb-listen",
+      "original": "rb-listen",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-listen.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-listen.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-a7dffdd79957bf87",
+      "name": "倾听 · rb-listen-3",
+      "original": "rb-listen-3",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-listen-3.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-listen-3.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-ad2a5118837bfa67",
+      "name": "吃惊 · reaction-startle",
+      "original": "reaction-startle",
+      "files": [
+        "/output/social-motion-intake/voxavatar/public/assets/animations/reaction-startle.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/reaction-startle.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-7d011478fbff385b",
+      "name": "低落 · sad",
+      "original": "sad",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/sad.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/sad.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-c5f715092eacacc8",
+      "name": "点头 · nod",
+      "original": "nod",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/nod.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/nod.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-7cac053d27467ce6",
+      "name": "点头 · rb-nod-2",
+      "original": "rb-nod-2",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-nod-2.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-nod-2.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-55b69cf6ed4213ad",
+      "name": "开心 / 鼓掌 · happy",
+      "original": "happy",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/happy.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/happy.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-7bc4b0a91cd1feb0",
+      "name": "开心 / 鼓掌 · happy-2",
+      "original": "happy-2",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/happy-2.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/happy-2.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-1e8fb16b889c9054",
+      "name": "生气 / 摇头 · angry-2",
+      "original": "angry-2",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/angry-2.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/angry-2.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-40db0f7c6d612001",
+      "name": "耸肩 · rb-shrug",
+      "original": "rb-shrug",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-shrug.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-shrug.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-6a8dd04f6a0b4f07",
+      "name": "飞机手势 · airplane-02",
+      "original": "airplane-02",
+      "files": [
+        "/output/social-motion-intake/voxavatar/public/assets/animations/airplane-02.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/airplane-02.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-54a37ca48a1d4ffb",
+      "name": "看手机 · review-phone",
+      "original": "review-phone",
+      "files": [
+        "/output/social-motion-intake/voxavatar/public/assets/animations/review-phone.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/review-phone.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-cae36da2cc8b9845",
+      "name": "看手机 · world-afk-texting",
+      "original": "world-afk-texting",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/world-afk-texting.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/world-afk-texting.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-bde19e90366f6448",
+      "name": "思考 / 环顾 · rb-think",
+      "original": "rb-think",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-think.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-think.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-8bd33d84e90c0243",
+      "name": "招手 · rb-wave",
+      "original": "rb-wave",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-wave.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-wave.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "vrma-788371d87156b583",
+      "name": "招手 · rb-wave-2",
+      "original": "rb-wave-2",
+      "files": [
+        "/output/social-motion-intake/Hanami/vrma/rb-wave-2.vrma"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-wave-2.vrma",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_17",
+      "name": "掰手腕",
+      "original": "22_17 / 23_17",
+      "files": [
+        "/output/social-motion-intake/CMU/22_17.bvh",
+        "/output/social-motion-intake/CMU/23_17.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_17.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_04",
+      "name": "单手搭肩 B→A",
+      "original": "22_04 / 23_04",
+      "files": [
+        "/output/social-motion-intake/CMU/22_04.bvh",
+        "/output/social-motion-intake/CMU/23_04.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_04.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-20_12",
+      "name": "低位击掌后走开",
+      "original": "20_12 / 21_12",
+      "files": [
+        "/output/social-motion-intake/CMU/20_12.bvh",
+        "/output/social-motion-intake/CMU/21_12.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_12.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_13",
+      "name": "递汽水与喝水",
+      "original": "22_13 / 23_13",
+      "files": [
+        "/output/social-motion-intake/CMU/22_13.bvh",
+        "/output/social-motion-intake/CMU/23_13.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_13.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_03",
+      "name": "蹲下安慰坐着的人",
+      "original": "22_03 / 23_03",
+      "files": [
+        "/output/social-motion-intake/CMU/22_03.bvh",
+        "/output/social-motion-intake/CMU/23_03.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_03.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-20_11",
+      "name": "击掌后走开",
+      "original": "20_11 / 21_11",
+      "files": [
+        "/output/social-motion-intake/CMU/20_11.bvh",
+        "/output/social-motion-intake/CMU/21_11.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_11.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-18_08",
+      "name": "交谈与解释",
+      "original": "18_08 / 19_08",
+      "files": [
+        "/output/social-motion-intake/CMU/18_08.bvh",
+        "/output/social-motion-intake/CMU/19_08.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_08.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_15",
+      "name": "交替开合跳",
+      "original": "22_15 / 23_15",
+      "files": [
+        "/output/social-motion-intake/CMU/22_15.bvh",
+        "/output/social-motion-intake/CMU/23_15.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_15.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_01",
+      "name": "拉对方起身 A→B",
+      "original": "22_01 / 23_01",
+      "files": [
+        "/output/social-motion-intake/CMU/22_01.bvh",
+        "/output/social-motion-intake/CMU/23_01.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_01.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-18_05",
+      "name": "拉手肘 1",
+      "original": "18_05 / 19_05",
+      "files": [
+        "/output/social-motion-intake/CMU/18_05.bvh",
+        "/output/social-motion-intake/CMU/19_05.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_05.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-20_10",
+      "name": "拉手转圈",
+      "original": "20_10 / 21_10",
+      "files": [
+        "/output/social-motion-intake/CMU/20_10.bvh",
+        "/output/social-motion-intake/CMU/21_10.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_10.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-18_03",
+      "name": "拉住对方 1",
+      "original": "18_03 / 19_03",
+      "files": [
+        "/output/social-motion-intake/CMU/18_03.bvh",
+        "/output/social-motion-intake/CMU/19_03.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_03.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-20_13",
+      "name": "蒙眼捉人",
+      "original": "20_13 / 21_13",
+      "files": [
+        "/output/social-motion-intake/CMU/20_13.bvh",
+        "/output/social-motion-intake/CMU/21_13.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_13.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_08",
+      "name": "牵手摆臂走路",
+      "original": "22_08 / 23_08",
+      "files": [
+        "/output/social-motion-intake/CMU/22_08.bvh",
+        "/output/social-motion-intake/CMU/23_08.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_08.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-22_09",
+      "name": "站着揉肩",
+      "original": "22_09 / 23_09",
+      "files": [
+        "/output/social-motion-intake/CMU/22_09.bvh",
+        "/output/social-motion-intake/CMU/23_09.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_09.bvh",
+      "approvedSource": true
+    },
+    {
+      "id": "cmu-18_10",
+      "name": "争论手势 1",
+      "original": "18_10 / 19_10",
+      "files": [
+        "/output/social-motion-intake/CMU/18_10.bvh",
+        "/output/social-motion-intake/CMU/19_10.bvh"
+      ],
+      "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_10.bvh",
+      "approvedSource": true
+    }
+  ]
+}

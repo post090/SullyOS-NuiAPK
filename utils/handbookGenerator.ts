@@ -533,6 +533,7 @@ export async function generateLifestreamPage(
     maxPageInUse: number = 0,
     canvasPixelHint?: { width: number; height: number },
 ): Promise<LifestreamGenResult> {
+
     if (fragmentBudget !== undefined && fragmentBudget <= 0) return { page: null, placements: [] };
     // (取消 lifestyle gate: 只要 user 把 ta 选进来,就让 ta 在这页留一笔。
     //  scheduleStyle 仍用于决定是否注入 schedule 骨架。)
@@ -705,7 +706,7 @@ text 里允许少量 markdown 语法,渲染时会变成对应的视觉效果:
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
+                messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])),
                 temperature: 0.85,
                 max_tokens: 12000,
             }),

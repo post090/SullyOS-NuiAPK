@@ -12,6 +12,7 @@ import { createBlobStore } from '@rei-standard/blob-store';
 import { DB } from './db';
 
 export const blobStore = createBlobStore({
+    prefix: 'blobref:',
     adapter: {
         get: (id) => DB.getBlobAsset(id),
         put: (id, blob) => DB.putBlobAsset(id, blob),

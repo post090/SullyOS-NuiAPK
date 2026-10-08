@@ -114,7 +114,10 @@ const ChatBroadcast: React.FC = () => {
     const cur = [...visible].sort((a, b) =>
         (a.kind === b.kind ? a.startedAt - b.startedAt : (a.kind === 'reply' ? 1 : -1))
     )[visible.length - 1];
-    const extra = visible.length > 1 ? ` 等 ${visible.length} 项` : '';
+    const concurrentEmotion = cur.kind === 'reply' && visible.some(e => e.charId === cur.charId && e.kind === 'emotion');
+    const count = visible.length - (concurrentEmotion ? 1 : 0);
+    const extra = count > 1 ? ` 等 ${count} 项` : '';
+    const statusLabel = concurrentEmotion ? '正在回应 · 情绪评估中' : LABEL[cur.kind];
 
     const jump = () => {
         try {
@@ -139,7 +142,7 @@ const ChatBroadcast: React.FC = () => {
                     {cur.kind === 'reply' ? '💬' : '🫧'}
                 </span>
                 <span className="relative text-[11px] tracking-[0.04em] text-white/90 whitespace-nowrap font-light">
-                    <span className="text-emerald-200/90 font-normal">{cur.charName}</span>{extra} {LABEL[cur.kind]}
+                    <span className="text-emerald-200/90 font-normal">{cur.charName}</span>{extra} {statusLabel}
                 </span>
                 <span className="relative flex gap-1">
                     {[0, 1, 2].map(i => (

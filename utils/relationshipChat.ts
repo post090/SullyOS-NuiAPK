@@ -222,8 +222,7 @@ export function flipTranscript(detail: string): string {
 //  LLM 调用
 // ============================================================
 
-async function chatCompletion(
-    api: MiniApiConfig,
+async function chatCompletion(api: MiniApiConfig,
     userContent: string,
     temperature = 0.85,
     characterContext?: CharacterContextInput,
@@ -234,10 +233,10 @@ async function chatCompletion(
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${api.apiKey}` },
         body: JSON.stringify({
             model: api.model,
-            messages: characterContext ? ContextBuilder.buildCharacterRequest(characterContext, [
+            messages: characterContext ? (await ContextBuilder.buildCharacterRequest(characterContext, [
                 { role: 'system', content: userContent }, ...history,
                 { role: 'user', content: '请按上述要求继续。' },
-            ]) : [{ role: 'user', content: userContent }],
+            ])) : [{ role: 'user', content: userContent }],
             temperature,
         }),
     });
@@ -267,8 +266,7 @@ async function recentContextText(
  * 按需注入记忆宫殿，query=对方的人名（用户指定的输入契约），返回 buildCoreContext 结果。
  * 记忆宫殿关闭时自动跳过（injectMemoryPalace 内部已 guard）。
  */
-async function buildSpeakerContext(
-    speaker: CharacterProfile,
+async function buildSpeakerContext(speaker: CharacterProfile,
     user: UserProfile,
     otherName: string,
 ): Promise<CharacterContextInput> {

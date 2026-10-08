@@ -1,0 +1,39 @@
+<!doctype html><html><body style="margin:0"><script type="module">
+import * as T from 'three';
+import {createBlankBody} from '/apps/room3d/chibi/blankBody.ts';
+import {bindBlankBody} from '/apps/room3d/chibi/blankRig.ts';
+import {dressApprovedWardrobe} from '/apps/room3d/chibi/approvedClothing.ts';
+import {approvedGarments} from '/apps/room3d/chibi/approvedWardrobe.ts';
+import {createWardrobePose} from '/experiments/chibi/wardrobePose.ts';
+
+const renderer=new T.WebGLRenderer({alpha:true,antialias:true,preserveDrawingBuffer:true});
+renderer.setSize(2048,2048);renderer.setPixelRatio(1);renderer.setClearColor(0xffffff,0);
+renderer.outputColorSpace=T.SRGBColorSpace;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1;
+document.body.append(renderer.domElement);
+const scene=new T.Scene(),camera=new T.OrthographicCamera(-1,1,1,-1,.01,100);
+scene.add(new T.HemisphereLight('#ffffff','#747474',1.65));
+const key=new T.DirectionalLight('#ffffff',2.9),fill=new T.DirectionalLight('#ffffff',.8);
+scene.add(key,fill);
+let current,outfit;
+window.renderClay=async(id,view,gray=true)=>{
+ outfit?.dispose();if(current)scene.remove(current);
+ current=new T.Group();scene.add(current);
+ const material=new T.MeshStandardMaterial({color:'#b0b0b0',roughness:.88});
+ const body=new T.Mesh(createBlankBody('skin',{headSize:1.04,bodyHeight:1}),Array(6).fill(material));current.add(body);
+ const hair=new T.Group();current.add(hair);const rig=bindBlankBody(body,hair,true);
+ const def=approvedGarments.find(d=>d.id===id);if(!def)throw Error(`Unknown garment ${id}`);
+ outfit=await dressApprovedWardrobe(rig,{[def.slot]:id},{[id]:{autoHide:false}});
+ const mixer=new T.AnimationMixer(current);mixer.clipAction(createWardrobePose(rig,'normal')).play();mixer.setTime(.75);
+ current.updateMatrixWorld(true);rig.skeleton.update();rig.mesh.visible=false;
+ const box=new T.Box3();let triangles=0;
+ for(const mesh of outfit.meshes){if(gray)mesh.material=material;mesh.frustumCulled=false;mesh.computeBoundingBox();box.union(new T.Box3().setFromObject(mesh));triangles+=(mesh.geometry.index?.count??mesh.geometry.attributes.position.count)/3;}
+ material.side=T.DoubleSide;
+ const center=box.getCenter(new T.Vector3()),size=box.getSize(new T.Vector3()),span=Math.max(size.x,size.y,size.z)*.575;
+ const sign=view==='back'?-1:1;
+ camera.left=camera.bottom=-span;camera.right=camera.top=span;camera.position.copy(center).add(new T.Vector3(0,0,sign*5));camera.lookAt(center);camera.updateProjectionMatrix();
+ key.position.copy(center).add(new T.Vector3(-3,4,sign*5));fill.position.copy(center).add(new T.Vector3(3,1,sign*3));
+ renderer.render(scene,camera);
+ window.clayReport={id,label:def.label,view,gray,triangles,size:size.toArray(),resolution:2048,transparent:true};
+ return renderer.domElement.toDataURL('image/png');
+};
+</script></body></html>

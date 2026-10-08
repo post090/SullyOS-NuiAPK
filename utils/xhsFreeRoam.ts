@@ -81,9 +81,9 @@ const callLlm = async (
         },
         body: JSON.stringify({
             model: apiConfig.model,
-            messages: ContextBuilder.buildCharacterRequest(systemPrompt, [
+            messages: (await ContextBuilder.buildCharacterRequest(systemPrompt, [
                 { role: 'user', content: userMessage },
-            ]),
+            ])),
             temperature: 0.85,
             stream: false,
         }),
@@ -311,8 +311,7 @@ const getRecentChatContext = async (char: CharacterProfile): Promise<string> => 
 /**
  * 查看笔记详情 + 评论区，并让角色反应（回复评论等）
  */
-const handleViewDetail = async (
-    mcpUrl: string,
+const handleViewDetail = async (mcpUrl: string,
     apiConfig: APIConfig,
     systemPrompt: FreeRoamPrompt,
     noteId: string,
@@ -364,8 +363,7 @@ const handleViewDetail = async (
     callbacks.onStatus(commentsUnavailable
         ? `${char.name}看完了正文，评论区暂时读取失败`
         : `${char.name}在看评论区...`);
-    const reactionRaw = await callLlm(
-        apiConfig,
+    const reactionRaw = await callLlm(apiConfig,
         systemPrompt,
         buildDetailReactionPrompt(noteTitle, noteContent, comments, commentsUnavailable, canInteract),
     );
@@ -469,6 +467,7 @@ export const XhsFreeRoamEngine = {
         realtimeConfig: RealtimeConfig,
         callbacks: FreeRoamCallbacks,
     ): Promise<XhsFreeRoamSession> => {
+
         const mcpUrl = realtimeConfig.xhsMcpConfig?.serverUrl;
         if (!mcpUrl) throw new Error('MCP Server URL 未配置');
         XhsMcpClient.setCookie(realtimeConfig.xhsMcpConfig?.cookie); // lite Worker auth (no-op for local backends)
@@ -492,7 +491,7 @@ export const XhsFreeRoamEngine = {
             callbacks.onStatus(`${char.name}正在思考...`);
             const pastActivities = await DB.getXhsActivities(char.id, 10);
             const chatSummary = await getRecentChatContext(char);
-            const systemPrompt = buildFreeRoamSystemPrompt(char, user, chatSummary, pastActivities);
+            const systemPrompt = (await buildFreeRoamSystemPrompt(char, user, chatSummary, pastActivities));
 
             // 4. Character decides
             callbacks.onStatus(`${char.name}在决定做什么...`);
@@ -646,8 +645,7 @@ export const XhsFreeRoamEngine = {
                     // If character wants to view note detail (comments section)
                     // 注意：浏览/搜索看到的是别人的帖子，不执行评论（wantToComment 已从 prompt 中移除）
                     if (reaction?.wantToViewDetail?.noteId) {
-                        await handleViewDetail(
-                            mcpUrl, apiConfig, systemPrompt,
+                        await handleViewDetail(mcpUrl, apiConfig, systemPrompt,
                             reaction.wantToViewDetail.noteId,
                             reaction.wantToViewDetail.title || '',
                             notes, char, session, callbacks,
@@ -750,8 +748,7 @@ export const XhsFreeRoamEngine = {
                         profileRecord.thinking = reaction.thinking;
                     }
                     if (reaction?.wantToViewDetail?.noteId) {
-                        await handleViewDetail(
-                            mcpUrl, apiConfig, systemPrompt,
+                        await handleViewDetail(mcpUrl, apiConfig, systemPrompt,
                             reaction.wantToViewDetail.noteId,
                             reaction.wantToViewDetail.title || '',
                             notes, char, session, callbacks,

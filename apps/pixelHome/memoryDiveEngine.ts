@@ -309,7 +309,7 @@ export async function callDiveLLM(
       },
       body: JSON.stringify({
         model: apiConfig.model,
-        messages: ContextBuilder.buildCharacterRequest(charContext, [{ role: 'user', content: prompt }]),
+        messages: (await ContextBuilder.buildCharacterRequest(charContext, [{ role: 'user', content: prompt }])),
         temperature: 0.8,
         // 中文散文 + JSON 包装极吃 token，给足余量，避免在字符串中间被截断
         max_tokens: 8000,
@@ -842,7 +842,7 @@ export async function planRoomVisit(
   apiConfig: APIConfig,
   charContext: CharacterContextInput,
   remoteConfig?: RemoteVectorConfig,
-): Promise<{ script: RoomScript; memoryTexts: string[] }> {
+  ): Promise<{ script: RoomScript; memoryTexts: string[] }> {
   const memories = await fetchRoomMemories(params.charId, params.room, 8, remoteConfig);
   const memoryTexts = memories.map(m => m.content);
   const prompt = buildRoomScriptPrompt(params, memoryTexts, '');
@@ -857,7 +857,7 @@ export async function planRoomVisit(
       },
       body: JSON.stringify({
         model: apiConfig.model,
-        messages: ContextBuilder.buildCharacterRequest(charContext, [{ role: 'user', content: prompt }]),
+        messages: (await ContextBuilder.buildCharacterRequest(charContext, [{ role: 'user', content: prompt }])),
         temperature: 0.85,
         // 3 beats × 3 choices × (line+reaction+narrator) + intro/close 容易超，
         // 给足余量避免被 max_tokens 截断

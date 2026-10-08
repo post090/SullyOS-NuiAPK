@@ -1,0 +1,12 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>家具 · 复古风格试览</title><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';
+import {createHome} from '/apps/room3d/model.js';
+import '/apps/room3d/editor.css';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog);
+home.rooms[0].items=[['petal_sofa',-.8,-1.65],['daisy_table',-.8,.45],['monstera',2,-1.7],['media_cabinet',2.7,1.3]].map(([id,x,z])=>({id,assetId:id,x,y:.15,z,rotation:0,color:null,stored:false}));
+window.__homeEditor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:home});
+// Compare materials at clear resolution; the fixture has no character save data.
+document.querySelector('[data-panel="quality"]').click();
+document.querySelector('[data-action="quality"][data-value="clear"]').click();
+document.querySelector('[data-action="close"]').click();
+</script></body></html>

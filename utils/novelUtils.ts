@@ -203,7 +203,7 @@ export const generateWriterPersonaDeep = async (
             },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: ContextBuilder.buildCharacterRequest({
+                messages: await ContextBuilder.buildCharacterRequest({
                     char, user: userProfile,
                     timeOptions: { skipTimeAwareness: true },
                     instructions: `${writerIdentityBoundary(char, userProfile)}\n\n${analysisPrompt}`,
@@ -215,7 +215,13 @@ export const generateWriterPersonaDeep = async (
 
         if (response.ok) {
             const data = await safeResponseJson(response);
-            const rawPersona = extractLlmContent(data).trim();
+            let rawPersona: string;
+            try {
+                rawPersona = extractLlmContent(data).trim();
+            } catch (err) {
+                if (err instanceof Error && err.message.startsWith('API 返回格式异常')) throw new Error('分析未返回有效内容，请重试');
+                throw err;
+            }
             if (!rawPersona) throw new Error('分析未返回有效内容，请重试');
             
             const formattedPersona = `

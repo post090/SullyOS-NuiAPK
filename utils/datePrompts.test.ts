@@ -139,7 +139,7 @@ describe('跨场景角色原则', () => {
         const reroll = await DatePrompts.buildSessionPayload({
             char, userProfile: user, allMsgs, emojis: [], userText: allMsgs[0].content, variant: 'reroll',
         });
-        const peek = DatePrompts.buildPeekPayload({ char, userProfile: user, allMsgs, emojis: [] });
+        const peek = (await DatePrompts.buildPeekPayload({ char, userProfile: user, allMsgs, emojis: [] }));
         for (const messages of [chat.fullMessages, send.messages, reroll.messages, peek.messages]) {
             const text = messages.map(m => m.content).join('\n');
             expect(text.split(shared)).toHaveLength(2);
@@ -444,7 +444,7 @@ describe('见面里的世界书', () => {
         expect(contents(messages).join('\n')).not.toContain('海边的设定');
     });
 
-    it('开场感知：深度条目和关键词条目同样生效', () => {
+    it('开场感知：深度条目和关键词条目同样生效', async () => {
         const char = makeChar({
             mountedWorldbooks: [
                 wb({ id: 'tail', content: '深度零的文风', position: 4, depth: 0 }),
@@ -452,7 +452,7 @@ describe('见面里的世界书', () => {
                 wb({ id: 'kw', content: '钟楼的设定', constant: false, key: ['第三句'], scanDepth: 4 }),
             ],
         });
-        const { messages } = DatePrompts.buildPeekPayload({ char, userProfile: user, allMsgs: history(), emojis: [] });
+        const { messages } = await DatePrompts.buildPeekPayload({ char, userProfile: user, allMsgs: history(), emojis: [] });
         // 开场感知保留实际历史边界；扫描材料不再压成单条任务消息。
         const deepIndex = messages.findIndex(m => m.content === '深度四的提醒');
         const tailIndex = messages.findIndex(m => m.content === '深度零的文风');
@@ -465,14 +465,14 @@ describe('见面里的世界书', () => {
     });
 });
 
-describe('DatePrompts.buildPeekPayload', () => {
-    it('让他靠近读取同一份上下文与世界书，只改变开场发起者，保留用户自主权', () => {
+describe('DatePrompts.buildPeekPayload', async () => {
+    it('让他靠近读取同一份上下文与世界书，只改变开场发起者，保留用户自主权', async () => {
         const char = makeChar({ mountedWorldbooks: [{
             id: 'place', title: '常去的店', content: '在街角书店见面', category: '地点', constant: true,
         }] });
         const input = { char, userProfile: user, allMsgs: [makeMsg({ content: '我还在书店等你。' })], emojis: [] };
-        const approach = DatePrompts.buildPeekPayload(input);
-        const invite = DatePrompts.buildPeekPayload({ ...input, openingMode: 'invite' });
+        const approach = await DatePrompts.buildPeekPayload(input);
+        const invite = await DatePrompts.buildPeekPayload({ ...input, openingMode: 'invite' });
         for (const { messages } of [approach, invite]) {
             expect(JSON.stringify(messages)).toContain('我还在书店等你。');
             expect(sysOf(messages)).toContain('在街角书店见面');
@@ -484,9 +484,9 @@ describe('DatePrompts.buildPeekPayload', () => {
         expect(invite.messages.slice(-1)[0].content).toContain('不代写用户反应');
         expect(invite.messages.slice(-1)[0].content).not.toContain('用户尚未走近');
     });
-    it('描写风格短语跟随风格预设；extra 追加进指令', () => {
+    it('描写风格短语跟随风格预设；extra 追加进指令', async () => {
         const char = makeChar({ dateStyleConfig: { style: 'plain', extra: '环境描写多一点。' } });
-        const { messages } = DatePrompts.buildPeekPayload({
+        const { messages } = await DatePrompts.buildPeekPayload({
             char, userProfile: user, allMsgs: [makeMsg()], emojis: [],
         });
         const userMsg = lastUserOf(messages).content as string;
@@ -496,15 +496,15 @@ describe('DatePrompts.buildPeekPayload', () => {
         expect(userMsg).toContain('第三人称');
     });
 
-    it('历史里的卡片消息被压成摘要，原始 HTML/JSON 不进 prompt', () => {
+    it('历史里的卡片消息被压成摘要，原始 HTML/JSON 不进 prompt', async () => {
         const rawHtml = '<div style="color:red">巨大的原始HTML</div>';
         const msgs = [
             makeMsg({ type: 'html_card' as any, role: 'assistant', content: `[HTML卡片] ${rawHtml}`, metadata: { htmlTextPreview: '一张卡片' } }),
             makeMsg({ content: '看到了' }),
         ];
-        const { messages } = DatePrompts.buildPeekPayload({
+        const { messages } = (await DatePrompts.buildPeekPayload({
             char: makeChar(), userProfile: user, allMsgs: msgs, emojis: [],
-        });
+        }));
         const userMsg = lastUserOf(messages).content as string;
         expect(userMsg).not.toContain(rawHtml);
         expect(JSON.stringify(messages)).toContain('一张卡片');
@@ -564,8 +564,8 @@ describe('DatePrompts.buildPeekPayload', () => {
         for (const id of ['disabled', 'miss', 'instruction', 'principles']) expect(json).not.toContain(`WB_${id}`);
     });
 
-    it('感知开场由公共上下文带入深度条目，并支持关键词匹配', () => {
-        const { messages } = DatePrompts.buildPeekPayload({
+    it('感知开场由公共上下文带入深度条目，并支持关键词匹配', async () => {
+        const { messages } = await DatePrompts.buildPeekPayload({
             char: makeChar({ mountedWorldbooks: [book('D'), book('K', {
                 position: 1, constant: false, key: ['记录5'],
             })] }), userProfile: user, allMsgs: history(), emojis: [],

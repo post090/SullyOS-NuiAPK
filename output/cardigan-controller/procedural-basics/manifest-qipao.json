@@ -1,0 +1,13 @@
+[
+  {
+    "id": "qipao",
+    "label": "盘扣长旗袍",
+    "slot": "onepiece",
+    "triangles": 4490,
+    "drawCalls": 5,
+    "open": false,
+    "sleeveless": false,
+    "source": "Meshy_AI_Blank_Chibi_Qipao_0920125742_texture.glb",
+    "prefix": "Apparel_"
+  }
+]

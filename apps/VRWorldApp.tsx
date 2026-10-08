@@ -22,7 +22,7 @@ import { SARModuleShopOverlay } from './vrWorld/SARModuleShop';
 import { FishingMarketOverlay } from './vrWorld/FishingMarketOverlay';
 import { SARHubPanels, type SARHubPanel } from './vrWorld/SARHubPanels';
 const DinosaurGarden = React.lazy(() => import('./vrWorld/dinosaur/DinosaurGarden').then(m=>({default:m.DinosaurGarden})));
-import { CreatorIframe, type ChibiResult } from '../components/Like520Event';
+import { CreatorIframe, sullyPresets, type ChibiResult } from '../components/Like520Event';
 import { useMusic, type Song } from '../context/MusicContext';
 import { DB } from '../utils/db';
 import { LibraryView, NovelPreferenceModal } from './vrWorld/VRLibrary';
@@ -3580,7 +3580,7 @@ const ChibiEditor: React.FC<{
 
     const isSully = (char.name || '').toLowerCase().includes('sully');
     // 回填：捏人器 init 读 presets（扁平 map），用上次导出的 state.selected
-    const presets = existing?.state?.selected || (isSully ? { skin: 'skin_1', fronthair: 'fronthair_99', eyes: 'eyes_99' } : undefined);
+    const presets = existing?.state?.selected || (isSully ? sullyPresets() : undefined);
 
     const onConfirm = (r: ChibiResult) => {
         setImg(r.transparentDataUrl);

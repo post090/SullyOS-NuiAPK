@@ -1,5 +1,6 @@
 import { MEMORY_GUIDE_SECTIONS } from '../utils/memoryGuide';
 import { SAR_CHANGELOG } from '../utils/sarUpdate';
+import { HOME_CHANGELOG } from '../utils/homeUpdate';
 
 import React, { useEffect, useState } from 'react';
 import { useOS } from '../context/OSContext';
@@ -120,6 +121,14 @@ interface ChangelogEntry {
 }
 
 const CHANGELOG_ENTRIES: ChangelogEntry[] = [
+    {
+        id: HOME_CHANGELOG,
+        title: '3D 家园测试版 · 住进同一个日常',
+        subtitle: '当面聊天接入上下文 · 小手机线上私聊 · 说话邀请与自动开口图解',
+        date: '2026-10-07',
+        src: 'changelogs/2026-10-home3d-beta.html',
+        accent: 'from-orange-50 to-amber-50 border-orange-200',
+    },
     {
         id: SAR_CHANGELOG,
         title: '2026 年 9 月 11 日 · 彼方来信 · SAR',

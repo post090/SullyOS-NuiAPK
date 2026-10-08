@@ -79,7 +79,7 @@ describe('memory palace M0 trace', () => {
         expect(trace.stages.some(stage => stage.name === 'clear_previous_injection')).toBe(false);
     });
 
-    it('does not clear master injections when embedding is not configured and the suite is off', async () => {
+    it('refreshes room plates independently of embedding configuration while retaining legacy recall behavior', async () => {
         const char = {
             id: 'char-no-embedding',
             memoryPalaceEnabled: true,
@@ -90,7 +90,8 @@ describe('memory palace M0 trace', () => {
         const trace = await injectMemoryPalace(char, []);
 
         expect(char.memoryPalaceInjection).toBe('不能继续沿用');
-        expect(char.roomPlatesInjection).toBe('也不能继续沿用');
+        expect(char.roomPlatesInjection).toBe('');
+        expect(trace.stages.some(stage => stage.name === 'room_plates')).toBe(true);
         expect(trace.outcome).toBe('skipped_embedding_unconfigured');
         expect(trace.pipelineVersion).toBe(RECALL_PIPELINE_VERSION);
         expect(trace.featureFlagsSnapshot).toEqual({

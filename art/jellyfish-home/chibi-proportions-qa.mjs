@@ -1,0 +1,31 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const {chromium}=await import('file:///C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs');
+await fs.mkdir('output/chibi-proportions',{recursive:true});
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader']});
+try{
+ const p=await browser.newPage({viewport:{width:1100,height:850}}),errors=[];p.setDefaultTimeout(60000);
+ p.on('pageerror',e=>errors.push(String(e)));p.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+ await p.addInitScript(()=>{if(!localStorage.getItem('proportion-qa')){localStorage.setItem('proportion-qa','1');localStorage.setItem('chibi-world-hair-settings',JSON.stringify({bodyShape:'blank',layers:{},extras:[]}));localStorage.setItem('sully-home3d-quality','eco');}});
+ await p.goto('http://127.0.0.1:5174/chibi-experiment.html',{waitUntil:'domcontentloaded'});
+ await p.locator('[data-panel="chibi"]').click();await p.locator('[data-action="chibi-view"]').click();
+ await p.getByRole('button',{name:'调整比例',exact:true}).click();
+ const head=p.getByRole('slider',{name:'头大小',exact:true}),height=p.getByRole('slider',{name:'身高',exact:true});
+ assert.equal(await head.inputValue(),'104');
+ const set=async(el,value)=>{await el.fill(String(value));await p.waitForTimeout(600)};
+ await set(head,120);await set(height,115);
+ assert.equal(await head.inputValue(),'120');assert.equal(await height.inputValue(),'115');
+ await p.screenshot({path:'output/chibi-proportions/desktop.png'});
+ const panel=p.getByRole('region',{name:'小人比例'});
+ await panel.getByRole('button',{name:'撤销',exact:true}).click();assert.equal(await height.inputValue(),'100');assert.equal(await head.inputValue(),'120');
+ await panel.getByRole('button',{name:'重做',exact:true}).click();assert.equal(await height.inputValue(),'115');
+ await panel.getByRole('button',{name:'重置比例',exact:true}).click();assert.equal(await height.inputValue(),'100');assert.equal(await head.inputValue(),'104');
+ await panel.getByRole('button',{name:'撤销',exact:true}).click();assert.equal(await height.inputValue(),'115');assert.equal(await head.inputValue(),'120');
+ await p.waitForTimeout(700);await p.reload({waitUntil:'domcontentloaded'});await p.getByRole('button',{name:'调整比例',exact:true}).click();assert.equal(await head.inputValue(),'120');assert.equal(await height.inputValue(),'115');
+ await p.locator('[data-panel="chibi"]').waitFor();await p.setViewportSize({width:390,height:844});await p.waitForTimeout(1200);
+ const box=await panel.boundingBox();assert.ok(box.x>=0&&box.x+box.width<=390);await p.screenshot({path:'output/chibi-proportions/phone.png'});
+ await panel.getByRole('button',{name:'重置比例',exact:true}).click();await panel.getByRole('button',{name:'收起',exact:true}).click();
+ await p.getByRole('button',{name:'✎ 捏小人',exact:true}).click();await p.getByRole('button',{name:'3D 调整',exact:true}).click();
+ await head.waitFor({state:'visible'});await set(head,85);await set(height,90);await p.screenshot({path:'output/chibi-proportions/creator.png'});
+ assert.deepEqual(errors,[]);await fs.writeFile('output/chibi-proportions/ui-report.json',JSON.stringify({saved:true,undo:true,redo:true,reset:true,mobile:true,creator:true,errors},null,2));console.log('proportion sliders, undo/redo/reset, persistence, phone and creator passed');
+}finally{await browser.close()}

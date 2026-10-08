@@ -70,7 +70,7 @@ describe('小人立绘的取值链路', () => {
     // 这条链路一旦改掉，上面那几条守卫就失去了存在理由；留着它把因果钉在一起。
     const view = read('PixelHomeView.tsx');
     expect(view).toContain('charSprite={pixelCharSprite || charAvatar}');
-    const roomApp = readFileSync(path.resolve(__dirname, '../apps/RoomApp.tsx'), 'utf8');
+    const roomApp = readFileSync(path.resolve(__dirname, '../apps/MemoryPalaceApp.tsx'), 'utf8');
     expect(roomApp).toContain('charAvatar={char.avatar}');
   });
 });

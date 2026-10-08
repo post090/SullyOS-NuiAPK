@@ -2,6 +2,7 @@ import type { Message } from '../types';
 import { openDB } from './db';
 import { getMemoryPalaceHighWaterMarkForContext } from './chatContextRange';
 import { preserveContentFavoritesBeforeMessageDeletion } from './contentFavorites';
+import {deleteLinkedSecretNotes, announceSecretNotesChanged} from './secretNote';
 
 export const CHAT_CLEANUP_CONFIRMATION = '我确定永久删除我选中的内容';
 export type ChatCleanupSelection = { fromId: number; toId: number } | { keepRecent: number };
@@ -88,12 +89,14 @@ export async function deleteChatHistoryCleanup(plan: ChatCleanupPlan, confirmati
         const store = tx.objectStore('messages');
         const assets = tx.objectStore('assets');
         let deleted = 0;
+        const noteParents: Message[] = [];
         let failure: Error | undefined;
         const fail = () => { failure = new Error('选中的记录已变化，请重新选择范围并完成两次确认'); tx.abort(); };
-        tx.oncomplete = () => resolve(deleted);
+        tx.oncomplete = () => {announceSecretNotesChanged(plan.charId); resolve(deleted);};
         tx.onerror = () => reject(tx.error);
         tx.onabort = () => reject(failure || tx.error || new Error('清理未完成，选中记录已保留'));
         const applyDeletion = () => {
+            for (const parent of noteParents) deleteLinkedSecretNotes(store, parent);
             // 只有主键完全相邻才合并删除；中间的其他角色、群聊或新记录不会被跨过去。
             let index = 0;
             const deleteBatch = () => {
@@ -128,6 +131,8 @@ export async function deleteChatHistoryCleanup(plan: ChatCleanupPlan, confirmati
                     if (failure) return;
                     const message = read.result as Message | undefined;
                     if (!message || message.charId !== plan.charId || message.groupId || expected.get(id) !== fingerprint(message)) { fail(); return; }
+                    // Apply after validation, in the same transaction, so a failed preview rolls back notes too.
+                    if (message.metadata?.secretNoteIds?.length) noteParents.push(message);
                     // 清理角色的剧情副本时，只解除中央正文对这个副本的引用。
                     // 中央剧情和其他角色副本保留，避免后续重写因悬空镜像 ID 失败。
                     const centralId = Number(message.metadata?.theaterCentralId);

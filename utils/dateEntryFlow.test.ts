@@ -38,6 +38,7 @@ vi.mock('./chatContextRange', async importOriginal => ({
 vi.mock('./visionApi', () => ({ materializeVisionDescriptions: vi.fn(async messages => messages) }));
 vi.mock('./safeApi', () => ({ safeResponseJson: vi.fn(async () => ({})), extractContent: vi.fn(() => '测试开场正文') }));
 vi.mock('./db', () => ({ DB: {
+    getAsset: vi.fn(async () => undefined),
     getRecentMessagesByCharIdAndSource: vi.fn(async () => mocks.rows),
     getEmojis: vi.fn(async () => []),
     saveMessage: vi.fn(async message => { mocks.rows.push({ ...message, id: mocks.rows.length + 1, timestamp: 1 }); return mocks.rows.length; }),
@@ -63,7 +64,7 @@ it.each(['靠近他', '让他靠近'])('%s 生成对应开场并保存场次和�
     await act(async () => root.render(React.createElement(DateApp)));
     await clickText('测试角色');
     await clickText(label);
-    expect(mocks.fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.fetch, JSON.stringify(mocks.toast.mock.calls)).toHaveBeenCalledTimes(1);
     const request = JSON.parse(mocks.fetch.mock.calls[0][1].body);
     expect(JSON.stringify(request.messages)).toContain(label === '靠近他' ? '用户正在悄悄靠近' : '由你主动以合理的方式');
     await clickText(label === '靠近他' ? '走过去' : '见到他');

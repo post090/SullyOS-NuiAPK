@@ -131,7 +131,7 @@ async function callLLM(
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: characterContext ? ContextBuilder.buildCharacterRequest(characterContext, [{ role: 'user', content: prompt }]) : [{ role: 'user', content: prompt }],
+                messages: characterContext ? (await ContextBuilder.buildCharacterRequest(characterContext, [{ role: 'user', content: prompt }])) : [{ role: 'user', content: prompt }],
                 temperature,
                 max_tokens: maxTokens,
             }),

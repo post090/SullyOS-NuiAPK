@@ -141,7 +141,12 @@ const computeContextRangeFromRefs = <T extends Pick<Message, 'id' | 'groupId'>>(
 
 export const computeContextRangeSnapshot = (
     sourceMessages: Message[], char: CharacterProfile, hwm: number,
-): ContextRangeSnapshot => computeContextRangeFromRefs(sourceMessages, char, hwm);
+): ContextRangeSnapshot => {
+    const snapshot = computeContextRangeFromRefs(sourceMessages, char, hwm);
+    // Boundary-only references have no timestamp. Sort actual dialogue after ID filtering.
+    snapshot.messages.sort((a, b) => a.timestamp - b.timestamp || a.id - b.id);
+    return snapshot;
+};
 
 /**
  * AI 上下文读取：
@@ -151,7 +156,12 @@ export const computeContextRangeSnapshot = (
  */
 export const loadCharacterContextRange = async (
     char: CharacterProfile,
+    onTiming?: (stage: string, ms: number) => void,
 ): Promise<ContextRangeSnapshot> => {
+    let started = performance.now();
+    await DB.ensureHomeContextMessages(char.id);
+    onTiming?.("家园历史同步检查", Math.round(performance.now()-started));
+    started = performance.now();
     const hwm = getMemoryPalaceHighWaterMarkForContext(char.id);
     const mode = resolveContextRangeMode(char);
     const sourceMessages = mode === 'adaptive'
@@ -161,7 +171,11 @@ export const loadCharacterContextRange = async (
             clampManualContextLimit(char.contextLimit),
             true,
         );
-    return computeContextRangeSnapshot(sourceMessages, char, hwm);
+    onTiming?.('读取范围内原文', Math.round(performance.now()-started));
+    started = performance.now();
+    const snapshot = computeContextRangeSnapshot(sourceMessages, char, hwm);
+    onTiming?.('计算上下文边界', Math.round(performance.now()-started));
+    return snapshot;
 };
 
 export const countMessagesFrom = (messages: Message[], messageId: number): number =>

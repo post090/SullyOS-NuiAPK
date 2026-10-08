@@ -1,0 +1,20 @@
+import fs from 'node:fs/promises';import assert from 'node:assert/strict';
+const {chromium}=await import('file:///C:/Users/Administrator/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs');
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader']});const errors=[];await fs.mkdir('output/room-scope',{recursive:true});
+try{
+const p=await browser.newPage({viewport:{width:1100,height:850}});p.on('pageerror',e=>errors.push(String(e)));p.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+const ready=()=>p.waitForFunction(()=>window.__homeEditor,undefined,{timeout:90000}),state=()=>p.evaluate(()=>window.__homeEditor.inspect()),click=(a,q='')=>p.locator('[data-action="'+a+'"]'+q).first().click(),shot=n=>p.screenshot({path:'output/room-scope/'+n+'.png'});
+await p.goto('http://127.0.0.1:5174/test/fixtures/room3d-finishes.html');await ready();let initial=await state();const [a,b]=initial.rooms;assert.equal(initial.visibleRoomIds.length,2);
+await click('panel','[data-panel="rooms"]');await click('room-scope','[data-value="room"]');assert.deepEqual((await state()).visibleRoomIds,[a.id]);assert.deepEqual((await state()).rooms,initial.rooms);await shot('single-panel');
+await click('room','[data-id="'+b.id+'"]');assert.deepEqual((await state()).visibleRoomIds,[b.id]);assert.equal((await state()).zoom,1);await shot('single-room');
+await click('overview');assert.equal((await state()).visibleRoomIds.length,2);await click('overview');assert.deepEqual((await state()).visibleRoomIds,[b.id]);
+await p.reload();await ready();assert.equal((await state()).roomScope,'room');assert.deepEqual((await state()).visibleRoomIds,[b.id]);
+for(let n=0;n<12;n++)await click('zoom','[data-factor="1.2"]');assert.equal((await state()).zoom,6);await shot('zoom-six');await click('zoom','[data-factor=".833333"]');assert.ok((await state()).zoom<6);
+await p.mouse.move(550,420);await p.mouse.wheel(0,-4000);await p.waitForTimeout(150);assert.equal((await state()).zoom,6);
+await click('panel','[data-panel="rooms"]');await click('room-scope','[data-value="floor"]');assert.equal((await state()).visibleRoomIds.length,2);assert.equal((await state()).zoom,1);assert.deepEqual((await state()).rooms,initial.rooms);
+await p.setViewportSize({width:390,height:844});await click('room-scope','[data-value="room"]');await shot('mobile-panel');await click('close');await shot('mobile-room');await p.close();
+const shark=await browser.newPage({viewport:{width:1000,height:850}});shark.on('pageerror',e=>errors.push(String(e)));await shark.goto('http://127.0.0.1:5174/test/fixtures/room3d-bedroom.html?empty');await shark.waitForFunction(()=>window.__homeEditor,undefined,{timeout:90000});const act=(a,q='')=>shark.locator('[data-action="'+a+'"]'+q).first().click();await act('panel','[data-panel="furniture"]');await act('catalog-mode','[data-value="use"]');await act('category','[data-value="decor"]');assert.match(await shark.locator('[data-id="bedroom_rabbit"]').innerText(),/软绵鲨鱼玩偶/);await act('add-item','[data-id="bedroom_rabbit"]');await act('panel','[data-panel="chibi"]');assert.match(await shark.locator('[data-action="chibi-hug"]').innerText(),/鲨鱼/);await act('chibi-hug');await shark.evaluate(()=>window.advanceTime(600));await act('panel','[data-panel="chibi"]');await act('chibi-view');await shark.screenshot({path:'output/room-scope/shark-hug.png'});
+const materials=await shark.evaluate(()=>{const out=[];window.__visitor.root.parent.getObjectByName('held-plush').traverse(o=>{if(o.isMesh)out.push([o.material.name,o.material.color.getHexString()]);});return out});assert.ok(materials.some(([n,c])=>n==='shark-blue'&&c==='7093a6'));assert.ok(materials.some(([n,c])=>n==='bed-cream'&&c==='f1e9dc'));await shark.close();assert.deepEqual(errors,[]);console.log('Room isolation, switches, overview, persistence, zoom buttons/wheel, mobile, shark labels and two-tone hug passed');
+await fs.writeFile('output/room-scope/report.json',JSON.stringify({scope:true,zoom:6,shark:materials,errors},null,2));
+}finally{await browser.close();}
+

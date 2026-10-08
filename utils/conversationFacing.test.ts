@@ -1,0 +1,5 @@
+import {expect,it} from 'vitest';
+import {Object3D,Vector3} from 'three';
+import {conversationHeading,conversationHead} from '../apps/room3d/conversationFacing';
+it('turns toward the partner without moving feet, using the short rotation path',()=>{const actor=new Object3D();actor.position.set(2,0,1);actor.rotation.y=-Math.PI+.1;const p=actor.position.clone();conversationHeading(actor,new Vector3(2.1,0,-5),1);expect(actor.position.equals(p)).toBe(true);const front=new Vector3(0,0,1).applyQuaternion(actor.quaternion);expect(front.z).toBeLessThan(-.99);});
+it('head gaze preserves seated root and limits neck twist',()=>{const seat=new Object3D(),head=new Object3D();seat.rotation.y=.8;seat.position.set(1,2,3);seat.add(head);head.position.y=1;const q=seat.quaternion.clone(),p=seat.position.clone();conversationHead(head,new Vector3(5,3,3),1);expect(seat.quaternion.equals(q)).toBe(true);expect(seat.position.equals(p)).toBe(true);expect(Math.abs(head.rotation.y)).toBeLessThanOrEqual(1.05);expect(head.quaternion.angleTo(new Object3D().quaternion)).toBeGreaterThan(.1);});

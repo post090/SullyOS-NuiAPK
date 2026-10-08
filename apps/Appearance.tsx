@@ -142,6 +142,13 @@ type DesktopSkinOption = { id: string; name: string; desc: string; swatch: strin
 
 const DESKTOP_SKINS: DesktopSkinOption[] = [
   {
+    id: 'homely',
+    name: '居家',
+    desc: '小屋日常同步 · 面对面聊天 · 家园小手机',
+    swatch: 'linear-gradient(90deg,#ebc2a1 0%,#f4dfcc 48%,#faf3e7 48%,#fffaf2 100%)',
+    config: { skin: 'homely', wallpaper: 'linear-gradient(180deg,#faf3e7,#ebc2a1)', contentColor: '#695344' },
+  },
+  {
     id: 'animalcrossing',
     name: '动森风格',
     desc: 'NookPhone 彩色图标 · 草地天空 · 暖色界面',

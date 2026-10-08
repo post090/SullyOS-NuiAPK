@@ -1,0 +1,43 @@
+[
+  {
+    "id": "geta",
+    "label": "木屐",
+    "folder": "01a0bcd2-89bf-75c0-8e76-406afc5052b1",
+    "triangles": 860,
+    "status": "standalone-tryon",
+    "drawCalls": 2,
+    "opening": 0,
+    "groundOffset": 0.18000000715255737
+  },
+  {
+    "id": "boots",
+    "label": "系带短靴",
+    "folder": "01a0bcd2-89cc-7412-b7da-34f7232815df",
+    "triangles": 1250,
+    "status": "standalone-tryon",
+    "drawCalls": 2,
+    "opening": 0.5,
+    "groundOffset": 0
+  },
+  {
+    "id": "shorts",
+    "label": "宽松短裤",
+    "folder": "01a0bcd7-1799-7119-9c27-d260ca031cd1",
+    "triangles": 1185,
+    "status": "standalone-tryon",
+    "drawCalls": 1,
+    "hem": 1.2558679580688477,
+    "waist": 2.49,
+    "skirt": false
+  },
+  {
+    "id": "sneakers",
+    "label": "厚底运动鞋",
+    "folder": "01a0bcd8-1508-738b-a069-a8a077190747",
+    "triangles": 2236,
+    "status": "standalone-tryon",
+    "drawCalls": 2,
+    "opening": 0.418,
+    "groundOffset": 0
+  }
+]

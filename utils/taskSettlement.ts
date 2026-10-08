@@ -61,7 +61,7 @@ async function generateSupervisorReaction(
     if (!apiConfig.apiKey) return '';
     try {
         await injectMemoryPalace(char, undefined, ctx.task.title);
-        const baseContext = ContextBuilder.buildCoreContext(char, user);
+        const baseContext = await ContextBuilder.buildCoreContext(char, user);
         const userPrompt = buildTaskPrompt(ctx);
         const response = await resilientFetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',

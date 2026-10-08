@@ -7,6 +7,10 @@ import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip, 
 import { encodeVectorsForBackup, encodeVectorsForBackupChunked, MemoryVectorDB } from './memoryPalace/db';
 import { writeV2Backup, assembleV2Backup, shardFileName, type ShardLimits } from './backupFormat';
 import { ActiveMsgStore } from './activeMsgStore';
+import {loadCreatorPartsForRender} from './creatorPartsBlob';
+import {homeFigureSeed} from './homeFigureSeed';
+import {healLocalStorageMirror} from './lsMirror';
+import {readPhotoLooks,PHOTO_LOOK_LIBRARY_KEY} from '../apps/room3d/photoLookStorage';
 
 // fake-indexeddb 已通过 test-setup.ts 注入。
 // 这组用例走「真实链路」：writeV2Backup → assembleV2Backup → DB.importFullData，钉死 v2 改造
@@ -70,6 +74,50 @@ function vecValues(v: any): number[] {
 }
 
 describe('v2 真实链路：分片 → 组装 → importFullData', () => {
+    it('restored default home preferences cannot be resurrected by an older storage mirror',async()=>{
+        localStorage.setItem('sully-home3d-quality','eco');
+        await DB.importFullData({assets:[{id:'ls_mirror_v1',data:{savedAt:1,data:{'sully-home3d-quality':'eco',os_theme:'keep'}}}],home3DLocal:{}} as any);
+        await healLocalStorageMirror();
+        expect(localStorage.getItem('sully-home3d-quality')).toBeNull();
+        expect((await DB.getAssetRaw('ls_mirror_v1')).data.os_theme).toBe('keep');
+    });
+    it('3D 家园、双方形象、自绘 PSD 部件及秘密在清库后完整恢复', async () => {
+        const token = await putImageBlob(new Blob([new Uint8Array([137,80,78,71])], {type:'image/png'}));
+        const state = {selected:{fronthair:'custom-hair',eyes:'custom-eyes',mouth:'custom-mouth',facemark:['custom-mark'],decor:['custom-decor']},tintColor:{fronthair:{color:'#112233',gradientColor:'#abcdef'}},flipped:{'custom-hair':true}};
+        const figure = {state,img:token,updatedAt:123,hair:{layers:{},extras:[{id:'extra',source:'uploaded',src:token}],bodyShape:'blank',skinColor:'#c09070',hairColor:'#112233',hairTipColor:'#abcdef'}};
+        const record = {id:'home-record',at:123,kind:'message',source:'user',actor:'user',text:'私密日常',roomId:'room',roomName:'自定义房间'};
+        const home = {version:1,activeRoomId:'room',rooms:[{id:'room',name:'自定义房间',x:0,z:0,level:0,wall:'#ffffff',items:[]}],records:[record],autonomy:false,directSpeech:true,petLife:{version:1,pets:[{id:'cat',name:'猫',relations:{owner:7},memory:{lastFedBy:'user'}}]}};
+        const character = {id:'home-owner',name:'主人',home3D:home,homeContextBridgeVersion:3,homeDefinition:{kind:'between-worlds',notes:'私人设定'},chibiStudio:{home3D:figure,room:{state,img:token}}};
+        const parts = [['fronthair','custom-hair'],['eyes','custom-eyes'],['mouth','custom-mouth'],['facemark','custom-mark'],['decor','custom-decor']].map(([categoryKey,id])=>({id,categoryKey,name:'自绘 PSD',src:token,shadowSrc:token,tintable:true,createdAt:123}));
+        const secret = JSON.stringify({requests:[],secrets:[{id:'secret',text:'私人秘密'}]});
+        const looks = [{id:'look',name:'我的滤镜',look:{preset:'dream',glow:.6,fringe:.2,vignette:.1,exposure:1.1}}];
+        await seedStore('characters',[character]);
+        await seedStore('user_profile',[{id:'me',name:'我',avatar:token,bio:'',chibiStudio:{home3D:figure},vrState:{chibi:{state,img:token}}}]);
+        await seedStore('cc_custom_parts',parts);
+        await seedStore('messages',[{id:902,charId:character.id,role:'user',content:record.text,metadata:{source:'home',homeRecordId:record.id}}]);
+        await DB.saveAssetRaw('home_secrets_v1_home-owner',secret);
+        localStorage.setItem(PHOTO_LOOK_LIBRARY_KEY,JSON.stringify(looks));
+        localStorage.setItem('sully-home3d-quality','eco');
+        const exported = await DB.exportFullData(), zip = new FakeZip(), tokens = new Set<string>();
+        const manifest = await writeV2Backup(zip,exported as any,{onSerialized:s=>collectBlobRefs(s,tokens)});
+        expect(tokens.has(token)).toBe(true);
+        expect((await writeBlobsToZip(zip,tokens,getBlobForRef)).missing).toEqual([]);
+        for(const store of ['characters','user_profile','cc_custom_parts','messages','assets']) await seedStore(store,[]);
+        localStorage.clear();await deleteBlobRef(token);
+        await restoreBlobsFromZip(zip,await readBlobsIndex(zip),restoreBlobRef);
+        await DB.importFullData(await assembleV2Backup(zip,manifest) as any);
+        expect((await DB.getRawStoreData('characters'))[0]).toMatchObject(character);
+        expect(await DB.getUserProfile()).toMatchObject({chibiStudio:{home3D:figure},vrState:{chibi:{state,img:token}}});
+        expect(await DB.getAssetRaw('home_secrets_v1_home-owner')).toBe(secret);
+        expect((await DB.getRawStoreData('messages'))[0]).toMatchObject({metadata:{source:'home',homeRecordId:record.id}});
+        expect(readPhotoLooks()).toEqual(looks);expect(localStorage.getItem('sully-home3d-quality')).toBe('eco');
+        expect(new Uint8Array(await (await getBlobForRef(token))!.arrayBuffer())).toEqual(new Uint8Array([137,80,78,71]));
+        // The same loader used by the 3D editor resolves restored IDs to real image bytes.
+        const rendered = await loadCreatorPartsForRender();
+        expect(rendered.map(p=>p.id).sort()).toEqual(parts.map(p=>p.id).sort());
+        expect(rendered.every(p=>p.src==='data:image/png;base64,iVBORw=='&&p.shadowSrc===p.src)).toBe(true);
+        expect(homeFigureSeed(figure.state,false)).toMatchObject(state);
+    });
     it('聊天备注开关与相机成片在清库后完整恢复，不依赖原设备图片', async () => {
         const photo = new Blob([new Uint8Array([255, 216, 255, 217])], { type: 'image/jpeg' });
         const token = await putImageBlob(photo);

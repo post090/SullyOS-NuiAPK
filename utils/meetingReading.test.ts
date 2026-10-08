@@ -56,23 +56,30 @@ it('reading shows previous encounters, prepends without jumping to the bottom, a
         onEditMessage:()=>{},onDeleteMessage:()=>{},onDeleteMessages:async()=>{},onSettings:()=>{},
         onLoadMoreHistory:loadOlder, historyReachedEnd:false,
     };
+    const height = vi.spyOn(HTMLElement.prototype,'scrollHeight','get').mockImplementation(function(this:HTMLElement){return this.querySelectorAll('[data-date-message-id]').length*100;});
+    const viewport = vi.spyOn(HTMLElement.prototype,'clientHeight','get').mockReturnValue(500);
+    let beforePaint=0;
+    function Reading({messages}:{messages:any[]}){
+        React.useLayoutEffect(()=>{beforePaint=host.querySelector<HTMLDivElement>('.meeting-reading-page')?.scrollTop??0;});
+        return React.createElement(DateSession,{...props,messages} as any);
+    }
     try {
-        await act(async () => root.render(React.createElement(DateSession,{...props,messages:makeRows(51,100)} as any)));
+        await act(async () => root.render(React.createElement(Reading,{messages:[]})));
+        await act(async () => root.render(React.createElement(Reading,{messages:makeRows(51,100)})));
+        expect(beforePaint).toBe(5000);
         const page = host.querySelector('.meeting-reading-page') as HTMLDivElement;
         expect(page.querySelectorAll('[data-date-message-id]')).toHaveLength(50);
         expect(page.textContent).toContain('历史正文 51');
-        Object.defineProperty(page,'scrollHeight',{configurable:true,get:()=>page.querySelectorAll('[data-date-message-id]').length*100});
-        Object.defineProperty(page,'clientHeight',{configurable:true,value:500});
         page.scrollTop=200;
         await act(async()=>page.dispatchEvent(new Event('scroll')));
         page.scrollTop=40;
         await act(async()=>page.dispatchEvent(new Event('scroll')));
         expect(loadOlder).toHaveBeenCalledTimes(1);
-        await act(async()=>root.render(React.createElement(DateSession,{...props,messages:makeRows(1,100)} as any)));
+        await act(async()=>root.render(React.createElement(Reading,{messages:makeRows(1,100)})));
         expect(page.scrollTop).toBe(5040);
-        await act(async()=>root.render(React.createElement(DateSession,{...props,messages:makeRows(1,101)} as any)));
+        await act(async()=>root.render(React.createElement(Reading,{messages:makeRows(1,101)})));
         expect(page.scrollTop).toBe(5040);
         // Current encounter has no reply: old history must not enable reroll.
         expect(host.querySelector('button[title="重新生成"]')).toBeNull();
-    } finally { await act(async()=>root.unmount()); host.remove(); }
+    } finally { await act(async()=>root.unmount()); host.remove(); height.mockRestore(); viewport.mockRestore(); }
 });

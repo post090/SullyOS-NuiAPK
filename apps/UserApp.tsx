@@ -7,12 +7,14 @@ import LifeRecordPanel from '../components/lifeRecord/LifeRecordPanel';
 import PerCharAvatarPicker from '../components/user/PerCharAvatarPicker';
 import { COMMON_TIMEZONES } from '../utils/timezone';
 import TokenImg from '../components/os/TokenImg';
+import HomeFigureStudio from '../components/character/HomeFigureStudio';
 import { trackEvent } from '../utils/analytics';
 
 const UserApp: React.FC = () => {
     const { closeApp, userProfile, updateUserProfile, addToast } = useOS();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [tab, setTab] = useState<'profile' | 'life'>('profile');
+    const [showFigures, setShowFigures] = useState(false);
 
     const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -29,6 +31,7 @@ const UserApp: React.FC = () => {
         }
     };
 
+    if (showFigures) return <HomeFigureStudio onClose={() => setShowFigures(false)} />;
     return (
         <div className="h-full w-full bg-slate-50 flex flex-col animate-fade-in">
             {/* Header */}
@@ -108,6 +111,7 @@ const UserApp: React.FC = () => {
 
                 {/* 分角色聊天头像：上面的整体头像是宏观默认，这里可给每个角色的私聊单独换「你」的头像 */}
                 <PerCharAvatarPicker />
+                <button onClick={() => setShowFigures(true)} className="w-full text-left bg-white rounded-2xl p-5 border border-slate-100"><strong className="text-slate-700">我的手办柜</strong><span className="block text-sm text-slate-400 mt-1">Chibi 与 3D 家园形象</span></button>
 
                 {/* About / setting card */}
                 <div className="bg-white rounded-[1.75rem] shadow-[0_10px_30px_-12px_rgba(80,70,120,0.18)] border border-slate-100 p-5">

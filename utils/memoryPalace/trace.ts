@@ -11,7 +11,7 @@ import type { ConversationEngagementAnalysis } from './conversationEngagement';
  * 任何会改变召回输出含义的实现都要升级这个版本。
  * Trace 不依赖构建 commit：同一 commit 做 A/B 时仍能看出实际跑的是哪代管线。
  */
-export const RECALL_PIPELINE_VERSION = 'context-m3.1';
+export const RECALL_PIPELINE_VERSION = 'context-m3.2';
 
 export const DEFAULT_MEMORY_PALACE_FEATURE_FLAGS: MemoryPalaceFeatureFlags = Object.freeze({
     recallRouter: false,
@@ -22,6 +22,7 @@ export const DEFAULT_MEMORY_PALACE_FEATURE_FLAGS: MemoryPalaceFeatureFlags = Obj
 
 export type RecallEntryPoint =
     | 'chat_app'
+    | 'home_3d'
     | 'collaboration'
     | 'emotion_eval'
     | 'proactive_chat'
@@ -29,6 +30,10 @@ export type RecallEntryPoint =
     | 'world_home'
     | 'chat_payload'
     | 'direct';
+
+/** Direct conversation surfaces share recall and conversational guidance. */
+export const isChatConversationEntry = (entry?: RecallEntryPoint): boolean =>
+    entry === 'chat_app' || entry === 'home_3d';
 
 export type RecallOutcome =
     | 'success'

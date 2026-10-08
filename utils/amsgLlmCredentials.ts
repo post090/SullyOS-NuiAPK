@@ -19,6 +19,7 @@
  */
 
 import type { APIConfig, ActiveMsg2CharacterConfig, CharacterProfile } from '../types';
+import { resolveDialogueApi } from './characterApi';
 
 /** 凭据行的值：三个字段全必填，服务端只查非空、不做格式校验。 */
 export interface LlmCredentialValue {
@@ -106,17 +107,15 @@ export const toCredentialValue = (
 };
 
 /**
- * 定时主动消息那一行的值：角色开了「单独 API」就用单独那份，否则用全局聊天 API。
- * 与排程时 activeMsgClient.resolveApiConfig 同一口径（Fork 保留主动消息单独 API）。
+ * 定时主动消息跟随角色默认对话 API（dialogueApi），未设置时跟随全局；
+ * 旧主动消息副 API 字段不参与取值——与上游 v3.13 的排程口径一致。
  */
 export const buildCharChatCredRow = (
-  char: Pick<CharacterProfile, 'id'>,
-  config: ActiveMsg2CharacterConfig | undefined,
+  char: Pick<CharacterProfile, 'id' | 'dialogueApi'>,
+  _config: ActiveMsg2CharacterConfig | undefined,
   apiConfig: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>,
 ): LlmCredentialRow | null => {
-  const useSecondary = !!(config?.useSecondaryApi && config.secondaryApi?.baseUrl);
-  const source = useSecondary ? config!.secondaryApi! : apiConfig;
-  const value = toCredentialValue(source);
+  const value = toCredentialValue(resolveDialogueApi(apiConfig, char));
   return value ? { credId: charCredId(char.id, 'chat'), value } : null;
 };
 

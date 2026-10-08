@@ -508,6 +508,7 @@ export const ValentineSession: React.FC<ValentineSessionProps> = ({ charId, onCl
 
     /** 生成情人节特别消息 */
     const generateValentineMessage = async (cId: string) => {
+
         const c = characters.find(ch => ch.id === cId);
         if (!c) { setErrorMsg('找不到角色'); setPhase('error'); return; }
 
@@ -571,9 +572,9 @@ export const ValentineSession: React.FC<ValentineSessionProps> = ({ charId, onCl
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
                         { role: 'user', content: `[最近记录 (Previous Context)]:\n${recentMsgs}\n\n---\n\n${valentinePrompt}` }
-                    ]),
+                    ])),
                     temperature: 0.88
                 })
             });

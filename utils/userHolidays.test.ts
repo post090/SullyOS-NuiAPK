@@ -86,24 +86,24 @@ describe('用户所在地节假日', () => {
         expect(await buildUserHolidayBlock({ ...args, nowMs: Date.parse('2026-09-28T04:00Z') })).toBe('');
     });
     it('共用用户信息区包含实际用户名；关闭、普通日、见面架空模式不注入', async () => {
-        vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 8, 26, 12));
+        vi.useFakeTimers({toFake:['Date']}); vi.setSystemTime(new Date(2026, 8, 26, 12));
         localStorage.setItem('os_realtime_config', JSON.stringify({ userHolidays: china }));
         const char = { id: 'test', name: 'Sully', timeAwarenessEnabled: true } as any;
         const user = { name: '小桃', bio: '测试用户简介' } as any;
-        const prompt = ContextBuilder.buildCharacterContext({ char, user }).coreContext;
+        const prompt = (await ContextBuilder.buildCharacterContext({ char, user })).coreContext;
         const expected = getCachedUserHolidayReminder('小桃');
         expect(expected).toContain('小桃所在地');
         expect(prompt.indexOf(expected)).toBeGreaterThan(prompt.indexOf('### 互动对象 (User)'));
         expect(prompt.split(expected)).toHaveLength(2);
         const dateInput = { char, userProfile: user, allMsgs: [], emojis: [] };
-        expect(JSON.stringify(DatePrompts.buildPeekPayload(dateInput).messages)).toContain(expected);
+        expect(JSON.stringify((await DatePrompts.buildPeekPayload(dateInput)).messages)).toContain(expected);
         expect(JSON.stringify((await DatePrompts.buildSessionPayload({ ...dateInput, userText: '在吗', variant: 'send' })).messages)).toContain(expected);
-        expect(JSON.stringify(DatePrompts.buildPeekPayload({ ...dateInput, char: { ...char, dateTimeAwarenessEnabled: false } }).messages)).not.toContain(expected);
-        expect(ContextBuilder.buildCharacterContext({ char, user, timeOptions: { skipTimeAwareness: true } }).coreContext).not.toContain('公共假期');
+        expect(JSON.stringify((await DatePrompts.buildPeekPayload({ ...dateInput, char: { ...char, dateTimeAwarenessEnabled: false } })).messages)).not.toContain(expected);
+        expect((await ContextBuilder.buildCharacterContext({ char, user, timeOptions: { skipTimeAwareness: true } })).coreContext).not.toContain('公共假期');
         localStorage.setItem('os_realtime_config', JSON.stringify({ userHolidays: { ...china, enabled: false, introChoice: 'declined' } }));
         expect(hasChosenHolidayIntro()).toBe(true);
         expect(getCachedUserHolidayReminder('小桃')).toBe('');
-        expect(ContextBuilder.buildCharacterContext({ char, user }).coreContext).not.toContain('公共假期');
+        expect((await ContextBuilder.buildCharacterContext({ char, user })).coreContext).not.toContain('公共假期');
     });
     it('云端补入用户区，不把假期放在天气新闻块；空提醒不会添加任何文字', () => {
         const prompt = '角色\n### 互动对象 (User)\n- 名字: 小桃\n记忆';

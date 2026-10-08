@@ -869,6 +869,7 @@ const Character: React.FC = () => {
    *                        没提供则退回到当前 selectedPromptId
    */
   const handleForceArchiveDate = async (dateStr: string, overridePromptId?: string): Promise<void> => {
+
       if (!apiConfig.apiKey || !formData) { addToast('请先配置 API Key', 'error'); return; }
       const targetId = formData.id;
       try {
@@ -890,7 +891,6 @@ const Character: React.FC = () => {
           const effectivePromptId = overridePromptId || selectedPromptId;
           const templateObj = archivePrompts.find(p => p.id === effectivePromptId) || DEFAULT_ARCHIVE_PROMPTS[0];
           const characterContextInput = { char: formData, user: userProfile };
-
           let prompt = '' + '\n\n' + templateObj.content;
           const sarMemoryBoundary = buildSARMemoryBoundaryInstruction(rawLog);
           if (sarMemoryBoundary) prompt = `${sarMemoryBoundary}\n\n${prompt}`;
@@ -902,7 +902,7 @@ const Character: React.FC = () => {
           const data = await safeFetchJson(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-              body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]), temperature: 0.5, max_tokens: 8000, stream: false }),
+              body: JSON.stringify({ model: apiConfig.model, messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])), temperature: 0.5, max_tokens: 8000, stream: false }),
           }, 0);
           let summary = extractContent(data).replace(/^["']|["']$/g, '');
           if (!summary) throw new Error('空响应');
@@ -1029,6 +1029,7 @@ const Character: React.FC = () => {
   };
   
   const handleBatchSummarize = async () => {
+
         if (!apiConfig.apiKey || !formData) return;
         
         const targetId = formData.id; // LOCK ID
@@ -1061,7 +1062,6 @@ const Character: React.FC = () => {
             await injectMemoryPalace(formData);
             const characterContextInput = { char: formData, user: userProfile };
 
-
             for (let i = 0; i < dates.length; i++) {
                 const date = dates[i];
                 setBatchProgress(`Processing ${date} (${i+1}/${dates.length})`);
@@ -1089,7 +1089,7 @@ const Character: React.FC = () => {
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                         body: JSON.stringify({
                             model: apiConfig.model,
-                            messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }]),
+                            messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }])),
                             max_tokens: 8000,
                             temperature: 0.5
                         })
@@ -1152,6 +1152,7 @@ const Character: React.FC = () => {
     };
 
   const handleGenerateImpression = async (type: 'initial' | 'update') => {
+
       if (!formData || !apiConfig.apiKey) {
           addToast('请先配置 API Key', 'error');
           return;
@@ -1275,7 +1276,7 @@ ${isInitialGeneration ? `
               headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
               body: JSON.stringify({
                   model: apiConfig.model,
-                  messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }]),
+                  messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: "user", content: prompt }])),
                   max_tokens: 8000,
                   temperature: 0.5,
                   // 与「设置 → API → 流式输出」保持一致，不在印象功能里强制覆盖用户选择。
@@ -1301,7 +1302,7 @@ ${isInitialGeneration ? `
       }
   };
 
-  // 真正执行删除。名下有 amsg2 任务的角色 deleteCharacter 会先 await 云端清理，
+  // 真正执行删除。新版 Worker 先停用云端归属，清理操作受理后才放行本地删除，
   // 清不掉返回 cloud-cleanup-failed 且本地未删 → 转进「重试 / 仍然删除」弹窗；
   // force=true 是用户在那个弹窗里选了「仍然删除」，放行本地删除。
   const runDeleteCharacter = async (targetId: string, force = false) => {
@@ -1315,7 +1316,7 @@ ${isInitialGeneration ? `
           }
           setDeleteConfirmTarget(null);
           setCloudCleanupFailTarget(null);
-          addToast('连接已断开', 'success');
+          addToast(result.cloudUnconfirmed ? '本地角色已删除，云端清理未确认，请到设置里的云端数据管理重试。' : result.cloudPending ? '角色已删除，云端清理已受理，可在设置里查看进度。' : '连接已断开', result.cloudUnconfirmed ? 'error' : 'success');
       } finally {
           setIsDeleting(false);
       }
@@ -2685,7 +2686,7 @@ ${isInitialGeneration ? `
             在这里给出重试或强行放行的选择。 */}
         <Modal
             isOpen={!!cloudCleanupFailTarget}
-            title="云端还有任务没清掉"
+            title="云端清理尚未确认"
             onClose={() => setCloudCleanupFailTarget(null)}
             footer={<div className="flex gap-2 w-full">
                 <button
@@ -2701,9 +2702,9 @@ ${isInitialGeneration ? `
             </div>}
         >
             <p className="text-sm text-slate-600 leading-relaxed py-2">
-                ta 名下还有主动消息 2.0 任务没能在云端取消（可能是断网或 Worker 没响应），角色暂时没有删除。<br/>
+                ta 的云端数据还没能确认清理（可能是断网或 Worker 没响应），本地角色暂时没有删除。<br/>
                 <span className="text-xs text-red-400 font-bold">选「仍然删除」的话，残留的任务之后可能仍会到点推送</span>
-                <span className="text-xs text-slate-400">——届时可去设置里「清除云端状态」兜底。</span>
+                <span className="text-xs text-slate-400">——可以去设置 → 主动消息 2.0 → 云端数据管理继续检查。</span>
             </p>
         </Modal>
     </div>

@@ -1,0 +1,15 @@
+import {createRequire} from 'node:module';
+import {writeFile} from 'node:fs/promises';
+const require=createRequire('C:/Users/tiaotiao/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json');const {chromium}=require('playwright');
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--no-sandbox']});const page=await browser.newPage({viewport:{width:430,height:860}}),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error')errors.push(m.text())});
+await page.goto('http://127.0.0.1:4178/assets/editor.html');await page.waitForFunction(()=>window.__homeEditor);const inspect=()=>page.evaluate(()=>window.__homeEditor.inspect());
+await page.locator('[data-panel="expand"]').click();await page.locator('[data-direction="right"]').click();await page.locator('[data-panel="furniture"]').click();await page.locator('[data-action="add-item"][data-id="sofa"]').click();
+const initial=await inspect(),sofa=initial.rooms.at(-1).items[0];if(!initial.outlineVisible||initial.gridVisible)throw Error('Selection outline/grid state wrong');
+await page.screenshot({path:'output/jellyfish-home/outline-selected.png'});
+let p=await page.evaluate(id=>window.__homeEditor.projectItem(id),sofa.id);await page.mouse.move(p.x,p.y);await page.mouse.down();await page.mouse.move(p.x-16,p.y+8,{steps:8});await page.waitForTimeout(100);const valid=await inspect();if(!valid.gridVisible||!valid.footprintVisible||!valid.placementValid)throw Error('Valid guide missing');await page.screenshot({path:'output/jellyfish-home/grid-valid.png'});
+await page.mouse.move(p.x+100,p.y+10,{steps:8});await page.waitForTimeout(100);const invalid=await inspect();if(invalid.placementValid!==false||!invalid.gridVisible)throw Error('Invalid guide missing');await page.screenshot({path:'output/jellyfish-home/grid-invalid.png'});await page.mouse.up();
+const restored=await inspect();if(restored.gridVisible||restored.footprintVisible||JSON.stringify(restored.rooms)!==JSON.stringify(initial.rooms))throw Error('Invalid drop not reverted');
+const samples=[];for(let n=0;n<8;n++){await page.locator('[data-action="deselect"]').click();await page.evaluate(id=>window.__homeEditor.select(id),sofa.id);await page.waitForTimeout(50);samples.push(await inspect())}
+if(samples.at(-1).geometries!==samples[0].geometries||samples.at(-1).textures!==samples[0].textures)throw Error('Selection leaks GPU resources');
+await page.locator('[data-action="edit"]').click();await page.waitForTimeout(100);const idle=await inspect();await page.waitForTimeout(250);if((await inspect()).renderedFrames!==idle.renderedFrames||idle.outlineVisible||idle.gridVisible)throw Error('Guides remain active outside edit');
+await writeFile('output/jellyfish-home/placement-guide-qa.json',JSON.stringify({errors,valid:valid.placementValid,invalid:invalid.placementValid,geometries:samples.map(s=>s.geometries),idleDrawCalls:idle.drawCalls},null,2));console.log({errors,valid:true,invalid:true});await browser.close();if(errors.length)process.exitCode=1;

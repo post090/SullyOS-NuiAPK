@@ -16,7 +16,7 @@ import {
 } from '../../utils/amsgDiagnostics';
 import { ActiveMsgStore, maskActiveMsgUserId } from '../../utils/activeMsgStore';
 import { formatTaskTime } from '../../utils/amsg2Tasks';
-import { isWorkerUrlCleared, wipeAmsgCloudData } from '../../utils/amsgStateSync';
+import { isWorkerUrlCleared } from '../../utils/amsgStateSync';
 import { rememberDetachedWorker } from '../../utils/amsgDetachedWorkers';
 import { buildCloudflareDashboardUrl } from '../../utils/workerDeploy';
 import { generateClientToken } from '../../utils/vapidGen';
@@ -141,6 +141,9 @@ const REQUIRED_WORKER_FEATURES = [
 // 不比版本的话，旧粘贴部署会被误判为最新，问题全在 worker 侧静默发生。
 //
 const REQUIRED_WORKER_VERSION = '2.6.0-next.33';
+// next.35 修复可选云端管理的 D1 维护开销，协议门槛仍是 next.33；
+// bundle 日期照常提示更新，旧 Worker 的清单摘要仍有兼容回退。
+const WORKER_VERSION_LAG_ACK = '2.6.0-next.35';
 
 /** 装着打包好的 worker 代码的部署仓库：fork 它 → 在 Cloudflare 连上 → 以后点 Sync fork 更新。 */
 const WORKERS_REPO_URL = 'https://github.com/Tosd0/sullyos-workers';
@@ -831,63 +834,6 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     // 更不会进上报。
     trackEvent('生成 2.0 Worker 密钥', { which: 'master_key' });
     return revealAndCopy(ActiveMsgClient.generateMasterKey(), setGeneratedMasterKey, 'AMSG_MASTER_KEY');
-  };
-
-  const handleWipeCloudData = async () => {
-    if (!confirm(
-      '确定清空云端数据？Worker D1 里属于你的这几样会一起删掉：\n\n'
-      + '· 已排程的主动消息任务（含角色自己排的）\n'
-      + '· 同步上去的角色上下文与工具凭据\n'
-      + '· 登记的 API 凭据\n'
-      + '· 推送订阅登记\n\n'
-      + '任务删了要重新排。角色上下文下次聊天会自动传回去，API 凭据下次排程/发消息时重新登记，'
-      + '工具凭据和推送订阅当场就补登记。'
-    )) return;
-    setLoading(true);
-    try {
-      const result = await wipeAmsgCloudData(realtimeConfig, {
-        pushRegistered: Boolean(pushStatus?.hasSubscription),
-      });
-
-      // 没清干净的地方逐条说明白：这个按钮多半是在「云端数据已经出问题」时点的，
-      // 含糊一句「部分失败」会让人不知道下一步该干嘛。
-      const problems: string[] = [];
-      if (!result.tasks.listed) {
-        problems.push('任务清单读不出来（换过 AMSG_MASTER_KEY 的话旧任务解不开就会这样），这些任务到点会失败，Worker 会在 7 天后自动清掉它们');
-      } else if (result.tasks.failed > 0) {
-        problems.push(`${result.tasks.failed} 个任务没取消成功，建议到角色的主动消息面板里逐个处理`);
-      }
-      if (result.stateDeleted === null) {
-        problems.push('角色上下文没能删掉');
-      } else if (!result.toolConfigRestored) {
-        problems.push('工具凭据没能补传回去，请到「实时感知」里重新保存一次配置，否则已排程的 AI 任务会一直失败');
-      }
-      if (result.llmCredentialsDeleted === null) {
-        // 老 Worker 上压根没有这张表，这一句同样成立：那边确实没清成，而下次排程会
-        // 走回「凭据冻结进任务」的老路，也就无所谓残留。
-        problems.push('登记的 API 凭据没能删掉（Worker 版本较旧的话本来就没有这一项）');
-      }
-      if (result.push === 'failed') {
-        problems.push('推送订阅没能收拾干净，建议到上面的推送区域重新订阅一次');
-      }
-
-      if (problems.length > 0) {
-        addToast(`云端数据没能全部清干净：${problems.join('；')}。`, 'error');
-      } else {
-        const done = [
-          `任务 ${result.tasks.total} 个`,
-          `状态 ${result.stateDeleted} 条`,
-          `API 凭据 ${result.llmCredentialsDeleted} 行`,
-        ];
-        if (result.push === 'reregistered') done.push('推送订阅已重新登记');
-        addToast(`已清空云端数据（${done.join('、')}）。`, 'success');
-      }
-    } catch (error: any) {
-      addToast(error?.message || '清空云端数据失败。', 'error');
-    } finally {
-      setLoading(false);
-      void refresh();
-    }
   };
 
   /**
@@ -1748,35 +1694,18 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                 <div className="bg-white border border-slate-200 rounded-2xl p-3 space-y-2">
                   <div className="font-semibold text-slate-700">云端数据</div>
                   <p className="text-[11px] leading-relaxed text-slate-500">
-                    看看 Worker 上按角色存着些什么，把本地已经没有的角色留下的那份清掉。
-                    删过角色、导入过别的备份之后，云端多半还留着他们的上下文和 API 凭据。
+                    直接查看 Worker 保存的任务、上下文、凭据和结果，按实际范围清理。
+                    本机未关联的角色也会显示；其他设备可能还在使用。
                   </p>
                   <button
                     onClick={onOpenCloudData}
                     className="w-full py-2.5 bg-slate-100 text-slate-700 font-bold rounded-2xl active:scale-95 transition-transform"
                   >
-                    清点云端数据
+                    云端数据管理
                   </button>
                 </div>
               ) : null}
-              <div className="bg-rose-50 border border-rose-100 rounded-2xl p-3 space-y-2">
-                <div className="font-semibold text-rose-700">清空云端数据</div>
-                <p className="text-[11px] leading-relaxed text-rose-600">
-                  把 Worker D1 里属于你的数据全部删掉：已排程的主动消息任务（含角色自己排的）、
-                  同步上去的角色上下文（角色卡、最近聊天窗口等）与工具凭据、推送订阅登记。
-                </p>
-                <p className="text-[11px] leading-relaxed text-rose-600">
-                  清完角色上下文下次聊天会自动传回去，工具凭据和推送订阅当场补登记，任务要自己重新排。
-                  换过 <code className="font-mono">AMSG_MASTER_KEY</code> 之后旧数据解不开，也从这里清干净。
-                </p>
-                <button
-                  onClick={() => void handleWipeCloudData()}
-                  disabled={loading}
-                  className="w-full py-2.5 bg-rose-500 text-white font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50"
-                >
-                  {loading ? '处理中...' : '清空云端数据'}
-                </button>
-              </div>
+
             </div>
           ) : null}
         </div>

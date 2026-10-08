@@ -1,3 +1,4 @@
+import { resolveSullyCloudOwnership } from './cloudDataOwnership';
 import { reconcileStoppedReplies, stoppedReplyKey } from '../../../utils/amsgStoppedReply';
 /**
  * SullyOS 主动消息 2.0（amsg2）— 单用户 Cloudflare Worker 入口。
@@ -129,7 +130,7 @@ import {
 import { buildRealtimeWorldBlock, buildUserHolidayBlock } from './realtimeWorld';
 import { insertUserHolidayInProfile } from '../../../utils/userHolidays';
 import { authorizeSelfUpdate, handleSelfUpdate, resolveScriptName } from './selfUpdate';
-import { ensureSchemaOnce, readSelfUpdateState, recordManualSelfUpdate, runAutoUpdate } from './autoUpdate';
+import { ensureSchemaOnce, readSelfUpdateState, recordManualSelfUpdate, runAutoUpdate, runScheduledAfterUpdate } from './autoUpdate';
 import { handleCronTriggerRead, handleCronTriggerWrite, isCronTriggerAuthFailure } from './cronTrigger';
 import {
   buildMcpDirectHeaders,
@@ -2872,6 +2873,7 @@ export const buildWorkerConfig = (env: Env) => {
     // 装 fire_pack / tool_pack）不配 TTL——那些是要长期留着的，配了就等于定时把
     // 角色的云端状态抹掉。判据是行本来就有的 updated_at 列，不加列、不动表结构。
     clientStateTtl: { [AMSG_JOB_NAMESPACE]: AMSG_JOB_TTL_DAYS },
+    cloudData: { resolveOwner: resolveSullyCloudOwnership },
     // 满血 fire-time hooks（onBeforeFire 现场填槽 + onLLMOutput 分类 +
     // executeToolCalls 服务端工具循环）；总超时用库默认 240s，轮数由 onBeforeFire 按
     // 是否接入 MCP 返回 5 / 12；即时对话再把总超时抬到 INSTANT_TOTAL_TIMEOUT_MS。
@@ -3634,23 +3636,19 @@ export default {
       console.error(`[amsg] 定时任务整轮跳过：${report.message}`);
       return;
     }
-    // 整轮出错时上游把原因放在返回值里（同一份也会经 onError 记一行日志）。CF 不看
-    // scheduled 的返回值，这里把它记进库：日志大多数人找不到，体检面板的定时任务细账
-    // 读的是库里这一份（见 ./tickReport）。只在出错时写，正常的一跳什么都不写。
-    // 换过代码（自更新、Sync fork、wrangler deploy 都算）之后的第一跳先把这版要的表补齐，
-    // 不然缺表缺列会让下面那一跳每分钟静默挂。每个表结构版本只真查一次，见 ensureSchemaOnce。
-    await ensureSchemaOnce(env.DB as TickReportDb | undefined, SCHEMA_VERSION, () => upstream.ensureSchema(env));
-    const outcome = await upstream.scheduled(event, env);
-    await recordTickOutcome(env.DB as unknown as TickReportDb, outcome);
-    // 投递完再看要不要更新自己（有节流，绝大多数跳在这里只读一行就走）。cron 路上没有
-    // 请求 URL，脚本名只能靠 CF_SCRIPT_NAME——一键部署和「补钥匙」写的都有这一条。
-    try {
-      await runAutoUpdate(env, env.DB as TickReportDb, {
+    // 更新检查先走，数据库维护失败时仍有机会换上修复包。
+    await runScheduledAfterUpdate(
+      () => runAutoUpdate(env, env.DB as TickReportDb, {
         source: 'cron',
         scriptName: env.CF_SCRIPT_NAME?.trim() || null,
-      });
-    } catch (error) {
-      console.warn('[amsg:auto-update] 这一跳的自动更新检查没跑完', error);
-    }
+      }),
+      async () => {
+        // 新版需要的表和索引只补一次，自动更新后的第一跳也能补齐。
+        await ensureSchemaOnce(env.DB as TickReportDb | undefined, SCHEMA_VERSION, () => upstream.ensureSchema(env));
+        const outcome = await upstream.scheduled(event, env);
+        // 投递错误记进体检面板；正常的一跳不写诊断记录。
+        await recordTickOutcome(env.DB as unknown as TickReportDb, outcome);
+      },
+    );
   },
 };

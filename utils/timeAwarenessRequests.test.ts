@@ -64,11 +64,11 @@ describe.each([
         expect(text).toContain('[约会]');
     });
 
-    it.each(['approach', 'invite'] as const)('%s 开场关闭时不按现实跳过时间，也不假定刚刚还在聊天', openingMode => {
-        const payload = DatePrompts.buildPeekPayload({
+    it.each(['approach', 'invite'] as const)('%s 开场关闭时不按现实跳过时间，也不假定刚刚还在聊天', async openingMode => {
+        const payload = (await DatePrompts.buildPeekPayload({
             char: makeChar(chatTimeOn, dateTimeOn), userProfile: user,
             allMsgs: makeHistory().slice(0, 1), emojis: [], openingMode,
-        });
+        }));
         const text = textOf(payload.messages);
         expect(text.includes('[2026-10-02 00:17]')).toBe(dateTimeOn);
         expect(text.includes('当前时间:')).toBe(dateTimeOn);

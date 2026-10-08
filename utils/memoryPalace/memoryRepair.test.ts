@@ -96,7 +96,7 @@ describe('本轮召回记忆修补', () => {
         )).toBe('小满指出阿宁记错了，阿宁需要核对。');
     });
 
-    it('诊断上下文按约定走 false，并隔离持久记忆和运行时向量注入', () => {
+    it('诊断上下文按约定走 false，并隔离持久记忆和运行时向量注入', async () => {
         const char = {
             id: 'repair_context',
             name: '阿宁',
@@ -113,7 +113,7 @@ describe('本轮召回记忆修补', () => {
         } as CharacterProfile;
         const user = { name: '小满' } as UserProfile;
 
-        const context = buildMemoryRepairCoreContext(char, user);
+        const context = (await buildMemoryRepairCoreContext(char, user));
         expect(context).toContain('阿宁');
         expect(context).not.toContain('LEGACY_MEMORY_MARKER');
         expect(context).not.toContain('REFINED_MEMORY_MARKER');

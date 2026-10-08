@@ -1,0 +1,4 @@
+OpenMoji by OpenMoji contributors — https://openmoji.org/
+Graphics licensed CC BY-SA 4.0: https://creativecommons.org/licenses/by-sa/4.0/
+Source: https://github.com/hfg-gmuend/openmoji/tree/master/color/svg
+Files 2764.svg, 1F4A4.svg, 1F3B5.svg, 1F914.svg are unmodified.

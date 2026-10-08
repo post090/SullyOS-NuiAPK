@@ -65,6 +65,17 @@ export interface AmsgSyncSnapshot {
 
 // charId → 最新快照。同角色多轮聊天只留最后一份，flush 永远用最新状态拼模板。
 const dirty = new Map<string, AmsgSyncSnapshot>();
+const stateEpochs = new Map<string, number>();
+const snapshotEpochs = new WeakMap<AmsgSyncSnapshot, number>();
+const isCurrentSnapshot = (snapshot: AmsgSyncSnapshot) =>
+  snapshotEpochs.get(snapshot) === (stateEpochs.get(snapshot.char.id) ?? 0);
+
+/** 停用/恢复使旧队列失效，旧请求的失败回调也不能重新塞回去。 */
+export const discardAmsgPendingState = (charId: string): void => {
+  stateEpochs.set(charId, (stateEpochs.get(charId) ?? 0) + 1);
+  dirty.delete(charId);
+  writePendingCharIds(readPendingCharIds().filter(id => id !== charId));
+};
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let flushing = false;
 let lifecycleBound = false;
@@ -170,7 +181,9 @@ export const markAmsgStateDirty = (
     return;
   }
 
-  dirty.set(snapshot.char.id, snapshot);
+  const queuedSnapshot = { ...snapshot };
+  snapshotEpochs.set(queuedSnapshot, stateEpochs.get(snapshot.char.id) ?? 0);
+  dirty.set(snapshot.char.id, queuedSnapshot);
   persistDirtyMark(snapshot.char.id);
   bindLifecycleListener();
   queueFlush();
@@ -226,7 +239,7 @@ export const markAmsgStateDirtyForAll = (scope: {
  */
 const requeue = (batch: AmsgSyncSnapshot[]) => {
   for (const snapshot of batch) {
-    if (!dirty.has(snapshot.char.id)) dirty.set(snapshot.char.id, snapshot);
+    if (isCurrentSnapshot(snapshot) && !dirty.has(snapshot.char.id)) dirty.set(snapshot.char.id, snapshot);
   }
 };
 
@@ -273,9 +286,12 @@ export const flushAmsgState = async (reason: string): Promise<void> => {
       return;
     }
 
-    for (const snapshot of batch) dirty.delete(snapshot.char.id);
-    await ActiveMsgClient.syncCharFirePacks(batch.map((snapshot) => ({
+    const currentBatch = batch.filter(isCurrentSnapshot);
+    if (!currentBatch.length) return;
+    for (const snapshot of currentBatch) dirty.delete(snapshot.char.id);
+    await ActiveMsgClient.syncCharFirePacks(currentBatch.map((snapshot) => ({
       char: snapshot.char,
+      isCurrent: () => isCurrentSnapshot(snapshot),
       config: snapshot.char.activeMsg2Config!,
       userProfile: snapshot.userProfile,
       groups: snapshot.groups,

@@ -1,0 +1,46 @@
+{
+  "assets": {
+    "highlight-classic-01": {
+      "src": "room3d/face/highlight-classic-01.png",
+      "source": "like520/parts/eyes_01.png",
+      "sourceStyle": "01",
+      "sourceSha256": "e41155904a4ab2d304fae3da2acb9d4da87cc1c86cfc8d4ef7c8bbd49180d4ef",
+      "sha256": "5e678daaa52f3ecc8781f9088defc4bf944020e6db54399a867e8066f180a1fa"
+    },
+    "highlight-classic-02": {
+      "src": "room3d/face/highlight-classic-02.png",
+      "source": "like520/parts/eyes_02.png",
+      "sourceStyle": "02",
+      "sourceSha256": "f0509b555787d71105de2d4d1acf52791c6df2e67c185eece709b224bb8f2f38",
+      "sha256": "bda4d9bb7f4df43ac197dab2f37ab961db73eeb20e3810605aefd32b647ac823"
+    },
+    "highlight-classic-03": {
+      "src": "room3d/face/highlight-classic-03.png",
+      "source": "like520/parts/eyes_03.png",
+      "sourceStyle": "03",
+      "sourceSha256": "0038d1e6c8916bee5438e502b7c43e57da153f7d337c4cf9a95c8e36a0aeccb4",
+      "sha256": "9d5eac19988442a5e4479dffbb5204ea59802fc15fc16af604ebe2b1b76c0596"
+    },
+    "highlight-classic-04": {
+      "src": "room3d/face/highlight-classic-04.png",
+      "source": "like520/parts/eyes_05.png",
+      "sourceStyle": "05",
+      "sourceSha256": "f68dbbb91d278f3c30f7debe834b0339b73419c24bf871d322331f5d0c238d34",
+      "sha256": "18d1d4e1075a8306d1c39baf62abd952274577124c6c4e32248b0c02fc5c37b3"
+    },
+    "highlight-classic-05": {
+      "src": "room3d/face/highlight-classic-05.png",
+      "source": "like520/parts/eyes_06.png",
+      "sourceStyle": "06",
+      "sourceSha256": "4d89f83e0612afc809ca8138544744b43361faa5d8d469ee8d23c82a8b108193",
+      "sha256": "8c2f8a2841054653a2310c30e3ea359c540cce03b2120dea2cc69d5f198e5d48"
+    },
+    "highlight-classic-06": {
+      "src": "room3d/face/highlight-classic-06.png",
+      "source": "like520/parts/eyes_07.png",
+      "sourceStyle": "07",
+      "sourceSha256": "3fe3ed82d0efa2544364270984cd9fa15a5acb002c6aa18c428dc6ecec779a85",
+      "sha256": "fc7ee388fd65316ea3b1b24e3aaa01b052c7f51512d9ca0ee6b524074a9e8953"
+    }
+  }
+}

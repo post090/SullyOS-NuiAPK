@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';import * as T from 'three';
+import {mergeGeometries,toCreasedNormals,mergeVertices} from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import {readGeometry,splitParts,compactGeometry,saveGlb} from './asset-geometry.mjs';
+const clean='art/jellyfish-home/sources/showrooms/ribbon-door.glb';
+if(process.argv.includes('--extract')){const root=new T.Group();for(const g of await readGeometry('output/showroom-source/1.glb'))root.add(new T.Mesh(g,new T.MeshStandardMaterial()));await saveGlb(root,clean);}
+const g=mergeGeometries(await readGeometry(clean)),parts=splitParts(g),root=new T.Group(),frame=new T.Group(),leaf=new T.Group();frame.name='ribbon-frame';leaf.name='ribbon-leaf';root.add(frame,leaf);
+const material=(name,color)=>{const m=new T.MeshStandardMaterial({color,roughness:.78});m.name=name;return m;},cream=material('door-cream','#f1e7d7'),pink=material('door-ribbon','#e28da6'),blush=material('door-leaf','#efb7ba'),gold=material('door-handle','#ac8a39'),wood=material('woodLight','#ffffff');wood.color.setRGB(.8227857351303101,.5972017645835876,.3915724754333496);
+for(const p of parts){const bow=p.center.y>.27&&p.id!==2180,isFrame=p.id===2180||bow;const geo=mergeVertices(toCreasedNormals(await compactGeometry(g,p.ids,Math.floor(p.count*.79)),Math.PI/2));geo.scale(1/.560547,2.36,1.8).translate(0,1.18,0);geo.rotateY(Math.PI);(isFrame?frame:leaf).add(new T.Mesh(geo,bow?pink:Math.abs(p.center.x)>.15&&p.center.y>-.18&&p.center.y<-.06?gold:p.id===2208?blush:cream));}
+for(const group of [frame,leaf]){const groups=new Map();for(const m of group.children){if(!groups.has(m.material))groups.set(m.material,[]);groups.get(m.material).push(m.geometry);}group.clear();for(const [mat,gs]of groups)group.add(new T.Mesh(mergeGeometries(gs),mat));}
+let triangles=0;root.traverse(o=>{if(o.isMesh)triangles+=o.geometry.index.count/3;});if(triangles>=4000)throw Error('Door budget');const bytes=await saveGlb(root,'public/room3d/showroom-door.glb');console.log({triangles,bytes});

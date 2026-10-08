@@ -288,6 +288,7 @@ const MemoryDiveMode: React.FC<Props> = ({
     setIsLoadingScript(true);
     setLoadError(null);
     try {
+
       const res = await planRoomVisit(
         {
           charId, charName, userName, room: s.currentRoom,
@@ -300,8 +301,7 @@ const MemoryDiveMode: React.FC<Props> = ({
           previousEndingLine: prevEndingLineRef.current,
           previousEndingSpeaker: prevEndingSpeakerRef.current,
         },
-        apiConfig, fullCharContext, remoteVectorConfig,
-      );
+        apiConfig, fullCharContext, remoteVectorConfig, );
       scriptRef.current = res.script;
       beatIdxRef.current = 0;
       setRoomMemoryTexts(res.memoryTexts);
@@ -346,6 +346,7 @@ const MemoryDiveMode: React.FC<Props> = ({
 
     preloadingRef.current = true;
     try {
+
       const res = await planRoomVisit(
         {
           charId, charName, userName, room: next,
@@ -358,8 +359,7 @@ const MemoryDiveMode: React.FC<Props> = ({
           previousEndingLine: prevEndingGuess,
           previousEndingSpeaker: 'narrator',
         },
-        apiConfig, fullCharContext, remoteVectorConfig,
-      );
+        apiConfig, fullCharContext, remoteVectorConfig, );
       // 真正切过去时 currentRoom 才是 next，本地已改过的话要放弃
       if (sessionRef.current?.currentRoom !== s.currentRoom) return;
       preloadedRef.current = { roomId: next, script: res.script, memoryTexts: res.memoryTexts };

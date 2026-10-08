@@ -5,6 +5,9 @@ import { HOLIDAY_NOTICE_KEY, hasChosenHolidayIntro } from '../utils/userHolidays
 import {DECORATION_UPDATE_KEY} from '../utils/decorationGuide';
 import { SARUpdatePopup } from './os/SARUpdatePopup';
 import { SAR_UPDATE_KEY, SAR_CHANGELOG, sarLaunch } from '../utils/sarUpdate';
+import HomeUpdatePopup from './os/HomeUpdatePopup';
+import { HOME_UPDATE_KEY, HOME_CHANGELOG } from '../utils/homeUpdate';
+import { roomLaunch } from '../utils/roomLaunch';
 /**
  * 全局版本更新提醒。
  *
@@ -587,7 +590,18 @@ const SARUpdateAnnouncement: React.FC<UpdatePopupProps> = ({ onDone, onExit }) =
     }}/>;
 };
 
+const HomeUpdateAnnouncement: React.FC<UpdatePopupProps> = ({ onDone, onExit }) => {
+    const { openApp } = useOS();
+    return <HomeUpdatePopup onDone={onDone} onVisit={() => {
+        roomLaunch.request({ tab: 'home3D' }); openApp(AppID.Room); onExit();
+    }} onGuide={() => {
+        try { sessionStorage.setItem(FAQ_TARGET_SECTION_KEY, HOME_CHANGELOG); } catch { /* 手册首页仍可打开 */ }
+        openApp(AppID.FAQ); onExit();
+    }}/>;
+};
+
 const UPDATE_QUEUE: { key: string; render: (props: UpdatePopupProps) => React.ReactNode }[] = [
+    { key: HOME_UPDATE_KEY, render: props => <HomeUpdateAnnouncement {...props} /> },
     { key: SMALL_UPDATES_KEY, render: props => <SmallUpdatesPopup onDone={props.onDone} /> },
     { key: HOLIDAY_NOTICE_KEY, render: props => <UserHolidayIntro {...props} /> },
     { key: DECORATION_UPDATE_KEY, render: props => <DecorationUpdatePopup onClose={props.onExit}/> },

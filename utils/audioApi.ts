@@ -296,7 +296,7 @@ export async function listenToSongAsCharacter(input: SongListenInput, config: Au
     ? `\n\n歌词（供你对照着听）：\n${input.lyrics.trim().slice(0, 4000)}`
     : '\n\n（这首没有拿到歌词，靠耳朵听。）';
   const userText = `《${input.song.name}》— ${input.song.artists}${input.song.album ? `（专辑《${input.song.album}》）` : ''}${lyricsBlock}`;
-  const messages = ContextBuilder.buildCharacterRequest(
+  const messages = await ContextBuilder.buildCharacterRequest(
     { char: input.char, user: input.user, instructions: buildListenInstructions(input) },
     [{ role: 'user', content: [{ type: 'text', text: userText }, audioPart(input.audio)] }],
   );

@@ -286,7 +286,7 @@ const afterglowLine = (
 export const buildSARModulePrompt = (
     char: CharacterProfile,
     user: UserProfile,
-    surface: 'chat' | 'date',
+    surface: 'chat' | 'date' | 'home',
 ): string => {
     const plan = getSARModuleRuntimePlan(char, user);
     if (!plan.hasActiveEffect && !plan.hasAfterglow) return '';
@@ -307,7 +307,7 @@ export const buildSARModulePrompt = (
     }
     else if (plan.user?.phase === 'afterglow') lines.push(afterglowLine(plan.user, user.name || '用户', char.name, user.name || '用户'));
 
-    if (!plan.requiresEnvelope) return `\n\n${lines.join('\n')}\n`;
+    if (surface === 'home' || !plan.requiresEnvelope) return `\n\n${lines.join('\n')}\n`;
 
     lines.push(
         ``,

@@ -96,13 +96,13 @@ describe('song lyric prompt context', () => {
         expect(prompt).toContain('【本轮唯一任务】\n只生成第2句');
     });
 
-    it('anchors the completion note in the full character context instead of a generic mentor role', () => {
+    it('anchors the completion note in the full character context instead of a generic mentor role', async () => {
         const char = { id: 'char-1', name: 'C', systemPrompt: 'CHARACTER CONTEXT WITH RELATIONSHIP' } as any;
         const user = { name: 'U' } as any;
         const systemPrompt = SongPrompts.buildCompletionSystemPrompt(char, user);
-        const messages = ContextBuilder.buildCharacterRequest({ char, user }, [
+        const messages = (await ContextBuilder.buildCharacterRequest({ char, user }, [
             { role: 'system', content: systemPrompt }, { role: 'user', content: '歌曲已完成' },
-        ]);
+        ]));
         expect(JSON.stringify(messages)).toContain('CHARACTER CONTEXT WITH RELATIONSHIP');
         expect(systemPrompt).toContain('不是老师批作业、评委写鉴定');
         expect(systemPrompt).toContain('完整角色设定、你和U的关系、相处方式与既有记忆');

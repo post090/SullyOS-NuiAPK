@@ -1,5 +1,5 @@
-import type { CharacterProfile, Message, SocialAppProfile, SocialPost, SubAccount, UserProfile } from '../types';
 import { ContextBuilder } from './context';
+import type { CharacterProfile, Message, SocialAppProfile, SocialPost, SubAccount, UserProfile } from '../types';
 import { formatMessageForPrompt } from './messageFormat';
 
 type Handles = Record<string, SubAccount[]>;
@@ -11,16 +11,15 @@ export function getSparkHandles(char: CharacterProfile, handles: Handles): SubAc
 }
 
 /** All three generation paths share the same identity and persona contract. */
-export function buildSparkGenerationContext(
-    participants: CharacterProfile[], user: UserProfile, social: SocialAppProfile, handles: Handles,
+export async function buildSparkGenerationContext(participants: CharacterProfile[], user: UserProfile, social: SocialAppProfile, handles: Handles,
     recentMessages: Record<string, Message[]> = {},
-): string {
-    const profiles = participants.map(char => {
+): Promise<string> {
+    const profiles = (await Promise.all(participants.map(async char => {
         const recent = (recentMessages[char.id] || []).slice(-6);
-        const core = ContextBuilder.buildCoreContext(char, user, false, undefined, {
+        const core = (await ContextBuilder.buildCoreContext(char, user, false, undefined, {
             skipUserProfile: true,
             headerOverride: `[角色资料，仅属于 charId=${JSON.stringify(char.id)}]`,
-        }, { worldbookMessages: recent });
+        }, { worldbookMessages: recent }));
         return `<<< 角色档案 charId=${JSON.stringify(char.id)} >>>
 角色名: ${char.name}
 可用账号: ${JSON.stringify(getSparkHandles(char, handles).map(h => ({ authorName: h.handle, note: h.note })))}
@@ -29,7 +28,7 @@ ${core}
 近期私聊片段（只用于该角色理解关系，不得在公开评论泄露）:
 ${recent.map(m => formatMessageForPrompt(m, char.name, user.name).slice(0, 800)).join('\n') || '(无近期片段，不编造共同经历)'}
 <<< 角色档案结束 charId=${JSON.stringify(char.id)} >>>`;
-    }).join('\n\n');
+    }))).join('\n\n');
     return `你负责模拟 Spark 社区。下面是互相独立的角色资料，不是让你同时成为所有角色。
 每条发言只能属于一个作者。角色必须只使用自己档案中的人设、口吻、记忆和账号，禁止混用其他角色的资料。
 charId 必须从档案原样复制，authorName/author 必须是同一 charId 下的账号。路人使用新网名，charId 为 null，不得冒用角色账号。

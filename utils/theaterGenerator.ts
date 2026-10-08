@@ -173,6 +173,7 @@ export async function generateSlotTheater(
     apiConfig: ApiConfig,
     forceRegenerate: boolean = false,
 ): Promise<DailySchedule | null> {
+
     if (!isScheduleFeatureOn(char)) return null;
     const slot = schedule.slots[slotIndex];
     if (!slot) return null;
@@ -194,7 +195,7 @@ export async function generateSlotTheater(
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
             body: JSON.stringify({
                 model: apiConfig.model,
-                messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
+                messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])),
                 temperature: 0.9,
                 // 12–18 行、每行可写得有质感，2600 容易把最后一拍截断；放宽到 4600 留足尾巴。
                 max_tokens: 4600,

@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>墙段建造验证</title><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';
+import '/apps/room3d/editor.css';
+window.__homeEditor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,storageKey:'test-room3d-building'});
+window.render_game_to_text=()=>JSON.stringify(window.__homeEditor.inspect());
+window.advanceTime=ms=>window.__homeEditor.advanceTime(ms);
+</script></body></html>

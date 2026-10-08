@@ -1,4 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+// This fixture expects the first slot; do not change results after 23:30 on CI.
+beforeEach(() => {vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,7,19,12));});
+afterEach(() => vi.useRealTimers());
 
 // 角色关掉「时间感知强化」后，日程块曾经照旧写着「当前时段：22:00 你正在睡觉」——
 // 精确钟点从这条缝里漏了出去，而挡住它正是那个开关存在的意义。
@@ -56,4 +60,19 @@ describe('日程块的钟点跟着「时间感知」开关走', () => {
         const volatile = await buildVolatile(false);
         expect(volatile).not.toContain('CHANGE_SCHEDULE');
     });
+});
+import {getDailyScheduleForChar} from './dailySchedule';
+it('one read per request, with fresh data next request',async()=>{
+ const load=vi.mocked(getDailyScheduleForChar);load.mockClear();
+ load.mockResolvedValueOnce({slots:[{startTime:'00:00',activity:'第一轮安排'}]} as any);
+ expect(await buildVolatile(undefined)).toContain('第一轮安排');
+ expect(load).toHaveBeenCalledTimes(1);
+ load.mockResolvedValueOnce({slots:[{startTime:'00:00',activity:'第二轮安排'}]} as any);
+ const second=await buildVolatile(undefined);
+ expect(second).toContain('第二轮安排');expect(second).not.toContain('第一轮安排');
+ expect(load).toHaveBeenCalledTimes(2);
+});
+it('shares a missing schedule without rereading',async()=>{
+ const load=vi.mocked(getDailyScheduleForChar);load.mockClear();load.mockResolvedValueOnce(null);
+ await buildVolatile(undefined);expect(load).toHaveBeenCalledTimes(1);
 });

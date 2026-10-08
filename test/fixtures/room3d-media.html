@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="icon" href="data:,"><title>窗户与电视家具验证</title><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}.creator-link{position:fixed;left:18px;top:150px;z-index:20;padding:10px 14px;border-radius:20px;background:#fff6ee;color:#685377;text-decoration:none;font-size:13px}</style></head><body><a class="creator-link" href="/chibi-experiment.html">← 返回小屋 · 捏小人</a><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';import {createHome} from '/apps/room3d/model.js';import '/apps/room3d/editor.css';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog),room=home.rooms[0];
+const item=(id,x,y,z,supportId)=>({id,assetId:id,x,y,z,rotation:0,color:null,stored:false,...(supportId?{supportId}:{})});
+const height=.15+catalog.find(a=>a.id==='media_cabinet').support.height;
+room.items=[item('media_cabinet',0,.15,-.65),item('small_television',-.32,height,-.65,'media_cabinet'),item('little_console',1.28,height,-.65,'media_cabinet'),item('little_controller',0,height,-.32,'media_cabinet'),{...item('wooden_window',-2.84,1.8,0),id:'left-window',rotation:90},item('wooden_window',.3,2.9,-2.39)];
+const params=new URLSearchParams(location.search);if(params.has('cabinetOnly'))room.items=[{...room.items[0],x:0,z:0,rotation:Number(params.get('cabinetOnly'))}];
+window.__homeEditor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:home});window.render_game_to_text=()=>JSON.stringify(window.__homeEditor.inspect());window.advanceTime=ms=>window.__homeEditor.advanceTime(ms);
+if(params.has('addTV')){document.querySelector('[data-panel="furniture"]').click();document.querySelector('[data-action="category"][data-value="tabletop"]').click();}
+</script></body></html>

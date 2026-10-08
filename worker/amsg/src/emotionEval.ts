@@ -24,6 +24,7 @@ import {
   requestEmotionEval,
   restoreEvalPrompt as coreRestoreEvalPrompt,
   type EmotionEvalOutcome,
+  tagHomeSecretEval,
 } from '../../../utils/emotionEvalCore';
 
 /** 副 API 凭据的两种长相：任务里内联的 { baseUrl, apiKey, model }，或凭据表里的三件套。 */
@@ -37,6 +38,7 @@ export interface AmsgEmotionEvalApi {
 export interface AmsgEmotionEvalSpec {
   /** 带两个占位符的评估提示词模板。 */
   prompt: string;
+  homeSecretRequestId?: string;
   /**
    * 副 API 凭据（没单独配就是主 API 那一份）。
    *
@@ -205,5 +207,7 @@ export const runAmsgEmotionEval = async (
   charName: string,
   timeoutMs: number = EMOTION_EVAL_TIMEOUT_MS,
   signal?: AbortSignal,
-): Promise<AmsgEmotionEvalOutcome> =>
-  requestEmotionEval(api, coreRestoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs, signal);
+): Promise<AmsgEmotionEvalOutcome> => {
+  const result = await requestEmotionEval(api, coreRestoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs, signal);
+  return result.raw ? {...result, raw: tagHomeSecretEval(result.raw, spec.homeSecretRequestId)} : result;
+};

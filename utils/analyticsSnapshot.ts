@@ -96,7 +96,9 @@ export function collectAppearance(
 ): Record<string, string> {
     return {
         // ── 桌面 ──
-        桌面皮肤: theme.skin ?? 'default',
+        桌面皮肤: presetOrCustom(theme.skin ?? 'default', ['default','animalcrossing','mobilegame','tamagotchi','companion','homely']),
+        居家配色: theme.skin === 'homely' ? presetOrCustom(theme.homelyPalette ?? 'apricot', ['apricot','blue','rose','lilac','oat']) : '未使用',
+        居家锁定角色: theme.skin === 'homely' ? onOff(!!theme.homelyLockedCharacterId) : '未使用',
         桌面版本: theme.desktopVariant ?? 'paper',
         深色模式: onOff(theme.darkMode),
         隐藏状态栏: onOff(theme.hideStatusBar),
@@ -196,6 +198,7 @@ export function collectCharSettings(
     const now = Date.now();
     return {
         // ── 开关：默认关的，问有没有人开过 ──
+        '3D家园角色数': bucketFewCount(characters.filter(x => x.home3D?.rooms?.length).length),
         记忆宫殿: anyOn(x => x.memoryPalaceEnabled),
         聊天显示备注: anyOn(x => x.chatShowRemark === true),
         自动归档: anyOn(x => x.autoArchiveEnabled),

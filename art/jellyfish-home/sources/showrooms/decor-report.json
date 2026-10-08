@@ -1,0 +1,67 @@
+[
+  {
+    "id": "suite_window_spa",
+    "triangles": 1296,
+    "bytes": 26932
+  },
+  {
+    "id": "suite_window_study",
+    "triangles": 1080,
+    "bytes": 22960
+  },
+  {
+    "id": "suite_window_kitchen",
+    "triangles": 756,
+    "bytes": 16972
+  },
+  {
+    "id": "suite_window_living",
+    "triangles": 1680,
+    "bytes": 34876
+  },
+  {
+    "id": "suite_window_bedroom",
+    "triangles": 2696,
+    "bytes": 61684
+  },
+  {
+    "id": "suite_art_moon",
+    "triangles": 984,
+    "bytes": 21820
+  },
+  {
+    "id": "suite_art_botanical",
+    "triangles": 1152,
+    "bytes": 23992
+  },
+  {
+    "id": "suite_art_abstract",
+    "triangles": 816,
+    "bytes": 18752
+  },
+  {
+    "id": "suite_wall_shelf",
+    "triangles": 860,
+    "bytes": 22552
+  },
+  {
+    "id": "suite_tea_tray",
+    "triangles": 460,
+    "bytes": 13708
+  },
+  {
+    "id": "suite_books_plant",
+    "triangles": 584,
+    "bytes": 15780
+  },
+  {
+    "id": "suite_rug_grid",
+    "triangles": 1404,
+    "bytes": 27896
+  },
+  {
+    "id": "suite_rug_border",
+    "triangles": 540,
+    "bytes": 11956
+  }
+]

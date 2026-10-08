@@ -519,6 +519,7 @@ const BankApp: React.FC = () => {
 
     // --- Guestbook Logic (Gossip & Drama) ---
     const handleRefreshGuestbook = async () => {
+
         const COST = 40;
         if (stateRef.current.shop.actionPoints < COST) {
             addToast(`AP 不足 (需 ${COST})。去省钱吧！`, 'error');
@@ -575,7 +576,7 @@ ${previousGuestbook}
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]) })
+                body: JSON.stringify({ model: apiConfig.model, messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])) })
             });
 
             if (response.ok) {

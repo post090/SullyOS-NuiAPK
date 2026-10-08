@@ -1,0 +1,25 @@
+import * as T from 'three';
+import {GLTFExporter} from 'three/examples/jsm/exporters/GLTFExporter.js';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {mkdirSync,writeFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {join} from 'node:path';
+import {createBlankBody} from '../../apps/room3d/chibi/blankBody';
+import {bindBlankBody} from '../../apps/room3d/chibi/blankRig';
+class Reader {result:unknown;onloadend?:()=>void;readAsArrayBuffer(b:Blob){void b.arrayBuffer().then(v=>{this.result=v;this.onloadend?.();});}}
+(globalThis as unknown as {FileReader:unknown}).FileReader=Reader;
+const scene=new T.Scene(),hair=new T.Group();
+const output=process.argv[2]||'output/current-body',headSize=Number(process.argv[3]||1);
+assert.ok(Number.isFinite(headSize)&&headSize>0,'headSize must be positive');
+const mesh=new T.Mesh(createBlankBody('skin',{headSize,bodyHeight:1}),Array.from({length:6},()=>new T.MeshStandardMaterial({color:'#eed5c4',roughness:1})));
+mesh.name='CurrentBody';scene.add(mesh,hair);
+const rig=bindBlankBody(mesh,hair,true);rig.setPose('bind');
+scene.updateMatrixWorld(true);rig.skeleton.update();
+const glb=await new GLTFExporter().parseAsync(scene,{binary:true,onlyVisible:true}) as ArrayBuffer;
+const loaded=await new GLTFLoader().parseAsync(glb,'');let triangles=0,bones=0;
+loaded.scene.traverse(o=>{if(o instanceof T.SkinnedMesh){triangles+=o.geometry.index!.count/3;bones=o.skeleton.bones.length;assert.ok(o.geometry.attributes.skinWeight);}});
+assert.equal(triangles,rig.mesh.geometry.index!.count/3);assert.equal(bones,rig.skeleton.bones.length);
+mkdirSync(output,{recursive:true});
+writeFileSync(join(output,'current-body.glb'),Buffer.from(glb));
+writeFileSync(join(output,'README.txt'),`当前二号素体 / Current body 2\n\ncurrent-body.glb：通用 GLB，保留蒙皮和骨架。\n\nT 姿势；不含衣服、头发、五官贴图或动画。\n头部大小：${headSize}；身高参数：1。房间显示倍率不烘焙进素体。\n使用当前项目素体，保留已修正的手臂、小腿和手指。\n三角面：${triangles}；骨骼：${bones}（含手指与手臂扭转辅助骨）。\n未额外减面或重拓扑。\n`);
+console.log(JSON.stringify({output,headSize,triangles,bones,bytes:glb.byteLength}));

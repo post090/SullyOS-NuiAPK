@@ -1,0 +1,47 @@
+{
+  "provider": "CMU Graphics Lab; Bruce Hahne / cgspeed BVH conversion",
+  "revision": "09a07f54f3bbb58797325f009282d0b2048a2871",
+  "license": "CMU/cgspeed terms; see CMU-cgspeed-README.txt",
+  "files": [
+    {
+      "id": "22_07",
+      "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_07.bvh",
+      "sha256": "e51d9ea0078eeaf61f28c343b1ce7dbabecf16dfbb8636835f18423a080c3dcf",
+      "bytes": 233220,
+      "duration": 2.5249898433685303,
+      "modifications": "none; first calibration frame is skipped only during preview"
+    },
+    {
+      "id": "23_07",
+      "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/023/23_07.bvh",
+      "sha256": "ccbd6c6282a9580a7cedc5b3323854cc973a2c1ee2d0fb7d17f88f58ca747f74",
+      "bytes": 229787,
+      "duration": 2.5249898433685303,
+      "modifications": "none; first calibration frame is skipped only during preview"
+    },
+    {
+      "id": "22_05",
+      "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_05.bvh",
+      "sha256": "742ad9875bfe1e8f192d3841a5f08b01447177b3386777fed0a2263ab08bd58f",
+      "bytes": 403793,
+      "duration": 4.366649150848389,
+      "modifications": "none; first calibration frame is skipped only during preview"
+    },
+    {
+      "id": "23_05",
+      "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/023/23_05.bvh",
+      "sha256": "4e11a31fefb9fc388231eb5e87bc166afa99ef48b53cb27f848080821d829674",
+      "bytes": 393902,
+      "duration": 4.366649150848389,
+      "modifications": "none; first calibration frame is skipped only during preview"
+    },
+    {
+      "id": "13_17",
+      "url": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/013/13_17.bvh",
+      "sha256": "5eba9811c5031d661f013e7269233c21878a9b70be0a1a4bed49baaec0161634",
+      "bytes": 3675245,
+      "duration": 40.33317184448242,
+      "modifications": "none; first calibration frame is skipped only during preview"
+    }
+  ]
+}

@@ -2125,6 +2125,7 @@ const CallApp: React.FC = () => {
     performancePersonaAttemptedRef.current.add(character.id);
 
     const task = (async (): Promise<string | null> => {
+
       try {
         const directorApi = resolvePerformanceDirectorApi(character);
         const baseUrl = directorApi.baseUrl?.replace(/\/+$/, '');
@@ -2140,7 +2141,7 @@ const CallApp: React.FC = () => {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${directorApi.apiKey || 'sk-none'}` },
           body: JSON.stringify({
             model: directorApi.model,
-            messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
+            messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])),
             temperature: 0.25,
             max_tokens: AVATAR_PERFORMANCE_PERSONA_MAX_TOKENS,
             stream: false,
@@ -2296,7 +2297,7 @@ ${sentencePlan}`;
       addToast('摄像头画面还没准备好，本轮已只发送文字', 'info');
     }
     const snapshotHistory = prepareUserCameraSnapshot(messages, userCameraSnapshot);
-    const characterContext = selectedChar ? ContextBuilder.buildCharacterContext({
+    const characterContext = selectedChar ? (await ContextBuilder.buildCharacterContext({
       char: selectedChar, user: userProfile, history: snapshotHistory.messages,
       timeOptions: { conversational: true },
       // 场景通话的 sceneContext 前置在核心上下文之前；时光契约监督块（taskBlock）
@@ -2306,7 +2307,7 @@ ${sentencePlan}`;
         const withTask = taskBlock ? `${base}\n${taskBlock}` : base;
         return buildCallPrompt(userName, selectedChar.name, withTask, voiceLang || undefined, callMode, resolveCharTimeZone(selectedChar));
       },
-    }) : null;
+    })) : null;
     const baseCallPrompt = characterContext?.coreContext
       ?? buildCallPrompt(userName, undefined, undefined, voiceLang || undefined, callMode);
     const baseSystemPrompt = [

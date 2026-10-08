@@ -675,7 +675,7 @@ const JobHuntApp: React.FC = () => {
         } catch (e) { console.warn('[JobHunt] 宫殿召回失败（非致命）', e); }
 
         const lastMsg = session.messages[session.messages.length - 1];
-        let ctx = ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, {
+        let ctx = await ContextBuilder.buildCoreContext(char, userProfile, true, undefined, undefined, {
             lastInteractionTs: lastMsg?.ts,
             userTimezone: userProfile?.timezone,
             worldbookMessages: pseudoMsgs,
@@ -741,12 +741,12 @@ const JobHuntApp: React.FC = () => {
     }, [userProfile, positions, realtimeConfig]);
 
     // ─── LLM 调用（resilientFetch：120s + 瞬断补枪）───
-    // API 优先级（§13）：面试会话 = interviewApi(jhSettings.api.chat) > jobHuntApiOverride > chatApiOverride > 全局；
-    //                    普通岗位会话（不传 interviewApi）= jobHuntApiOverride > chatApiOverride > 全局。
+    // API 优先级（§13）：面试会话 = interviewApi(jhSettings.api.chat) > jobHuntApiOverride > dialogueApi > 全局；
+    //                    普通岗位会话（不传 interviewApi）= jobHuntApiOverride > dialogueApi > 全局。
     const callLLM = useCallback(async (systemPrompt: string, history: JobChatMessage[], extraUser?: string, char?: CharacterProfile, interviewApi?: JobApiRef | null): Promise<string> => {
         const eff = interviewApi?.baseUrl ? interviewApi
             : char?.jobHuntApiOverride?.baseUrl ? char.jobHuntApiOverride
-            : char?.chatApiOverride?.baseUrl ? char.chatApiOverride
+            : char?.dialogueApi?.baseUrl ? char.dialogueApi
             : apiConfig;
         const messages: { role: string; content: string }[] = [{ role: 'system', content: systemPrompt }];
         for (const m of history.slice(-40)) {
@@ -855,10 +855,10 @@ const JobHuntApp: React.FC = () => {
                 charId: selectedChar.id,
                 sceneContext,
                 sceneLabel: `模拟面试 · ${pos ? `${pos.code} ${pos.title}` : '综合'} · ${practiceMode === 'coach' ? '轻松陪练' : '严肃面试官'}`,
-                // 面试独立 API 三路（§13）：对话 LLM = jhSettings.api.chat > jobHuntApiOverride > chatApiOverride > 全局
+                // 面试独立 API 三路（§13）：对话 LLM = jhSettings.api.chat > jobHuntApiOverride > dialogueApi > 全局
                 apiOverride: jhSettings.api.chat?.baseUrl ? jhSettings.api.chat
                     : selectedChar.jobHuntApiOverride?.baseUrl ? selectedChar.jobHuntApiOverride
-                    : selectedChar.chatApiOverride?.baseUrl ? selectedChar.chatApiOverride
+                    : selectedChar.dialogueApi?.baseUrl ? selectedChar.dialogueApi
                     : undefined,
                 sttOverride: jhSettings.api.stt?.baseUrl
                     ? { baseUrl: jhSettings.api.stt.baseUrl, apiKey: jhSettings.api.stt.apiKey, model: jhSettings.api.stt.model }
@@ -871,7 +871,7 @@ const JobHuntApp: React.FC = () => {
                         // 跟随全局：用面试主对话模型（需支持音频输入）做音频理解，不另配模型
                         const g: { baseUrl?: string; apiKey?: string; model?: string } | null = jhSettings.api.chat?.baseUrl ? jhSettings.api.chat
                             : selectedChar.jobHuntApiOverride?.baseUrl ? selectedChar.jobHuntApiOverride
-                            : selectedChar.chatApiOverride?.baseUrl ? selectedChar.chatApiOverride
+                            : selectedChar.dialogueApi?.baseUrl ? selectedChar.dialogueApi
                             : (apiConfig?.baseUrl ? { baseUrl: apiConfig.baseUrl, apiKey: apiConfig.apiKey, model: apiConfig.model } : null);
                         return g?.baseUrl
                             ? { enabled: true, api: { baseUrl: g.baseUrl, apiKey: g.apiKey, model: g.model }, transcribeMode: jhSettings.api.transcribeMode, mode: 'follow' as const }

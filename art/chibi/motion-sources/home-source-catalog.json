@@ -1,0 +1,1135 @@
+[
+  {
+    "id": "cmu-22_07",
+    "name": "01 单手搭肩 A→B",
+    "original": "22_07 / 23_07",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_07.bvh",
+      "/output/social-motion-intake/CMU/23_07.bvh"
+    ],
+    "duration": 2.516656510035197,
+    "actorDurations": [
+      2.5249898433685303,
+      2.5249898433685303
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_07.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A comforts B, puts one hand on B's shoulder (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 1
+  },
+  {
+    "id": "cmu-22_05",
+    "name": "02 双手扶肩 A→B",
+    "original": "22_05 / 23_05",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_05.bvh",
+      "/output/social-motion-intake/CMU/23_05.bvh"
+    ],
+    "duration": 4.358315817515055,
+    "actorDurations": [
+      4.366649150848389,
+      4.366649150848389
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_05.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A comforts B, puts both hands on B's shoulders (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 2
+  },
+  {
+    "id": "cmu-13_17",
+    "name": "03 单人拳击",
+    "original": "13_17",
+    "category": "日常手势",
+    "format": "bvh",
+    "files": [
+      "/room3d/motions/social-source/13_17.bvh"
+    ],
+    "duration": 40.32483851114909,
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://mocap.cs.cmu.edu/search.php?subjectnumber=13",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "approved": true,
+    "approvedOrder": 3,
+    "description": "单人练拳，没有对打回应轨。"
+  },
+  {
+    "id": "vrma-9563c582418bd5b5",
+    "name": "待机 · idle",
+    "original": "idle",
+    "category": "待机放松",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/idle.vrma"
+    ],
+    "duration": 10,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/idle.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/idle.vrma"
+    ],
+    "sha256": "9563c582418bd5b51da473ea85b41722cb5304f84128935c3b570c72316c444a",
+    "approved": true,
+    "approvedOrder": 4
+  },
+  {
+    "id": "vrma-0c64f7e2cbde3af4",
+    "name": "交谈手势 · idle-talking-2",
+    "original": "idle-talking-2",
+    "category": "交谈倾听",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/extra/idle-talking-2.vrma"
+    ],
+    "duration": 16.633333206176758,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/extra/idle-talking-2.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/extra/idle-talking-2.vrma"
+    ],
+    "sha256": "0c64f7e2cbde3af41a5fe45ec0fdc7b645c1e8f59e2f2e6c29c0d48a65cd58ee",
+    "approved": true,
+    "approvedOrder": 5
+  },
+  {
+    "id": "vrma-fdcc1a71495a8b1b",
+    "name": "交谈手势 · idle-talking-3",
+    "original": "idle-talking-3",
+    "category": "交谈倾听",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/extra/idle-talking-3.vrma"
+    ],
+    "duration": 10.800000190734863,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/extra/idle-talking-3.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/extra/idle-talking-3.vrma"
+    ],
+    "sha256": "fdcc1a71495a8b1b6315d9b6cc4a8835cb458460f40a6a2164a3fc01f4b94808",
+    "approved": true,
+    "approvedOrder": 6
+  },
+  {
+    "id": "vrma-3b1c1155dfac93d4",
+    "name": "交谈手势 · rb-idle-talking",
+    "original": "rb-idle-talking",
+    "category": "交谈倾听",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-idle-talking.vrma"
+    ],
+    "duration": 7.933333396911621,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-idle-talking.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-idle-talking.vrma"
+    ],
+    "sha256": "3b1c1155dfac93d4d4d3a44deecc17420cd191cbec9b68e795f19bc6d05e0e6e",
+    "approved": true,
+    "approvedOrder": 7
+  },
+  {
+    "id": "vrma-e3d9fa72f0bd27cc",
+    "name": "倾听 · rb-listen",
+    "original": "rb-listen",
+    "category": "交谈倾听",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-listen.vrma"
+    ],
+    "duration": 7.900000095367432,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-listen.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-listen.vrma"
+    ],
+    "sha256": "e3d9fa72f0bd27cc7fb18e9bdf809de607d6d4731f18c246efd976fb12e7f153",
+    "approved": true,
+    "approvedOrder": 8
+  },
+  {
+    "id": "vrma-a7dffdd79957bf87",
+    "name": "倾听 · rb-listen-3",
+    "original": "rb-listen-3",
+    "category": "交谈倾听",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-listen-3.vrma"
+    ],
+    "duration": 5,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-listen-3.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-listen-3.vrma"
+    ],
+    "sha256": "a7dffdd79957bf87602c85fc1ae76062fd1afccf729558eddd368990c90b5bac",
+    "approved": true,
+    "approvedOrder": 9
+  },
+  {
+    "id": "vrma-ad2a5118837bfa67",
+    "name": "吃惊 · reaction-startle",
+    "original": "reaction-startle",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/voxavatar/public/assets/animations/reaction-startle.vrma"
+    ],
+    "duration": 11.399999618530273,
+    "clipCount": 1,
+    "bones": 51,
+    "source": "voxavatar",
+    "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/reaction-startle.vrma",
+    "license": "https://github.com/SanHsien/voxavatar/blob/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/ASSET_LICENSES.md",
+    "aliases": [
+      "voxavatar/public/assets/animations/reaction-startle.vrma"
+    ],
+    "sha256": "ad2a5118837bfa6789cb89383d4e0bd98bed7685158b692bbfb6662ee42ae6c9",
+    "approved": true,
+    "approvedOrder": 10
+  },
+  {
+    "id": "vrma-7d011478fbff385b",
+    "name": "低落 · sad",
+    "original": "sad",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/sad.vrma"
+    ],
+    "duration": 3.2666666507720947,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/sad.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/sad.vrma"
+    ],
+    "sha256": "7d011478fbff385bdde6ea0314a4035740571c5fdfb9902c8799fdb8ce189626",
+    "approved": true,
+    "approvedOrder": 11
+  },
+  {
+    "id": "vrma-c5f715092eacacc8",
+    "name": "点头 · nod",
+    "original": "nod",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/nod.vrma"
+    ],
+    "duration": 1.7666666507720947,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/nod.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/nod.vrma"
+    ],
+    "sha256": "c5f715092eacacc827b52c984ebd5c8b8d991b2e34102fbc03235b01c6bcbbe8",
+    "approved": true,
+    "approvedOrder": 12
+  },
+  {
+    "id": "vrma-7cac053d27467ce6",
+    "name": "点头 · rb-nod-2",
+    "original": "rb-nod-2",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-nod-2.vrma"
+    ],
+    "duration": 2.133333444595337,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-nod-2.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-nod-2.vrma"
+    ],
+    "sha256": "7cac053d27467ce6a218e733aa67639448c5d473953ef37177ab5fe2dabd994f",
+    "approved": true,
+    "approvedOrder": 13
+  },
+  {
+    "id": "vrma-55b69cf6ed4213ad",
+    "name": "开心 / 鼓掌 · happy",
+    "original": "happy",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/happy.vrma"
+    ],
+    "duration": 5.300000190734863,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/happy.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/happy.vrma"
+    ],
+    "sha256": "55b69cf6ed4213adeba1279cb85015c136cbaa5ecefc5211f4f595fc454d6b39",
+    "approved": true,
+    "approvedOrder": 14
+  },
+  {
+    "id": "vrma-7bc4b0a91cd1feb0",
+    "name": "开心 / 鼓掌 · happy-2",
+    "original": "happy-2",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/happy-2.vrma"
+    ],
+    "duration": 3.7666666507720947,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/happy-2.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/happy-2.vrma"
+    ],
+    "sha256": "7bc4b0a91cd1feb0afee4600d5f8d800ba3bc64c07b96ca0faf637ed6da6f9e1",
+    "approved": true,
+    "approvedOrder": 15
+  },
+  {
+    "id": "vrma-1e8fb16b889c9054",
+    "name": "生气 / 摇头 · angry-2",
+    "original": "angry-2",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/angry-2.vrma"
+    ],
+    "duration": 2.7333333492279053,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/angry-2.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/angry-2.vrma"
+    ],
+    "sha256": "1e8fb16b889c9054cc44023df63932ff119a87ddab8c5e0f05378a66318b5869",
+    "approved": true,
+    "approvedOrder": 16
+  },
+  {
+    "id": "vrma-40db0f7c6d612001",
+    "name": "耸肩 · rb-shrug",
+    "original": "rb-shrug",
+    "category": "情绪手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-shrug.vrma"
+    ],
+    "duration": 1.8333333730697632,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-shrug.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-shrug.vrma"
+    ],
+    "sha256": "40db0f7c6d61200136c3a48f77d8cede1557cc62e468f5aca46cbd80e1da5f47",
+    "approved": true,
+    "approvedOrder": 17
+  },
+  {
+    "id": "vrma-6a8dd04f6a0b4f07",
+    "name": "飞机手势 · airplane-02",
+    "original": "airplane-02",
+    "category": "日常手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/voxavatar/public/assets/animations/airplane-02.vrma"
+    ],
+    "duration": 7.458333492279053,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "voxavatar",
+    "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/airplane-02.vrma",
+    "license": "https://github.com/SanHsien/voxavatar/blob/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/ASSET_LICENSES.md",
+    "aliases": [
+      "voxavatar/public/assets/animations/airplane-02.vrma"
+    ],
+    "sha256": "6a8dd04f6a0b4f071d881df1fce68e116dc4c5c1d651f5a5585a91cfa4037ccd",
+    "approved": true,
+    "approvedOrder": 18
+  },
+  {
+    "id": "vrma-54a37ca48a1d4ffb",
+    "name": "看手机 · review-phone",
+    "original": "review-phone",
+    "category": "日常手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/voxavatar/public/assets/animations/review-phone.vrma"
+    ],
+    "duration": 10.366999626159668,
+    "clipCount": 1,
+    "bones": 51,
+    "source": "voxavatar",
+    "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/review-phone.vrma",
+    "license": "https://github.com/SanHsien/voxavatar/blob/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/ASSET_LICENSES.md",
+    "aliases": [
+      "voxavatar/public/assets/animations/review-phone.vrma"
+    ],
+    "sha256": "54a37ca48a1d4ffb60cfc539013f59fecd48d93375b2069c6c35b5e9f416b726",
+    "approved": true,
+    "approvedOrder": 19
+  },
+  {
+    "id": "vrma-cae36da2cc8b9845",
+    "name": "看手机 · world-afk-texting",
+    "original": "world-afk-texting",
+    "category": "日常手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/world-afk-texting.vrma"
+    ],
+    "duration": 11.033333778381348,
+    "clipCount": 1,
+    "bones": 54,
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/world-afk-texting.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/world-afk-texting.vrma"
+    ],
+    "sha256": "cae36da2cc8b984587efe2d0c95e513bbfe36d0bd37ada9bbdcb192356e85d5d",
+    "approved": true,
+    "approvedOrder": 20
+  },
+  {
+    "id": "vrma-bde19e90366f6448",
+    "name": "思考 / 环顾 · rb-think",
+    "original": "rb-think",
+    "category": "日常手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-think.vrma"
+    ],
+    "duration": 9.433333396911621,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-think.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-think.vrma"
+    ],
+    "sha256": "bde19e90366f644888b145d0339c172763e919dd58c72239a5856761fd9983ea",
+    "approved": true,
+    "approvedOrder": 21
+  },
+  {
+    "id": "vrma-8bd33d84e90c0243",
+    "name": "招手 · rb-wave",
+    "original": "rb-wave",
+    "category": "日常手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-wave.vrma"
+    ],
+    "duration": 5.5333333015441895,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-wave.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-wave.vrma"
+    ],
+    "sha256": "8bd33d84e90c0243987924c2f27d826f0b3343cfa8d1607a4e2f0bb9ce8af643",
+    "approved": true,
+    "approvedOrder": 22
+  },
+  {
+    "id": "vrma-788371d87156b583",
+    "name": "招手 · rb-wave-2",
+    "original": "rb-wave-2",
+    "category": "日常手势",
+    "format": "vrma",
+    "files": [
+      "/output/social-motion-intake/Hanami/vrma/rb-wave-2.vrma"
+    ],
+    "duration": 8.399999618530273,
+    "clipCount": 1,
+    "bones": 52,
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-wave-2.vrma",
+    "license": "/output/social-motion-intake/Hanami/vrma/NOTICE.md",
+    "aliases": [
+      "Hanami/vrma/rb-wave-2.vrma"
+    ],
+    "sha256": "788371d87156b5836594cd87ac18e929d19b75fbe5e9e3865ec7fbe6d50ba135",
+    "approved": true,
+    "approvedOrder": 23
+  },
+  {
+    "id": "cmu-22_17",
+    "name": "掰手腕",
+    "original": "22_17 / 23_17",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_17.bvh",
+      "/output/social-motion-intake/CMU/23_17.bvh"
+    ],
+    "duration": 6.924972407023112,
+    "actorDurations": [
+      6.933305740356445,
+      6.933305740356445
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_17.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "rush up, arm wrestle (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 24
+  },
+  {
+    "id": "cmu-22_04",
+    "name": "单手搭肩 B→A",
+    "original": "22_04 / 23_04",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_04.bvh",
+      "/output/social-motion-intake/CMU/23_04.bvh"
+    ],
+    "duration": 4.3249825159708655,
+    "actorDurations": [
+      4.333315849304199,
+      4.333315849304199
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_04.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "B comforts A, puts one hand on A's shoulder (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 25
+  },
+  {
+    "id": "cmu-20_12",
+    "name": "低位击掌后走开",
+    "original": "20_12 / 21_12",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/20_12.bvh",
+      "/output/social-motion-intake/CMU/21_12.bvh"
+    ],
+    "duration": 2.0416585127512614,
+    "actorDurations": [
+      2.0499918460845947,
+      2.0499918460845947
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_12.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "low-five, walk (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 26
+  },
+  {
+    "id": "cmu-22_13",
+    "name": "递汽水与喝水",
+    "original": "22_13 / 23_13",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_13.bvh",
+      "/output/social-motion-intake/CMU/23_13.bvh"
+    ],
+    "duration": 7.649969450632731,
+    "actorDurations": [
+      7.6583027839660645,
+      7.6583027839660645
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_13.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A passes soda to B; both drink (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 27
+  },
+  {
+    "id": "cmu-22_03",
+    "name": "蹲下安慰坐着的人",
+    "original": "22_03 / 23_03",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_03.bvh",
+      "/output/social-motion-intake/CMU/23_03.bvh"
+    ],
+    "duration": 6.7583063761393225,
+    "actorDurations": [
+      6.766639709472656,
+      6.766639709472656
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_03.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A sits, holds face in hands; B kneels, comforts A (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 28
+  },
+  {
+    "id": "cmu-20_11",
+    "name": "击掌后走开",
+    "original": "20_11 / 21_11",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/20_11.bvh",
+      "/output/social-motion-intake/CMU/21_11.bvh"
+    ],
+    "duration": 1.924992314974467,
+    "actorDurations": [
+      1.9333256483078003,
+      1.9333256483078003
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_11.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "high-five, walk (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 29
+  },
+  {
+    "id": "cmu-18_08",
+    "name": "交谈与解释",
+    "original": "18_08 / 19_08",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/18_08.bvh",
+      "/output/social-motion-intake/CMU/19_08.bvh"
+    ],
+    "duration": 17.374931208292644,
+    "actorDurations": [
+      17.383264541625977,
+      17.383264541625977
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_08.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "conversation - explain with hand gestures (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 30
+  },
+  {
+    "id": "cmu-22_15",
+    "name": "交替开合跳",
+    "original": "22_15 / 23_15",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_15.bvh",
+      "/output/social-motion-intake/CMU/23_15.bvh"
+    ],
+    "duration": 4.116649977366129,
+    "actorDurations": [
+      4.124983310699463,
+      4.124983310699463
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_15.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "alternating jumping jacks (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 31
+  },
+  {
+    "id": "cmu-22_01",
+    "name": "拉对方起身 A→B",
+    "original": "22_01 / 23_01",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_01.bvh",
+      "/output/social-motion-intake/CMU/23_01.bvh"
+    ],
+    "duration": 6.508307329813639,
+    "actorDurations": [
+      6.516640663146973,
+      6.516640663146973
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_01.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "B sits; A pulls up B (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 32
+  },
+  {
+    "id": "cmu-18_05",
+    "name": "拉手肘 1",
+    "original": "18_05 / 19_05",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/18_05.bvh",
+      "/output/social-motion-intake/CMU/19_05.bvh"
+    ],
+    "duration": 3.641651980082194,
+    "actorDurations": [
+      3.6499853134155273,
+      3.6499853134155273
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_05.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A pulls B by the elbow; B resists (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 33
+  },
+  {
+    "id": "cmu-20_10",
+    "name": "拉手转圈",
+    "original": "20_10 / 21_10",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/20_10.bvh",
+      "/output/social-motion-intake/CMU/21_10.bvh"
+    ],
+    "duration": 4.316649309794108,
+    "actorDurations": [
+      4.324982643127441,
+      4.324982643127441
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_10.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "360-degree two-person whip (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 34
+  },
+  {
+    "id": "cmu-18_03",
+    "name": "拉住对方 1",
+    "original": "18_03 / 19_03",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/18_03.bvh",
+      "/output/social-motion-intake/CMU/19_03.bvh"
+    ],
+    "duration": 4.924980036417643,
+    "actorDurations": [
+      4.933313369750977,
+      4.933313369750977
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_03.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A pulls B; B resists (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 35
+  },
+  {
+    "id": "cmu-20_13",
+    "name": "蒙眼捉人",
+    "original": "20_13 / 21_13",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/20_13.bvh",
+      "/output/social-motion-intake/CMU/21_13.bvh"
+    ],
+    "duration": 13.466612688700359,
+    "actorDurations": [
+      13.474946022033691,
+      13.474946022033691
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_13.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "blind man's bluff (blindfold tag) (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 36
+  },
+  {
+    "id": "cmu-22_08",
+    "name": "牵手摆臂走路",
+    "original": "22_08 / 23_08",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_08.bvh",
+      "/output/social-motion-intake/CMU/23_08.bvh"
+    ],
+    "duration": 1.8749924818674724,
+    "actorDurations": [
+      1.8833258152008057,
+      1.8833258152008057
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_08.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "hold hands, swing arms, walk (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 37
+  },
+  {
+    "id": "cmu-22_09",
+    "name": "站着揉肩",
+    "original": "22_09 / 23_09",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/22_09.bvh",
+      "/output/social-motion-intake/CMU/23_09.bvh"
+    ],
+    "duration": 4.474982134501139,
+    "actorDurations": [
+      4.483315467834473,
+      4.483315467834473
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_09.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "A gives B a shoulder rub; B sits, A stands (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 38
+  },
+  {
+    "id": "cmu-18_10",
+    "name": "争论手势 1",
+    "original": "18_10 / 19_10",
+    "category": "双人互动",
+    "format": "bvh",
+    "files": [
+      "/output/social-motion-intake/CMU/18_10.bvh",
+      "/output/social-motion-intake/CMU/19_10.bvh"
+    ],
+    "duration": 15.033273569742839,
+    "actorDurations": [
+      15.041606903076172,
+      15.041606903076172
+    ],
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_10.bvh",
+    "license": "/output/social-motion-intake/CMU/README-license.txt",
+    "description": "quarrel - angry hand gestures (2 subjects - subject A)",
+    "approved": true,
+    "approvedOrder": 39
+  },
+  {
+    "id": "pose-mh-gpedroso_peace_and_love",
+    "name": "比耶 / Peace",
+    "original": "gpedroso_peace_and_love",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/gpedroso_peace_and_love/gpedroso_peace_and_love.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/gpedroso_peace_and_love/gpedroso_peace_and_love.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/gpedroso_peace_and_love/gpedroso_peace_and_love.png",
+    "duration": 0,
+    "source": "MakeHuman · gpedroso",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "c3c2ab8f6abbd60d7c69227e1685160cebda1ce9c2e565a5a863b336001897e2",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-drednicolson_arms_akimbo",
+    "name": "双手叉腰",
+    "original": "drednicolson_arms_akimbo",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/drednicolson_arms_akimbo/drednicolson_arms_akimbo.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/drednicolson_arms_akimbo/drednicolson_arms_akimbo.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/drednicolson_arms_akimbo/drednicolson_arms_akimbo.png",
+    "duration": 0,
+    "source": "MakeHuman · DredNicolson",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "53d73abd4e8d6387c3f09f11fcb723f902859a9040487d79d0247c8b0f683935",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-anrico_standing11",
+    "name": "站姿 · 11",
+    "original": "anrico_standing11",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/anrico_standing11/anrico_standing11.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/anrico_standing11/anrico_standing11.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/anrico_standing11/anrico_standing11.png",
+    "duration": 0,
+    "source": "MakeHuman · anrico",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "f53f76f0e9e985c006f8127f9b48cb6cdafac1b7bba52d1bb50a9005ac6bca2f",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-callharvey3d_standingatease",
+    "name": "稍息",
+    "original": "callharvey3d_standingatease",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/callharvey3d_standingatease/callharvey3d_standingatease.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/callharvey3d_standingatease/callharvey3d_standingatease.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/callharvey3d_standingatease/callharvey3d_standingatease.png",
+    "duration": 0,
+    "source": "MakeHuman · callharvey3d",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "54f5f1fc1b0d9e63c2506dd9482461cc00637f5b881da445affff894484eff10",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-punkduck_hand_on_shoulder_01",
+    "name": "手搭肩 · 01",
+    "original": "punkduck_hand_on_shoulder_01",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/punkduck_hand_on_shoulder_01/punkduck_hand_on_shoulder_01.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/punkduck_hand_on_shoulder_01/punkduck_hand_on_shoulder_01.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/punkduck_hand_on_shoulder_01/punkduck_hand_on_shoulder_01.png",
+    "duration": 0,
+    "source": "MakeHuman · punkduck",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "294f70e4d06d6129fc07e8e9ca8852cfc35fcbc4a9171fbc6af6a64c91a1f6d5",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-punkduck_pd_fashion02",
+    "name": "模特站姿 · 02",
+    "original": "punkduck_pd_fashion02",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/punkduck_pd_fashion02/punkduck_pd_fashion02.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/punkduck_pd_fashion02/punkduck_pd_fashion02.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/punkduck_pd_fashion02/punkduck_pd_fashion02.png",
+    "duration": 0,
+    "source": "MakeHuman · punkduck",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "39f81c0ce6f23b35a2467b29cfb33a1c584cfe3abc6e0d9c40b3913781012330",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-sohh_posing4",
+    "name": "摆拍 · Sohh 04",
+    "original": "sohh_posing4",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/sohh_posing4/sohh_posing4.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/sohh_posing4/sohh_posing4.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/sohh_posing4/sohh_posing4.png",
+    "duration": 0,
+    "source": "MakeHuman · sohh",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "5b6d7b7a262fdc0e42fe6cfa9305e1888d3d0702ae61ea5038924c38e0135d0d",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-sohh_posing5",
+    "name": "摆拍 · Sohh 05",
+    "original": "sohh_posing5",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/sohh_posing5/sohh_posing5.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/sohh_posing5/sohh_posing5.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/sohh_posing5/sohh_posing5.png",
+    "duration": 0,
+    "source": "MakeHuman · sohh",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "eacee668d09154cf8ccc257e8482bfa3d37a5668b1ed34d0f255cb71046ad78f",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-sohh_posing6",
+    "name": "摆拍 · Sohh 06",
+    "original": "sohh_posing6",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/sohh_posing6/sohh_posing6.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/sohh_posing6/sohh_posing6.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/sohh_posing6/sohh_posing6.png",
+    "duration": 0,
+    "source": "MakeHuman · sohh",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "19a23f34693317093cf4d18b2414e24adead0e28da327ab3c065ae0c9f0cf97c",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-sohh_standing1",
+    "name": "站姿 · Sohh 01",
+    "original": "sohh_standing1",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/sohh_standing1/sohh_standing1.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/sohh_standing1/sohh_standing1.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/sohh_standing1/sohh_standing1.png",
+    "duration": 0,
+    "source": "MakeHuman · sohh",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "add0eb1e7a15234399fe4ca9d6816f0c2f8344fd80d42ad58e9abbeed875862a",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-sohh_standing2",
+    "name": "站姿 · Sohh 02",
+    "original": "sohh_standing2",
+    "kind": "pose",
+    "category": "合照 · 站姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses03/poses/sohh_standing2/sohh_standing2.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses03/poses/sohh_standing2/sohh_standing2.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses03/poses/sohh_standing2/sohh_standing2.png",
+    "duration": 0,
+    "source": "MakeHuman · sohh",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses03.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "b84cbbe35fdad3097a56352fc62237fe74cffe49bd3e3fc821563c7d6fd65da7",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-milkman_sit_01a",
+    "name": "坐姿 · 01A",
+    "original": "milkman_sit_01a",
+    "kind": "pose",
+    "category": "合照 · 坐姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses01/poses/milkman_sit_01a/milkman_sit_01a.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses01/poses/milkman_sit_01a/milkman_sit_01a.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses01/poses/milkman_sit_01a/milkman_sit_01a.png",
+    "duration": 0,
+    "source": "MakeHuman · milkman",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses01.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "5b484c3747bb323f941466dd0d5d659aad73ffa26147913819e0ba2754a7b367",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-wolgade_sit_on_ground_01",
+    "name": "坐地 · Wolgade",
+    "original": "wolgade_sit_on_ground_01",
+    "kind": "pose",
+    "category": "合照 · 坐姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses01/poses/wolgade_sit_on_ground_01/wolgade_sit_on_ground_01.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses01/poses/wolgade_sit_on_ground_01/wolgade_sit_on_ground_01.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses01/poses/wolgade_sit_on_ground_01/wolgade_sit_on_ground_01.png",
+    "duration": 0,
+    "source": "MakeHuman · wolgade",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses01.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "73a1ba153724d0cd1617b8191b2f1c9b50aaeb6692920812366b51bb1688a19e",
+    "approved": true
+  },
+  {
+    "id": "pose-mh-xhado84_sitting_floor_3",
+    "name": "坐地 · Xhado",
+    "original": "xhado84_sitting_floor_3",
+    "kind": "pose",
+    "category": "合照 · 坐姿",
+    "format": "pose-points",
+    "files": [
+      "/output/social-motion-intake/poses/poses01/poses/xhado84_sitting_floor_3/xhado84_sitting_floor_3.bvh"
+    ],
+    "preview": "/output/social-motion-intake/poses/poses01/poses/xhado84_sitting_floor_3/xhado84_sitting_floor_3.preview.json",
+    "thumbnail": "/output/social-motion-intake/poses/poses01/poses/xhado84_sitting_floor_3/xhado84_sitting_floor_3.png",
+    "duration": 0,
+    "source": "MakeHuman · xhado",
+    "sourceUrl": "https://static.makehumancommunity.org/assets/assetpacks/poses01.html",
+    "license": "/art/chibi/motion-sources/PHOTO-POSE-CREDITS.md",
+    "description": "静态源姿势 · 可旋转查看；椅子、手袋、杯子等道具未包含。尚未适配家园素体。",
+    "sha256": "b1794b25e037e61fe592a2a78e21d998df45aa5369a513b2ab2ba61b667b9e20",
+    "approved": true
+  }
+]

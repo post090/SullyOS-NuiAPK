@@ -256,6 +256,7 @@ export const requestCompanionStartupDraft = async (options: {
   modelActions?: AvatarTouchModelAction[];
   hint?: string;
 }): Promise<CompanionStartupDraft> => {
+
   const {
     character,
     user,
@@ -296,11 +297,11 @@ export const requestCompanionStartupDraft = async (options: {
     },
     body: JSON.stringify({
       model: apiConfig.model,
-      messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+      messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
         { role: 'system', content: buildCompanionStartupPrompt('', character.name, user.name || '用户', modelActions, hint) },
         ...apiMessages,
         { role: 'user', content: eventText },
-      ]),
+      ])),
       temperature: 0.86,
       max_tokens: 1400,
       stream: false,

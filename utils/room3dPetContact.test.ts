@@ -1,0 +1,28 @@
+import {it,expect,vi} from 'vitest';
+import * as T from 'three';
+import catalog from '../public/room3d/catalog.json';
+import {createHome} from '../apps/room3d/model.js';
+import {createPetLife,petMap} from '../apps/room3d/petLife.js';
+import {createPetContact} from '../apps/room3d/petContact.js';
+import {createBlankBody,BLANK_SCALE} from '../apps/room3d/chibi/blankBody';
+import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
+import {createBlankMotion} from '../apps/room3d/chibi/blankMotion';
+function setup(onEvent=(event:any)=>{}){const home=createHome(catalog);home.rooms[0].items=[];const life=createPetLife({home:()=>home,catalog,onEvent}),pet=life.adopt('pet_cat','团子');life.data.autonomy=false;const group=new T.Group(),chest=new T.Bone();chest.position.y=1.6;group.add(chest);group.position.set(0,.18,-.85);let walking=true,valid=true;const contact=createPetContact({life,home:()=>home,catalog,bridge:()=>({group,visitor:{rig:{bones:{chest,R_hand:new T.Bone(),L_hand:new T.Bone()}}},walking:()=>walking,valid:()=>valid,face(p:number[]){group.rotation.y=Math.atan2(p[0]-group.position.x,p[2]-group.position.z);},stop(){walking=false;},reset(){}})});const tick=(t:number,active=true)=>{for(let i=0;i<t;i+=.05){contact.tick(.05,active);life.step(.05,active);}};return {home,life,pet,group,contact,tick,arrive(){walking=false;},invalidate(){valid=false;}};}
+it('only awards touching after approach and full stroke; cancellation grants nothing',()=>{const s=setup(),before=s.pet.needs.social;s.contact.start(s.pet.id,'pet');s.tick(10);expect(s.pet.needs.social).toBeLessThan(before);expect(s.pet.relations.user).toBeUndefined();s.arrive();s.tick(2);expect(s.contact.inspect()?.phase).toBe('stroke');s.contact.cancel();expect(s.pet.relations.user).toBeUndefined();s.contact.start(s.pet.id,'pet');s.tick(6.1);expect(s.contact.inspect()).toBeNull();expect(s.pet.relations.user).toBe(2);expect(s.pet.needs.social).toBeGreaterThan(before);});
+it('holds through walking/turning, freezes when paused, and lands on a clear floor spot',()=>{const s=setup();s.contact.start(s.pet.id,'carry');s.arrive();s.tick(2.5);expect(s.contact.inspect()?.phase).toBe('held');const original=s.contact.frame()!.position.clone();s.group.position.x+=1;s.group.rotation.y=Math.PI/2;s.tick(.1);expect(s.contact.frame()!.position.distanceTo(original)).toBeGreaterThan(.5);const time=s.contact.inspect()!.time;s.tick(4,false);expect(s.contact.inspect()!.time).toBe(time);expect(()=>s.contact.start(s.pet.id,'pet')).toThrow();s.contact.drop();s.tick(2.5);expect(s.contact.inspect()).toBeNull();expect(petMap(s.home.rooms[0],catalog,s.pet).free(s.pet.x,s.pet.z)).toBe(true);expect(s.pet.relations.user).toBeUndefined();});
+it('cleans external ownership when the human disappears without changing saved pet identity',()=>{const s=setup(),id=s.pet.id;s.contact.start(id,'carry');s.arrive();s.tick(2.5);s.invalidate();s.tick(.1);expect(s.contact.inspect()).toBeNull();expect(s.life.runtime.get(id)?.external).not.toBe(true);expect(s.life.data.pets[0].id).toBe(id);});
+it('squat grounds ankles, lowers hips and reaches the pet without stretching bones',()=>{const parent=new T.Group(),body=new T.Group(),hair=new T.Group(),mesh=new T.Mesh(createBlankBody('skin'),new T.MeshBasicMaterial());parent.scale.setScalar(2.8/BLANK_SCALE);parent.add(body);body.add(mesh,hair);const rig=bindBlankBody(mesh,hair,true),animate=createBlankMotion(rig,body),lengths=rig.skeleton.bones.map(b=>b.position.length());animate(0,'idle','standing');const hip=rig.bones.hips.getWorldPosition(new T.Vector3()).y,foot=rig.bones.R_foot.getWorldPosition(new T.Vector3()).y;
+ const hands=[[0,.65,.62],[-.24,1.1,.25]],activity={kind:'pet-contact',petCrouch:1,hands:hands.map(p=>p.map(v=>v/.7)),handScale:.7/parent.scale.y};animate(2,'idle','standing',activity);parent.updateMatrixWorld(true);
+ expect(rig.bones.hips.getWorldPosition(new T.Vector3()).y).toBeLessThan(hip-.25);expect(rig.bones.R_foot.getWorldPosition(new T.Vector3()).y).toBeCloseTo(foot,1);expect(rig.bones.R_hand.getWorldPosition(new T.Vector3()).distanceTo(new T.Vector3(...hands[0]))).toBeLessThan(.09);expect(rig.skeleton.bones.map(b=>b.position.length())).toEqual(lengths);
+});
+
+it('records holding only after lift, and dropping only after lowering, without repeating held frames',()=>{const events:any[]=[];const s=setup(e=>events.push(e));events.length=0;s.contact.start(s.pet.id,'carry');s.tick(2);expect(events).toHaveLength(0);s.arrive();s.tick(2.5);expect(events.map(e=>e.text)).toEqual(['被你抱在怀里']);s.tick(3);expect(events).toHaveLength(1);s.contact.drop();s.tick(1);expect(events).toHaveLength(1);s.tick(1.5);expect(events.map(e=>e.text)).toEqual(['被你抱在怀里','被你轻轻放回地面']);});
+
+it('attributes autonomous pet contact to the character only after completion',()=>{const events:any[]=[];const s=setup(e=>events.push(e));events.length=0;s.contact.start(s.pet.id,'play',{actorId:'char',actorName:'Noir',source:'local'});s.arrive();s.tick(2);expect(events).toHaveLength(0);expect(s.contact.inspect()?.actorId).toBe('char');s.tick(5);expect(events).toHaveLength(1);expect(events[0]).toMatchObject({source:'local',actorName:'Noir',petName:'团子',text:'和Noir玩了一会儿'});expect(s.pet.relations.char).toBeGreaterThan(0);expect(s.pet.relations.user).toBeUndefined();});
+
+
+it('backup restoration cancels held-pet ownership without saving the old life over incoming data',()=>{
+ const s=setup();s.contact.start(s.pet.id,'carry');s.arrive();s.tick(2.5);
+ const save=vi.spyOn(s.life,'save');s.contact.cancel(true,false);
+ expect(save).not.toHaveBeenCalled();expect(s.contact.inspect()).toBeNull();expect(s.life.runtime.has(s.pet.id)).toBe(false);
+});

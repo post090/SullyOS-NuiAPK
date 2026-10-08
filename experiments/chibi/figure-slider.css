@@ -1,0 +1,9 @@
+.figure-slider{display:flex;align-items:center;gap:10px;min-height:40px;margin:8px 0;font-size:12px}
+.figure-slider>span{width:65px;flex:none}
+.figure-slider input[type=range]{flex:1;width:0;min-width:36px;min-height:36px;touch-action:none;accent-color:var(--creator-accent,#9c83bb)}
+.figure-slider .figure-number{display:flex;align-items:center;gap:3px;flex:none;width:78px}
+.figure-slider .figure-number input{flex:none;width:62px;min-width:0;min-height:34px;box-sizing:border-box;border:1px solid var(--creator-border,#e4dce0);border-radius:9px;padding:4px;text-align:center;background:var(--creator-surface,#fffdfa);color:inherit;font:inherit;font-variant-numeric:tabular-nums;appearance:textfield}
+.figure-number input::-webkit-inner-spin-button,.figure-number input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.figure-number small{font-size:10px;color:var(--creator-muted,#8c7e87)}
+.figure-number input:focus-visible{outline:2px solid var(--creator-accent,#9c83bb);outline-offset:2px}
+@media(pointer:coarse){.figure-slider input[type=range]{min-height:44px}.figure-slider .figure-number input{min-height:40px;font-size:16px}}

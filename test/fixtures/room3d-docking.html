@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';import {createHome} from '/apps/room3d/model.js';import {gamingPreset} from '/apps/room3d/gaming.js';import '/apps/room3d/editor.css';
+const q=new URLSearchParams(location.search),catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog);
+home.rooms[0].items=gamingPreset('computer',catalog);home.rooms[0].name='桌椅吸附';
+if(q.has('dense')){const base=home.rooms[0];home.rooms=[];for(let x=0;x<4;x++)for(let z=0;z<3;z++)home.rooms.push({...base,id:`room-${x}-${z}`,name:`房间 ${x}-${z}`,x,z,items:gamingPreset('computer',catalog),boundaries:{left:{kind:x?'open':'wall_high'},right:{kind:x<3?'open':'wall_high'},back:{kind:z?'open':'wall_high'},front:{kind:z<2?'open':'wall_high'}}});home.activeRoomId=home.rooms[0].id;}
+else if(!q.has('panel')){const chair=home.rooms[0].items.find(i=>i.assetId==='gaming_chair');chair.z+=.9;chair.x+=.35;delete chair.dockId;delete chair.dockSlot;}
+const key='test-room3d-docking'+(q.has('dense')?'-dense':''),editor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:localStorage.getItem(key)?undefined:home,storageKey:key});
+window.__homeEditor=editor;window.render_game_to_text=()=>JSON.stringify(editor.inspect());window.advanceTime=ms=>editor.advanceTime(ms);
+if(q.has('panel'))editor.select(editor.getState().rooms[0].items.find(i=>i.assetId==='gaming_desk').id);
+</script></body></html>

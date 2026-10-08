@@ -1,3 +1,4 @@
+import {buildHomeConversationPayload} from './homeConversation';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CharacterProfile, UserProfile } from '../types';
 import { DB } from './db';
@@ -7,7 +8,8 @@ import { DatePrompts } from './datePrompts';
 import * as palace from './memoryPalace/pipeline';
 
 const userProfile = { name: '用户' } as UserProfile;
-const markerNumbers = (messages: unknown): number[] => [...JSON.stringify(messages).matchAll(/原文标记(\d+)结束/g)].map(match => Number(match[1]));
+// Compare actual dialogue bodies, not internal event copies in projection metadata.
+const markerNumbers = (messages: unknown): number[] => [...JSON.stringify(Array.isArray(messages)?messages.map(message=>message.content):messages).matchAll(/原文标记(\d+)结束/g)].map(match => Number(match[1]));
 
 describe('以 ChatApp 实际发送链路为基准核对上下文', () => {
     beforeEach(() => localStorage.clear());
@@ -30,12 +32,12 @@ describe('以 ChatApp 实际发送链路为基准核对上下文', () => {
             ids.push(await DB.saveMessage({
                 charId, role: n % 2 ? 'user' : 'assistant', type: 'text',
                 content: `原文标记${n}结束`, timestamp: 1700000000000 + n,
-                metadata: { source: n <= 20 ? 'chat' : n <= 200 ? 'date' : 'call' },
+                metadata: n === 241 ? {source:'home',homeTurnId:'parity-turn'} : { source: n <= 20 ? 'chat' : n <= 200 ? 'date' : 'call' },
             }));
             if (n === 220) await DB.saveMessage({ charId, groupId: 'other-group', role: 'user', type: 'text', content: '群聊独立记录' });
         }
         const char: CharacterProfile = {
-            id: charId, name: '角色', avatar: '', description: '', systemPrompt: '', memories: [],
+            memoryPalaceEnabled:true, id: charId, name: '角色', avatar: '', description: '', systemPrompt: '', memories: [],
             contextRangePolicyVersion: 1, contextRangeMode: scenario.mode, contextLimit: scenario.limit,
             autoArchiveEnabled: !('oneShot' in scenario || 'orphan' in scenario),
             contextFollowsMemoryPalaceHwm: 'oneShot' in scenario,
@@ -67,7 +69,10 @@ describe('以 ChatApp 实际发送链路为基准核对上下文', () => {
             });
             expect(markerNumbers(date.messages)).toEqual(expected);
         }
-        expect(markerNumbers(DatePrompts.buildPeekPayload({ char, userProfile, allMsgs: dateRows, emojis: [] }).messages)).toEqual(expected);
+        expect(markerNumbers((await DatePrompts.buildPeekPayload({ char, userProfile, allMsgs: dateRows, emojis: [] })).messages)).toEqual(expected);
+        const home=await buildHomeConversationPayload({char,user:userProfile,api:{} as any,scene:{roomId:'r',roomName:'客厅',present:true,actions:[]} as any,records:[{id:'parity-turn',turnId:'parity-turn',actor:'user',kind:'message',source:'user',text:'原文标记241结束',at:1700000000241,roomId:'r',roomName:'客厅'}],signal:new AbortController().signal});
+        expect(markerNumbers(home.slice(1))).toEqual(expected);
+        expect(markerNumbers(recall.mock.calls.at(-1)![1])).toEqual(expected);
     });
 
     it('一键入宫后暂无新原文时，旧 UI 缓存不进入召回和世界书扫描', async () => {
@@ -88,7 +93,7 @@ describe('以 ChatApp 实际发送链路为基准核对上下文', () => {
         expect(chat.cleanedApiMessages).toEqual([]);
         expect(recall.mock.calls[0][1]).toEqual([]);
         expect(JSON.stringify(chat.fullMessages)).not.toContain('被隐藏消息触发的世界书正文');
-        expect(markerNumbers(DatePrompts.buildPeekPayload({ char, userProfile, allMsgs: rows, emojis: [] }).messages)).toEqual([]);
+        expect(markerNumbers((await DatePrompts.buildPeekPayload({ char, userProfile, allMsgs: rows, emojis: [] })).messages)).toEqual([]);
         const manual = await buildChatRequestPayload({
             char: { ...char, contextRangeMode: 'manual', contextLimit: 10 },
             userProfile, groups: [], emojis: [], categories: [],

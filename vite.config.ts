@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { execSync } from 'node:child_process';
 import { bakeVoiceMiddleware } from './server/bake-voice-middleware';
 import { staticCachePlugin } from './scripts/static-cache-build';
+import { startupRecoveryPlugin } from './scripts/startup-recovery-plugin';
 import { APP_VERSION_TAG } from './utils/appVersion';
 
 // MiniMax 国服 / 海外是两套域名，前端每个请求都带 X-MiniMax-Region 头说明走哪边。
@@ -83,6 +84,7 @@ export default defineConfig({
     ],
   },
   plugins: [
+    startupRecoveryPlugin(appBuildId),
     react(),
     staticCachePlugin({ buildId: appBuildId, appVersion: APP_VERSION_TAG }),
     {
@@ -154,6 +156,7 @@ export default defineConfig({
     assetsDir: 'assets/build',
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
+      input: { main: 'index.html', wardrobe: 'chibi-wardrobe.html' },
       // 关键修复：将这些包排除在打包之外，让浏览器通过 index.html 的 importmap 加载
       external: ['katex'],
       onwarn(warning, defaultHandler) {
@@ -164,6 +167,12 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // This SDK core is dependency-free. Keep its initialized constants
+            // outside vendor-react: memory-palace initializes a store at module
+            // scope and can run before that cyclic vendor chunk's var defaults.
+            if (/[\\/]@rei-standard[\\/]blob-store[\\/]dist[\\/]index\.mjs$/.test(id)) {
+              return 'vendor-blob-store';
+            }
             // Only load the image renderer when exporting a beauty preview.
             if (id.includes('html2canvas')) return 'beauty-preview-renderer';
             // Local camera emotion calibration is opt-in. Keep MediaPipe out of
@@ -200,9 +209,9 @@ export default defineConfig({
             }
             return 'vendor';
           }
-          if (id.includes('utils/memoryPalace')) {
-            return 'memory-palace';
-          }
+          // Let Rollup place application modules by their real dependency graph.
+          // Forcing memoryPalace into one chunk also hoists shared contexts and
+          // creates application -> React vendor -> application startup cycles.
         }
       }
     }

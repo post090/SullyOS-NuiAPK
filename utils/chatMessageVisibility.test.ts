@@ -13,13 +13,19 @@ const nextCharId = () => `chat-visibility-${++sequence}`;
 afterEach(() => localStorage.clear());
 
 describe('私聊与桌面预览的消息范围', () => {
+    it.each([undefined, 'chat', 'home'])('秘密只在历史操作中查看，普通聊天和桌面始终隐藏（%s）', source => {
+        const note = message({ role: 'system', type: 'secret_note', content: '纸条正文', metadata: { source } });
+        expect(isVisibleChatMessage(note)).toBe(false);
+        expect(isVisibleChatMessage(note, true)).toBe(false);
+        expect(isChatPreviewMessage(note)).toBe(false);
+    });
     it('图片与表情只显示类型标签，不泄漏底层存储引用', () => {
         expect(chatPreviewText(message({ type: 'image', content: 'blobref:private' }))).toBe('[图片]');
         expect(chatPreviewText(message({ type: 'emoji', content: 'https://example.com/emoji.png' }))).toBe('[表情]');
         expect(chatPreviewText(message({ content: 'data:image/png;base64,abc' }))).toBe('[图片]');
         expect(chatPreviewText(message())).toBe('晚安');
     });
-    it.each(['date', 'call', 'story_theater_memory'])('%s 正文不出现在私聊和桌面消息卡', source => {
+    it.each(['date', 'call', 'home', 'story_theater_memory'])('%s 正文不出现在私聊和桌面消息卡', source => {
         const row = message({ metadata: { source } });
         expect(isVisibleChatMessage(row)).toBe(false);
         expect(isChatPreviewMessage(row)).toBe(false);
@@ -43,6 +49,18 @@ describe('私聊与桌面预览的消息范围', () => {
 });
 
 describe('先按显示范围过滤，再计算最近 N 条', () => {
+    it('纸条留在原始历史计数中，但不占普通聊天的可见分页位置', async () => {
+        const charId = nextCharId();
+        const ids: number[] = [];
+        for (let i = 0; i < 35; i++) {
+            ids.push(await DB.saveMessage({ charId, role: 'assistant', type: 'text', content: `回复 ${i}` }));
+            await DB.saveMessage({ charId, role: 'system', type: 'secret_note', content: `秘密 ${i}` });
+        }
+        const page = await DB.getRecentMessagesWithCount(charId, 30, isVisibleChatMessage);
+        expect(page.messages.map(m => m.id)).toEqual(ids.slice(-30));
+        expect(page.totalCount).toBe(70);
+        expect(await DB.getMessagesByCharId(charId, true)).toHaveLength(70);
+    });
     it('大量见面/通话/隐藏提示不能挤掉已保存的主动消息，桌面和聊天均能找到它', async () => {
         const charId = nextCharId();
         const saved = await DB.saveMessage({ charId, role: 'assistant', type: 'text', content: '该出门了' });

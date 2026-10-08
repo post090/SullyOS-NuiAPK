@@ -1,0 +1,18 @@
+SullyOS body-2 default walking animation: Overte / High Fidelity,
+converted to VRMA by Hanami / Undi95.
+
+Copyright (c) 2013-2019 High Fidelity, Inc.
+Copyright (c) 2019-2021 Vircadia contributors.
+Copyright (c) 2022-2026 Overte e.V.
+Licensed under the Apache License, Version 2.0; see LICENSE-Apache-2.0.txt.
+Upstream conversion notice: Hanami-NOTICE.md.
+
+Original: Overte interface/resources/avatar/animations/walk_fwd.fbx
+Converted source: world-walk.vrma
+https://github.com/Undi95/Hanami/blob/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/world-walk.vrma
+SHA256: 1a41df323c51599bbafb1c7d2b72e723a6f6a95c61286e3ec9f38385a2b841b3
+
+SullyOS changes: retargeted rotations to the local rig, merged chest hierarchy,
+retained local finger curls and forearm twist distribution; excluded source
+avatar meshes and root translations. Runtime lower-ankle height adaptation and
+movement speed estimation use the target character's actual proportions.

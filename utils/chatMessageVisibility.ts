@@ -11,8 +11,10 @@ export const chatPreviewText = (message: Pick<Message, 'type' | 'content'>): str
 /** 私聊界面的范围；见面/通话记录仍保留在库里，供各自界面和上下文使用。 */
 export const isVisibleChatMessage = (message: Message, hideSystemLogs = false): boolean => (
     !message.groupId
+    && message.type !== 'secret_note'
     && message.metadata?.source !== 'date'
     && message.metadata?.source !== 'call'
+    && message.metadata?.source !== 'home'
     && message.metadata?.source !== 'story_theater_memory'
     && !message.metadata?.proactiveHint
     && !(hideSystemLogs && message.role === 'system' && message.type !== 'score_card')

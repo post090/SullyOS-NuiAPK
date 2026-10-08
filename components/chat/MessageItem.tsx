@@ -1515,6 +1515,9 @@ const MessageItem = React.memo(({
         );
     };
 
+    // Secrets are revealed on entering the home, or inspected in history management.
+    if (m.type === 'secret_note') return null;
+
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {
         const isCallSummary = m.metadata?.source === 'call-end-popup';
@@ -3116,8 +3119,7 @@ const MessageItem = React.memo(({
     }
 
     if (m.type === 'room_card') {
-        // 小屋「生活动态」轻量卡片：情绪评估顺风车偶尔捎带的一句小变化（utils/roomAmbient.ts）。
-        // content 进上下文，角色自然记得自己干过啥——不额外建 feed，卡片即记录。
+        // 兼容已保存的小屋生活动态卡片；情绪评估已不再生成新动态。
         const md: any = m.metadata || {};
         const timeStr = new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
         const card = (

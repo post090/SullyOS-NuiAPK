@@ -1,0 +1,12 @@
+import {describe,it,expect} from 'vitest';
+import {furnishingCounts,phoneBudgetError,isPhoneBrowser} from '../apps/room3d/deviceBudget.js';
+import {ROOM_STEP} from '../apps/room3d/dimensions.js';
+const catalog=[{id:'chair'},{id:'wall_high',building:true}];
+const piece=(id,x=0)=>({id,assetId:'chair',x,z:0,stored:false});
+const room=(id,x,items=[])=>({id,name:id,x,z:0,level:0,items});
+describe('phone construction limits',()=>{
+ it('detects phones without treating a small desktop window as a phone',()=>{expect(isPhoneBrowser({coarse:true,width:390,height:844})).toBe(true);expect(isPhoneBrowser({userAgent:'Mozilla iPhone'})).toBe(true);expect(isPhoneBrowser({mobile:true,width:900,height:400})).toBe(true);expect(isPhoneBrowser({width:390,height:844})).toBe(false);expect(isPhoneBrowser({coarse:true,width:1024,height:768})).toBe(false);});
+ it('counts original tiles and each group member by physical center, excluding stored pieces and structure',()=>{const a=room('a',0,[piece('table'),{...piece('prop',ROOM_STEP.x),supportId:'table'}, {...piece('stored'),stored:true},{...piece('wall'),assetId:'wall_high'}]),b=room('b',1);const h={rooms:[a,b]};expect(Object.fromEntries(furnishingCounts(h,catalog))).toEqual({a:1,b:1});});
+ it('allows exactly five tiles and twenty instances, rejects extra rooms and cross-tile crowding',()=>{const before={rooms:Array.from({length:5},(_,n)=>room('r'+n,n,n===0?Array.from({length:20},(_,i)=>piece('i'+i)):[]))};expect(phoneBudgetError(null,before,catalog)).toBe('');const more=structuredClone(before);more.rooms.push(room('extra',0));expect(phoneBudgetError(before,more,catalog)).toContain('5');const added=structuredClone(before);added.rooms[1].items.push(piece('cross',-ROOM_STEP.x));expect(phoneBudgetError(before,added,catalog)).toContain('20');});
+ it('preserves oversized legacy layouts but allows only non-increasing excess, while imports must fit',()=>{const before={rooms:[room('old',0,Array.from({length:22},(_,i)=>piece('i'+i)))]};expect(phoneBudgetError(before,structuredClone(before),catalog)).toBe('');const reduced=structuredClone(before);reduced.rooms[0].items[0].stored=true;expect(phoneBudgetError(before,reduced,catalog)).toBe('');const bigger=structuredClone(before);bigger.rooms[0].items.push(piece('new'));expect(phoneBudgetError(before,bigger,catalog)).toContain('20');expect(phoneBudgetError(null,before,catalog)).toContain('20');});
+});

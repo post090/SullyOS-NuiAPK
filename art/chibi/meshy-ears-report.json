@@ -1,0 +1,34 @@
+{
+  "sourceArchive": "Meshy_AI_assets_20261004_111456.zip",
+  "revision": "127a6cce1130",
+  "items": [
+    {
+      "id": "fox-ears",
+      "source": "01a1021b-e96c-759d-b673-d0e2b82e2674",
+      "sha256": "167d370cf856805a4bda64227ac5ad0a3446be3394e6393fe15370db961c273a",
+      "sourceTriangles": 2229400,
+      "triangles": 3876
+    },
+    {
+      "id": "dog-ears",
+      "source": "01a1021b-e9e2-706c-a9cd-504b3c2b32eb",
+      "sha256": "4f3c83575dac42360ae36ff5f94f642842a5338a43a5dbd655ecd203c615c3cd",
+      "sourceTriangles": 106396,
+      "triangles": 3900
+    },
+    {
+      "id": "cat-ears",
+      "source": "01a10696-d164-72f2-bc12-cbdbaac0c44f",
+      "sha256": "925837d836edb11471705a24ec2e05cbd460f4a7a02449d79403062db35e14c4",
+      "sourceTriangles": 95874,
+      "triangles": 3900
+    },
+    {
+      "id": "rabbit-ears",
+      "source": "01a1069d-b420-75a3-9ef1-40d598f3ace4",
+      "sha256": "174dadfbd07b0dac6a3346f9f65a6ba88e9cdd0ced0d1cfe11e346773ce56196",
+      "sourceTriangles": 76200,
+      "triangles": 3900
+    }
+  ]
+}

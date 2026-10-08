@@ -32,6 +32,7 @@ type EditorTarget =
     | null;
 
 interface MemoryRepairPortalProps {
+    inline?: boolean;
     char: CharacterProfile;
     user: UserProfile;
     apiConfig: APIConfig;
@@ -75,6 +76,7 @@ function boxDateLabel(nodes: RepairNode[]): string {
 }
 
 const MemoryRepairPortal: React.FC<MemoryRepairPortalProps> = ({
+    inline=false,
     char,
     user,
     apiConfig,
@@ -744,7 +746,7 @@ const MemoryRepairPortal: React.FC<MemoryRepairPortalProps> = ({
         </div>
     );
 
-    return createPortal(portal, document.body);
+    return inline?portal:createPortal(portal, document.body);
 };
 
 const NodeEditor: React.FC<{

@@ -1,0 +1,22 @@
+import {createRequire} from 'node:module';
+import {writeFile} from 'node:fs/promises';
+const require=createRequire('C:/Users/tiaotiao/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json');
+const {chromium}=require('playwright');
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--no-sandbox']});
+const page=await browser.newPage({viewport:{width:430,height:860},isMobile:true,hasTouch:true,reducedMotion:'reduce'});
+const errors=[];page.on('pageerror',e=>errors.push(String(e)));
+await page.goto('http://127.0.0.1:4178/assets/editor.html');await page.waitForFunction(()=>window.__homeEditor);
+const stats=()=>page.evaluate(()=>window.__homeEditor.inspect());
+await page.waitForTimeout(500);const idleBefore=await stats();await page.waitForTimeout(700);const idleAfter=await stats();
+if(idleAfter.renderedFrames!==idleBefore.renderedFrames)throw Error('Reduced-motion idle is rendering');
+await page.evaluate(()=>{const s=window.__homeEditor.getState(),base=s.rooms[0];s.rooms=[];for(let level=0;level<2;level++)for(let x=0;x<4;x++)for(let z=0;z<3;z++){const r=structuredClone(base);r.id=`room-${level}-${x}-${z}`;r.x=x;r.z=z;r.level=level;r.items.forEach(i=>{i.id=r.id+'-'+i.id;if(i.supportId)i.supportId=r.id+'-'+i.supportId});s.rooms.push(r)}s.activeRoomId=s.rooms[0].id;localStorage.setItem('sully-jelly-home-editor-v1',JSON.stringify(s))});
+await page.reload();await page.waitForFunction(()=>window.__homeEditor);await page.locator('[data-action="overview"]').click();await page.waitForTimeout(500);const overview=await stats();
+for(let i=0;i<8;i++){await page.locator('[data-action="overview"]').click();await page.waitForTimeout(50);await page.locator('[data-action="overview"]').click();await page.waitForTimeout(50)}
+await page.waitForTimeout(500);const repeated=await stats();
+if(repeated.geometries!==overview.geometries||repeated.materials!==overview.materials||repeated.textures!==overview.textures)throw Error('Resources grew after repeated switches');
+if(repeated.detailRooms!==1||repeated.frameCap>31)throw Error('Mobile/detail budgets not applied');
+await page.waitForTimeout(500);if((await stats()).renderedFrames!==repeated.renderedFrames)throw Error('Static overview keeps drawing');
+await page.screenshot({path:'output/jellyfish-home/performance-24-rooms.png'});
+const compact=s=>({drawCalls:s.drawCalls,triangles:s.triangles,geometries:s.geometries,textures:s.textures,materials:s.materials,renderedFrames:s.renderedFrames,frameCap:s.frameCap,detailRooms:s.detailRooms});
+const result={errors,idle:compact(idleAfter),overview:compact(overview),afterEightRoundTrips:compact(repeated),roomCount:repeated.rooms.length};
+await writeFile('output/jellyfish-home/performance-qa.json',JSON.stringify(result,null,2));console.log(result);await browser.close();if(errors.length)process.exitCode=1;

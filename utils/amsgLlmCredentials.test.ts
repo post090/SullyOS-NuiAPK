@@ -3,8 +3,9 @@
 // 回归守卫（凭据行本身）：
 //   1. 起名。三种用途各一行，名字进了任务就不再改——名字错一次，云端那行永远没人认领，
 //      任务到点只会报「凭据不存在」。
-//   2. 取值。角色开了「单独 API」时定时消息那行必须写单独 API 的值；情绪评估没单独配
-//      时回落到全局聊天 API。算错等于用户以为在用 A 模型、实际云端在用 B。
+//   2. 取值。定时消息那行跟随角色默认对话 API（dialogueApi），没配跟随全局；旧主动消息
+//      副 API 字段不参与取值；情绪评估没单独配时回落到全局聊天 API。算错等于用户以为
+//      在用 A 模型、实际云端在用 B。
 //   3. 指纹门控。值没变就不该重传（每次排程 / 每条消息都白发一次 PUT），变了必须重传
 //      （不然换完 Key 云端还是旧的，已排任务到点全 401）。
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -30,6 +31,7 @@ import {
 const CHAR = { id: 'char-1' } as any;
 const API = { baseUrl: 'https://api.example.dev/v1', apiKey: 'sk-global', model: 'gpt-global' };
 const SECONDARY = { baseUrl: 'https://alt.example.dev/v1', apiKey: 'sk-alt', model: 'gpt-alt' };
+const DIALOGUE = { baseUrl: 'https://char.example.dev/v1', apiKey: 'sk-char', model: 'gpt-char' };
 
 beforeEach(() => {
   forgetAllCredIds();
@@ -95,7 +97,7 @@ describe('凭据行取值', () => {
     expect(toCredentialValue({ baseUrl: 'https://x.dev', apiKey: 'k', model: '' })).toBeNull();
   });
 
-  it('定时消息那行：没开单独 API → 全局聊天 API', () => {
+  it('定时消息那行：角色没配 dialogueApi → 全局聊天 API', () => {
     const row = buildCharChatCredRow(CHAR, { enabled: true } as any, API);
     expect(row).toEqual({
       credId: 'char:char-1/chat',
@@ -103,19 +105,32 @@ describe('凭据行取值', () => {
     });
   });
 
-  it('定时消息那行：开了单独 API → 写单独 API 的值（Fork 保留主动消息单独 API）', () => {
+  it('定时消息那行：角色配了 dialogueApi → 写 dialogueApi 的值（优先于全局）', () => {
+    const row = buildCharChatCredRow(
+      { id: 'char-1', dialogueApi: DIALOGUE } as any, { enabled: true } as any, API,
+    );
+    expect(row?.value.primaryModel).toBe(DIALOGUE.model);
+    expect(row?.value.apiKey).toBe(DIALOGUE.apiKey);
+    expect(row?.value.apiUrl).toBe('https://char.example.dev/v1/chat/completions');
+  });
+
+  // 回归守卫：v3.13 合并后旧主动消息副 API 字段不再参与取值（口径同上游排程）。
+  // 若有人把 useSecondaryApi / secondaryApi 那套接回来，这里先红。
+  it('定时消息那行：旧副 API 字段（useSecondaryApi/secondaryApi）不参与取值 → 仍按全局算', () => {
     const row = buildCharChatCredRow(
       CHAR, { enabled: true, useSecondaryApi: true, secondaryApi: SECONDARY } as any, API,
     );
-    expect(row?.value.primaryModel).toBe(SECONDARY.model);
-    expect(row?.value.apiKey).toBe(SECONDARY.apiKey);
+    expect(row?.value.primaryModel).toBe(API.model);
+    expect(row?.value.apiKey).toBe(API.apiKey);
   });
 
-  it('定时消息那行：开关开着但单独 API 没填地址 → 回落全局（口径同排程时的 resolveApiConfig）', () => {
+  it('定时消息那行：角色 dialogueApi 没填地址 → 整行不算数（凭据原子，不拿全局的地址来凑）', () => {
     const row = buildCharChatCredRow(
-      CHAR, { enabled: true, useSecondaryApi: true, secondaryApi: { baseUrl: '', apiKey: '', model: '' } } as any, API,
+      { id: 'char-1', dialogueApi: { baseUrl: '', apiKey: '', model: '' } } as any,
+      { enabled: true } as any,
+      API,
     );
-    expect(row?.value.primaryModel).toBe('gpt-global');
+    expect(row).toBeNull();
   });
 
   it('即时对话那行：原样收下当轮终值（claude 系开思考时的 -thinking 后缀不能被抹掉）', () => {

@@ -1,0 +1,4 @@
+import {it,expect} from 'vitest';
+import {homeDisposalReason,isHomeAssetDisposal} from './homeAssetCancellation';
+it('quiets only tagged cancelled home assets',()=>{const c=new AbortController();const reason=homeDisposalReason();c.abort(reason);expect(isHomeAssetDisposal(reason,c.signal,'http://localhost/room3d/kit.glb')).toBe(true);expect(isHomeAssetDisposal(new TypeError('Failed to fetch'),c.signal,'/room3d/kit.glb')).toBe(false);expect(isHomeAssetDisposal(reason,c.signal,'/chat/completions')).toBe(false);});
+it('keeps untagged cancellation, timeouts, and live request failures diagnosable',()=>{const c=new AbortController();c.abort();expect(isHomeAssetDisposal(c.signal.reason,c.signal,'/room3d/catalog.json')).toBe(false);expect(isHomeAssetDisposal(new DOMException('timeout','TimeoutError'),c.signal,'/room3d/kit.glb')).toBe(false);expect(isHomeAssetDisposal(homeDisposalReason(),new AbortController().signal,'/room3d/kit.glb')).toBe(false);});

@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="UTF-8"><link rel="icon" href="data:,"><meta name="viewport" content="width=device-width,initial-scale=1"><style>html,body,#home{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><div id="home"></div><script type="module">
+import {mountHomeEditor} from '/apps/room3d/editor.js';
+import {createHome,addRoom} from '/apps/room3d/model.js';
+import {gamingPreset} from '/apps/room3d/gaming.js';
+import '/apps/room3d/editor.css';
+const catalog=await fetch('/room3d/catalog.json').then(r=>r.json()),home=createHome(catalog),left=home.rooms[0];left.name='游戏室';left.items=gamingPreset('rhythm',catalog);
+const right=addRoom(home,'right');right.name='电脑房';right.items=gamingPreset('computer',catalog);home.activeRoomId=left.id;
+const editor=await mountHomeEditor(document.querySelector('#home'),{assetBase:new URL('/room3d/',location.href).href,initialState:localStorage.getItem('test-room3d-layout')?undefined:home,storageKey:'test-room3d-layout'});
+window.__homeEditor=editor;window.render_game_to_text=()=>JSON.stringify(editor.inspect());window.advanceTime=ms=>editor.advanceTime(ms);
+if(new URLSearchParams(location.search).has('panel')){document.querySelector('[data-panel="building"]').click();document.querySelector('[data-action="boundary-edge"][data-value="right"]').click();}
+</script></body></html>

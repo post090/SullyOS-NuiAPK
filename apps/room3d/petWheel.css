@@ -1,0 +1,16 @@
+/* Pet actions share the residents' petals, with island colors in standalone previews too. */
+.home3d .h3-pet-wheel{pointer-events:none;background:transparent}
+.h3-pet-wheel button,.h3-pet-wheel .social-wheel-navigation{pointer-events:auto}
+.home3d .h3-pet-wheel .social-petal-icon{background:var(--animal-bg-color,#fffdf5);border:2px solid var(--animal-border-color,#e5e1d5);color:var(--animal-text-color,#80542d);box-shadow:var(--animal-shadow-sm,0 2px 0 #d9cfb5)}
+.h3-pet-wheel .social-petal-icon svg{width:28px;height:28px}
+.home3d .h3-pet-wheel .social-petal>span{background:var(--animal-bg-color,#fffdf5);color:var(--animal-text-color,#80542d);font-weight:700;border:1px solid #e8dfc9;border-radius:12px}
+.home3d .h3-pet-wheel .social-petal[data-affection=true] .social-petal-icon{color:#dc7f99}
+.home3d .h3-pet-wheel .social-petal[data-affection=true] svg{fill:none}
+.home3d .h3-pet-wheel .social-petal:hover .social-petal-icon,.home3d .h3-pet-wheel .social-petal:focus-visible .social-petal-icon{border-color:var(--animal-primary-color,#acb97b);box-shadow:0 0 0 3px #fff9,0 3px 0 #d9cfb5}
+.home3d .h3-pet-wheel .social-wheel-navigation{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:2px;width:max-content;height:40px;box-sizing:border-box;padding:3px 5px;border:1px solid #e6dcc3;border-radius:22px;background:var(--island-paper,#f7f3df);color:var(--animal-text-color,#80542d);box-shadow:0 2px 0 #d9cfb5;z-index:3}
+.home3d .h3-pet-wheel .social-wheel-navigation button{display:flex;align-items:center;justify-content:center;min-width:36px;min-height:32px;height:32px;padding:4px 7px;border:0;background:transparent;color:inherit;box-shadow:none;border-radius:16px;font:inherit;font-size:12px;cursor:pointer}
+.h3-pet-wheel .social-wheel-navigation button>span{display:flex;align-items:center;gap:4px}
+.h3-pet-wheel .social-wheel-navigation svg{width:18px;height:18px}
+.h3-pet-wheel .h3-pet-next svg{transform:rotate(180deg)}
+.h3-pet-wheel .social-wheel-page-count{padding:0 5px;font-size:12px;color:var(--animal-text-secondary,#a2977c);white-space:nowrap}
+.home3d .h3-pet-wheel .social-wheel-navigation button:focus-visible{outline:2px solid var(--animal-primary-color,#acb97b);outline-offset:-2px}

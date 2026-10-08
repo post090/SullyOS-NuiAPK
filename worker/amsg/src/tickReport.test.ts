@@ -286,7 +286,8 @@ describe.skipIf(!sqlite)('定时任务细账（真 SQLite）', () => {
       await (worker as any).scheduled({ scheduledTime: Date.now(), cron: '* * * * *' }, envWith(d1));
 
       const record = await readTickFailure(d1 as unknown as TickReportDb);
-      expect(record?.stage).toBe('tick');
+      // next.34 runs cloud cleanup before loading tasks; the empty DB fails there first.
+      expect(record?.stage).toBe('cloud-cleanup');
       expect(record?.message).toContain('no such table');
       expect(record?.ongoing).toBe(true);
     });

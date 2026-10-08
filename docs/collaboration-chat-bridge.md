@@ -26,6 +26,8 @@
 
 ## 回归验证
 
+协同 MCP 工具接入见 `docs/mcp-client.md` 的「协同工作」段：两种模式都使用当前角色的工具绑定，工具结果只供当前工作轮次继续生成，不扩大私聊读取范围、不自动转发到 ChatApp。`collaborationMcp.test.ts` 覆盖调用与停止链路。
+
 - `utils/collaborationChatBridge.test.ts`：每次读取最新 DB、固定条数、最新手动断点、空自适应范围、角色／群聊隔离与选择转发。
 - 既有 collaborationContext / collaborationWiring 回归。
 - `scripts/test-worldbook-cowork.mjs`：真实协同 UI → 本地 mock API，检查最终请求包含私聊；窗口打开后追加私聊，再选「最近 20 条」生成，仍读到新内容；只选一条转发时回调只收到该条。

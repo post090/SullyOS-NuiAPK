@@ -41,6 +41,10 @@ export class ReplyRun {
     private savedIds = new Set<number>();
     private stoppedDisplay?: Display;
     private settling?: Promise<void>;
+    private completed = false;
+    private resolveSecretSources!: (ids: number[]) => void;
+    readonly secretSourceIds = new Promise<number[]>(resolve => {this.resolveSecretSources = resolve;});
+    markCompleted(): void {this.completed = true;}
     constructor(readonly charId: string, readonly uuid?: string) {}
 
     check = (): void => {
@@ -95,7 +99,10 @@ export class ReplyRun {
                     await DB.saveMessage({ charId: this.charId, role: 'assistant', type: 'text', content });
                 }
             }
-        })().finally(() => { runs.delete(this); });
+        })().finally(() => {
+            this.resolveSecretSources(this.completed && !this.signal.aborted ? [...this.savedIds] : []);
+            runs.delete(this);
+        });
         return this.settling;
     }
 }

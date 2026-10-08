@@ -22,6 +22,7 @@ import { resolveCharTimeZone } from '../utils/timezone';
 import { trackEvent } from '../utils/analytics';
 
 const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'));
+const HomelyHome = React.lazy(() => import('../components/os/HomelyHome'));
 
 // --- Isolated Components to prevent full re-renders ---
 
@@ -1158,6 +1159,10 @@ const Launcher: React.FC<{ staticPreview?: boolean }> = ({ staticPreview = false
   // 电子宠物主题：桌面即养成机——角色真实小屋做舞台 + 四颗糖果实体键（独立组件自渲染）。
   if (theme.skin === 'tamagotchi') {
     return <TamagotchiHome />;
+  }
+
+  if (theme.skin === 'homely') {
+    return <React.Suspense fallback={<div className="h-full w-full bg-[#dce3d5]" role="status">正在回家…</div>}><HomelyHome /></React.Suspense>;
   }
 
   if (theme.skin === 'companion') {

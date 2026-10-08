@@ -14,7 +14,7 @@
 1. 「添加服务器」→ 填名称和服务器 URL（如 `https://mcp.example.com/mcp`）
 2. 服务器要鉴权就填 Bearer Token，或按服务商说明添加自定义请求头（如 `XBY-APIKEY`）
 3. 点「测试连接」→ 客户端走 MCP 握手 + `tools/list`，工具清单持久化到本机
-4. 打开开关 → 私聊或群聊里就能调这些工具
+4. 打开开关 → 私聊、群聊或当前角色的协同工作里就能调这些工具
 5. 「适用聊天」默认通用（所有私聊和群聊）；可把服务器绑定给指定角色或群聊
    （典型场景：游戏 MCP 只交给主持群，其他聊天看不到这批工具）
 
@@ -47,6 +47,7 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 | systemPrompt 注入（9d 段）+ `mcpChatActive` flag + 尾部 reminder | `utils/chatRequestPayload.ts` |
 | tools 注入 + 客户端工具循环（与瑞幸共用骨架） | `hooks/useChatAI.ts` |
 | 群聊 tools 注入 + 客户端工具循环 | `utils/groupChat/mcp.ts`、`apps/GroupChat.tsx` |
+| 协同工作 tools 注入、结果回传与停止 | `features/collaboration/engine.ts`、`features/collaboration/mcp.ts` |
 | 备份导出/导入 | `utils/db.ts`（`mcpLocal` 段）+ `types.ts` `FullBackupData.mcpLocal` |
 | 本地 CORS 代理（支持 `?target=` 通用模式） | `scripts/mcp-proxy.mjs` |
 | 用户自部署 Worker 代理 | `worker/mcp-proxy/` |
@@ -103,6 +104,14 @@ function calling（例如携带 `tools` 就报 401），关闭它后首轮会直
 2. 模型不支持 FC / 中转剥了 `tools` 参数 → 属第二层容错的正常工作范围，
    假调用会被代执行 + 二次生成，用户最终看不到乱码。若还是漏，通常是模型
    编了不存在的工具名（只认已启用服务器的真实工具名，不认幻觉名）。
+
+## 协同工作
+
+沉浸式与中度协同均按当前角色 ID 读取最新启用服务器，复用已有绑定、代理、鉴权、工具名映射和危险操作确认。窗口显示真实调用阶段；工具草稿不流入交付正文，只有工具处理完成后的最终回答参与文件解析与保存。无可用工具时保留普通流式与思考设置，有工具时不附加 thinking 参数。
+
+原生 tool_calls（包含 SSE 分片）与文字兼容调用共用有界循环；API 拒绝 tools 时降级，JSON 参数损坏、未知工具不执行，工具失败回填真实错误。相邻轮次相同调用不重复执行，连续两轮无推进或累计 12 次调用后收束；仍返回工具调用则明确报错，不冒充完成。停止信号传到模型请求和 MCP 握手/调用，取消后不再请求下一轮。原有上下文范围和两种协同模式不变。
+
+验证：`utils/collaborationMcp.test.ts` 覆盖真实 SSE 解析与本地模拟 MCP 握手、工具结果回传、绑定隔离、降级、失败、取消和上限；未连接真实第三方账号。
 
 ## 已知边界
 

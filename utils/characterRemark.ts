@@ -6,6 +6,6 @@ export function characterRemark(value?: string): string {
 }
 
 /** UI only: never replace the character identity used by prompts or message payloads. */
-export function chatCharacterDisplayName(character: Pick<CharacterProfile, 'name' | 'description' | 'chatShowRemark'>): string {
+export function chatCharacterDisplayName(character: Pick<CharacterProfile, 'name'> & Partial<Pick<CharacterProfile, 'description' | 'chatShowRemark'>>): string {
     return character.chatShowRemark ? characterRemark(character.description) || character.name : character.name;
 }

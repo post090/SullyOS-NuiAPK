@@ -699,6 +699,7 @@ describe('scheduleCharacterTask 与欠着的即时对话 chat 段', () => {
     reiClient._encrypt.mockReset().mockResolvedValue({ iv: 'iv', authTag: 'tag', encryptedData: 'enc' });
     // 模板本体、表情全库、推送登记这些都不在被测范围，桩掉。
     vi.spyOn(DB, 'getRecentMessagesByCharId').mockResolvedValue([] as any);
+    vi.spyOn(DB, 'ensureHomeContextMessages').mockResolvedValue(undefined);
     vi.spyOn(DB, 'getEmojis').mockResolvedValue([] as any);
     vi.spyOn(DB, 'getEmojiCategories').mockResolvedValue([] as any);
     vi.spyOn(ChatPrompts, 'buildSystemPrompt').mockResolvedValue('SYS_PROMPT_MARKER');
@@ -978,6 +979,7 @@ describe('buildFirePack 的时区参照系与模板（①）', () => {
   beforeEach(() => {
     // 模板本体不在被测范围：桩掉重依赖，测打包逻辑本身。
     vi.spyOn(DB, 'getRecentMessagesByCharId').mockResolvedValue([] as any);
+    vi.spyOn(DB, 'ensureHomeContextMessages').mockResolvedValue(undefined);
     systemPromptSpy = vi.spyOn(ChatPrompts, 'buildSystemPrompt').mockResolvedValue('SYS_PROMPT_MARKER');
     vi.spyOn(ChatPrompts, 'buildMessageHistory').mockReturnValue({ apiMessages: [] } as any);
     vi.spyOn(ChatPrompts, 'filterVisibleEmojis').mockReturnValue({ emojis: [], categories: [] } as any);
@@ -1475,7 +1477,7 @@ describe('ActiveMsgClient.refreshApiCredentialsForPendingTasks（③ 凭据变�
   });
   afterEach(() => { vi.restoreAllMocks(); });
 
-  it('只刷「开着 2.0 且 pending 的 AI 任务」；单独 API 的角色写单独 API 的值（Fork 口径）', async () => {
+  it('只刷「开着 2.0 且 pending 的 AI 任务」；配了 dialogueApi 的角色写 dialogueApi 的值', async () => {
     vi.spyOn(DB, 'getAllCharacters').mockResolvedValue([
       { id: 'char-a', activeMsg2Config: { enabled: true, tasks: [
         remoteTask('a1'),
@@ -1483,10 +1485,8 @@ describe('ActiveMsgClient.refreshApiCredentialsForPendingTasks（③ 凭据变�
         remoteTask('a3', { firstSendTime: PAST_ISO() }),               // 过点，不动
       ] } },
       { id: 'char-b', activeMsg2Config: { enabled: false, tasks: [remoteTask('b1')] } }, // 关了 2.0，不动
-      { id: 'char-c', activeMsg2Config: {
+      { id: 'char-c', dialogueApi: { baseUrl: 'https://sec.example.com', apiKey: 'sec-key', model: 'sec-model' }, activeMsg2Config: {
         enabled: true,
-        useSecondaryApi: true,
-        secondaryApi: { baseUrl: 'https://sec.example.com', apiKey: 'sec-key', model: 'sec-model' },
         tasks: [remoteTask('c1')],
       } },
     ] as any);
@@ -1559,14 +1559,11 @@ describe('ActiveMsgClient.refreshApiCredentialsForPendingTasks（③ 凭据变�
     expect(reiClient.updateMessage).not.toHaveBeenCalled();
   });
 
-  it('某个角色单独 API 缺字段 → 该角色记失败，别拦其他角色（Fork 口径）', async () => {
+  it('某个角色 dialogueApi 缺字段 → 该角色记失败，别拦其他角色', async () => {
     vi.spyOn(DB, 'getAllCharacters').mockResolvedValue([
-      { id: 'char-broken', activeMsg2Config: {
-        enabled: true,
-        useSecondaryApi: true,
-        secondaryApi: { baseUrl: 'https://sec.example.com', apiKey: '', model: '' }, // 缺 Key/Model
-        tasks: [remoteTask('x1')],
-      } },
+      { id: 'char-broken',
+        dialogueApi: { baseUrl: 'https://sec.example.com', apiKey: '', model: '' }, // 缺 Key/Model
+        activeMsg2Config: { enabled: true, tasks: [remoteTask('x1')] } },
       { id: 'char-ok', activeMsg2Config: { enabled: true, tasks: [remoteTask('y1')] } },
     ] as any);
 
@@ -1574,6 +1571,28 @@ describe('ActiveMsgClient.refreshApiCredentialsForPendingTasks（③ 凭据变�
 
     expect(result).toEqual({ status: 'partial', updated: 1, failed: 1 });
     expect(reiClient.updateMessage.mock.calls.map((c: any[]) => c[0])).toEqual(['y1']);
+  });
+
+  // 回归守卫：v3.13 合并后旧主动消息副 API 字段不再参与取值（口径同凭据行
+  // amsgLlmCredentials.buildCharChatCredRow）。若有人把 useSecondaryApi / secondaryApi
+  // 那套接回来，这里先红。
+  it('旧副 API 字段（useSecondaryApi/secondaryApi）不参与取值 → 仍按全局算', async () => {
+    vi.spyOn(DB, 'getAllCharacters').mockResolvedValue([
+      { id: 'char-legacy', activeMsg2Config: {
+        enabled: true,
+        useSecondaryApi: true,
+        secondaryApi: { baseUrl: 'https://sec.example.com', apiKey: 'sec-key', model: 'sec-model' },
+        tasks: [remoteTask('z1')],
+      } },
+    ] as any);
+
+    const result = await ActiveMsgClient.refreshApiCredentialsForPendingTasks(API);
+
+    expect(result).toEqual({ status: 'ok', updated: 1, failed: 0 });
+    expect(reiClient.updateMessage.mock.calls[0]).toEqual([
+      'z1',
+      { apiUrl: 'https://api.example.com/v1/chat/completions', apiKey: 'new-key', primaryModel: 'gpt-x' },
+    ]);
   });
 });
 
@@ -1584,14 +1603,13 @@ describe('ActiveMsgClient.refreshCharPendingAiTaskCredentials（③ 面板保存
     reiClient.updateMessage.mockReset().mockResolvedValue({ success: true });
   });
 
-  it('fixed 再滤一遍；单独 API 的角色按单独 API 刷新（Fork 口径）', async () => {
+  it('fixed 再滤一遍；配了 dialogueApi 的角色按 dialogueApi 刷新', async () => {
     const result = await ActiveMsgClient.refreshCharPendingAiTaskCredentials({
-      char: { id: 'char-a' } as any,
-      config: {
-        enabled: true,
-        useSecondaryApi: true,
-        secondaryApi: { baseUrl: 'https://sec.example.com', apiKey: 'sec-key', model: 'sec-model' },
+      char: {
+        id: 'char-a',
+        dialogueApi: { baseUrl: 'https://sec.example.com', apiKey: 'sec-key', model: 'sec-model' },
       } as any,
+      config: { enabled: true } as any,
       apiConfig: { baseUrl: 'https://api.example.com', apiKey: 'k', model: 'm' } as any,
       tasks: [remoteTask('t1'), remoteTask('t2', { mode: 'fixed' })] as any,
     });

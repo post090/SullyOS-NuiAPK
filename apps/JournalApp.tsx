@@ -446,6 +446,7 @@ const JournalApp: React.FC = () => {
     // --- AI Interaction ---
 
     const handleExchange = async () => {
+
         if (!currentEntry || !selectedChar || !apiConfig.apiKey) {
             addToast('配置错误或内容为空', 'error');
             return;
@@ -531,10 +532,10 @@ Structure:
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: `Users Diary:\n${currentEntry.userPage.text}` }
-                    ]),
+                    ])),
                     temperature: 0.85
                 })
             });
@@ -643,7 +644,7 @@ ${charPart}
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]),
+                    messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])),
                     temperature: 0.4,
                     max_tokens: 1200,
                 }),

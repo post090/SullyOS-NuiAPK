@@ -1,0 +1,109 @@
+<!doctype html>
+<html>
+<head><meta charset="UTF-8"><title>服装实物缩略图</title></head>
+<body style="margin:0">
+<script type="module">
+import * as T from 'three';
+import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import approvedPose from '../../apps/room3d/chibi/approvedStandingPose.json';
+
+const renderer = new T.WebGLRenderer({antialias:true, alpha:true, preserveDrawingBuffer:true});
+renderer.setSize(512, 512);
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = T.SRGBColorSpace;
+renderer.toneMapping = T.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+renderer.setClearColor(0xffffff, 0);
+document.body.append(renderer.domElement);
+
+const scene = new T.Scene();
+scene.add(new T.HemisphereLight(0xffffff, 0xb2a99b, 2.5));
+const light = new T.DirectionalLight(0xffffff, 3);
+light.position.set(-3, 6, 5);
+scene.add(light);
+const fill = new T.DirectionalLight(0xffffff, 1);
+fill.position.set(3, 2, -2);
+scene.add(fill);
+const camera = new T.OrthographicCamera(-1, 1, 1, -1, .01, 100);
+let current;
+
+function disposeCurrent() {
+  if (!current) return;
+  scene.remove(current);
+  const geometries = new Set(), materials = new Set(), textures = new Set(), skeletons = new Set();
+  current.traverse(o => {
+    if (!o.isMesh) return;
+    geometries.add(o.geometry);
+    if (o.isSkinnedMesh) skeletons.add(o.skeleton);
+    for (const material of Array.isArray(o.material) ? o.material : [o.material]) {
+      materials.add(material);
+      for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+    }
+  });
+  for (const resource of [...geometries, ...materials, ...textures, ...skeletons]) resource.dispose();
+}
+
+window.renderGarment = async def => {
+  disposeCurrent();
+  const gltf = await new GLTFLoader().loadAsync('/room3d/wardrobe/' + def.asset + '?v=' + (def.revision ?? '1'));
+  current = gltf.scene;
+  scene.add(current);
+
+  // These clothes were fitted with lowered arms, then inverse-skinned into T
+  // bind space. Photographing that bind mesh makes the armpits look crumpled.
+  // Use exactly the approved standing pose used by the wardrobe preview.
+  for (const [name, value] of Object.entries(approvedPose.state)) {
+    const bone = current.getObjectByName(name);
+    if (!bone) throw Error(`${def.id}: missing pose joint ${name}`);
+    const sign = name.startsWith('L') ? 1 : -1;
+    bone.quaternion.multiply(new T.Quaternion().setFromEuler(new T.Euler(
+      T.MathUtils.degToRad(value[2]),
+      -sign * T.MathUtils.degToRad(value[1]),
+      -sign * T.MathUtils.degToRad(value[0]),
+      'XYZ',
+    )));
+  }
+  current.updateMatrixWorld(true);
+  const bounds = new T.Box3();
+  let pieces = 0;
+  current.traverse(o => {
+    if (!o.isMesh) return;
+    o.visible = o.name.startsWith(def.prefix);
+    if (!o.visible) return;
+    pieces++;
+    o.frustumCulled = false;
+    for (const material of Array.isArray(o.material) ? o.material : [o.material]) material.side = T.DoubleSide;
+    // Recompute from posed vertices; the GLB's cached bounds describe T pose.
+    if (o.isSkinnedMesh) {
+      o.skeleton.update();
+      o.computeBoundingBox();
+    }
+    bounds.union(new T.Box3().setFromObject(o));
+  });
+  const center = bounds.getCenter(new T.Vector3()), size = bounds.getSize(new T.Vector3());
+  const animal=def.slot==='ears'||def.slot==='tail';
+  // Consistent breathing room, soft neutral light and a near-front ear view.
+  scene.children.find(o=>o.isHemisphereLight).intensity=animal?3.2:2.5;
+  light.intensity=animal?1.6:3;
+  fill.intensity=animal?1.4:1;
+  const span = Math.max(size.x, size.y, size.z) * (animal?.70:.60);
+  if (!pieces || !Number.isFinite(span) || span <= 0) throw Error(`${def.id}: empty or invalid garment bounds`);
+  camera.left = camera.bottom = -span;
+  camera.right = camera.top = span;
+  camera.position.copy(center).add(animal?new T.Vector3(def.slot==='ears'?.30:1.1,.18,3):new T.Vector3(.12,.09,3));
+  camera.lookAt(center);
+  camera.updateProjectionMatrix();
+  renderer.render(scene, camera);
+  window.thumbnailReport = {id:def.id, pieces, size:size.toArray()};
+  return renderer.domElement.toDataURL('image/png');
+};
+</script>
+<div id="thumbnail-tools" style="font:14px sans-serif;padding:12px"><select aria-label="拍摄服装"></select><button>生成缩略图</button><a hidden>下载缩略图</a><output></output></div>
+<script type="module">
+import catalog from '../../apps/room3d/chibi/approvedWardrobe.json';
+const panel=document.querySelector('#thumbnail-tools'),select=panel.querySelector('select'),link=panel.querySelector('a'),output=panel.querySelector('output');
+for(const def of catalog){const option=document.createElement('option');option.value=def.id;option.textContent=def.label;select.append(option);}
+panel.querySelector('button').onclick=async()=>{try{link.hidden=true;const def=catalog.find(d=>d.id===select.value);link.href=await window.renderGarment(def);link.download=def.id+'.png';link.hidden=false;output.textContent=JSON.stringify(window.thumbnailReport);}catch(e){output.textContent=String(e);}};
+</script>
+</body>
+</html>

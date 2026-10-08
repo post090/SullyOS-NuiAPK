@@ -91,6 +91,20 @@ interface ChatViewSnapshot {
 }
 
 let chatView: ChatViewSnapshot = { chatOpen: false, charId: null };
+const embeddedChatViews = new Map<symbol, string>();
+
+/** A visible embedded ChatApp (home phone) is also a read surface, without changing OS navigation. */
+export function registerEmbeddedChatView(charId: string): () => void {
+    const key = Symbol('embedded-chat');
+    const announce = () => { try { window.dispatchEvent(new CustomEvent(CHAT_VIEW_CHANGED_EVENT)); } catch {} };
+    embeddedChatViews.set(key, charId);
+    announce();
+    return () => { embeddedChatViews.delete(key); announce(); };
+}
+
+export function isEmbeddedChatVisible(charId: string): boolean {
+    return typeof document !== 'undefined' && !document.hidden && [...embeddedChatViews.values()].includes(charId);
+}
 
 export function setChatViewSnapshot(chatOpen: boolean, charId: string | null): void {
     if (chatView.chatOpen === chatOpen && chatView.charId === charId) return;
@@ -101,5 +115,8 @@ export function setChatViewSnapshot(chatOpen: boolean, charId: string | null): v
 }
 
 export function getChatViewSnapshot(): ChatViewSnapshot {
+    if (typeof document !== 'undefined' && !document.hidden && embeddedChatViews.size) {
+        return {chatOpen: true, charId: [...embeddedChatViews.values()].at(-1)!};
+    }
     return chatView;
 }

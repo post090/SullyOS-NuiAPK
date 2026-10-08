@@ -1,0 +1,560 @@
+[
+  {
+    "id": "home-hug",
+    "label": "拥抱",
+    "category": "close",
+    "source": "SullyOS procedural",
+    "sourceUrl": "",
+    "duration": 10,
+    "participants": 2,
+    "file": "home-hug.json",
+    "hashes": []
+  },
+  {
+    "id": "home-princess-carry",
+    "label": "公主抱",
+    "category": "close",
+    "source": "SullyOS procedural / user video reference",
+    "sourceUrl": "",
+    "duration": 10,
+    "participants": 2,
+    "file": "home-princess-carry.json",
+    "hashes": []
+  },
+  {
+    "id": "home-princess-carried",
+    "label": "被公主抱",
+    "category": "close",
+    "source": "SullyOS procedural / user video reference",
+    "sourceUrl": "",
+    "duration": 10,
+    "participants": 2,
+    "file": "home-princess-carried.json",
+    "hashes": []
+  },
+  {
+    "id": "cmu-22_07",
+    "label": "单手搭肩 A→B",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_07.bvh",
+    "duration": 2.516656510035197,
+    "participants": 2,
+    "file": "cmu-22_07.json",
+    "hashes": [
+      "e51d9ea0078eeaf61f28c343b1ce7dbabecf16dfbb8636835f18423a080c3dcf",
+      "ccbd6c6282a9580a7cedc5b3323854cc973a2c1ee2d0fb7d17f88f58ca747f74"
+    ]
+  },
+  {
+    "id": "cmu-22_05",
+    "label": "双手扶肩 A→B",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_05.bvh",
+    "duration": 4.358315817515055,
+    "participants": 2,
+    "file": "cmu-22_05.json",
+    "hashes": [
+      "742ad9875bfe1e8f192d3841a5f08b01447177b3386777fed0a2263ab08bd58f",
+      "4e11a31fefb9fc388231eb5e87bc166afa99ef48b53cb27f848080821d829674"
+    ]
+  },
+  {
+    "id": "cmu-13_17",
+    "label": "单人拳击",
+    "category": "self",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://mocap.cs.cmu.edu/search.php?subjectnumber=13",
+    "duration": 40.32483851114909,
+    "participants": 1,
+    "file": "cmu-13_17.json",
+    "hashes": [
+      "5eba9811c5031d661f013e7269233c21878a9b70be0a1a4bed49baaec0161634"
+    ]
+  },
+  {
+    "id": "vrma-9563c582418bd5b5",
+    "label": "自然站立",
+    "category": "self",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/idle.vrma",
+    "duration": 10,
+    "participants": 1,
+    "file": "vrma-9563c582418bd5b5.json",
+    "hashes": [
+      "9563c582418bd5b51da473ea85b41722cb5304f84128935c3b570c72316c444a"
+    ]
+  },
+  {
+    "id": "vrma-0c64f7e2cbde3af4",
+    "label": "聊天手势 1",
+    "category": "talk",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/extra/idle-talking-2.vrma",
+    "duration": 16.633333206176758,
+    "participants": 1,
+    "file": "vrma-0c64f7e2cbde3af4.json",
+    "hashes": [
+      "0c64f7e2cbde3af41a5fe45ec0fdc7b645c1e8f59e2f2e6c29c0d48a65cd58ee"
+    ]
+  },
+  {
+    "id": "vrma-fdcc1a71495a8b1b",
+    "label": "聊天手势 2",
+    "category": "talk",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/extra/idle-talking-3.vrma",
+    "duration": 10.800000190734863,
+    "participants": 1,
+    "file": "vrma-fdcc1a71495a8b1b.json",
+    "hashes": [
+      "fdcc1a71495a8b1b6315d9b6cc4a8835cb458460f40a6a2164a3fc01f4b94808"
+    ]
+  },
+  {
+    "id": "vrma-3b1c1155dfac93d4",
+    "label": "聊天手势 3",
+    "category": "talk",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-idle-talking.vrma",
+    "duration": 7.933333396911621,
+    "participants": 1,
+    "file": "vrma-3b1c1155dfac93d4.json",
+    "hashes": [
+      "3b1c1155dfac93d4d4d3a44deecc17420cd191cbec9b68e795f19bc6d05e0e6e"
+    ]
+  },
+  {
+    "id": "vrma-e3d9fa72f0bd27cc",
+    "label": "认真倾听",
+    "category": "talk",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-listen.vrma",
+    "duration": 7.900000095367432,
+    "participants": 1,
+    "file": "vrma-e3d9fa72f0bd27cc.json",
+    "hashes": [
+      "e3d9fa72f0bd27cc7fb18e9bdf809de607d6d4731f18c246efd976fb12e7f153"
+    ]
+  },
+  {
+    "id": "vrma-a7dffdd79957bf87",
+    "label": "侧头倾听",
+    "category": "talk",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-listen-3.vrma",
+    "duration": 5,
+    "participants": 1,
+    "file": "vrma-a7dffdd79957bf87.json",
+    "hashes": [
+      "a7dffdd79957bf87602c85fc1ae76062fd1afccf729558eddd368990c90b5bac"
+    ]
+  },
+  {
+    "id": "vrma-ad2a5118837bfa67",
+    "label": "吓了一跳",
+    "category": "self",
+    "source": "voxavatar",
+    "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/reaction-startle.vrma",
+    "duration": 11.399999618530273,
+    "participants": 1,
+    "file": "vrma-ad2a5118837bfa67.json",
+    "hashes": [
+      "ad2a5118837bfa6789cb89383d4e0bd98bed7685158b692bbfb6662ee42ae6c9"
+    ]
+  },
+  {
+    "id": "vrma-7d011478fbff385b",
+    "label": "有点低落",
+    "category": "self",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/sad.vrma",
+    "duration": 3.2666666507720947,
+    "participants": 1,
+    "file": "vrma-7d011478fbff385b.json",
+    "hashes": [
+      "7d011478fbff385bdde6ea0314a4035740571c5fdfb9902c8799fdb8ce189626"
+    ]
+  },
+  {
+    "id": "vrma-c5f715092eacacc8",
+    "label": "点头",
+    "category": "talk",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/nod.vrma",
+    "duration": 1.7666666507720947,
+    "participants": 1,
+    "file": "vrma-c5f715092eacacc8.json",
+    "hashes": [
+      "c5f715092eacacc827b52c984ebd5c8b8d991b2e34102fbc03235b01c6bcbbe8"
+    ]
+  },
+  {
+    "id": "vrma-7cac053d27467ce6",
+    "label": "点头回应",
+    "category": "talk",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-nod-2.vrma",
+    "duration": 2.133333444595337,
+    "participants": 1,
+    "file": "vrma-7cac053d27467ce6.json",
+    "hashes": [
+      "7cac053d27467ce6a218e733aa67639448c5d473953ef37177ab5fe2dabd994f"
+    ]
+  },
+  {
+    "id": "vrma-55b69cf6ed4213ad",
+    "label": "开心鼓掌",
+    "category": "self",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/happy.vrma",
+    "duration": 5.300000190734863,
+    "participants": 1,
+    "file": "vrma-55b69cf6ed4213ad.json",
+    "hashes": [
+      "55b69cf6ed4213adeba1279cb85015c136cbaa5ecefc5211f4f595fc454d6b39"
+    ]
+  },
+  {
+    "id": "vrma-7bc4b0a91cd1feb0",
+    "label": "热情鼓掌",
+    "category": "self",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/happy-2.vrma",
+    "duration": 3.7666666507720947,
+    "participants": 1,
+    "file": "vrma-7bc4b0a91cd1feb0.json",
+    "hashes": [
+      "7bc4b0a91cd1feb0afee4600d5f8d800ba3bc64c07b96ca0faf637ed6da6f9e1"
+    ]
+  },
+  {
+    "id": "vrma-1e8fb16b889c9054",
+    "label": "不太高兴",
+    "category": "conflict",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/angry-2.vrma",
+    "duration": 2.7333333492279053,
+    "participants": 1,
+    "file": "vrma-1e8fb16b889c9054.json",
+    "hashes": [
+      "1e8fb16b889c9054cc44023df63932ff119a87ddab8c5e0f05378a66318b5869"
+    ]
+  },
+  {
+    "id": "vrma-40db0f7c6d612001",
+    "label": "耸耸肩",
+    "category": "talk",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-shrug.vrma",
+    "duration": 1.8333333730697632,
+    "participants": 1,
+    "file": "vrma-40db0f7c6d612001.json",
+    "hashes": [
+      "40db0f7c6d61200136c3a48f77d8cede1557cc62e468f5aca46cbd80e1da5f47"
+    ]
+  },
+  {
+    "id": "vrma-6a8dd04f6a0b4f07",
+    "label": "飞机手势",
+    "category": "self",
+    "source": "voxavatar",
+    "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/airplane-02.vrma",
+    "duration": 7.458333492279053,
+    "participants": 1,
+    "file": "vrma-6a8dd04f6a0b4f07.json",
+    "hashes": [
+      "6a8dd04f6a0b4f071d881df1fce68e116dc4c5c1d651f5a5585a91cfa4037ccd"
+    ]
+  },
+  {
+    "id": "vrma-54a37ca48a1d4ffb",
+    "label": "看手机",
+    "category": "self",
+    "source": "voxavatar",
+    "sourceUrl": "https://raw.githubusercontent.com/SanHsien/voxavatar/0323677dc1dad3a46fc06a0cce9f9eff1a18693e/public/assets/animations/review-phone.vrma",
+    "duration": 10.366999626159668,
+    "participants": 1,
+    "file": "vrma-54a37ca48a1d4ffb.json",
+    "hashes": [
+      "54a37ca48a1d4ffb60cfc539013f59fecd48d93375b2069c6c35b5e9f416b726"
+    ]
+  },
+  {
+    "id": "vrma-cae36da2cc8b9845",
+    "label": "低头发消息",
+    "category": "self",
+    "source": "Hanami / 详见 NOTICE",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/world-afk-texting.vrma",
+    "duration": 11.033333778381348,
+    "participants": 1,
+    "file": "vrma-cae36da2cc8b9845.json",
+    "hashes": [
+      "cae36da2cc8b984587efe2d0c95e513bbfe36d0bd37ada9bbdcb192356e85d5d"
+    ]
+  },
+  {
+    "id": "vrma-bde19e90366f6448",
+    "label": "想一想",
+    "category": "self",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-think.vrma",
+    "duration": 9.433333396911621,
+    "participants": 1,
+    "file": "vrma-bde19e90366f6448.json",
+    "hashes": [
+      "bde19e90366f644888b145d0339c172763e919dd58c72239a5856761fd9983ea"
+    ]
+  },
+  {
+    "id": "vrma-8bd33d84e90c0243",
+    "label": "招手",
+    "category": "greet",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-wave.vrma",
+    "duration": 5.5333333015441895,
+    "participants": 1,
+    "file": "vrma-8bd33d84e90c0243.json",
+    "hashes": [
+      "8bd33d84e90c0243987924c2f27d826f0b3343cfa8d1607a4e2f0bb9ce8af643"
+    ]
+  },
+  {
+    "id": "vrma-788371d87156b583",
+    "label": "挥手回应",
+    "category": "greet",
+    "source": "Microsoft Rocketbox → Hanami",
+    "sourceUrl": "https://raw.githubusercontent.com/Undi95/Hanami/6787685c8d40e4e79bffbb0d389b478f32ef88d6/vrma/rb-wave-2.vrma",
+    "duration": 8.399999618530273,
+    "participants": 1,
+    "file": "vrma-788371d87156b583.json",
+    "hashes": [
+      "788371d87156b5836594cd87ac18e929d19b75fbe5e9e3865ec7fbe6d50ba135"
+    ]
+  },
+  {
+    "id": "cmu-22_17",
+    "label": "掰手腕",
+    "category": "play",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_17.bvh",
+    "duration": 6.924972407023112,
+    "participants": 2,
+    "file": "cmu-22_17.json",
+    "hashes": [
+      "09c919a3ed6c786ccd4360bf40e6b38fa907357cec3acd01ca7a35b4ffdcdadd",
+      "c71fbf3a43b1ec6e15786495dff674416a7357d4860fb8c0106f28878166bbc3"
+    ]
+  },
+  {
+    "id": "cmu-22_04",
+    "label": "单手搭肩 B→A",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_04.bvh",
+    "duration": 4.3249825159708655,
+    "participants": 2,
+    "file": "cmu-22_04.json",
+    "hashes": [
+      "5a6d985e804fa70ae232ba464fa18358a7998cd911f5c42e5cb73a7ecb08eaf2",
+      "fde8b37170e4f7576a374818682c9b9b1d8928dc03578ca3ad846e1a4988860c"
+    ]
+  },
+  {
+    "id": "cmu-20_12",
+    "label": "低位击掌后走开",
+    "category": "greet",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_12.bvh",
+    "duration": 2.0416585127512614,
+    "participants": 2,
+    "file": "cmu-20_12.json",
+    "hashes": [
+      "dd1d085b1b2277c6f9b51f150e302f70312a71dd7893cacdd90cf916bc323977",
+      "42019633a1412b72e6ec1127e98408aa4010efb2b6d33c934932407be0b43ee7"
+    ]
+  },
+  {
+    "id": "cmu-22_13",
+    "label": "递水",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_13.bvh",
+    "duration": 7.649969450632731,
+    "participants": 2,
+    "file": "cmu-22_13.json",
+    "hashes": [
+      "bfc1508f1e38c24320c5225b0b9ec09b02669094f63602f1d60653baf43a6c7e",
+      "4bb71b972baf70b3c37588a4a7e19f740b88094bfd952d105f869f6ab92c2744"
+    ]
+  },
+  {
+    "id": "cmu-22_03",
+    "label": "蹲下安慰坐着的人",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_03.bvh",
+    "duration": 6.7583063761393225,
+    "participants": 2,
+    "file": "cmu-22_03.json",
+    "hashes": [
+      "5519e47aea09491852665682e959b4bdc3a826d75c85c21071372cb34d37d895",
+      "eaa0a560e6023beaf33de4c629d198ceb93f3faf02e65f7d4a2c34e7a3cc6dec"
+    ]
+  },
+  {
+    "id": "cmu-20_11",
+    "label": "击掌后走开",
+    "category": "greet",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_11.bvh",
+    "duration": 1.924992314974467,
+    "participants": 2,
+    "file": "cmu-20_11.json",
+    "hashes": [
+      "61f2179bdca4f8114acdb1965f6eca872161734157aa805c81dd95d9edc13d51",
+      "99afb552558aff124574f4b1193b5e155883b05370b5fde67e5e57a0ccd00c16"
+    ]
+  },
+  {
+    "id": "cmu-18_08",
+    "label": "交谈与解释",
+    "category": "talk",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_08.bvh",
+    "duration": 17.374931208292644,
+    "participants": 2,
+    "file": "cmu-18_08.json",
+    "hashes": [
+      "b57e6ba15cf2bde4e6e4233da53425dde6d91952fb2bff17a89c5fce18a1a0ce",
+      "ec71249b3b3315325a57268e3d26b8b06fc895007573d60b78a9805e3295b845"
+    ]
+  },
+  {
+    "id": "cmu-22_15",
+    "label": "交替开合跳",
+    "category": "play",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_15.bvh",
+    "duration": 4.116649977366129,
+    "participants": 2,
+    "file": "cmu-22_15.json",
+    "hashes": [
+      "919bae739d3a41b722f918b121821ab9ec64f81483d185a44d85be6cb8c7a524",
+      "4ea237bcc0b98b56b83a29d40b6abe30f8d121d569fad0a854b5010f6b19ca1e"
+    ]
+  },
+  {
+    "id": "cmu-22_01",
+    "label": "拉对方起身 A→B",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_01.bvh",
+    "duration": 6.508307329813639,
+    "participants": 2,
+    "file": "cmu-22_01.json",
+    "hashes": [
+      "ce19883050475c7760354ba8fe3b09ce72b335e6525abe10eae03acec42939fb",
+      "52cd2cbf3604cbb27f40b39afa88e1044f67c44757be9eb12eb1d73a138d9231"
+    ]
+  },
+  {
+    "id": "cmu-18_05",
+    "label": "拉手肘 1",
+    "category": "close",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_05.bvh",
+    "duration": 3.641651980082194,
+    "participants": 2,
+    "file": "cmu-18_05.json",
+    "hashes": [
+      "904d1599316f96cf6047dd8fd59caf84b3560c72aaa0a967fece4f48ddba341a",
+      "194ece43c0c60da22b334bbd9ef82d342836cbdfca4a3929b333aee33dd5c4a0"
+    ]
+  },
+  {
+    "id": "cmu-20_10",
+    "label": "拉手转圈",
+    "category": "play",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_10.bvh",
+    "duration": 4.316649309794108,
+    "participants": 2,
+    "file": "cmu-20_10.json",
+    "hashes": [
+      "4a948d7d2aa863b7177c95e60bce15b2e0a104b50b67942795d2cac4a9eee3aa",
+      "a413697ed66a1f1939b27330b932aa44a9469d7ed5ef91e609d21ff599e7c1e1"
+    ]
+  },
+  {
+    "id": "cmu-18_03",
+    "label": "拉住对方 1",
+    "category": "close",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_03.bvh",
+    "duration": 4.924980036417643,
+    "participants": 2,
+    "file": "cmu-18_03.json",
+    "hashes": [
+      "9ad0bd0cdb3c55c712bc495b07ebea2fd472132d824a79e3b0a50dcbfc16c1f1",
+      "d1005fc10d57099176cee6475b920d92df2c53d7105e34c6720f07f0c0c866ed"
+    ]
+  },
+  {
+    "id": "cmu-20_13",
+    "label": "蒙眼捉人",
+    "category": "play",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/020/20_13.bvh",
+    "duration": 13.466612688700359,
+    "participants": 2,
+    "file": "cmu-20_13.json",
+    "hashes": [
+      "5efd439a5c5a28e765905a4c3139358513409a8602f011fe263978b4ac34f3be",
+      "72b7e3eead6ec72b2195a9d1bff5e97babb6fbb783ea6b555b9ea8b9f983afab"
+    ]
+  },
+  {
+    "id": "cmu-22_08",
+    "label": "牵手摆臂走路",
+    "category": "close",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_08.bvh",
+    "duration": 1.8749924818674724,
+    "participants": 2,
+    "file": "cmu-22_08.json",
+    "hashes": [
+      "3c0cd8bb3fd40a23583ee963083484e1c3035e96a2d2c8c180bf15bb523ad134",
+      "e945fb6d3ba45f1e3927511eb64fabb10896c680e005790f7680c3e859b76c8d"
+    ]
+  },
+  {
+    "id": "cmu-22_09",
+    "label": "站着揉肩",
+    "category": "care",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/022/22_09.bvh",
+    "duration": 4.474982134501139,
+    "participants": 2,
+    "file": "cmu-22_09.json",
+    "hashes": [
+      "9fbbdf8338382dbbde3ebdf97a641269e669f439c8f63e9cdcc6aef8978049a9",
+      "d83bb662bbf5b431c6060a439b5c62f64dfcea59a917c855c85d3947245ff649"
+    ]
+  },
+  {
+    "id": "cmu-18_10",
+    "label": "争论手势 1",
+    "category": "conflict",
+    "source": "CMU / cgspeed",
+    "sourceUrl": "https://raw.githubusercontent.com/una-dinosauria/cmu-mocap/09a07f54f3bbb58797325f009282d0b2048a2871/data/018/18_10.bvh",
+    "duration": 15.033273569742839,
+    "participants": 2,
+    "file": "cmu-18_10.json",
+    "hashes": [
+      "5dd2d8c4985e0b56c352f1276a428bf10f81f698baa791840ef10528b7d093a8",
+      "12634f85d73a5790752a94f3d8112d14971dae88405fce792436696aff7dd63c"
+    ]
+  }
+]

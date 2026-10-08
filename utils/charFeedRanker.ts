@@ -112,7 +112,7 @@ export const rankFeedsForChar = async (
     if (sources.length === 0) return {};
 
     // 构建角色上下文：核心提示词 + 世界书（不带记忆/情绪等易变部分）
-    const roleContext = ContextBuilder.buildRoleSettingsContext(char, { skipMemories: true });
+    const roleContext = await ContextBuilder.buildRoleSettingsContext(char, { skipMemories: true });
 
     const sourceList = sources.map((s, i) => `${i + 1}. [${s.kind}] ${s.label} (origin: ${s.origin})`).join('\n');
 

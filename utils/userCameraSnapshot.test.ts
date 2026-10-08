@@ -36,12 +36,12 @@ describe('user camera snapshot', () => {
     expect(isVisionInputUnsupportedError(new Error('network timeout'))).toBe(false);
   });
 
-  it.each([0, 1, 2] as WorldbookDepthRole[])('depth=0、role=%s 时快照仍附在用户输入上，文字降级保留同轮世界书', role => {
+  it.each([0, 1, 2] as WorldbookDepthRole[])('depth=0、role=%s 时快照仍附在用户输入上，文字降级保留同轮世界书', async role => {
     const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0.1).mockReturnValue(0.9);
     try {
       const original = [{ role: 'assistant', content: '旧回复' }, { role: 'user', content: '看看这张照片' }];
       const snapshot = prepareUserCameraSnapshot(original, 'data:image/jpeg;base64,AAAA');
-      const context = ContextBuilder.buildCharacterContext({
+      const context = (await ContextBuilder.buildCharacterContext({
         char: {
           id: 'c', name: 'C', systemPrompt: '角色设定',
           mountedWorldbooks: [{ id: 'wb', title: '规则', content: '深度世界书', constant: true,
@@ -49,7 +49,7 @@ describe('user camera snapshot', () => {
         } as CharacterProfile,
         user: { name: 'U' } as UserProfile,
         history: snapshot.messages,
-      });
+      }));
       expect(context.history[1].content).toEqual([
         { type: 'text', text: '看看这张照片' },
         { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } },

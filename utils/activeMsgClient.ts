@@ -1,6 +1,8 @@
 import { stoppedReplyStateEntries } from './amsgStoppedReplyClient';
 import { loadCharacterContextMessages } from './chatContextRange';
 import { ReiClient } from '@rei-standard/amsg-client';
+import { createCloudDataSession } from './amsgCloudData';
+import { captureCloudOwnerGenerations, rememberCloudOwnerGeneration, stampCloudWrite, captureCloudWriteCheck, invalidateCloudOwnerWrites } from './amsgCloudOwnerGeneration';
 import {
   ActiveMsg2CharacterConfig,
   ActiveMsg2ExpirePolicy,
@@ -43,6 +45,7 @@ import { parseAmsgTickReport } from './amsgTickReport';
 // 谁都不碰谁，所以这个环是安全的；换成在这里另读一遍 localStorage 才是真麻烦
 // （挂起判定就有了两把尺，而「发送在飞」那半截根本抄不过来，它是内存里的集合）。
 import { getInstantChatPending, isInstantChatSendInFlight } from './amsgInstantChat';
+import { resolveDialogueApi } from './characterApi';
 import {
   buildCharChatCredRow,
   buildCharEmotionCredRow,
@@ -51,6 +54,7 @@ import {
   forgetAllCredIds,
   forgetCredIds,
   normalizeChatApiUrl,
+  parseCharCredId,
   pickChangedCredRows,
   rememberCredRows,
   supportsLlmCredentials,
@@ -204,12 +208,15 @@ const REMOTE_TASK_ALREADY_COMPLETED_CODE = 'TASK_ALREADY_COMPLETED';
 // 配了 serverToken 就每次带 X-Client-Token；worker 端配了就强制校验，缺/错回 401。
 const normalizeWorkerBase = (workerUrl: string) => workerUrl.trim().replace(/\/+$/, '');
 
-const createClient = (config: Pick<ActiveMsg2GlobalConfig, 'userId' | 'workerUrl' | 'serverToken'>) =>
-  new ReiClient({
+const createClient = (config: Pick<ActiveMsg2GlobalConfig, 'userId' | 'workerUrl' | 'serverToken'>) => {
+  const client = new ReiClient({
     baseUrl: normalizeWorkerBase(config.workerUrl),
     userId: config.userId,
     serverToken: config.serverToken || undefined,
   });
+  captureCloudOwnerGenerations(client, config);
+  return client;
+};
 
 /** 面板新建任务的默认时间：半小时后，折成 datetime-local 认的本地墙钟。 */
 export const getDefaultActiveMsgFirstSendTime = () =>
@@ -567,15 +574,11 @@ const initializeClient = (config: ActiveMsg2GlobalConfig) => {
   return promise;
 };
 
-// Fork：主动消息 2.0 保留「单独 API」（ActiveMsg2SettingsModal 里配置）。上游 2026-10-02 下线了它、
-// 改为跟随角色级对话 API；本 Fork 的角色 API 只走单聊 chatApiOverride，不进主动消息，所以这里
-// 仍是「单独 API > 全局」。凭据行（amsgLlmCredentials.buildCharChatCredRow）必须同一口径。
-export const resolveAmsgTaskApiSource = (
-  config: Pick<ActiveMsg2CharacterConfig, 'useSecondaryApi' | 'secondaryApi'> | undefined,
-  apiConfig: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>,
-) => (config?.useSecondaryApi && config.secondaryApi?.baseUrl ? config.secondaryApi : apiConfig);
-const resolveApiConfig = (_char: CharacterProfile, config: ActiveMsg2CharacterConfig, apiConfig: APIConfig) => {
-  const source = resolveAmsgTaskApiSource(config, apiConfig);
+// 主动消息 2.0 的排程口径跟随上游 v3.13：角色默认对话 API（dialogueApi）> 全局。
+// 旧「单独 API」字段（useSecondaryApi/secondaryApi）不再参与取值，与凭据行
+// （amsgLlmCredentials.buildCharChatCredRow）保持同一口径。
+const resolveApiConfig = (char: CharacterProfile, _config: ActiveMsg2CharacterConfig, apiConfig: APIConfig) => {
+  const source = resolveDialogueApi(apiConfig, char);
 
   if (!source.baseUrl || !source.apiKey || !source.model) {
     throw new Error('主动消息 2.0 缺少可用的 API URL / Key / Model。');
@@ -643,14 +646,15 @@ export const isClientStateDeleteReady = async (): Promise<boolean> => {
  */
 const putLlmCredentialRows = async (
   rows: LlmCredentialRow[],
-  options: { force?: boolean } = {},
+  options: { force?: boolean; client?: ReiClient } = {},
 ): Promise<number> => {
+  const assertWriteCurrent = captureCloudWriteCheck(rows.flatMap(row => { const owner = parseCharCredId(row.credId); return owner ? [owner.charId] : []; }));
   const pending = options.force ? rows : pickChangedCredRows(rows);
   if (pending.length === 0) return 0;
-  const globalConfig = await ensureWorkerReady();
-  const client = await initializeClient(globalConfig);
+  const client = options.client ?? await initializeClient(await ensureWorkerReady());
+  assertWriteCurrent();
   for (const batch of chunkCredRows(pending)) {
-    const response = await client.putLlmCredentials(batch);
+    const response = await client.putLlmCredentials(batch.map(row => stampCloudWrite(client, row)));
     if (!response?.success) {
       throw new Error(response?.error?.message || '登记 LLM 凭据失败。');
     }
@@ -1184,10 +1188,13 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * 抛出来。注意 putClientState 失败有两种形态——抛异常和回 { success: false }，
  * 两种都要接住，只判 try/catch 会漏掉后者。
  */
+const putCloudClientState = (client: ReiClient, entries: Parameters<ReiClient['putClientState']>[0]) =>
+  client.putClientState(entries.map(entry => stampCloudWrite(client, entry)));
+
 export const putClientStateOrThrow = async (
   client: ReiClient,
   // value 为 null 表示删掉这一行（只在 isClientStateDeleteReady 为 true 时才能发）。
-  entries: Array<{ namespace: string; key: string; value: string | null; updatedAt: number }>,
+  entries: Array<{ namespace: string; key: string; value: string | null; updatedAt: number; owner?: { type: string; id: string; label?: string } }>,
   phase: string,
 ): Promise<void> => {
   let lastError: unknown;
@@ -1197,7 +1204,7 @@ export const putClientStateOrThrow = async (
 
     let response: { success?: boolean; data?: { rejected?: Array<{ key: string; message?: string }> }; error?: { message?: string } } | undefined;
     try {
-      response = await client.putClientState(entries) as typeof response;
+      response = await putCloudClientState(client, entries) as typeof response;
     } catch (error) {
       lastError = error;
       continue;
@@ -1396,6 +1403,7 @@ export const owesInstantChatReply = (charId: string): boolean =>
  */
 const buildLimitsEntry = (char: CharacterProfile, updatedAt: number) => ({
   namespace: amsgStateNamespace(char.id),
+  owner: { type: 'character', id: char.id, label: char.name },
   key: AMSG_LIMITS_KEY,
   value: JSON.stringify(buildAmsgLimitsRecord(char.activeMsg2Config, isAmsg2EnabledForChar(char))),
   updatedAt,
@@ -1411,6 +1419,7 @@ const buildCharStateEntries = async (
   {
     namespace: amsgStateNamespace(char.id),
     key: AMSG_FIRE_PACK_KEY,
+    owner: { type: 'character', id: char.id, label: char.name },
     // 压在加密之前：上游 putClientState 先加密再发，密文压不动（见 amsgFirePack）。
     value: await packStateValue(JSON.stringify(firePack)),
     updatedAt,
@@ -1419,6 +1428,7 @@ const buildCharStateEntries = async (
   {
     namespace: amsgStateNamespace(char.id),
     key: AMSG_TOOL_PACK_KEY,
+    owner: { type: 'character', id: char.id, label: char.name },
     value: await packStateValue(JSON.stringify(buildToolPack(char))),
     updatedAt,
   },
@@ -1674,7 +1684,7 @@ const fetchWithAuth = async (path: string, config: ActiveMsg2GlobalConfig, init:
   (await fetchWithAuthRaw(path, config, init, phase)).body;
 
 const encryptPayload = async (client: ReiClient, payload: unknown) => {
-  return (client as unknown as ReiCryptoBridge)._encrypt(JSON.stringify(payload));
+  return (client as unknown as ReiCryptoBridge)._encrypt(JSON.stringify(payload && typeof payload === 'object' && !Array.isArray(payload) ? stampCloudWrite(client, payload as Record<string, unknown>) : payload));
 };
 
 const decryptPayload = async (client: ReiClient, payload: { iv: string; authTag: string; encryptedData: string }) => {
@@ -2456,9 +2466,11 @@ export const ActiveMsgClient = {
     realtimeConfig: RealtimeConfig;
     apiConfig: APIConfig;
   }) {
+    const assertWriteCurrent = captureCloudWriteCheck([params.char.id]);
     const { char, config, task, replaceTaskUuid, userProfile, groups, realtimeConfig, apiConfig } = params;
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
+    assertWriteCurrent();
     // 任务体不带订阅，worker 到点读用户级那一份——所以建任务前先把它登记上去。
     const nativeToken = readNativePushToken();
     if (nativeToken) await this.registerNativePushToken(nativeToken);
@@ -2585,7 +2597,7 @@ export const ActiveMsgClient = {
 
     // 凭据行要先在云端存在：上游建任务前会挨个查引用，缺一个就 409 CREDENTIAL_NOT_FOUND。
     // 只在值变过时真的发请求（指纹底账），所以常态下这一步一个请求都不发。
-    if (credRow) await putLlmCredentialRows([credRow]);
+    if (credRow) await putLlmCredentialRows([credRow], { client });
 
     const postSchedule = async () => {
       params.signal?.throwIfAborted();
@@ -2609,7 +2621,7 @@ export const ActiveMsgClient = {
     if (!response?.success && response?.error?.code === 'CREDENTIAL_NOT_FOUND' && credRow) {
       console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端没有这行凭据，补传后重排一次`, credRow.credId);
       forgetCredIds([credRow.credId]);
-      await putLlmCredentialRows([credRow], { force: true });
+      await putLlmCredentialRows([credRow], { force: true, client });
       response = await postSchedule();
     }
 
@@ -2738,8 +2750,10 @@ export const ActiveMsgClient = {
     temperature?: number;
     maxTokens?: number;
   }): Promise<{ uuid: string }> {
+    const assertWriteCurrent = captureCloudWriteCheck([params.charId]);
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
+    assertWriteCurrent();
 
     if (!await isLlmCredentialsReady()) {
       throw new Error('这台 Worker 还不支持凭据存表，后台任务跑不了（去设置页重新部署一次）。');
@@ -2749,11 +2763,12 @@ export const ActiveMsgClient = {
     await putClientStateOrThrow(client, [{
       namespace: AMSG_JOB_NAMESPACE,
       key: params.jobKey,
+      owner: { type: 'character', id: params.charId, label: params.charName },
       value: await packStateValue(JSON.stringify(params.jobInput)),
       updatedAt: now,
     }], '上传后台任务输入');
 
-    await putLlmCredentialRows([params.credRow]);
+    await putLlmCredentialRows([params.credRow], { client });
 
     const payload: Record<string, any> = {
       contactName: params.charName,
@@ -2811,7 +2826,7 @@ export const ActiveMsgClient = {
     if (!response?.success && response?.error?.code === 'CREDENTIAL_NOT_FOUND') {
       console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端没有这行凭据，补传后重排一次`, params.credRow.credId);
       forgetCredIds([params.credRow.credId]);
-      await putLlmCredentialRows([params.credRow], { force: true });
+      await putLlmCredentialRows([params.credRow], { force: true, client });
       response = await postSchedule();
     }
 
@@ -2872,10 +2887,12 @@ export const ActiveMsgClient = {
     supersedesUuid?: string;
   }): Promise<{ uuid: string; clientTaskId: string }> {
     params.signal?.throwIfAborted();
+    const assertWriteCurrent = captureCloudWriteCheck([params.char.id]);
     const { char, chatMessages, api, userProfile, groups, realtimeConfig } = params;
     if (!api.baseUrl || !api.model) throw new Error('即时对话没发出去：聊天 API 地址或模型没配齐。');
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
+    assertWriteCurrent();
 
     params.signal?.throwIfAborted();
     const now = Date.now();
@@ -2928,7 +2945,10 @@ export const ActiveMsgClient = {
     const inlineCreds = !credRefs.chat;
     // 评估配置：凭据走引用时只留提示词模板，副 API 的 apiKey 一个字节都不进任务 metadata。
     const emotionEvalSpec = params.emotionEval
-      ? (credRefs.emotion ? { prompt: params.emotionEval.prompt } : params.emotionEval)
+      ? (credRefs.emotion ? {
+          prompt: params.emotionEval.prompt,
+          ...(params.emotionEval.homeSecretRequestId ? {homeSecretRequestId: params.emotionEval.homeSecretRequestId} : {}),
+        } : params.emotionEval)
       : undefined;
 
     const remoteAvatarUrl = toRemoteAvatarUrl(char.avatar);
@@ -3024,7 +3044,7 @@ export const ActiveMsgClient = {
     // 挨个查引用）。只有值跟底账不一样才真的发请求，常态下是零请求；新 bundle 上它最多是
     // 值刚变的那一轮多写一遍。
     params.signal?.throwIfAborted();
-    if (credRows.length > 0) await putLlmCredentialRows(credRows);
+    if (credRows.length > 0) await putLlmCredentialRows(credRows, { client });
 
     const postInstantChat = () => {
       params.signal?.throwIfAborted();
@@ -3044,7 +3064,7 @@ export const ActiveMsgClient = {
     if (status !== 202 && credRows.length > 0 && isCredentialNotFound(body)) {
       console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端没有这一轮引用的凭据，补传后重发一次`);
       forgetCredIds(credRows.map((row) => row.credId));
-      await putLlmCredentialRows(credRows, { force: true });
+      await putLlmCredentialRows(credRows, { force: true, client });
       ({ status, body } = await postInstantChat());
     }
     // 云端拒收了这一轮的状态：不是内容有问题，是这台设备盖的时间戳跨不过云端那一行
@@ -3071,9 +3091,11 @@ export const ActiveMsgClient = {
   // worker 对 expire AI 任务到点前先读它——新鲜则 skip，避免正在聊天时又弹主动消息。
   // 写入失败由调用方（amsgStateSync 的 lease timer）只 warn，45s TTL 自然失效。
   async syncChatPresence(charId: string, presence: AmsgChatPresence): Promise<void> {
+    const assertWriteCurrent = captureCloudWriteCheck([charId]);
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
-    const response = await client.putClientState([{
+    assertWriteCurrent();
+    const response = await putCloudClientState(client, [{
       namespace: amsgStateNamespace(charId),
       key: AMSG_CHAT_PRESENCE_KEY,
       value: JSON.stringify(presence),
@@ -3095,10 +3117,14 @@ export const ActiveMsgClient = {
     userProfile: UserProfile;
     groups: GroupProfile[];
     realtimeConfig?: RealtimeConfig;
+    /** 队列快照的授权仍有效；必须在真正发送前再次确认。 */
+    isCurrent?: () => boolean;
   }>): Promise<void> {
+    const assertWriteCurrent = captureCloudWriteCheck(items.map(item => item.char.id));
     if (!items.length) return;
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
+    assertWriteCurrent();
     const now = stampStateUpdatedAt();
     // 表情包全库与角色无关，整批读一次就够——放在循环里的话 N 个角色要跑 2N 次全表
     // getAll（表情记录带图片数据），拿回来的还是同一份。
@@ -3106,6 +3132,7 @@ export const ActiveMsgClient = {
     const entries = [];
     // 逐个串行：并发跑会同时开 N 个 IDB 事务，容易撞上 IndexedDB 连接风暴（写失败、确认超时）。
     for (const item of items) {
+      if (item.isCurrent?.() === false) continue;
       const firePack = await buildFirePack(
         item.char, item.userProfile, item.groups, item.realtimeConfig, emojiLibrary,
       );
@@ -3113,7 +3140,10 @@ export const ActiveMsgClient = {
       // 内容一个字不裁；老 worker 拒超限条目 → 设置页 capabilities 探测亮牌。
       entries.push(...(await buildCharStateEntries(item.char, firePack, now)));
     }
-    const response = await client.putClientState(entries);
+    const authorizedNamespaces = new Set(items.filter(item => item.isCurrent?.() !== false).map(item => amsgStateNamespace(item.char.id)));
+    const authorizedEntries = entries.filter(entry => authorizedNamespaces.has(entry.namespace));
+    if (!authorizedEntries.length) return;
+    const response = await putCloudClientState(client, authorizedEntries);
     if (!response?.success) {
       throw new Error(response?.error?.message || '上传云端状态失败。');
     }
@@ -3145,13 +3175,13 @@ export const ActiveMsgClient = {
       await alignStateClockWithRemote(client, [...new Set(skipped.map((s) => s.namespace))]);
     }
     // 同步已经落定，顺路把这几个角色的存量空壳清一遍（每角色一次，失败只 warn）。
-    await sweepSidechannelShells(client, items.map((item) => item.char.id));
+    await sweepSidechannelShells(client, items.filter(item => item.isCurrent?.() !== false).map(item => item.char.id));
   },
 
   async syncToolConfig(realtimeConfig: RealtimeConfig | undefined): Promise<void> {
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
-    const response = await client.putClientState([buildToolConfigEntry(realtimeConfig, stampStateUpdatedAt())]);
+    const response = await putCloudClientState(client, [buildToolConfigEntry(realtimeConfig, stampStateUpdatedAt())]);
     if (!response?.success) {
       throw new Error(response?.error?.message || '上传工具凭据失败。');
     }
@@ -3541,6 +3571,28 @@ export const ActiveMsgClient = {
     return client.getCapabilities();
   },
 
+  /** 一次管理会话固定连接；界面直接使用上游的完整清单与持久清理操作。 */
+  async openCloudDataSession() {
+    const config = await ensureWorkerReady();
+    const client = await initializeClient(config);
+    return createCloudDataSession(client, { workerUrl: config.workerUrl, userId: config.userId }, {
+      onRestored: async state => {
+        invalidateCloudOwnerWrites(state.owner);
+        if (state.owner.type === 'character') (await import('./amsgStateSync')).discardAmsgPendingState(state.owner.id);
+        rememberCloudOwnerGeneration(config, state.owner, state.generation);
+        forgetAllCredIds();
+        invalidateClientCache();
+      },
+      onCleanupStarted: async operation => {
+        forgetAllCredIds();
+        if (operation.mode === 'retire-owner' && operation.owner?.type === 'character') {
+          invalidateCloudOwnerWrites(operation.owner);
+          (await import('./amsgStateSync')).discardAmsgPendingState(operation.owner.id);
+        }
+      },
+    });
+  },
+
   /**
    * 逐条 PUT update-message，返回成功数与失败的 uuid。
    * TASK_NOT_FOUND / TASK_ALREADY_COMPLETED 不算失败——远端已经没有 / 已完结的
@@ -3819,7 +3871,7 @@ export const ActiveMsgClient = {
     const config = await ensureWorkerReady();
     const client = await initializeClient(config);
     const value = (await isClientStateDeleteReady()) ? null : '';
-    await client.putClientState([{ namespace, key, value, updatedAt: stampStateUpdatedAt() }]);
+    await putCloudClientState(client, [{ namespace, key, value, updatedAt: stampStateUpdatedAt() }]);
   },
 
   /**

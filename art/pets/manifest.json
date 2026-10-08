@@ -1,0 +1,145 @@
+[
+  {
+    "id": "pet_bird",
+    "source": 1,
+    "sourceTriangles": 4361,
+    "triangles": 3399,
+    "bytes": 69912,
+    "size": [
+      0.7200000286102295,
+      0.6221893429756165,
+      0.7439316511154175
+    ],
+    "colors": {
+      "body": "#f3d565",
+      "wings": "#a6b59a",
+      "crest": "#f7dc72",
+      "tail": "#809581",
+      "beak": "#df9860",
+      "feet": "#d6a27f",
+      "eyes": "#292c32"
+    },
+    "drawCalls": 7
+  },
+  {
+    "id": "pet_snake",
+    "source": 2,
+    "sourceTriangles": 4356,
+    "triangles": 3878,
+    "bytes": 82064,
+    "size": [
+      0.7199999690055847,
+      0.6596815586090088,
+      0.7440763711929321
+    ],
+    "colors": {
+      "body": "#d99056",
+      "belly": "#f5deb1",
+      "eyes": "#322b29",
+      "tongue": "#be5868"
+    },
+    "drawCalls": 5
+  },
+  {
+    "id": "pet_slime",
+    "source": 3,
+    "sourceTriangles": 82700,
+    "triangles": 3244,
+    "bytes": 64340,
+    "size": [
+      0.7599999308586121,
+      0.5250566005706787,
+      0.7453250885009766
+    ],
+    "colors": {
+      "body": "#8bc8bc",
+      "cheeks": "#dfb6ac",
+      "eyes": "#243d42",
+      "mouth": "#416a69"
+    },
+    "drawCalls": 5
+  },
+  {
+    "id": "pet_cat",
+    "source": 4,
+    "sourceTriangles": 147392,
+    "triangles": 3604,
+    "bytes": 74068,
+    "size": [
+      0.8199999928474426,
+      0.813016414642334,
+      1.1847444772720337
+    ],
+    "colors": {
+      "body": "#cc9863",
+      "markings": "#f6e6cc",
+      "ears": "#d79797",
+      "eyes": "#34322f",
+      "nose": "#a15e69",
+      "whiskers": "#fff3df"
+    },
+    "drawCalls": 7
+  },
+  {
+    "id": "pet_dog",
+    "source": 5,
+    "sourceTriangles": 496648,
+    "triangles": 3718,
+    "bytes": 79192,
+    "size": [
+      0.8399999737739563,
+      0.5489053130149841,
+      1.10028874874115
+    ],
+    "colors": {
+      "body": "#dab17b",
+      "markings": "#f5e7d1",
+      "ears": "#8e6244",
+      "tail": "#c49159",
+      "eyes": "#302c2c",
+      "nose": "#46342f"
+    },
+    "drawCalls": 7
+  },
+  {
+    "id": "pet_turtle",
+    "source": 6,
+    "sourceTriangles": 254676,
+    "triangles": 3829,
+    "bytes": 85288,
+    "size": [
+      0.7200000882148743,
+      0.6329339742660522,
+      1.1230984926223755
+    ],
+    "colors": {
+      "skin": "#8aa974",
+      "shell": "#678267",
+      "rim": "#c7bb7c",
+      "belly": "#dfcf94",
+      "eyes": "#283d35",
+      "mouth": "#546d4a"
+    },
+    "drawCalls": 7
+  },
+  {
+    "id": "pet_shark",
+    "source": 7,
+    "sourceTriangles": 4265,
+    "triangles": 3753,
+    "bytes": 77716,
+    "size": [
+      0.9200000762939453,
+      0.5942491888999939,
+      1.0111526250839233
+    ],
+    "colors": {
+      "body": "#6ba7bf",
+      "belly": "#f4eddb",
+      "fins": "#5689a6",
+      "eyes": "#243d49",
+      "mouth": "#405b69"
+    },
+    "drawCalls": 6
+  }
+]

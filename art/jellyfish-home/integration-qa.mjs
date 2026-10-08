@@ -1,0 +1,25 @@
+import {createRequire} from 'node:module';
+import {writeFile} from 'node:fs/promises';
+const require=createRequire('C:/Users/tiaotiao/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/package.json');
+const {chromium}=require('playwright');
+const browser=await chromium.launch({channel:'msedge',headless:true,args:['--use-angle=swiftshader','--no-sandbox']});
+const page=await browser.newPage({viewport:{width:430,height:860}}),errors=[];
+page.on('pageerror',e=>errors.push(String(e)));
+await page.goto('http://127.0.0.1:5189/test/fixtures/home3d.html',{waitUntil:'domcontentloaded'});
+await page.getByRole('button').filter({hasText:'拜访 ta 的房间'}).first().click({timeout:60000});
+const dismiss=page.getByRole('button',{name:'谢谢，我不需要'});if(await dismiss.count())await dismiss.click();
+await page.getByRole('button',{name:'3D 小屋',exact:true}).click();
+await page.locator('.h3-dock').waitFor({timeout:60000});
+await page.locator('[data-panel="expand"]').click();await page.locator('[data-direction="right"]').click();
+await page.waitForFunction(async()=>{
+ const {DB}=await import('/utils/db.ts');const chars=await DB.getAllCharacters();return chars.some(c=>c.home3D?.rooms.length===2);
+});
+const before=await page.evaluate(async()=>{const {DB}=await import('/utils/db.ts');return (await DB.getAllCharacters()).find(c=>c.home3D?.rooms.length===2)});
+await page.getByRole('button',{name:'2D 小屋',exact:true}).click();await page.getByRole('button',{name:'3D 小屋',exact:true}).waitFor();
+await page.getByRole('button',{name:'3D 小屋',exact:true}).click();await page.locator('.h3-dock').waitFor();
+if(!await page.locator('.h3-title small').textContent().then(t=>t.includes('2 间房')))throw Error('Character home did not restore');
+await page.screenshot({path:'output/jellyfish-home/integration.png'});
+const after=await page.evaluate(async()=>{const {DB}=await import('/utils/db.ts');return (await DB.getAllCharacters()).find(c=>c.home3D?.rooms.length===2)});
+if(JSON.stringify(before.roomConfig)!==JSON.stringify(after.roomConfig))throw Error('2D home changed');
+await writeFile('output/jellyfish-home/integration-qa.json',JSON.stringify({errors,savedRooms:after.home3D.rooms.length,original2DUnchanged:true},null,2));console.log({errors,savedRooms:after.home3D.rooms.length});
+await browser.close();if(errors.length)process.exitCode=1;

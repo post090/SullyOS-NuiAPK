@@ -209,6 +209,7 @@ const NovelWriter: React.FC<NovelWriterProps> = ({
     // --- Actions ---
 
     const runGeneration = async (char: CharacterProfile, userPrompt: string, contextSegments: NovelSegment[]) => {
+
         setIsTyping(true);
         setLastTokenUsage(null);
 
@@ -235,14 +236,14 @@ const NovelWriter: React.FC<NovelWriterProps> = ({
                 storyContext += `\n[${authorName}]: ${s.content}\n`;
             });
 
-            const prompt = buildPrompt(char, userProfile, activeBook, userPrompt, storyContext, genOptions, contextSegments, characters);
+            const prompt = await buildPrompt(char, userProfile, activeBook, userPrompt, storyContext, genOptions, contextSegments, characters);
             // Sampling is a writing-task default, not inferred from the user's personality.
             const temperature = 0.85;
 
             const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-                body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest({ char, user: userProfile }, [{ role: "user", content: prompt }]), temperature, max_tokens: 8000 })
+                body: JSON.stringify({ model: apiConfig.model, messages: (await ContextBuilder.buildCharacterRequest({ char, user: userProfile }, [{ role: "user", content: prompt }])), temperature, max_tokens: 8000 })
             });
 
             if (response.ok) {

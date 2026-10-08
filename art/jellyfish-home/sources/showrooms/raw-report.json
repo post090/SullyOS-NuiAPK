@@ -1,0 +1,56 @@
+[
+  {
+    "i": 1,
+    "source": "01a0add7-518d-75f5-a244-6e2500017587/Meshy_AI_model.glb",
+    "bytes": 5720460,
+    "triangles": 4230,
+    "meshes": 1,
+    "images": 3,
+    "materials": 1
+  },
+  {
+    "i": 2,
+    "source": "01a0addc-9364-7216-a466-bdb47fba6814/Meshy_AI_model.glb",
+    "bytes": 39971416,
+    "triangles": 1072826,
+    "meshes": 1,
+    "images": 3,
+    "materials": 1
+  },
+  {
+    "i": 3,
+    "source": "01a0addf-57e7-77a5-9310-df0454225d63/Meshy_AI_model.glb",
+    "bytes": 32147024,
+    "triangles": 822198,
+    "meshes": 1,
+    "images": 3,
+    "materials": 1
+  },
+  {
+    "i": 4,
+    "source": "01a0ade2-275d-762f-a2f2-9d8bfded595d/Meshy_AI_model.glb",
+    "bytes": 45646828,
+    "triangles": 1239016,
+    "meshes": 1,
+    "images": 3,
+    "materials": 1
+  },
+  {
+    "i": 5,
+    "source": "01a0ade6-909d-7544-9b4c-f1aa63195644/Meshy_AI_model.glb",
+    "bytes": 38082080,
+    "triangles": 1004690,
+    "meshes": 1,
+    "images": 3,
+    "materials": 1
+  },
+  {
+    "i": 6,
+    "source": "01a0adea-fde4-7450-ae82-c51bffade7bf/Meshy_AI_model.glb",
+    "bytes": 44953764,
+    "triangles": 1243268,
+    "meshes": 1,
+    "images": 3,
+    "materials": 1
+  }
+]

@@ -587,3 +587,15 @@ describe('快照事件的属性宽度', () => {
         expect(Object.keys(collectFeatureFlags(poisonedSources())).length).toBeLessThanOrEqual(35);
     });
 });
+
+
+it('3D 家园快照只输出档位与内置配色，不泄漏用户内容',()=>{
+ const theme={skin:'homely',homelyPalette:POISON.key,homelyLockedCharacterId:POISON.dbId} as unknown as OSTheme;
+ const appearance=collectAppearance(theme,undefined);
+ expect(appearance.居家配色).toBe('custom');expect(appearance.居家锁定角色).toBe('开');
+ expect(collectAppearance({...theme,homelyPalette:'rose'},undefined).居家配色).toBe('rose');
+ expect(collectAppearance({...theme,skin:'default'},undefined).居家配色).toBe('未使用');
+ const chars=collectCharSettings([{id:POISON.dbId,name:POISON.myName,home3D:{rooms:[{name:POISON.city}],records:[{text:POISON.token}],autonomy:false,directSpeech:true},chibiStudio:{home3D:{state:{selected:{eyes:POISON.key}}}}} as unknown as CharacterProfile],POISON.dbId);
+ expect(chars['3D家园角色数']).toBe('1');
+ for(const secret of Object.values(POISON))expect(JSON.stringify([appearance,chars])).not.toContain(secret);
+});

@@ -1,0 +1,24 @@
+{
+  "archive": "Meshy_AI_assets_20260918_090720.zip",
+  "status": "extraction-preview",
+  "families": [
+    {"id":"camisole","label":"吊带上衣","variants":["camisole"]},
+    {"id":"shirt","label":"衬衫","variants":["long-shirt"]},
+    {"id":"loose-knit","label":"宽松针织","variants":["v-sweater","cardigan","off-shoulder-cardigan"]},
+    {"id":"fitted-knit","label":"修身针织","variants":["turtleneck","v-neck"]},
+    {"id":"trousers","label":"裤装","variants":["shorts","straight-pants","cropped-wide-pants","cargo-pants"]},
+    {"id":"footwear","label":"鞋袜","variants":["socks-sneakers"]}
+  ],
+  "sources": [
+    {"number":"01","folder":"01a0b312-d06e-7739-8ff2-896e0f30732b","label":"吊带＋短裤＋鞋袜","variants":["camisole","shorts","socks-sneakers"]},
+    {"number":"02","folder":"01a0b313-4e88-73db-b67e-7373e9607b2f","label":"吊带＋工装长裤","variants":["camisole","cargo-pants"],"reuse":"吊带与鞋袜优先复用01，不重复生成基础款"},
+    {"number":"03","folder":"01a0b339-1f8f-7111-a583-e2146c3f8dac","label":"宽松长衬衫","variants":["long-shirt"]},
+    {"number":"04","folder":"01a0b3c1-0fa7-71e6-8704-5f6f428c74aa","label":"V领套头毛衣","variants":["v-sweater"]},
+    {"number":"05","folder":"01a0b3c1-0fcc-76dc-9595-3a459c9e09ca","label":"露肩开衫","variants":["off-shoulder-cardigan"]},
+    {"number":"06","folder":"01a0b3c1-1003-73ff-ba22-e5e2e221cf15","label":"直筒长裤","variants":["straight-pants"]},
+    {"number":"07","folder":"01a0b3c1-1004-706f-9061-c9ae48e84c4a","label":"九分阔腿裤","variants":["cropped-wide-pants"]},
+    {"number":"08","folder":"01a0b3c1-104e-71ad-a4a1-3bb4b5974cd5","label":"常规针织开衫","variants":["cardigan"]},
+    {"number":"09","folder":"01a0b3c1-104f-74e5-bda6-e8f7f9bd8210","label":"修身高领上衣","variants":["turtleneck"]},
+    {"number":"10","folder":"01a0b3c1-104f-7540-bc49-5bef951a9827","label":"修身V领上衣","variants":["v-neck"]}
+  ]
+}

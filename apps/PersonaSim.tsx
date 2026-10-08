@@ -87,6 +87,7 @@ export async function generatePersonaScript(opts: {
     mode: 'daily' | 'event'; theme: string; userPresence?: 'default' | 'light' | 'none';
     tone?: 'mix' | 'depressive' | 'darkhumor' | 'cute';
 }): Promise<SimScript> {
+
     const { char, userProfile, apiConfig, mode, theme, userPresence = 'default', tone = 'mix' } = opts;
     await injectMemoryPalace(char, undefined, theme, userProfile.name);
     const characterContextInput = { char, user: userProfile, includeDetailedMemories: true, memoryPalaceContext: char.memoryPalaceInjection };
@@ -105,7 +106,7 @@ export async function generatePersonaScript(opts: {
     const res = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiConfig.apiKey}` },
-        body: JSON.stringify({ model: apiConfig.model, messages: ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }]), temperature: 0.98, max_tokens: 24000 }),
+        body: JSON.stringify({ model: apiConfig.model, messages: (await ContextBuilder.buildCharacterRequest(characterContextInput, [{ role: 'user', content: prompt }])), temperature: 0.98, max_tokens: 24000 }),
     });
     if (!res.ok) throw new Error('API');
     const data = await safeResponseJson(res);

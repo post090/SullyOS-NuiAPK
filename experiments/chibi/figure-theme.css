@@ -1,0 +1,121 @@
+/* The dressing room shares the home desktop's paper and palette tokens. */
+.hair-editor {
+ --creator-accent:var(--animal-primary-color-active,#b77c54);
+ --creator-ink:var(--animal-text-color,#695344);
+ --creator-muted:var(--animal-text-color-secondary,#9a8271);
+ --creator-paper:var(--island-paper,#faf3e7);
+ --creator-surface:var(--animal-bg-color,#fffaf2);
+ --creator-soft:var(--animal-primary-color-bg,#f4e1d1);
+ --creator-border:var(--animal-border-color,#e4d4bf);
+ color:var(--creator-ink);background:var(--creator-paper);
+ font-family:Nunito,'Noto Sans SC',sans-serif;
+}
+.hair-editor .hair-preview {
+ background:radial-gradient(ellipse at 50% 40%,var(--creator-surface) 0%,transparent 70%),var(--creator-soft);
+ isolation:isolate;
+}
+.hair-editor .hair-preview:before {
+ content:'';position:absolute;inset:0;z-index:-1;pointer-events:none;
+ background-image:radial-gradient(color-mix(in srgb,var(--creator-ink) 9%,transparent) .75px,transparent .75px);background-size:12px 12px;
+ mask-image:linear-gradient(transparent 45%,black);
+}
+.hair-editor .creator-inspector {
+ margin:0 12px 12px;border:1px solid var(--creator-border);border-radius:28px;
+ background:var(--creator-paper);box-shadow:0 5px 20px #6953440a;
+}
+.hair-editor .creator-categories {
+ padding:12px 14px 8px;gap:5px;border:0;
+ background-image:radial-gradient(color-mix(in srgb,var(--creator-ink) 8%,transparent) .6px,transparent .6px);background-size:8px 8px;
+}
+.hair-editor .creator-categories button {
+ min-height:72px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;
+ font-size:12px;color:var(--creator-muted);font-weight:600;
+}
+.hair-editor .creator-categories button:after{display:none}
+.hair-editor .creator-category-icon {
+ width:43px;height:43px;border-radius:16px;display:grid;place-items:center;
+ background:var(--creator-surface);box-shadow:0 2px 4px #6953440c;transition:transform .2s,background .2s;
+}
+.hair-editor .creator-categories button[aria-pressed=true]{color:var(--creator-ink)}
+.hair-editor .creator-categories button[aria-pressed=true] .creator-category-icon{background:var(--creator-soft);color:var(--creator-accent);transform:rotate(-5deg)}
+.hair-editor .creator-categories button:hover .creator-category-icon{transform:translateY(-2px)}
+.hair-editor .creator-categories button:active .creator-category-icon{transform:scale(.92)}
+.hair-editor .creator-edit-tools {
+ margin:0 18px;padding:0 0 5px;border-bottom:1px dashed var(--creator-border);background:transparent;gap:6px;
+}
+.hair-editor .creator-edit-tools button{color:var(--creator-ink);border-radius:18px;min-height:36px;font-size:11px;padding:0 8px}
+.hair-editor .creator-edit-tools button:not(:disabled):hover{background:var(--creator-soft)}
+.hair-editor .hair-options{padding:16px 18px 20px;flex:1}
+.hair-editor .hair-options h2,.hair-editor .hair-options h3{color:var(--creator-ink);font-weight:700}
+.hair-editor .hair-options p,.hair-editor .hair-options small,.hair-editor .creator-slider output{color:var(--creator-muted)}
+.hair-editor .hair-options button{color:var(--creator-ink);border-color:var(--creator-border);background:var(--creator-surface);border-radius:16px;transition:background .16s,transform .16s,border-color .16s}
+.hair-editor .hair-options button[aria-pressed=true]{background:var(--creator-soft);border-color:var(--creator-accent);color:var(--creator-ink)}
+.hair-editor .hair-options button:active{transform:scale(.97)}
+.hair-editor .body-type-choices button{padding:16px;min-height:84px;border-radius:20px}
+.hair-editor .body-type-choices strong{font-size:20px}
+.hair-editor .body-type-choices span{color:var(--creator-muted)}
+.hair-editor .identity-setup .creator-primary{background:var(--creator-accent);color:var(--creator-surface);border:0;border-radius:24px;min-height:46px;margin-top:16px;font-weight:700}
+.hair-editor .hair-options .creator-next{background:none;border:0;border-top:1px dashed var(--creator-border);border-radius:0;color:var(--creator-accent);font-weight:600}
+.hair-editor .face-mainnav{gap:6px;border:0;margin-bottom:14px;flex-wrap:wrap}
+.hair-editor .hair-options .face-mainnav button{border:0;border-radius:18px;padding:8px 12px;font-size:12px;background:transparent}
+.hair-editor .hair-options .face-mainnav button[aria-pressed=true]{background:var(--creator-soft);box-shadow:none}
+.hair-editor .hair-options .face-subnav button{border:0;background:var(--creator-surface);color:var(--creator-muted);border-radius:16px}
+.hair-editor .hair-options .face-subnav button[aria-pressed=true]{background:var(--creator-soft);color:var(--creator-ink)}
+.hair-editor .garment-slots{border-bottom:1px dashed var(--creator-border);gap:6px;padding-bottom:8px}
+.hair-editor .hair-options .garment-slots button{border:0;padding:8px 11px;border-radius:16px;background:transparent;font-size:11px}
+.hair-editor .hair-options .garment-slots button[aria-pressed=true]{background:var(--creator-soft);box-shadow:none}
+.hair-editor .hair-options .garment-tile,.hair-editor .hair-options .face-choice-grid button,.hair-editor .hair-options .custom-part-grid button{background:var(--creator-surface);border:1px solid transparent;border-radius:18px}
+.hair-editor .hair-options .garment-tile[aria-pressed=true],.hair-editor .hair-options .face-choice-grid button[aria-pressed=true],.hair-editor .hair-options .custom-part-grid button[aria-pressed=true]{border-color:var(--creator-accent);background:var(--creator-soft)}
+.hair-editor .garment-tile b,.hair-editor .face-choice-grid button[aria-pressed=true]:after,.hair-editor .custom-part-grid button[aria-pressed=true]:after{background:var(--creator-accent);color:var(--creator-surface)}
+.hair-editor .outfit-worn-preview{background:color-mix(in srgb,var(--creator-paper) 65%,var(--creator-surface))!important;border-radius:16px}
+.hair-editor .garment-tile small{color:var(--creator-ink);font-weight:600;padding:9px 5px}
+.hair-editor .preview-tools{background:color-mix(in srgb,var(--creator-surface) 90%,transparent);border:1px solid var(--creator-border);border-radius:24px;padding:5px;gap:4px;box-shadow:0 3px 10px #69534408}
+.hair-editor .preview-tools button{background:transparent;color:var(--creator-ink);width:36px;height:36px;min-height:36px}
+.hair-editor .preview-tools button:hover,.hair-editor .preview-tools button[aria-pressed=true]{background:var(--creator-soft)}
+.hair-editor .preview-caption{color:var(--creator-muted);font-size:11px}
+.hair-editor .hair-angle{color:var(--creator-muted);font-size:10px;letter-spacing:.03em}
+.hair-editor .appearance-colors legend{color:var(--creator-ink);font-size:12px}
+.hair-editor .appearance-colors button[aria-pressed=true]{outline-color:var(--creator-accent)}
+.hair-editor .hair-options .appearance-swatch{border-radius:50%;border-color:var(--creator-surface);box-shadow:0 0 0 1px var(--creator-border)}
+.hair-editor .appearance-custom{color:var(--creator-muted)}
+.hair-editor .hair-options details{border-color:var(--creator-border)}
+.hair-editor .hair-options details>summary{color:var(--creator-ink);font-weight:600}
+.hair-editor .creator-slider input[type=range]{accent-color:var(--creator-accent)}
+.hair-editor input[type=range]{min-height:36px;touch-action:none}
+.hair-editor .creator-slider output,.hair-editor .body-controls output{font-variant-numeric:tabular-nums}
+@media(pointer:coarse){.hair-editor input[type=range]{min-height:44px}}
+.hair-editor .creator-select select,.hair-editor .garment-value input,.hair-editor .garment-dye-hex input,.hair-editor .my-wardrobe-name input{background:var(--creator-surface);border-color:var(--creator-border);color:var(--creator-ink);border-radius:10px}
+.hair-editor .garment-dye-heading,.hair-editor .garment-dye-editor,.hair-editor .garment-dye-hex{color:var(--creator-ink)}
+.hair-editor .creator-history{background:transparent;border:0;margin:0 18px;padding:4px 0 8px}
+.hair-editor .creator-history .reset-all{color:var(--creator-muted);font-size:10px}
+.hair-editor .my-outfit-grid article{background:var(--creator-surface);border:1px solid var(--creator-border);border-radius:20px}
+.hair-editor *{scrollbar-color:var(--creator-border) transparent}
+.hair-editor *::-webkit-scrollbar-thumb{background:var(--creator-border)}
+@media(min-width:800px){
+ .hair-editor{grid-template-columns:minmax(0,1fr) minmax(360px,410px);padding:0 20px 18px;gap:20px;background:var(--creator-soft)}
+ .hair-editor .creator-inspector{margin:0;border-radius:30px}
+ .hair-editor .hair-preview{border-radius:30px;overflow:hidden}
+ .hair-editor .preview-tools{left:20px;top:16px}
+ .hair-editor .preview-caption{left:24px;bottom:42px}
+ .hair-editor .hair-angle{bottom:18px}
+ .hair-editor .hair-preview .puppet{inset:8px 0 26px}
+ .hair-editor .hair-options{padding:18px 22px}
+}
+@media(max-width:799px){
+ .hair-editor{grid-template-rows:minmax(180px,44%) minmax(0,1fr);background:var(--creator-soft)}
+ .hair-editor .creator-inspector{margin:0 8px 8px;border-radius:26px}
+ .hair-editor .creator-categories{padding:8px 12px 4px}
+ .hair-editor .creator-categories button{min-height:62px;font-size:11px;gap:4px}
+ .hair-editor .creator-category-icon{width:36px;height:36px;border-radius:13px}
+ .hair-editor .creator-category-icon svg{width:21px;height:21px}
+ .hair-editor .creator-edit-tools{margin:0 14px;padding-bottom:2px}
+ .hair-editor .hair-options{padding:12px 14px 18px}
+ .hair-editor .preview-tools{left:12px;top:8px;padding:3px}
+ .hair-editor .preview-caption{bottom:26px;left:18px}
+ .hair-editor .hair-angle{bottom:8px;font-size:9px}
+ .hair-editor .hair-options .face-mainnav button{padding:6px 10px}
+ .hair-editor .creator-history{margin:0 14px;padding-bottom:4px}
+}
+@media(prefers-reduced-motion:reduce){.hair-editor .creator-category-icon,.hair-editor .hair-options button{transition:none}}
+
+.hair-dye-mode{display:flex;gap:8px;margin:8px 0 12px}.appearance-colors>div{flex-wrap:wrap}.appearance-hex{display:flex;align-items:center;gap:6px;font-size:11px}.appearance-hex input{width:86px;min-height:36px;border:1px solid var(--creator-soft,#e5ddd2);border-radius:8px;background:var(--creator-surface,#fff);color:inherit;padding:4px 8px;font:inherit}@media(pointer:coarse){.appearance-hex input{font-size:16px;min-height:42px}}

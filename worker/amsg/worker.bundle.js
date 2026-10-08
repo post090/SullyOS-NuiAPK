@@ -9,19 +9,6 @@ var __export = (target, all) => {
     __defProp(target, name, { get: all[name], enumerable: true });
 };
 
-// utils/localDate.ts
-function getLocalDateKey(date = /* @__PURE__ */ new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-var init_localDate = __esm({
-  "utils/localDate.ts"() {
-    "use strict";
-  }
-});
-
 // utils/proxyWorker.ts
 var DEFAULT_PROXY_WORKER, LS_KEY, STALE_HOSTS, isLegacyProxyWorkerUrl, normalize, runtimeOverrideUrl, setProxyWorkerUrlOverride, getProxyWorkerUrl;
 var init_proxyWorker = __esm({
@@ -103,6 +90,19 @@ var init_amsgToolPack = __esm({
         return null;
       }
     };
+  }
+});
+
+// utils/localDate.ts
+function getLocalDateKey(date = /* @__PURE__ */ new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+var init_localDate = __esm({
+  "utils/localDate.ts"() {
+    "use strict";
   }
 });
 
@@ -304,9 +304,9 @@ var init_mcpFireCore = __esm({
       if (!isNotification) req.id = ++session.nextId;
       return req;
     };
-    parseSse = (text2) => {
+    parseSse = (text3) => {
       const dataLines = [];
-      for (const line of text2.split("\n")) {
+      for (const line of text3.split("\n")) {
         if (line.startsWith("data: ")) dataLines.push(line.slice(6));
         else if (line.startsWith("data:")) dataLines.push(line.slice(5));
       }
@@ -318,22 +318,22 @@ var init_mcpFireCore = __esm({
       }
       return null;
     };
-    parseResp = (text2, contentType) => {
-      if (contentType.includes("text/event-stream") || /^\s*(event:|data:)/.test(text2)) {
-        const parsed = parseSse(text2);
+    parseResp = (text3, contentType) => {
+      if (contentType.includes("text/event-stream") || /^\s*(event:|data:)/.test(text3)) {
+        const parsed = parseSse(text3);
         if (parsed) return parsed;
       }
       try {
-        return JSON.parse(text2);
+        return JSON.parse(text3);
       } catch {
-        const m = text2.match(/\{[\s\S]*\}/);
+        const m = text3.match(/\{[\s\S]*\}/);
         if (m) {
           try {
             return JSON.parse(m[0]);
           } catch {
           }
         }
-        throw new Error(`MCP: \u65E0\u6CD5\u89E3\u6790\u54CD\u5E94: ${text2.slice(0, 300)}`);
+        throw new Error(`MCP: \u65E0\u6CD5\u89E3\u6790\u54CD\u5E94: ${text3.slice(0, 300)}`);
       }
     };
     readSseResponse = async (resp, expectedId) => {
@@ -425,8 +425,8 @@ var init_mcpFireCore = __esm({
           if (ct.includes("text/event-stream")) {
             return { response: await readSseResponse(resp, body.id) };
           }
-          const text2 = await readText();
-          return { response: parseResp(text2, ct) };
+          const text3 = await readText();
+          return { response: parseResp(text3, ct) };
         } catch (e) {
           target.signal?.throwIfAborted();
           if (controller.signal.aborted) {
@@ -498,10 +498,10 @@ var init_mcpFireCore = __esm({
       let normalized = value;
       if (typeof normalized === "string" && (acceptsObject || acceptsArray)) {
         for (let i = 0; i < 3 && typeof normalized === "string"; i++) {
-          const text2 = normalized.trim();
-          if (!text2) break;
+          const text3 = normalized.trim();
+          if (!text3) break;
           try {
-            normalized = JSON.parse(text2);
+            normalized = JSON.parse(text3);
           } catch {
             break;
           }
@@ -685,7 +685,7 @@ var init_mcpFireCore = __esm({
 });
 
 // utils/localRead.ts
-function readLocalCursor(db, storeName, options = {}) {
+function readLocalCursor(db, storeName, options2 = {}) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(storeName, "readonly");
     const rows = [];
@@ -706,23 +706,23 @@ function readLocalCursor(db, storeName, options = {}) {
       }
     };
     const onClose = () => fail3(new Error("\u672C\u5730\u6570\u636E\u5E93\u8FDE\u63A5\u4E2D\u65AD\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u5E94\u7528\u540E\u91CD\u8BD5"));
-    const timer = setTimeout(() => fail3(new Error("\u672C\u5730\u6570\u636E\u8BFB\u53D6\u8D85\u65F6\uFF0C\u8BF7\u91CD\u8BD5\uFF1B\u65E0\u9700\u6E05\u7406\u6570\u636E")), options.timeoutMs ?? 2e4);
+    const timer = setTimeout(() => fail3(new Error("\u672C\u5730\u6570\u636E\u8BFB\u53D6\u8D85\u65F6\uFF0C\u8BF7\u91CD\u8BD5\uFF1B\u65E0\u9700\u6E05\u7406\u6570\u636E")), options2.timeoutMs ?? 2e4);
     db.addEventListener("close", onClose);
     tx.oncomplete = () => finish();
     tx.onerror = tx.onabort = () => finish(tx.error || new Error("\u672C\u5730\u6570\u636E\u8BFB\u53D6\u4E2D\u65AD"));
     try {
       const store = tx.objectStore(storeName);
-      const source = options.index ? store.index(options.index) : store;
-      const request = source.openCursor(options.query, options.direction);
+      const source = options2.index ? store.index(options2.index) : store;
+      const request = source.openCursor(options2.query, options2.direction);
       request.onerror = () => fail3(request.error || new Error("\u672C\u5730\u6570\u636E\u8BFB\u53D6\u5931\u8D25"));
       request.onsuccess = () => {
         if (settled) return;
         try {
           const cursor = request.result;
-          if (!cursor || rows.length >= (options.limit ?? Infinity)) return;
+          if (!cursor || rows.length >= (options2.limit ?? Infinity)) return;
           const value = cursor.value;
-          if (!options.accept || options.accept(value)) rows.push(options.map ? options.map(value) : value);
-          if (rows.length < (options.limit ?? Infinity)) cursor.continue();
+          if (!options2.accept || options2.accept(value)) rows.push(options2.map ? options2.map(value) : value);
+          if (rows.length < (options2.limit ?? Infinity)) cursor.continue();
         } catch (error) {
           fail3(error);
         }
@@ -735,6 +735,85 @@ function readLocalCursor(db, storeName, options = {}) {
 var init_localRead = __esm({
   "utils/localRead.ts"() {
     "use strict";
+  }
+});
+
+// utils/databaseHealth.ts
+function databaseFailure(error) {
+  return {
+    name: error && typeof error === "object" && "name" in error ? String(error.name) : "Error",
+    message: error && typeof error === "object" && "message" in error ? String(error.message) : String(error)
+  };
+}
+function reportDatabaseFailure(error) {
+  const failure = databaseFailure(error);
+  for (const listener of listeners) listener(failure);
+}
+var listeners;
+var init_databaseHealth = __esm({
+  "utils/databaseHealth.ts"() {
+    "use strict";
+    listeners = /* @__PURE__ */ new Set();
+  }
+});
+
+// utils/appVersion.ts
+var APP_VERSION, APP_VERSION_TAG;
+var init_appVersion = __esm({
+  "utils/appVersion.ts"() {
+    "use strict";
+    APP_VERSION = "v3.13 (At Home)";
+    APP_VERSION_TAG = APP_VERSION.split(" ")[0];
+  }
+});
+
+// utils/buildInfo.ts
+var BUILD_LABEL, BUILD_TIME_LABEL;
+var init_buildInfo = __esm({
+  "utils/buildInfo.ts"() {
+    "use strict";
+    init_appVersion();
+    BUILD_LABEL = `${__BUILD_BRANCH__}@${__BUILD_COMMIT__}`;
+    BUILD_TIME_LABEL = __BUILD_TIME__;
+  }
+});
+
+// utils/databaseOpenDiagnostics.ts
+function read() {
+  if (entries) return entries;
+  entries = [];
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || "[]");
+    if (Array.isArray(saved)) for (const item of saved.slice(-LIMIT)) {
+      if (!item || !phases.includes(item.phase) || !Number.isFinite(item.at) || Math.abs(item.at) > 864e13 || typeof item.build !== "string" || item.build.length > 160 || !Number.isInteger(item.requestedVersion) || item.requestedVersion < 1) continue;
+      const entry = { phase: item.phase, at: item.at, build: item.build, requestedVersion: item.requestedVersion };
+      for (const field of ["fromVersion", "actualVersion"]) {
+        if (Number.isInteger(item[field]) && item[field] >= 0) entry[field] = item[field];
+      }
+      entries.push(entry);
+    }
+  } catch {
+  }
+  return entries;
+}
+function recordDatabaseOpen(phase, versions) {
+  const entry = { phase, at: Date.now(), build: BUILD_LABEL, requestedVersion: versions.requestedVersion };
+  if (versions.fromVersion !== void 0) entry.fromVersion = versions.fromVersion;
+  if (versions.actualVersion !== void 0) entry.actualVersion = versions.actualVersion;
+  entries = [...read(), entry].slice(-LIMIT);
+  try {
+    localStorage.setItem(KEY, JSON.stringify(entries));
+  } catch {
+  }
+}
+var KEY, LIMIT, phases, entries;
+var init_databaseOpenDiagnostics = __esm({
+  "utils/databaseOpenDiagnostics.ts"() {
+    "use strict";
+    init_buildInfo();
+    KEY = "sully_db_open_diagnostics_v1";
+    LIMIT = 16;
+    phases = ["open-requested", "versionless-fallback", "upgrade-started", "upgrade-committed", "upgrade-aborted", "open-ready", "open-error", "open-blocked", "open-timeout", "connection-closed", "version-change"];
   }
 });
 
@@ -783,7 +862,7 @@ var init_decorationMediaBackup = __esm({
 });
 
 // utils/beautyShareContract.ts
-function text(value, label, max, required = false) {
+function text2(value, label, max, required = false) {
   if (typeof value !== "string") throw Error(`${label}\u683C\u5F0F\u4E0D\u6B63\u786E`);
   const result = value.trim();
   if (result.length > max || required && !result) throw Error(`${label}${required ? "\u4E0D\u80FD\u4E3A\u7A7A\uFF0C\u4E14" : ""}\u6700\u591A ${max} \u5B57`);
@@ -796,16 +875,16 @@ function validateBeautyMetadata(value) {
   if (value.bugFeedback !== "welcome" && value.bugFeedback !== "self-fix") throw Error("\u8BF7\u9009\u62E9\u53CD\u9988\u504F\u597D");
   if (value.allowPublicListing !== void 0 && typeof value.allowPublicListing !== "boolean") throw Error("\u8BF7\u786E\u8BA4\u662F\u5426\u5141\u8BB8\u516C\u5F00\u5C55\u793A");
   return {
-    name: text(value.name, "\u7F8E\u5316\u540D", 80, true),
-    credit: text(value.credit, "\u7F72\u540D", 60, true),
+    name: text2(value.name, "\u7F8E\u5316\u540D", 80, true),
+    credit: text2(value.credit, "\u7F72\u540D", 60, true),
     platforms: [...new Set(value.platforms)],
-    contact: text(value.contact, "\u8054\u7CFB\u8BF4\u660E", 160),
+    contact: text2(value.contact, "\u8054\u7CFB\u8BF4\u660E", 160),
     allowRemix: value.allowRemix,
     allowRedistribute: value.allowRedistribute,
     ...value.allowPublicListing !== void 0 ? { allowPublicListing: value.allowPublicListing } : {},
-    exportVersion: text(value.exportVersion, "\u5BFC\u51FA\u7248\u672C", 80, true),
+    exportVersion: text2(value.exportVersion, "\u5BFC\u51FA\u7248\u672C", 80, true),
     bugFeedback: value.bugFeedback,
-    message: text(value.message, "\u4F5C\u8005\u7559\u8A00", 2e3)
+    message: text2(value.message, "\u4F5C\u8005\u7559\u8A00", 2e3)
   };
 }
 var BEAUTY_MAX_BYTES, BEAUTY_PLATFORMS, isRecord2;
@@ -824,7 +903,7 @@ function clean(key, value) {
     if (typeof value !== "string") throw Error("\u7F8E\u5316\u5F15\u5BFC\u8BB0\u5F55\u65E0\u6548");
     return value.slice(0, 40);
   }
-  if (!record(value)) throw Error("\u7F8E\u5316\u504F\u597D\u683C\u5F0F\u65E0\u6548");
+  if (!record2(value)) throw Error("\u7F8E\u5316\u504F\u597D\u683C\u5F0F\u65E0\u6548");
   if (key === REPO) return Object.fromEntries(Object.entries(value).filter(([id, status]) => code(id) && (status === "manual" || status === "submitted")));
   if (key === DEFAULTS) {
     const metadata = validateBeautyMetadata({ ...value, name: "\u5907\u4EFD\u9ED8\u8BA4\u4FE1\u606F" });
@@ -834,9 +913,9 @@ function clean(key, value) {
     if (!Array.isArray(value.uses) || !Array.isArray(value.reminded)) throw Error("\u7F8E\u5316\u4F7F\u7528\u8BB0\u5F55\u65E0\u6548");
     const uses = value.uses.flatMap((item) => {
       try {
-        if (!record(item) || typeof item.target !== "string" || item.target.length > 200 || !Number.isFinite(item.startedAt) || item.startedAt < 0) throw Error();
+        if (!record2(item) || typeof item.target !== "string" || item.target.length > 200 || !Number.isFinite(item.startedAt) || item.startedAt < 0) throw Error();
         const s = item.share;
-        if (!record(s) || !code(s.code) || !["appearance", "chat-decoration"].includes(s.kind) || typeof s.revision !== "string" || s.revision.length > 200 || typeof s.sha256 !== "string" || !Number.isFinite(s.bytes)) throw Error();
+        if (!record2(s) || !code(s.code) || !["appearance", "chat-decoration"].includes(s.kind) || typeof s.revision !== "string" || s.revision.length > 200 || typeof s.sha256 !== "string" || !Number.isFinite(s.bytes)) throw Error();
         const share = { code: s.code, kind: s.kind, revision: s.revision, metadata: validateBeautyMetadata(s.metadata), bytes: s.bytes, sha256: s.sha256 };
         return [{ target: item.target, startedAt: item.startedAt, share }];
       } catch {
@@ -858,12 +937,12 @@ function exportBeautyPreferences() {
 }
 function importBeautyPreferences(value) {
   if (value === void 0) return;
-  if (!record(value) || value.version !== 1 || !record(value.values)) throw Error("\u7F8E\u5316\u504F\u597D\u5907\u4EFD\u7248\u672C\u65E0\u6548");
-  const entries = [USAGE, REPO, DEFAULTS, ...FLAGS].filter((key) => Object.hasOwn(value.values, key)).map((key) => [key, clean(key, value.values[key])]);
-  for (const [key, data] of entries) localStorage.setItem(key, FLAGS.includes(key) ? data : JSON.stringify(data));
+  if (!record2(value) || value.version !== 1 || !record2(value.values)) throw Error("\u7F8E\u5316\u504F\u597D\u5907\u4EFD\u7248\u672C\u65E0\u6548");
+  const entries2 = [USAGE, REPO, DEFAULTS, ...FLAGS].filter((key) => Object.hasOwn(value.values, key)).map((key) => [key, clean(key, value.values[key])]);
+  for (const [key, data] of entries2) localStorage.setItem(key, FLAGS.includes(key) ? data : JSON.stringify(data));
   if (typeof window !== "undefined") for (const name of ["sully-beauty-usage-change", "sully-beauty-repo-status-change"]) window.dispatchEvent(new Event(name));
 }
-var USAGE, REPO, DEFAULTS, FLAGS, record, code;
+var USAGE, REPO, DEFAULTS, FLAGS, record2, code;
 var init_beautyPreferencesBackup = __esm({
   "utils/beautyPreferencesBackup.ts"() {
     "use strict";
@@ -872,7 +951,7 @@ var init_beautyPreferencesBackup = __esm({
     REPO = "sully-beauty-repo-status-v1";
     DEFAULTS = "sully-beauty-author-defaults-v1";
     FLAGS = ["sullyos_chat_wardrobe_update_v2_seen", "sullyos_chat_wardrobe_guide_v2_done", "sully-beauty-catalog-notice-v1", "sully-beauty-author-notice-v1"];
-    record = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+    record2 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
     code = (value) => typeof value === "string" && /^S-[A-F0-9]{12}$/.test(value);
   }
 });
@@ -894,7 +973,7 @@ function checked(value) {
 }
 function readRememberedBeautyAuthor() {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(KEY2);
     return raw ? checked(JSON.parse(raw)) : null;
   } catch {
     return null;
@@ -906,15 +985,15 @@ function exportBeautyAuthorBackup() {
 function importBeautyAuthorBackup(value) {
   if (value === void 0) return;
   const identity = checked(value);
-  localStorage.setItem(KEY, JSON.stringify(identity));
+  localStorage.setItem(KEY2, JSON.stringify(identity));
   localStorage.removeItem("sully-beauty-author-session-v1");
 }
-var KEY;
+var KEY2;
 var init_beautyAuthorBackup = __esm({
   "utils/beautyAuthorBackup.ts"() {
     "use strict";
     init_beautyShareConfig();
-    KEY = "sully-beauty-author-identity-v1";
+    KEY2 = "sully-beauty-author-identity-v1";
   }
 });
 
@@ -945,6 +1024,288 @@ var init_worldbook = __esm({
       matchWholeWords: book.matchWholeWords,
       sourceUid: book.sourceUid
     });
+  }
+});
+
+// utils/homeTurns.ts
+function isRoutineHomeWalk(record3) {
+  return record3.kind === "action" && /(?:在房间里走动|走了几步)[。！]?$/u.test(record3.text);
+}
+function assignHomeTurns(records) {
+  const byRecord = /* @__PURE__ */ new Map(), sealed = /* @__PURE__ */ new Set();
+  let current;
+  return records.map((record3) => {
+    const linked = record3.replyTo ? byRecord.get(record3.replyTo) : void 0;
+    let turn = record3.turnId || linked;
+    if (!turn) {
+      if (!current || (record3.source === "user" || record3.source === "local") && sealed.has(current)) current = record3.id;
+      turn = current;
+    }
+    if (!current || !linked) current = turn;
+    byRecord.set(record3.id, turn);
+    if (record3.kind === "message" || record3.initiative) sealed.add(turn);
+    return record3.turnId === turn ? record3 : { ...record3, turnId: turn };
+  });
+}
+var init_homeTurns = __esm({
+  "utils/homeTurns.ts"() {
+    "use strict";
+  }
+});
+
+// utils/homeContextSegments.ts
+function assignHomeContextSegments(previous, input, last, hwm, legacy = []) {
+  const old = new Map(previous.map((record3) => [record3.id, record3.contextSegmentId]));
+  const inherited = /* @__PURE__ */ new Map();
+  const assigned = assignHomeTurns(input);
+  for (const row of legacy) {
+    const key = row.metadata?.homeTurnId || row.metadata?.homeRecordId;
+    if (!key) continue;
+    const ids = row.metadata.homeRecordIds || [row.metadata.homeRecordId].filter(Boolean);
+    for (const record3 of assigned) if (ids.includes(record3.id) || !ids.length && record3.turnId === key) inherited.set(record3.id, key);
+  }
+  const extendable = last?.metadata?.source === "home" && last.metadata.homeContextVersion === 3 && !last.metadata.homeLegacy && !last.metadata.homeContextSealed && last.metadata.homeContextKind === "actions" && last.id > hwm ? last : void 0;
+  let open, end = -Infinity;
+  return [...assigned].sort((a, b) => a.at - b.at).map((record3) => {
+    const existing = old.get(record3.id) || inherited.get(record3.id);
+    if (isRoutineHomeWalk(record3)) return { ...record3, contextSegmentId: existing || record3.id };
+    if (existing) {
+      open = extendable && existing === extendable.metadata.homeTurnId && record3.id === extendable.metadata.homeRecordIds.at(-1) ? existing : void 0;
+      end = record3.at;
+      return { ...record3, contextSegmentId: existing };
+    }
+    const action = isHomeActionRecord(record3);
+    const key = action && open && record3.at >= end ? open : record3.id;
+    open = action ? key : void 0;
+    end = record3.at;
+    return { ...record3, contextSegmentId: key };
+  });
+}
+function homeSegmentMessages(charId, records) {
+  const groups = /* @__PURE__ */ new Map();
+  let actions;
+  for (const record3 of [...records].sort((a, b) => a.at - b.at)) {
+    if (isRoutineHomeWalk(record3)) continue;
+    const action = isHomeActionRecord(record3);
+    const key = record3.contextSegmentId || (action ? actions : void 0) || record3.id;
+    actions = action ? key : void 0;
+    const group = groups.get(key) || [];
+    group.push(record3);
+    groups.set(key, group);
+  }
+  return [...groups].map(([key, events]) => homeSegmentMessage(charId, key, events));
+}
+function homeSegmentMessage(charId, key, events) {
+  const speech = events.length === 1 && events[0].kind === "message";
+  const actions = events.every(isHomeActionRecord);
+  return {
+    charId,
+    role: speech && events[0].actor === "character" ? "assistant" : "user",
+    type: "text",
+    timestamp: events[0].at,
+    content: speech ? "[" + events[0].roomName + "] " + events[0].text : (actions ? "\u5BB6\u56ED\u5B9E\u9645\u884C\u4E3A\uFF08\u573A\u666F\u8BB0\u5F55\uFF0C\u4E0D\u662F\u53D1\u8A00\uFF1B\u5F00\u59CB\u4E0D\u4EE3\u8868\u5B8C\u6210\uFF09\uFF1A\n" : "\u5BB6\u56ED\u7ECF\u5386\uFF08\u573A\u666F\u8BB0\u5F55\uFF09\uFF1A\n") + events.map((e) => "[" + e.roomName + "] " + (e.kind === "message" ? e.actor === "user" ? "\u7528\u6237\u8BF4\uFF1A" : "\u89D2\u8272\u8BF4\uFF1A" : "\u5B9E\u9645\u884C\u4E3A\uFF08" + { user: "\u7528\u6237\u64CD\u4F5C", local: "\u672C\u5730\u81EA\u4E3B", model: "\u6A21\u578B\u6267\u884C" }[e.source] + "\uFF09\uFF1A") + e.text).join("\n"),
+    metadata: {
+      source: "home",
+      homeTurnId: key,
+      homeRecordIds: events.map((e) => e.id),
+      homeTurnEndAt: events.at(-1).at,
+      homeContextVersion: 3,
+      homeContextKind: actions ? "actions" : speech ? "speech" : "scene",
+      homeEvents: events
+    }
+  };
+}
+var isHomeActionRecord;
+var init_homeContextSegments = __esm({
+  "utils/homeContextSegments.ts"() {
+    "use strict";
+    init_homeTurns();
+    isHomeActionRecord = (record3) => record3.kind !== "message" && !record3.initiative;
+  }
+});
+
+// utils/localId.js
+var init_localId = __esm({
+  "utils/localId.js"() {
+    "use strict";
+  }
+});
+
+// utils/homeRecords.ts
+function homeRecords(home) {
+  if (Array.isArray(home?.records)) return home.records.filter(isHomeRecord);
+  return (home?.activityLog ?? []).filter((e) => e && Number.isFinite(e.at) && Math.abs(e.at) < 864e13 && typeof e.label === "string" && typeof e.roomName === "string").map((e, index) => ({ id: `legacy-${e.at}-${index}`, at: e.at, kind: "action", source: "user", actor: "character", text: `\u5F00\u59CB${e.label}`, roomId: e.roomId, roomName: e.roomName }));
+}
+function isHomeRecord(e) {
+  const v = e;
+  return !!v && typeof v.id === "string" && Number.isFinite(v.at) && Math.abs(v.at) < 864e13 && ["message", "action", "presence"].includes(v.kind) && ["user", "local", "model"].includes(v.source) && ["user", "character"].includes(v.actor) && typeof v.text === "string" && typeof v.roomId === "string" && typeof v.roomName === "string";
+}
+var init_homeRecords = __esm({
+  "utils/homeRecords.ts"() {
+    "use strict";
+    init_localId();
+  }
+});
+
+// utils/homeSecretsPrompt.ts
+var init_homeSecretsPrompt = __esm({
+  "utils/homeSecretsPrompt.ts"() {
+    "use strict";
+  }
+});
+
+// utils/secretNote.ts
+function announceSecretNotesChanged(charId) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(SECRET_NOTES_UPDATED, { detail: { charId } }));
+}
+function deleteLinkedSecretNotes(store, message) {
+  for (const id of message.metadata?.secretNoteIds || []) {
+    if (!Number.isSafeInteger(id) || id <= 0) continue;
+    const get = store.get(id);
+    get.onsuccess = () => {
+      const note = get.result;
+      if (note?.charId === message.charId && !note.groupId && note.type === "secret_note" && note.metadata?.sourceMessageIds?.includes(message.id)) store.delete(id);
+    };
+  }
+}
+function deleteSecretNotesForIds(store, ids) {
+  for (const id of ids) {
+    const get = store.get(id);
+    get.onsuccess = () => {
+      if (get.result) deleteLinkedSecretNotes(store, get.result);
+    };
+  }
+}
+var SECRET_NOTES_UPDATED, HOME_HISTORY_COMMITTED;
+var init_secretNote = __esm({
+  "utils/secretNote.ts"() {
+    "use strict";
+    init_homeSecretsPrompt();
+    SECRET_NOTES_UPDATED = "home-secrets-updated";
+    HOME_HISTORY_COMMITTED = "home-history-committed";
+  }
+});
+
+// utils/homeMessageBridge.ts
+function persistCharacterWithHomeMessages(db, input, onInsert) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(["characters", "messages", "assets"], "readwrite");
+    const characters = tx.objectStore("characters"), messages = tx.objectStore("messages");
+    const id = typeof input === "string" ? input : input.id;
+    let firstInserted = Infinity;
+    let notesChanged = false;
+    const request = characters.get(id);
+    request.onsuccess = () => {
+      const previous = request.result;
+      if (typeof input === "string" && (!previous || previous.homeContextBridgeVersion === 3)) return;
+      const character2 = typeof input === "string" ? previous : input;
+      const oldRecords = homeRecords(previous?.home3D), inputRecords = homeRecords(character2.home3D);
+      if (!oldRecords.length && !inputRecords.length) {
+        characters.put({ ...character2, homeContextBridgeVersion: 3 });
+        return;
+      }
+      const persist = (last, hwm, legacy) => {
+        const records = assignHomeContextSegments(oldRecords, inputRecords, last, hwm, legacy);
+        const unchanged = previous?.homeContextBridgeVersion === 3 && JSON.stringify(oldRecords) === JSON.stringify(records);
+        characters.put({ ...character2, ...character2.home3D ? { home3D: { ...character2.home3D, records } } : {}, homeContextBridgeVersion: 3 });
+        if (unchanged) return;
+        const turns = homeSegmentMessages(id, records);
+        const pending = new Map(turns.map((turn) => [turn.metadata.homeTurnId, turn]));
+        const insert = (turn) => {
+          const add = messages.add(turn);
+          add.onsuccess = () => {
+            const key = add.result;
+            firstInserted = Math.min(firstInserted, key);
+            onInsert(tx, id, key);
+          };
+        };
+        if (previous?.homeContextBridgeVersion === 3) {
+          const before = new Map(homeSegmentMessages(id, assignHomeTurns(homeRecords(previous.home3D))).map((turn) => [turn.metadata.homeTurnId, turn]));
+          for (const key of /* @__PURE__ */ new Set([...before.keys(), ...pending.keys()])) {
+            const next = pending.get(key);
+            if (JSON.stringify(before.get(key)) === JSON.stringify(next)) continue;
+            const lookup = messages.index("charId_homeTurn").openCursor(IDBKeyRange.only([id, key]));
+            let found = false;
+            lookup.onsuccess = () => {
+              const cursor = lookup.result;
+              if (cursor) {
+                const row = cursor.value;
+                if (row.metadata?.source === "home" && row.type !== "secret_note") {
+                  if (row.metadata?.secretNoteIds?.length) notesChanged = true;
+                  deleteLinkedSecretNotes(messages, row);
+                  if (next) {
+                    cursor.update({ ...row, ...next, metadata: { ...row.metadata, ...next.metadata, secretNoteIds: [] } });
+                    found = true;
+                  } else cursor.delete();
+                }
+                cursor.continue();
+              } else if (next && !found) insert(next);
+            };
+          }
+          return;
+        }
+        for (const row of legacy) {
+          const key = row.metadata.homeTurnId || row.metadata.homeRecordId;
+          const projected = pending.get(key);
+          const ids = row.metadata.homeRecordIds || [row.metadata.homeRecordId].filter(Boolean);
+          if (projected && ids.every((recordId) => projected.metadata.homeRecordIds.includes(recordId)))
+            messages.put({ ...row, ...projected, metadata: { ...row.metadata, ...projected.metadata, homeLegacy: true } });
+          pending.delete(key);
+        }
+        for (const turn of [...pending.values()].sort((a, b) => a.timestamp - b.timestamp)) insert(turn);
+      };
+      const latest = messages.index("charId").openCursor(IDBKeyRange.only(id), "prev");
+      latest.onsuccess = () => {
+        const cursor = latest.result;
+        if (cursor?.value.groupId) {
+          cursor.continue();
+          return;
+        }
+        const last = cursor?.value;
+        const mirror = tx.objectStore("assets").get(`mp_hwm_v1_${id}`);
+        mirror.onsuccess = () => {
+          let hwm = Number(typeof mirror.result?.data === "number" ? mirror.result.data : mirror.result?.data?.msgId) || 0;
+          try {
+            hwm = Math.max(hwm, Number(localStorage.getItem(`mp_lastMsgId_${id}`)) || 0);
+          } catch {
+          }
+          if (previous?.homeContextBridgeVersion === 3) {
+            persist(last, hwm, []);
+            return;
+          }
+          const legacy = [];
+          const scan = messages.index("charId_source").openCursor(IDBKeyRange.only([id, "home"]));
+          scan.onsuccess = () => {
+            const item = scan.result;
+            if (item) {
+              legacy.push(item.value);
+              item.continue();
+            } else persist(last, hwm, legacy);
+          };
+        };
+      };
+    };
+    tx.oncomplete = () => {
+      if (notesChanged) announceSecretNotesChanged(id);
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(HOME_HISTORY_COMMITTED, { detail: { charId: id } }));
+      if (Number.isFinite(firstInserted)) try {
+        const key = `mp_lastMsgId_${id}`;
+        if (Number(localStorage.getItem(key)) >= firstInserted) localStorage.removeItem(key);
+      } catch {
+      }
+      resolve();
+    };
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error || new Error("\u5BB6\u56ED\u8BB0\u5F55\u672A\u80FD\u4FDD\u5B58"));
+  });
+}
+var init_homeMessageBridge = __esm({
+  "utils/homeMessageBridge.ts"() {
+    "use strict";
+    init_homeTurns();
+    init_homeContextSegments();
+    init_homeRecords();
+    init_secretNote();
   }
 });
 
@@ -1138,12 +1499,75 @@ var init_mcpClient = __esm({
   }
 });
 
+// utils/home3DBackup.ts
+function valid(key, value) {
+  if (typeof value !== "string") return false;
+  if (key !== PHOTO_LOOK_KEY) return options[key]?.includes(value) ?? false;
+  if (value.length > 256e3) return false;
+  try {
+    const entries2 = JSON.parse(value);
+    return Array.isArray(entries2) && entries2.length <= 60 && entries2.every((p) => p && typeof p.id === "string" && typeof p.name === "string" && p.look && ["natural", "neon", "dream", "afterglow", "watercolor", "daylight"].includes(p.look.preset) && [["glow", 0, 3], ["fringe", 0, 1], ["vignette", 0, 1], ["exposure", 0.5, 1.6]].every(([k, min, max]) => typeof p.look[k] === "number" && Number.isFinite(p.look[k]) && p.look[k] >= min && p.look[k] <= max));
+  } catch {
+    return false;
+  }
+}
+function exportHome3DLocal() {
+  const result = {};
+  for (const key of HOME3D_LOCAL_KEYS) {
+    const value = localStorage.getItem(key);
+    if (valid(key, value)) result[key] = value;
+  }
+  return result;
+}
+function importHome3DLocal(input) {
+  if (input === void 0) return;
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("3D \u5BB6\u56ED\u504F\u597D\u683C\u5F0F\u4E0D\u6B63\u786E");
+  const next = input;
+  for (const key of HOME3D_LOCAL_KEYS) {
+    if (Object.hasOwn(next, key) && !valid(key, next[key])) throw new Error("3D \u5BB6\u56ED\u504F\u597D\u5305\u542B\u65E0\u6548\u914D\u7F6E");
+  }
+  const previous = HOME3D_LOCAL_KEYS.map((key) => localStorage.getItem(key));
+  try {
+    for (const key of HOME3D_LOCAL_KEYS) {
+      if (Object.hasOwn(next, key)) localStorage.setItem(key, next[key]);
+      else localStorage.removeItem(key);
+    }
+  } catch (error) {
+    HOME3D_LOCAL_KEYS.forEach((key, i) => {
+      try {
+        if (previous[i] === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, previous[i]);
+      } catch {
+      }
+    });
+    throw error;
+  }
+}
+var options, PHOTO_LOOK_KEY, HOME3D_LOCAL_KEYS;
+var init_home3DBackup = __esm({
+  "utils/home3DBackup.ts"() {
+    "use strict";
+    options = {
+      "sully-home3d-room-scope": ["floor", "room"],
+      "sully-home3d-wall-view": ["hidden", "cutaway", "dollhouse"],
+      "sully-home3d-view-mode": ["flat", "free"],
+      "sully-home3d-light-finish": ["on", "off"],
+      "sully-home3d-light-mode": ["auto", "morning", "day", "sunset", "night"],
+      "sully-home3d-quality": ["eco", "balanced", "clear"],
+      "sully-home3d-furniture-outline": ["on", "off"],
+      "sully-home3d-furniture-style": ["retro", "original"]
+    };
+    PHOTO_LOOK_KEY = "sully.home.photo-look-library.v1";
+    HOME3D_LOCAL_KEYS = [...Object.keys(options), PHOTO_LOOK_KEY];
+  }
+});
+
 // utils/activeMsgStore.ts
-async function exportAmsg2GlobalConfig(options = {}) {
+async function exportAmsg2GlobalConfig(options2 = {}) {
   try {
     const config = await ActiveMsgStore.getGlobalConfig();
     if (!config.workerUrl?.trim()) return void 0;
-    if (options.includeBackendConnection) return config;
+    if (options2.includeBackendConnection) return config;
     const stripped = { ...config };
     for (const key of BACKEND_CONNECTION_KEYS) delete stripped[key];
     return Object.keys(stripped).length > 0 ? stripped : void 0;
@@ -1152,10 +1576,10 @@ async function exportAmsg2GlobalConfig(options = {}) {
     return void 0;
   }
 }
-async function importAmsg2GlobalConfig(config, options = {}) {
+async function importAmsg2GlobalConfig(config, options2 = {}) {
   if (!config || typeof config !== "object") return;
   const { instantChatSupported: _dropped, workerBundleVersion: _droppedVersion, ...restorable } = config;
-  if (!options.allowBackendConnection) {
+  if (!options2.allowBackendConnection) {
     for (const key of BACKEND_CONNECTION_KEYS) delete restorable[key];
   }
   if (Object.keys(restorable).length === 0) return;
@@ -1470,8 +1894,8 @@ var init_activeMsgStore = __esm({
       /** 合并新候选（按 id 去重），顺手清 48h 前的老记录，封顶 10 条防无界增长。 */
       async upsertExpiredNotices(charId, records) {
         const byId = new Map((await this.getExpiredNotices(charId)).map((r) => [r.id, r]));
-        for (const record2 of records) {
-          if (!byId.has(record2.id)) byId.set(record2.id, record2);
+        for (const record3 of records) {
+          if (!byId.has(record3.id)) byId.set(record3.id, record3);
         }
         const cutoff = Date.now() - EXPIRED_NOTICES_TTL_MS;
         const alive = [...byId.values()].filter((r) => r.createdAt >= cutoff).sort((a, b) => b.occurrenceMs - a.occurrenceMs);
@@ -1564,14 +1988,14 @@ function dataUrlToBlob(dataUrl) {
   const mimeMatch = header.match(/^data:([^;,]+)/i);
   const mime = mimeMatch && mimeMatch[1].trim() || "application/octet-stream";
   if (!/;[ \t]*base64[ \t]*$/i.test(header)) {
-    const text2 = dataUrl.slice(comma + 1).replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => {
+    const text3 = dataUrl.slice(comma + 1).replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => {
       try {
         return decodeURIComponent(m);
       } catch {
         return m;
       }
     });
-    return new Blob([text2], { type: mime });
+    return new Blob([text3], { type: mime });
   }
   const b64 = dataUrl.slice(comma + 1).replace(/(?:%[0-9A-Fa-f]{2})+/g, (m) => {
     try {
@@ -1768,8 +2192,8 @@ function compareByAge(a, b) {
 function compareId(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
-function createBlobStore(options) {
-  const { adapter, prefix = DEFAULT_PREFIX } = options || {};
+function createBlobStore(options2) {
+  const { adapter, prefix = DEFAULT_PREFIX } = options2 || {};
   if (!adapter) throw new TypeError("createBlobStore: adapter is required");
   if (typeof prefix !== "string" || !prefix) throw new TypeError("createBlobStore: prefix must be a non-empty string");
   const isRef = (v) => typeof v === "string" && v.startsWith(prefix);
@@ -1944,6 +2368,7 @@ var init_blobStore = __esm({
     init_dist();
     init_db();
     blobStore = createBlobStore({
+      prefix: "blobref:",
       adapter: {
         get: (id) => DB.getBlobAsset(id),
         put: (id, blob) => DB.putBlobAsset(id, blob),
@@ -2487,17 +2912,22 @@ var init_db = __esm({
   "utils/db.ts"() {
     "use strict";
     init_localRead();
+    init_databaseHealth();
+    init_databaseOpenDiagnostics();
     init_legacyWhiteboxPresets();
     init_decorationMediaBackup();
     init_beautyPreferencesBackup();
     init_beautyAuthorBackup();
     init_worldbook();
+    init_homeMessageBridge();
+    init_secretNote();
     init_episodeOrder();
     init_postOffice();
     init_signal();
     init_luckinMcpClient();
     init_mcdMcpClient();
     init_mcpClient();
+    init_home3DBackup();
     init_activeMsgStore();
     init_localBackup();
     init_desktopSkinBackup();
@@ -2586,9 +3016,11 @@ var init_db = __esm({
     openDB2 = () => {
       if (dbPromise2) return dbPromise2;
       const promise = new Promise((resolve, reject) => {
+        recordDatabaseOpen("open-requested", { requestedVersion: DB_VERSION2 });
         const request = indexedDB.open(DB_NAME2, DB_VERSION2);
         let settled = false;
         const openTimer = setTimeout(() => {
+          recordDatabaseOpen("open-timeout", { requestedVersion: DB_VERSION2 });
           settled = true;
           if (dbPromise2 === promise) dbPromise2 = null;
           reject(new Error("\u672C\u5730\u6570\u636E\u5E93\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u5173\u95ED\u5176\u4ED6\u7CEF\u7C73\u673A\u9875\u9762\u540E\u91CD\u8BD5\uFF1B\u65E0\u9700\u6E05\u7406\u6570\u636E"));
@@ -2597,6 +3029,7 @@ var init_db = __esm({
           if (settled) return;
           const err6 = request.error;
           if (err6?.name === "VersionError") {
+            recordDatabaseOpen("versionless-fallback", { requestedVersion: DB_VERSION2 });
             console.warn("[DB] open VersionError \u2014\u2014 \u73B0\u6709\u7248\u672C\u9AD8\u4E8E\u5F53\u524D build, \u56DE\u9000\u5230\u4E0D\u5E26\u7248\u672C\u53F7\u6253\u5F00");
             const fb = indexedDB.open(DB_NAME2);
             fb.onsuccess = () => {
@@ -2606,6 +3039,7 @@ var init_db = __esm({
                 return;
               }
               clearTimeout(openTimer);
+              recordDatabaseOpen("open-ready", { requestedVersion: DB_VERSION2, actualVersion: db.version });
               db.onversionchange = () => {
                 db.close();
                 if (dbPromise2 === promise) dbPromise2 = null;
@@ -2616,7 +3050,9 @@ var init_db = __esm({
               resolve(db);
             };
             fb.onerror = () => {
+              if (settled) return;
               clearTimeout(openTimer);
+              recordDatabaseOpen("open-error", { requestedVersion: DB_VERSION2 });
               settled = true;
               console.error("DB Open Error (versionless fallback):", fb.error);
               if (dbPromise2 === promise) dbPromise2 = null;
@@ -2625,6 +3061,7 @@ var init_db = __esm({
             return;
           }
           clearTimeout(openTimer);
+          recordDatabaseOpen("open-error", { requestedVersion: DB_VERSION2 });
           console.error("DB Open Error:", err6);
           if (dbPromise2 === promise) dbPromise2 = null;
           settled = true;
@@ -2640,17 +3077,21 @@ var init_db = __esm({
             }
             return;
           }
+          recordDatabaseOpen("open-ready", { requestedVersion: DB_VERSION2, actualVersion: db.version });
           db.onversionchange = () => {
+            recordDatabaseOpen("version-change", { requestedVersion: DB_VERSION2, actualVersion: db.version });
             db.close();
             if (dbPromise2 === promise) dbPromise2 = null;
           };
           db.onclose = () => {
+            recordDatabaseOpen("connection-closed", { requestedVersion: DB_VERSION2, actualVersion: db.version });
             if (dbPromise2 === promise) dbPromise2 = null;
           };
           resolve(db);
         };
         request.onblocked = () => {
           clearTimeout(openTimer);
+          recordDatabaseOpen("open-blocked", { requestedVersion: DB_VERSION2 });
           console.warn("[DB] open blocked \u2014\u2014 \u53E6\u4E00\u4E2A tab \u4ECD\u6301\u6709\u65E7\u7248\u672C\u8FDE\u63A5\u672A\u5173\u95ED");
           if (dbPromise2 === promise) dbPromise2 = null;
           settled = true;
@@ -2659,9 +3100,13 @@ var init_db = __esm({
         request.onupgradeneeded = (event) => {
           clearTimeout(openTimer);
           const db = event.target.result;
-          const createStore = (name, options) => {
+          const upgradeVersions = { requestedVersion: DB_VERSION2, fromVersion: event.oldVersion, actualVersion: db.version };
+          recordDatabaseOpen("upgrade-started", upgradeVersions);
+          request.transaction.addEventListener("complete", () => recordDatabaseOpen("upgrade-committed", upgradeVersions));
+          request.transaction.addEventListener("abort", () => recordDatabaseOpen("upgrade-aborted", upgradeVersions));
+          const createStore = (name, options2) => {
             if (!db.objectStoreNames.contains(name)) {
-              db.createObjectStore(name, options);
+              db.createObjectStore(name, options2);
             }
           };
           createStore(STORE_CHARACTERS, { keyPath: "id" });
@@ -2687,6 +3132,13 @@ var init_db = __esm({
             }
           } catch (e) {
             console.log("charId_type index migration skipped", e);
+          }
+          const messageStore = event.target.transaction.objectStore(STORE_MESSAGES);
+          if (!messageStore.indexNames.contains("charId_source")) {
+            messageStore.createIndex("charId_source", ["charId", "metadata.source"], { unique: false });
+          }
+          if (!messageStore.indexNames.contains("charId_homeTurn")) {
+            messageStore.createIndex("charId_homeTurn", ["charId", "metadata.homeTurnId"], { unique: false });
           }
           const deliveryStore = event.target.transaction.objectStore(STORE_MESSAGES);
           if (!deliveryStore.indexNames.contains("charId_deliveryId")) {
@@ -2908,6 +3360,7 @@ var init_db = __esm({
         };
       });
       dbPromise2 = promise;
+      void promise.catch(reportDatabaseFailure);
       return promise;
     };
     normalizeWorldRelationships = (world) => {
@@ -2959,15 +3412,32 @@ var init_db = __esm({
           request.onerror = () => reject(request.error);
         });
       },
-      saveCharacter: async (character) => {
+      saveCharacter: async (character2) => {
+        const db = await openDB2();
+        return persistCharacterWithHomeMessages(db, character2, clearStaleMemoryMirror);
+      },
+      /** An asynchronous evaluation updates only emotion fields, never its stale home/history snapshot. */
+      saveCharacterEmotion: async (charId, activeBuffs, buffInjection) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_CHARACTERS, "readwrite");
-          transaction.objectStore(STORE_CHARACTERS).put(character);
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error("saveCharacter aborted"));
+          const tx = db.transaction(STORE_CHARACTERS, "readwrite");
+          const store = tx.objectStore(STORE_CHARACTERS), get = store.get(charId);
+          get.onsuccess = () => {
+            if (get.result) store.put({ ...get.result, activeBuffs, buffInjection });
+          };
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error || new Error("\u60C5\u7EEA\u4FDD\u5B58\u5931\u8D25"));
         });
+      },
+      ensureHomeContextMessages: async (charId) => {
+        const db = await openDB2();
+        const migrated = await new Promise((resolve, reject) => {
+          const request = db.transaction(STORE_CHARACTERS, "readonly").objectStore(STORE_CHARACTERS).get(charId);
+          request.onsuccess = () => resolve(!request.result || request.result.homeContextBridgeVersion === 3);
+          request.onerror = () => reject(request.error);
+        });
+        if (!migrated) await persistCharacterWithHomeMessages(db, charId, clearStaleMemoryMirror);
       },
       deleteCharacter: async (id) => {
         const db = await openDB2();
@@ -3014,15 +3484,22 @@ var init_db = __esm({
        * @param includeProcessed 是否包含已被记忆宫殿处理的消息（默认 false，即自动过滤）。
        *                         记忆归档、批量总结等需要完整历史的场景应传 true。
        */
-      getMessagesByCharId: async (charId, includeProcessed = false) => {
+      getMessagesByCharId: async (charId, includeProcessed = false, sealHomeActions = false) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
+          const transaction = db.transaction(STORE_MESSAGES, sealHomeActions ? "readwrite" : "readonly");
           const store = transaction.objectStore(STORE_MESSAGES);
           const index = store.index("charId");
           const request = index.getAll(IDBKeyRange.only(charId));
+          let snapshot = [];
           request.onsuccess = () => {
             let results = (request.result || []).filter((m) => !m.groupId);
+            if (sealHomeActions) for (const message of results) {
+              if (message.metadata?.source === "home" && message.metadata?.homeContextKind === "actions" && !message.metadata.homeContextSealed) {
+                message.metadata = { ...message.metadata, homeContextSealed: true };
+                store.put(message);
+              }
+            }
             if (!includeProcessed) {
               try {
                 const hwm = parseInt(localStorage.getItem(`mp_lastMsgId_${charId}`) || "0", 10);
@@ -3032,9 +3509,12 @@ var init_db = __esm({
               } catch {
               }
             }
-            resolve(results);
+            snapshot = results;
           };
           request.onerror = () => reject(request.error);
+          transaction.oncomplete = () => resolve(snapshot);
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error("\u804A\u5929\u5386\u53F2\u5FEB\u7167\u672A\u80FD\u5B8C\u6210"));
         });
       },
       /**
@@ -3216,9 +3696,9 @@ var init_db = __esm({
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([STORE_MESSAGES, STORE_ASSETS], "readwrite");
           const store = transaction.objectStore(STORE_MESSAGES);
-          const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
+          const timestamp2 = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
           const { timestamp: _ignored, ...payload } = msg;
-          const request = store.add({ ...payload, timestamp });
+          const request = store.add({ ...payload, timestamp: timestamp2 });
           request.onsuccess = () => clearStaleMemoryMirror(transaction, msg.charId, request.result);
           transaction.oncomplete = () => {
             const newId = request.result;
@@ -3338,8 +3818,8 @@ var init_db = __esm({
           const store = tx.objectStore(STORE_MESSAGES);
           let written = 0;
           for (const p of pendings) {
-            const record2 = p.explicitId !== void 0 ? { ...p.payload, id: p.explicitId } : { ...p.payload };
-            const req = store.add(record2);
+            const record3 = p.explicitId !== void 0 ? { ...p.payload, id: p.explicitId } : { ...p.payload };
+            const req = store.add(record3);
             req.onsuccess = () => {
               written++;
             };
@@ -3427,8 +3907,12 @@ var init_db = __esm({
         const db = await openDB2();
         return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_MESSAGES, "readwrite");
+          deleteSecretNotesForIds(transaction.objectStore(STORE_MESSAGES), [id]);
           transaction.objectStore(STORE_MESSAGES).delete(id);
-          transaction.oncomplete = () => resolve();
+          transaction.oncomplete = () => {
+            announceSecretNotesChanged();
+            resolve();
+          };
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error("deleteMessage aborted"));
         });
@@ -3440,9 +3924,15 @@ var init_db = __esm({
         const db = await openDB2();
         const transaction = db.transaction(STORE_MESSAGES, "readwrite");
         const store = transaction.objectStore(STORE_MESSAGES);
+        deleteSecretNotesForIds(store, ids);
         ids.forEach((id) => store.delete(id));
-        return new Promise((resolve) => {
-          transaction.oncomplete = () => resolve();
+        return new Promise((resolve, reject) => {
+          transaction.oncomplete = () => {
+            announceSecretNotesChanged();
+            resolve();
+          };
+          transaction.onerror = () => reject(transaction.error);
+          transaction.onabort = () => reject(transaction.error || new Error("deleteMessages aborted"));
         });
       },
       clearMessages: async (charId) => {
@@ -3465,7 +3955,10 @@ var init_db = __esm({
             }
           };
           request.onerror = () => reject(request.error);
-          transaction.oncomplete = () => resolve();
+          transaction.oncomplete = () => {
+            announceSecretNotesChanged(charId);
+            resolve();
+          };
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error("clearMessages aborted"));
         });
@@ -3590,8 +4083,8 @@ var init_db = __esm({
           const store = tx.objectStore(STORE_EMOJIS);
           const getReq = store.get(oldName);
           getReq.onsuccess = () => {
-            const record2 = getReq.result;
-            if (!record2) {
+            const record3 = getReq.result;
+            if (!record3) {
               reject(new Error("\u672A\u627E\u5230\u8981\u91CD\u547D\u540D\u7684\u8868\u60C5\u5305"));
               return;
             }
@@ -3602,7 +4095,7 @@ var init_db = __esm({
                 return;
               }
               store.delete(oldName);
-              store.put({ ...record2, name: trimmed });
+              store.put({ ...record3, name: trimmed });
             };
             dupReq.onerror = () => reject(dupReq.error);
           };
@@ -3657,7 +4150,7 @@ var init_db = __esm({
       //   2. 剔除后一个角色都不剩的非系统分类 → 整个删除，连同分类下所有表情
       //   3. categoryId 指向已不存在分类的表情 → 删除（无主表情）
       // dryRun=true 只扫描统计、不落库，供 UI 做「先扫描再确认」。
-      cleanupEmojiResidue: async (validCharacterIds, options = {}) => {
+      cleanupEmojiResidue: async (validCharacterIds, options2 = {}) => {
         const validIds = new Set(validCharacterIds);
         const [categories, emojis] = await Promise.all([DB.getEmojiCategories(), DB.getEmojis()]);
         const removedCategories = [];
@@ -3675,7 +4168,7 @@ var init_db = __esm({
         const removedCatIds = new Set(removedCategories.map((c) => c.id));
         const remainingCatIds = new Set(categories.map((c) => c.id).filter((id) => !removedCatIds.has(id)));
         const emojisToDelete = emojis.filter((e) => e.categoryId && !remainingCatIds.has(e.categoryId));
-        if (!options.dryRun && (removedCategories.length || fixedCategories.length || emojisToDelete.length)) {
+        if (!options2.dryRun && (removedCategories.length || fixedCategories.length || emojisToDelete.length)) {
           const db = await openDB2();
           const tx = db.transaction([STORE_EMOJI_CATEGORIES, STORE_EMOJIS], "readwrite");
           const catStore = tx.objectStore(STORE_EMOJI_CATEGORIES);
@@ -3765,12 +4258,12 @@ var init_db = __esm({
         });
       },
       // Commit a preset together with its provenance so a failed save cannot advance its version.
-      saveAssetBatch: async (entries) => {
+      saveAssetBatch: async (entries2) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_ASSETS, "readwrite");
           const store = transaction.objectStore(STORE_ASSETS);
-          for (const entry of entries) store.put(entry);
+          for (const entry of entries2) store.put(entry);
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error("Asset batch aborted"));
@@ -4212,8 +4705,32 @@ var init_db = __esm({
       },
       saveUserProfile: async (profile) => {
         const db = await openDB2();
-        const transaction = db.transaction(STORE_USER, "readwrite");
-        transaction.objectStore(STORE_USER).put({ ...profile, id: "me" });
+        return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_USER, "readwrite"), store = transaction.objectStore(STORE_USER), request = store.get("me");
+          request.onsuccess = () => store.put({ ...profile, wardrobeOutfits: request.result?.wardrobeOutfits ?? profile.wardrobeOutfits, id: "me" });
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = transaction.onabort = () => reject(transaction.error);
+        });
+      },
+      /** Wardrobe is edited independently of profile forms; merge within one transaction. */
+      updateWardrobeOutfits: async (update) => {
+        const db = await openDB2();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_USER, "readwrite"), store = tx.objectStore(STORE_USER), request = store.get("me");
+          let items = [], failure;
+          request.onsuccess = () => {
+            try {
+              const profile = request.result ?? { id: "me", name: "\u6211", avatar: "", bio: "" };
+              items = update(profile.wardrobeOutfits ?? []);
+              store.put({ ...profile, wardrobeOutfits: items });
+            } catch (e) {
+              failure = e;
+              tx.abort();
+            }
+          };
+          tx.oncomplete = () => resolve(items);
+          tx.onerror = tx.onabort = () => reject(failure ?? tx.error);
+        });
       },
       getUserProfile: async () => {
         const db = await openDB2();
@@ -4837,10 +5354,10 @@ var init_db = __esm({
           req.onerror = () => reject(req.error);
         });
       },
-      saveLifeRecord: async (record2) => {
+      saveLifeRecord: async (record3) => {
         const db = await openDB2();
         const tx = db.transaction(STORE_LIFE_RECORDS, "readwrite");
-        tx.objectStore(STORE_LIFE_RECORDS).put(record2);
+        tx.objectStore(STORE_LIFE_RECORDS).put(record3);
       },
       deleteLifeRecord: async (id) => {
         const db = await openDB2();
@@ -5581,20 +6098,20 @@ var init_db = __esm({
           req.onerror = () => resolve([]);
         });
       },
-      setVRApiLog: async (entries) => {
+      setVRApiLog: async (entries2) => {
         const db = await openDB2();
         const tx = db.transaction(STORE_VR_SETTINGS, "readwrite");
-        tx.objectStore(STORE_VR_SETTINGS).put({ id: "apilog", entries: (entries || []).slice(0, 120) });
+        tx.objectStore(STORE_VR_SETTINGS).put({ id: "apilog", entries: (entries2 || []).slice(0, 120) });
       },
       appendVRApiLog: async (entry) => {
         const db = await openDB2();
-        const read = () => new Promise((resolve) => {
+        const read2 = () => new Promise((resolve) => {
           const tx2 = db.transaction(STORE_VR_SETTINGS, "readonly");
           const req = tx2.objectStore(STORE_VR_SETTINGS).get("apilog");
           req.onsuccess = () => resolve(req.result?.entries ?? []);
           req.onerror = () => resolve([]);
         });
-        const cur = await read();
+        const cur = await read2();
         cur.unshift(entry);
         const tx = db.transaction(STORE_VR_SETTINGS, "readwrite");
         tx.objectStore(STORE_VR_SETTINGS).put({ id: "apilog", entries: cur.slice(0, 120) });
@@ -5613,9 +6130,9 @@ var init_db = __esm({
           const tx = db.transaction(STORE_API_CALL_LOG, "readonly");
           const req = tx.objectStore(STORE_API_CALL_LOG).get("log");
           req.onsuccess = () => {
-            const entries = req.result?.entries ?? [];
+            const entries2 = req.result?.entries ?? [];
             const cutoff = Date.now() - API_CALL_LOG_MAX_AGE_MS;
-            resolve(entries.filter((e) => (e?.timestamp ?? 0) > cutoff));
+            resolve(entries2.filter((e) => (e?.timestamp ?? 0) > cutoff));
           };
           req.onerror = () => resolve([]);
         });
@@ -5714,11 +6231,11 @@ var init_db = __esm({
         });
       },
       // 导入备份用：直接写回一条 vr_settings 原始记录（{id, ...}）。
-      saveVRSettingRecord: async (record2) => {
-        if (!record2 || !record2.id) return;
+      saveVRSettingRecord: async (record3) => {
+        if (!record3 || !record3.id) return;
         const db = await openDB2();
         const tx = db.transaction(STORE_VR_SETTINGS, "readwrite");
-        tx.objectStore(STORE_VR_SETTINGS).put(record2);
+        tx.objectStore(STORE_VR_SETTINGS).put(record3);
       },
       // --- BANK / PET APP LOGIC ---
       getBankState: async () => {
@@ -5960,7 +6477,7 @@ var init_db = __esm({
           if (done) break;
         }
       },
-      exportFullData: async (options = {}) => {
+      exportFullData: async (options2 = {}) => {
         await migrateLegacyWhiteboxPresets(DB);
         const db = await openDB2();
         const getAllFromStore = (storeName) => {
@@ -6038,11 +6555,8 @@ var init_db = __esm({
           getAllFromStore(STORE_JOB_RESUMES),
           getAllFromStore(STORE_JOB_PROFILE)
         ]);
-        const userProfile = userProfiles.length > 0 ? {
-          name: userProfiles[0].name,
-          avatar: userProfiles[0].avatar,
-          bio: userProfiles[0].bio
-        } : void 0;
+        const userProfile = userProfiles.length > 0 ? { ...userProfiles[0] } : void 0;
+        if (userProfile) delete userProfile.id;
         const mainState = bankData.find((d) => d.id === "main_state");
         const dollhouseRecord = bankData.find((d) => d.id === "dollhouse_state");
         return {
@@ -6118,9 +6632,10 @@ var init_db = __esm({
           // 瑞幸 token + 启用状态（存 localStorage）
           mcdLocal: exportMcdLocal(),
           // 麦当劳 token + 启用状态（存 localStorage）
+          home3DLocal: exportHome3DLocal(),
           mcpLocal: exportMcpLocal(),
           // 通用 MCP 服务器配置（存 localStorage）
-          amsg2GlobalConfig: await exportAmsg2GlobalConfig(options),
+          amsg2GlobalConfig: await exportAmsg2GlobalConfig(options2),
           // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库；后端连接默认不带走）
           beautyAuthorLocal: exportBeautyAuthorBackup(),
           beautyPreferences: exportBeautyPreferences(),
@@ -6128,7 +6643,7 @@ var init_db = __esm({
           // 桌面皮肤：界面配色 + 看板 banner（看板图令牌解析为 data URL）
         };
       },
-      importFullData: async (data, options = {}) => {
+      importFullData: async (data, options2 = {}) => {
         const db = await openDB2();
         const availableStores = [
           STORE_CHARACTERS,
@@ -6307,6 +6822,7 @@ var init_db = __esm({
           data.worlds !== void 0,
           data.worldEpisodes !== void 0,
           data.worldHomeLocal !== void 0,
+          data.home3DLocal !== void 0,
           data.luckinLocal !== void 0,
           data.mcdLocal !== void 0,
           data.pixelHomeAssets !== void 0,
@@ -6317,7 +6833,7 @@ var init_db = __esm({
         const sectionTotal = Math.max(1, plannedSections.filter(Boolean).length);
         let sectionDone = 0;
         const report = (label, stage, itemDone, itemTotal) => {
-          options.onProgress?.({
+          options2.onProgress?.({
             label,
             stage,
             sectionDone,
@@ -6335,8 +6851,8 @@ var init_db = __esm({
         };
         const beforeWrite = async (root, label, restoreAssets) => {
           if (!restoreAssets || root === void 0 || root === null) return;
-          if (!options.beforeWrite) return;
-          await options.beforeWrite(root, label);
+          if (!options2.beforeWrite) return;
+          await options2.beforeWrite(root, label);
         };
         const clearStore = async (storeName) => {
           await withStore(storeName, (store) => {
@@ -6595,6 +7111,16 @@ var init_db = __esm({
           importMcdLocal(data.mcdLocal);
           data.mcdLocal = void 0;
         }, 1);
+        await runSection("3D \u5BB6\u56ED\u672C\u673A\u504F\u597D", data.home3DLocal !== void 0, async () => {
+          importHome3DLocal(data.home3DLocal);
+          const mirror = await DB.getAssetRaw("ls_mirror_v1");
+          if (mirror?.data && typeof mirror.data === "object" && !Array.isArray(mirror.data)) {
+            const values = { ...mirror.data };
+            for (const key of HOME3D_LOCAL_KEYS) delete values[key];
+            await DB.saveAssetRaw("ls_mirror_v1", { ...mirror, data: { ...values, ...exportHome3DLocal() } });
+          }
+          data.home3DLocal = void 0;
+        });
         await runSection("MCP \u670D\u52A1\u5668\u914D\u7F6E", data.mcpLocal !== void 0, async () => {
           importMcpLocal(data.mcpLocal);
           data.mcpLocal = void 0;
@@ -6602,7 +7128,7 @@ var init_db = __esm({
         await runSection("\u4E3B\u52A8\u6D88\u606F\u914D\u7F6E", data.amsg2GlobalConfig !== void 0, async () => {
           await importAmsg2GlobalConfig(
             data.amsg2GlobalConfig,
-            { allowBackendConnection: options.allowBackendConnection }
+            { allowBackendConnection: options2.allowBackendConnection }
           );
           data.amsg2GlobalConfig = void 0;
         }, 1);
@@ -6821,6 +7347,999 @@ var init_db = __esm({
   }
 });
 
+// worker/amsg/src/cloudDataOwnership.ts
+init_amsgToolPack();
+
+// utils/amsgLlmCredentials.ts
+var parseCharCredId = (credId) => {
+  const m = /^char:(.+)\/(chat|instant|emotion|memory)$/.exec(credId || "");
+  return m ? { charId: m[1], purpose: m[2] } : null;
+};
+
+// utils/amsgFireScene.ts
+init_localDate();
+
+// utils/timezone.ts
+var nowInTimeZone = (tz, base = /* @__PURE__ */ new Date()) => {
+  if (!tz) return base;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).formatToParts(base);
+    const map = {};
+    for (const p of parts) map[p.type] = p.value;
+    let hour = parseInt(map.hour, 10);
+    if (hour === 24) hour = 0;
+    return new Date(
+      parseInt(map.year, 10),
+      parseInt(map.month, 10) - 1,
+      parseInt(map.day, 10),
+      hour,
+      parseInt(map.minute, 10),
+      parseInt(map.second, 10)
+    );
+  } catch {
+    return base;
+  }
+};
+var wallClockToTimestamp = (wallClockText, tz) => {
+  const asDeviceLocal = new Date(wallClockText.trim().replace(" ", "T")).getTime();
+  if (!tz || Number.isNaN(asDeviceLocal)) return asDeviceLocal;
+  let t = asDeviceLocal;
+  for (let i = 0; i < 2; i++) {
+    const drift = nowInTimeZone(tz, new Date(t)).getTime() - asDeviceLocal;
+    if (drift === 0) break;
+    t -= drift;
+  }
+  return t;
+};
+
+// utils/scheduleInjection.ts
+function getFlowNarrativeKey(hour) {
+  if (hour < 12) return "morning";
+  if (hour < 18) return "afternoon";
+  return "evening";
+}
+var PRE_DAWN_END_HOUR = 5;
+var resolveScheduleSlots = (schedule, now) => {
+  if (!schedule?.slots?.length) return { current: null, next: null };
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  for (let i = schedule.slots.length - 1; i >= 0; i--) {
+    const [h, m] = schedule.slots[i].startTime.split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
+    if (currentMinutes >= h * 60 + m) {
+      return {
+        current: schedule.slots[i],
+        next: i < schedule.slots.length - 1 ? schedule.slots[i + 1] : null
+      };
+    }
+  }
+  return { current: null, next: schedule.slots[0] };
+};
+var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ new Date(), options2 = {}) => {
+  if (!schedule || !schedule.slots || schedule.slots.length === 0) return "";
+  const { current: currentSlot, next: nextSlot } = resolveScheduleSlots(schedule, now);
+  const withClock = options2.includeClock !== false;
+  const withTime = (text3, startTime) => withClock ? `${text3}\uFF08${startTime}\uFF09` : text3;
+  const isPreDawnCarryOver = !currentSlot && now.getHours() < PRE_DAWN_END_HOUR;
+  let slotHeader = "";
+  if (currentSlot) {
+    slotHeader = withClock ? `\u5F53\u524D\u65F6\u6BB5\uFF1A${currentSlot.startTime} \u4F60\u6B63\u5728${currentSlot.activity}` : `\u5F53\u524D\u65F6\u6BB5\uFF1A\u4F60\u6B63\u5728${currentSlot.activity}`;
+    if (currentSlot.location) slotHeader += `\uFF08${currentSlot.location}\uFF09`;
+    if (nextSlot) {
+      slotHeader += withClock ? `
+\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.startTime} ${nextSlot.activity}` : `
+\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.activity}`;
+    }
+    slotHeader += "\n";
+  } else if (nextSlot) {
+    slotHeader = isPreDawnCarryOver ? `\u591C\u6DF1\u4E86\uFF0C\u4ECA\u5929\u7684\u5B89\u6392\u8FD8\u6CA1\u5F00\u59CB\uFF0C\u6700\u65E9\u7684\u4E00\u4EF6\u662F${withTime(nextSlot.activity, nextSlot.startTime)}
+` : `\u4ECA\u5929\u8FD8\u6CA1\u5F00\u59CB\u6D3B\u52A8\uFF0C\u7A0D\u540E\u5148${withTime(nextSlot.activity, nextSlot.startTime)}
+`;
+  }
+  let narrative = "";
+  if (evolvedNarrative) {
+    narrative = evolvedNarrative;
+  } else if (schedule.flowNarrative && Object.keys(schedule.flowNarrative).length > 0) {
+    const key = isPreDawnCarryOver ? "evening" : getFlowNarrativeKey(now.getHours());
+    narrative = schedule.flowNarrative[key] || schedule.flowNarrative["evening"] || schedule.flowNarrative["afternoon"] || schedule.flowNarrative["morning"] || "";
+  } else if (currentSlot?.innerThought) {
+    narrative = currentSlot.innerThought;
+  }
+  const preamble = `\u6B64\u523B\u4F60\u7684\u5FC3\u4E2D\u76D8\u65CB\u7740\u8FD9\u4E9B\u60F3\u6CD5\u2026\u2026
+`;
+  const footnote = `
+\uFF08\u4E0D\u662F\u53F0\u8BCD\uFF0C\u4E0D\u7528\u8BF4\u51FA\u53E3\u2014\u2014\u8BA9\u5B83\u5F71\u54CD\u4F60\u7684\u8BED\u6C14\u548C\u60C5\u7EEA\u5C31\u597D\u3002\uFF09`;
+  const scopeNote = "\uFF08\u8FD9\u5F20\u8868\u662F\u4F60\u81EA\u5DF1\u7684\u4E00\u5929\uFF0C\u4E0D\u662F\u7ED9\u5BF9\u65B9\u5217\u7684\u5F85\u529E\u3002\u91CC\u5934\u8981\u662F\u6709\u8DDF\u5BF9\u65B9\u76F8\u5173\u7684\u4E8B\uFF0C\u90A3\u4E5F\u662F\u4F60\u81EA\u5DF1\u7684\u60E6\u8BB0\u2014\u2014\u8BDD\u8D76\u5230\u4E86\u987A\u53E3\u5E26\u4E00\u53E5\u5C31\u591F\uFF0C\u4E0D\u7528\u8FFD\u7740\u95EE\u8FDB\u5C55\uFF0C\u4E5F\u4E0D\u7528\u50AC\u5BF9\u65B9\u53BB\u505A\u3002\uFF09";
+  let out = "";
+  if (options2.includeFullDay) {
+    const rows = schedule.slots.map((slot) => {
+      let line = withClock ? `- ${slot.startTime} ${slot.activity}` : `- ${slot.activity}`;
+      if (slot.location) line += `\uFF08${slot.location}\uFF09`;
+      if (slot.description) line += `\uFF1A${slot.description}`;
+      return line;
+    });
+    out += `\u4F60\u4ECA\u5929\u7684\u5B8C\u6574\u65E5\u7A0B\uFF1A
+${rows.join("\n")}
+`;
+  }
+  out += slotHeader;
+  if (narrative) {
+    out += preamble + narrative + footnote;
+  }
+  const changeTarget = nextSlot ?? currentSlot;
+  if (options2.includeChangeInstruction && withClock && changeTarget) {
+    out += `
+\u65E5\u7A0B\u662F\u4F60\u65E9\u4E0A\u7ED9\u81EA\u5DF1\u6392\u7684\u8BA1\u5212\uFF0C\u4E0D\u662F\u5FC5\u987B\u5C65\u884C\u7684\u547D\u4EE4\u3002\u771F\u5B9E\u53D1\u751F\u7684\u4E8B\u8DDF\u5B83\u5BF9\u4E0D\u4E0A\u65F6\uFF08\u6BD4\u5982\u8FD9\u4F1A\u513F\u8868\u4E0A\u5199\u7740\u7761\u89C9\u3001\u4F60\u5374\u9192\u7740\u5728\u8DDF\u5BF9\u65B9\u8BF4\u8BDD\uFF09\uFF0C\u628A\u5B83\u6539\u6210\u4F60\u5B9E\u9645\u5728\u505A\u7684\u4E8B\u5C31\u597D\u3002
+\u9700\u8981\u65F6\u5728\u56DE\u590D\u672B\u5C3E\u5355\u72EC\u8F93\u51FA\uFF1A[[ACTION:CHANGE_SCHEDULE | ${changeTarget.startTime} | \u53BB\u8D85\u5E02]]\uFF08\u65F6\u6BB5\u8981\u539F\u6837\u6284\u4E0A\u9762\u51FA\u73B0\u8FC7\u7684\u90A3\u51E0\u4E2A\uFF1B\u6B63\u5728\u8FDB\u884C\u7684\u8FD9\u4E00\u6761\u548C\u5B83\u4E4B\u540E\u7684\u90FD\u80FD\u6539\uFF0C\u5DF2\u7ECF\u8FC7\u53BB\u7684\u4E0D\u80FD\uFF09\u3002`;
+  }
+  out += `
+${scopeNote}`;
+  out += "\n";
+  return out;
+};
+
+// utils/charMusicSchedule.ts
+init_localDate();
+
+// utils/scheduleTime.ts
+init_localDate();
+
+// utils/charMusicSchedule.ts
+var LISTENING_KEYWORDS = [
+  "\u542C\u6B4C",
+  "\u542C\u97F3\u4E50",
+  "\u6234\u8033\u673A",
+  "\u6234\u4E0A\u8033\u673A",
+  "\u6234\u7740\u8033\u673A",
+  "\u8033\u673A",
+  "\u5FAA\u73AF",
+  "\u5355\u66F2\u5FAA\u73AF",
+  "\u64AD\u653E",
+  "\u8033\u7554",
+  "\u8033\u65C1",
+  "\u64AD\u653E\u5217\u8868",
+  "\u6B4C\u5355",
+  "\u526F\u6B4C",
+  "\u524D\u594F",
+  "listening",
+  "music",
+  "song",
+  "playlist",
+  "vinyl",
+  "headphone",
+  "\u{1F3B5}",
+  "\u{1F3B6}",
+  "\u{1F3A7}"
+];
+var slotIsListening = (slot) => {
+  if (!slot) return false;
+  const blob = `${slot.activity || ""} ${slot.description || ""} ${slot.innerThought || ""} ${slot.emoji || ""}`.toLowerCase();
+  return LISTENING_KEYWORDS.some((kw) => blob.includes(kw.toLowerCase()));
+};
+var pickSongFromPool = (pool, slotStartTime, today, charId) => {
+  if (pool.length === 0) return null;
+  const seedStr = `${today}-${slotStartTime}-${charId}`;
+  let h = 0;
+  for (const ch of seedStr) h = h * 31 + ch.charCodeAt(0) >>> 0;
+  return pool[h % pool.length];
+};
+
+// utils/amsgFireScene.ts
+var resolveFireSceneSong = (scene, nowMs, tz) => {
+  if (!scene?.schedule?.slots?.length) return null;
+  const wallNow = nowInTimeZone(tz.tzId, new Date(nowMs));
+  if (getLocalDateKey(wallNow) !== scene.dateKey) return null;
+  if (scene.songPool.length === 0) return null;
+  const { current } = resolveScheduleSlots(scene.schedule, wallNow);
+  if (!current || !slotIsListening(current)) return null;
+  return pickSongFromPool(
+    scene.songPool,
+    current.startTime,
+    getLocalDateKey(wallNow),
+    scene.charId
+  );
+};
+var renderFireSceneBlock = (scene, nowMs, tz, options2) => {
+  if (!scene?.schedule?.slots?.length) return "";
+  const wallNow = nowInTimeZone(tz.tzId, new Date(nowMs));
+  if (getLocalDateKey(wallNow) !== scene.dateKey) return "";
+  const scheduleText = buildScheduleInjection(
+    scene.schedule,
+    scene.evolvedNarrative,
+    wallNow,
+    {
+      includeClock: options2?.includeClock !== false,
+      // 到点主动开口的角色最容易撞上「表上写着睡觉、我却正在给对方发消息」，
+      // 所以这条路也要教。标签由 worker classifier 摘成 directive 随 push 回来、
+      // 客户端落库；落库按 push 的 sentAt 判时段，隔夜的整批丢弃（见 scheduleChange）。
+      includeChangeInstruction: true
+    }
+  ).trim();
+  const lines = [];
+  if (scheduleText) lines.push(scheduleText);
+  const song = resolveFireSceneSong(scene, nowMs, tz);
+  if (song) lines.push(`\u4F60\u6B64\u523B\u5728\u542C\uFF1A\u300A${song.name}\u300B\u2014 ${song.artists}`);
+  if (lines.length === 0) return "";
+  return `
+
+${lines.join("\n")}`;
+};
+
+// utils/amsgLimits.ts
+var DEFAULT_MAX_UNANSWERED_SENDS = 3;
+var DEFAULT_MIN_SEND_GAP_MINUTES = 10;
+var DEFAULT_DAILY_SEND_CAP = 0;
+var DEFAULT_RECURRING_STOP_AFTER = 3;
+var DEFAULT_MAX_ACTIVE_TASKS = 5;
+var MAX_ACTIVE_TASKS_CEILING = 10;
+var resolveCount = (value, fallback, ceiling) => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return fallback === 0 ? Infinity : fallback;
+  }
+  if (value === 0) return Infinity;
+  if (value < 1) return fallback === 0 ? Infinity : fallback;
+  return Math.min(ceiling, Math.floor(value));
+};
+var resolveMaxUnansweredSends = (value) => resolveCount(value, DEFAULT_MAX_UNANSWERED_SENDS, 99);
+var resolveAmsgLimits = (settings) => {
+  const s = settings ?? {};
+  const gap = s.minSendGapMinutes;
+  const gapMinutes = typeof gap === "number" && Number.isFinite(gap) && gap >= 0 ? Math.min(24 * 60, Math.floor(gap)) : DEFAULT_MIN_SEND_GAP_MINUTES;
+  const tasks = s.maxActiveTasks;
+  return {
+    maxUnansweredSends: resolveMaxUnansweredSends(s.maxUnansweredSends),
+    minSendGapMs: gapMinutes * 6e4,
+    dailySendCap: resolveCount(s.dailySendCap, DEFAULT_DAILY_SEND_CAP, 999),
+    recurringStopAfter: resolveCount(s.recurringStopAfter, DEFAULT_RECURRING_STOP_AFTER, 99),
+    // 任务名额没有「不限」这一档：挂太多等于把「同时有几件事在后台排队」这件事交出去了。
+    maxActiveTasks: typeof tasks === "number" && Number.isFinite(tasks) && tasks >= 1 ? Math.min(MAX_ACTIVE_TASKS_CEILING, Math.floor(tasks)) : DEFAULT_MAX_ACTIVE_TASKS,
+    allowSelfRecurring: s.allowSelfRecurring === true,
+    allowSelfForce: s.allowSelfForce === true
+  };
+};
+var AMSG_LIMITS_KEY = "limits";
+var parseAmsgLimitsRecord = (value) => {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && parsed.v === 1 && typeof parsed.selfScheduleEnabled === "boolean") {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+};
+var AMSG_DAILY_SENDS_KEY = "daily_sends";
+var DAILY_COUNTED_KEEP = 20;
+var dayKeyInZone = (nowMs, tzId) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tzId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(new Date(nowMs));
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+  return `${map.year}-${map.month}-${map.day}`;
+};
+var parseDailySends = (value) => {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && parsed.v === 1 && typeof parsed.day === "string" && typeof parsed.sends === "number") {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+};
+var sendsOnDay = (record3, day) => record3 && record3.day === day ? record3.sends : 0;
+var bumpDailySends = (record3, day, add) => {
+  const base = record3 && record3.day === day ? record3 : { v: 1, day, sends: 0 };
+  const alreadyCounted = !!add.sentId && (base.counted ?? []).includes(add.sentId);
+  const sends = base.sends + (alreadyCounted ? 0 : add.sends ?? 0);
+  const llmCalls = add.llmCalls ? (base.llmCalls ?? 0) + add.llmCalls : base.llmCalls;
+  const counted = add.sentId && add.sends && !alreadyCounted ? [...base.counted ?? [], add.sentId].slice(-DAILY_COUNTED_KEEP) : base.counted;
+  return {
+    v: 1,
+    day,
+    sends,
+    ...llmCalls !== void 0 ? { llmCalls } : {},
+    ...counted ? { counted } : {}
+  };
+};
+var earliestSlotAfter = (fromMs, gapMs, busy) => {
+  if (gapMs <= 0) return fromMs;
+  const sorted = [...busy].filter(Number.isFinite).sort((a, b) => a - b);
+  let slot = fromMs;
+  for (let moved = true; moved; ) {
+    moved = false;
+    for (const b of sorted) {
+      if (Math.abs(slot - b) < gapMs) {
+        slot = b + gapMs;
+        moved = true;
+      }
+    }
+  }
+  return slot;
+};
+var findGapConflict = (sendAtMs, gapMs, busy) => {
+  if (gapMs <= 0) return null;
+  return busy.find((b) => Number.isFinite(b) && Math.abs(sendAtMs - b) < gapMs) ?? null;
+};
+var FIRE_GAP_TOLERANCE_MS = 3 * 6e4;
+var describeMinutes = (minutes) => {
+  if (minutes < 60) return `${minutes} \u5206\u949F`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h} \u5C0F\u65F6 ${m} \u5206\u949F` : `${h} \u5C0F\u65F6`;
+};
+var checkSelfScheduleRules = (input) => {
+  const { limits } = input;
+  if (input.recurrence !== "none" && !limits.allowSelfRecurring) {
+    return {
+      ok: false,
+      reason: "recurring_not_allowed",
+      message: "\u7528\u6237\u6CA1\u6709\u8BA9\u4F60\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u6D88\u606F\uFF0C\u8FD9\u6B21\u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF08\u53BB\u6389 recurrence \u518D\u6392\uFF09\u3002"
+    };
+  }
+  const conflict = findGapConflict(input.sendAtMs, limits.minSendGapMs, input.busy);
+  if (conflict !== null) {
+    const gapMinutes = Math.round(limits.minSendGapMs / 6e4);
+    const earliest = earliestSlotAfter(
+      Math.max(input.earliestMs, input.sendAtMs),
+      limits.minSendGapMs,
+      input.busy
+    );
+    return {
+      ok: false,
+      reason: "min_gap",
+      message: `\u79BB ${input.formatTime(conflict)} \u90A3\u6B21\u592A\u8FD1\u4E86\uFF1A\u7528\u6237\u5B9A\u4E86\u4E24\u6B21\u4E3B\u52A8\u6D88\u606F\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(gapMinutes)}\u3002\u8981\u6392\u7684\u8BDD\u6700\u65E9 ${input.formatTime(earliest)}\uFF1B\u6CA1\u90A3\u4E48\u8981\u7D27\u7684\u8BDD\uFF0C\u8FD9\u6B21\u5C31\u522B\u6392\u4E86\u3002`
+    };
+  }
+  return {
+    ok: true,
+    expirePolicy: input.expirePolicy === "force" && !limits.allowSelfForce ? "expire" : input.expirePolicy
+  };
+};
+var buildLimitsBrief = (input) => {
+  const { limits } = input;
+  const lines = [];
+  if (Number.isFinite(limits.maxUnansweredSends)) {
+    const left = Math.max(0, limits.maxUnansweredSends - input.committedSends);
+    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u7684\u65F6\u5019\uFF0C\u4F60\u6700\u591A\u8FDE\u7740\u4E3B\u52A8\u627E\u5BF9\u65B9 ${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09\uFF0C` + (left > 0 ? `\u73B0\u5728\u8FD8\u80FD\u518D\u6392 ${left} \u6B21\u3002` : "\u73B0\u5728\u4E00\u6B21\u90FD\u4E0D\u80FD\u518D\u6392\u4E86\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u3002"));
+  }
+  if (limits.minSendGapMs > 0) {
+    lines.push(`- \u4E24\u6B21\u4E3B\u52A8\u627E\u5BF9\u65B9\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(Math.round(limits.minSendGapMs / 6e4))}` + (input.earliestText ? `\uFF0C\u8FD9\u6B21\u6700\u65E9\u6392\u5230 ${input.earliestText}\u3002` : "\u3002"));
+  }
+  if (input.dailyRemaining !== void 0 && Number.isFinite(limits.dailySendCap)) {
+    lines.push(input.dailyRemaining > 0 ? `- \u4ECA\u5929\u8FD8\u80FD\u518D\u4E3B\u52A8\u627E\u5BF9\u65B9 ${input.dailyRemaining} \u6B21\u3002` : "- \u4ECA\u5929\u4E3B\u52A8\u627E\u5BF9\u65B9\u7684\u6B21\u6570\u5DF2\u7ECF\u7528\u5B8C\u4E86\uFF0C\u8981\u6392\u5C31\u6392\u5230\u660E\u5929\u3002");
+  }
+  lines.push(`- \u540C\u65F6\u6700\u591A\u6302 ${limits.maxActiveTasks} \u4E2A\u6392\u7A0B\u4EFB\u52A1\uFF0C\u73B0\u5728\u6302\u7740 ${input.activeTasks} \u4E2A\u3002`);
+  if (!limits.allowSelfRecurring) lines.push("- \u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF0C\u4E0D\u80FD\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u3002");
+  if (!limits.allowSelfForce) lines.push("- \u6392\u7684\u6D88\u606F\u5230\u70B9\u78B0\u4E0A\u5BF9\u65B9\u6B63\u5728\u804A\u5929\u4F1A\u81EA\u52A8\u4F5C\u7F62\uFF08\u8F6C\u6210\u4F60\u5728\u804A\u5929\u91CC\u81EA\u7136\u5E26\u51FA\uFF09\uFF0C\u6CA1\u6709\u300C\u5230\u70B9\u5FC5\u53D1\u300D\u3002");
+  return ["\u7528\u6237\u7ED9\u4F60\u5B9A\u7684\u89C4\u77E9\uFF08\u7CFB\u7EDF\u7167\u7740\u6267\u884C\uFF1A\u8D85\u51FA\u7684\u6392\u4E0D\u4E0A\uFF0C\u6392\u4E0A\u4E86\u5230\u70B9\u4E5F\u4E0D\u53D1\uFF09\uFF1A", ...lines].join("\n");
+};
+
+// utils/amsgFirePack.ts
+var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";
+var amsgStateNamespace = (charId) => `${AMSG_STATE_NAMESPACE_PREFIX}${charId}`;
+var AMSG_FIRE_PACK_KEY = "fire_pack";
+var AMSG_SELF_LOG_KEY = "self_log";
+var amsgXhsSessionKey = (clientTaskId) => `xhs_session:${clientTaskId}`;
+var AMSG2_INSTANT_STUB_TEMPLATE = "AMSG2_INSTANT_STUB_TEMPLATE\uFF08\u5373\u65F6\u5BF9\u8BDD\u8F7B\u91CF\u5305\uFF1A\u8BE5\u89D2\u8272\u65E0\u5B9A\u65F6\u4EFB\u52A1\uFF0C\u6A21\u677F\u672A\u968F\u53D1\u9001\u91CD\u5EFA\uFF1B\u770B\u5230\u8FD9\u6761\u6B63\u6587\u8BF4\u660E\u6709\u672C\u4E0D\u8BE5\u6E32\u67D3\u6A21\u677F\u7684 fire \u5728\u6E32\u67D3\u5B83\uFF09";
+var AMSG_CHAT_FAIL_KEY = "chat_fail";
+var GZIP_VALUE_PREFIX = "gz1:";
+var base64ToBytes = (base64) => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+var streamThrough = async (data, transform) => {
+  const stream = new Blob([data]).stream().pipeThrough(transform);
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+};
+var unpackStateValue = async (value) => {
+  if (!value.startsWith(GZIP_VALUE_PREFIX)) return value;
+  const gz = base64ToBytes(value.slice(GZIP_VALUE_PREFIX.length));
+  const raw = await streamThrough(gz, new DecompressionStream("gzip"));
+  return new TextDecoder().decode(raw);
+};
+var AMSG_LAST_SKIP_KEY = "last_skip";
+var AMSG_SLOT_CURRENT_TIME = "{{AMSG_CURRENT_TIME}}";
+var AMSG_SLOT_TIME_SINCE_USER = "{{AMSG_TIME_SINCE_USER}}";
+var AMSG_SLOT_AWAY_HINT = "{{AMSG_AWAY_HINT}}";
+var AMSG_SLOT_TASK_INSTRUCTION = "{{AMSG_TASK_INSTRUCTION}}";
+var AMSG_SLOT_USER_CLOCK = "{{AMSG_USER_CLOCK}}";
+var AMSG_SLOT_SELF_LOG = "{{AMSG_SELF_LOG}}";
+var AMSG_SLOT_TASK_LIST = "{{AMSG_TASK_LIST}}";
+var AMSG_SLOT_SCENE = "{{AMSG_SCENE}}";
+var AMSG_SLOT_REALTIME_WORLD = "{{AMSG_REALTIME_WORLD}}";
+var AMSG_SLOT_LIVE_CHAT = "{{AMSG_LIVE_CHAT}}";
+var AMSG_SILENT_MARK = "[[SILENT]]";
+var BEFORE_SPEAK_LINES = [
+  "\u3010\u5F00\u53E3\u4E4B\u524D\u3011",
+  `\u5148\u5BF9\u7167\u4E0A\u9762\u7684\u3010\u6700\u8FD1\u5BF9\u8BDD\u4E0A\u4E0B\u6587\u3011\uFF08\u8FDE\u540C\u540E\u9762\u4F60\u81EA\u5DF1\u53D1\u8FC7\u3001\u56DE\u8FC7\u7684\u90A3\u51E0\u53E5\uFF09\u3002${AMSG_SLOT_LIVE_CHAT}`,
+  "\u9ED8\u8BA4\u662F\u7167\u5E38\u8BF4\u4F60\u8981\u8BF4\u7684\u8BDD\u3002\u53EA\u6709\u4E24\u79CD\u60C5\u51B5\u8FD9\u6B21\u4E0D\u8BF4\uFF1A",
+  "1. \u8FD9\u6761\u4EFB\u52A1\u8981\u8BF4\u7684\u4E8B\uFF0C\u5DF2\u7ECF\u5728\u4F60\u4EEC\u7684\u5BF9\u8BDD\u91CC\u53D1\u751F\u8FC7\u3001\u6216\u8005\u5DF2\u7ECF\u804A\u5B8C\u4E86\u3002",
+  "2. \u4F60\u4EEC\u6B63\u804A\u7740\u522B\u7684\uFF0C\u8FD9\u6761\u63D2\u8FDB\u6765\u660E\u663E\u4F1A\u6253\u65AD\u6B63\u5728\u8BF4\u7684\u4E8B\uFF0C\u800C\u4E14\u665A\u70B9\u518D\u8BF4\u4E5F\u4E0D\u803D\u8BEF\u3002",
+  "\u6B63\u804A\u7740\u4E0D\u7B49\u4E8E\u4E0D\u8BF4\uFF1A\u5BF9\u65B9\u6B63\u7B49\u7740\u8FD9\u6761\u3001\u6216\u8005\u5B83\u8DDF\u773C\u4E0B\u804A\u7684\u63A5\u5F97\u4E0A\uFF0C\u5C31\u987A\u7740\u8BDD\u5934\u628A\u5B83\u8BF4\u51FA\u6765\uFF0C\u50CF\u804A\u5929\u91CC\u81EA\u7136\u63A5\u4E0A\u7684\u4E00\u53E5\uFF0C\u522B\u50CF\u53E6\u8D77\u4E00\u6BB5\u7684\u901A\u77E5\u3002",
+  "\u62FF\u4E0D\u51C6\u5C31\u8BF4\u3002\u300C\u6015\u6253\u6270\u300D\u300C\u65F6\u673A\u597D\u50CF\u4E0D\u592A\u5BF9\u300D\u8FD9\u79CD\u7B3C\u7EDF\u7684\u987E\u8651\u4E0D\u7B97\u7406\u7531\u3002",
+  `\u51B3\u5B9A\u4E0D\u8BF4 \u2192 \u6574\u6BB5\u8F93\u51FA\u53EA\u5199 ${AMSG_SILENT_MARK} \u8FD9\u4E00\u4E2A\u6807\u8BB0\uFF0C\u522B\u7684\u4E00\u4E2A\u5B57\u90FD\u4E0D\u8981\u5199\uFF0C\u4E5F\u4E0D\u8981\u89E3\u91CA\u3002`
+];
+var LIVE_CHAT_WINDOW_MS = 10 * 6e4;
+var wallClockPartsInZone = (nowMs, tz) => {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz.tzId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    weekday: "short",
+    hour12: false
+  }).formatToParts(new Date(nowMs));
+  const map = {};
+  for (const p of parts) map[p.type] = p.value;
+  const weekdayIdx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(map.weekday);
+  let hour = parseInt(map.hour, 10);
+  if (hour === 24) hour = 0;
+  return {
+    year: parseInt(map.year, 10),
+    month: parseInt(map.month, 10),
+    day: parseInt(map.day, 10),
+    weekday: weekdayIdx >= 0 ? weekdayIdx : 0,
+    hour,
+    minute: parseInt(map.minute, 10)
+  };
+};
+var WEEKDAY_NAMES = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
+var timeOfDayWord = (h) => h < 5 ? "\u51CC\u6668" : h < 9 ? "\u65E9\u6668" : h < 12 ? "\u4E0A\u5348" : h < 14 ? "\u4E2D\u5348" : h < 17 ? "\u4E0B\u5348" : h < 19 ? "\u508D\u665A" : h < 22 ? "\u665A\u4E0A" : "\u6DF1\u591C";
+var pad2 = (n) => n.toString().padStart(2, "0");
+var formatFireTimeFull = (nowMs, tz) => {
+  const p = wallClockPartsInZone(nowMs, tz);
+  return `${p.year}\u5E74${p.month}\u6708${p.day}\u65E5 ${WEEKDAY_NAMES[p.weekday]} ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}`;
+};
+var formatFireTimeShort = (nowMs, tz) => {
+  const p = wallClockPartsInZone(nowMs, tz);
+  return `${p.month}\u6708${p.day}\u65E5 ${pad2(p.hour)}:${pad2(p.minute)}`;
+};
+var buildUserClockHint = (nowMs, charTz, userTz, targetName) => {
+  if (!userTz.tzId || userTz.tzId === charTz.tzId) return "";
+  const p = wallClockPartsInZone(nowMs, userTz);
+  const target = targetName || "\u5BF9\u65B9";
+  return `
+\uFF08\u5BF9\u65B9\u6240\u5728\u65F6\u533A\u53C2\u8003\uFF1A${target}\u90A3\u8FB9\u73B0\u5728\u662F ${p.month}\u6708${p.day}\u65E5 ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}\u3002\u4F60\u4EEC\u4E4B\u95F4\u6709\u65F6\u5DEE\uFF0C\u522B\u62FF\u81EA\u5DF1\u8FD9\u8FB9\u7684\u949F\u53BB\u63A8\u65AD ${target} \u6B64\u523B\u9192\u7740\u8FD8\u662F\u7761\u7740\u3002\uFF09`;
+};
+var formatTimeSinceUser = (diffMinutes) => {
+  if (diffMinutes == null) {
+    return "\u4F60\u4EEC\u6700\u8FD1\u6CA1\u6709\u65B0\u7684\u804A\u5929\u8BB0\u5F55\u3002";
+  }
+  const minutesTotal = Math.max(0, diffMinutes);
+  if (minutesTotal < 60) {
+    return `\u8DDD\u79BB\u7528\u6237\u4E0A\u6B21\u4E3B\u52A8\u53D1\u6D88\u606F\u5927\u7EA6 ${minutesTotal} \u5206\u949F\u3002`;
+  }
+  if (minutesTotal < 1440) {
+    const hours2 = Math.floor(minutesTotal / 60);
+    const minutes = minutesTotal % 60;
+    return `\u8DDD\u79BB\u7528\u6237\u4E0A\u6B21\u4E3B\u52A8\u53D1\u6D88\u606F\u5927\u7EA6 ${hours2} \u5C0F\u65F6${minutes ? ` ${minutes} \u5206\u949F` : ""}\u3002`;
+  }
+  const days = Math.floor(minutesTotal / 1440);
+  const hours = Math.floor(minutesTotal % 1440 / 60);
+  return `\u8DDD\u79BB\u7528\u6237\u4E0A\u6B21\u4E3B\u52A8\u53D1\u6D88\u606F\u5927\u7EA6 ${days} \u5929${hours ? ` ${hours} \u5C0F\u65F6` : ""}\u3002`;
+};
+var buildAwayHint = (targetName, timeSinceUser) => {
+  const target = targetName || "\u5BF9\u65B9";
+  if (timeSinceUser.includes("\u6CA1\u6709\u65B0\u7684\u804A\u5929\u8BB0\u5F55")) return `${target}\u6700\u8FD1\u6CA1\u6709\u4E3B\u52A8\u6765\u627E\u4F60\u8BF4\u8BDD\u3002`;
+  const span = timeSinceUser.match(/大约 (.+?)。?$/)?.[1];
+  return span ? `${target}\u5DF2\u7ECF\u5927\u7EA6 ${span} \u6CA1\u4E3B\u52A8\u6765\u627E\u4F60\u4E86\u3002` : `${target}\u6700\u8FD1\u6CA1\u6709\u4E3B\u52A8\u6765\u627E\u4F60\u8BF4\u8BDD\u3002`;
+};
+var SELF_LOG_MAX_ENTRIES = 8;
+var SELF_LOG_TEXT_MAX = 200;
+var SELF_LOG_REPLY_TEXT_MAX = 1500;
+var createSelfLog = (basePackAt, anchorUserMsgAt = null) => ({
+  v: 4,
+  basePackAt,
+  anchorUserMsgAt,
+  entries: [],
+  unansweredSends: 0,
+  recurringSends: {},
+  tasks: []
+});
+var countUnansweredSends = (log) => log ? log.unansweredSends : 0;
+var reconcileSelfLogWithPack = (stored, pack, lastUserMessageAt) => {
+  let log = stored ?? createSelfLog(pack.builtAt, lastUserMessageAt);
+  if (lastUserMessageAt != null && (log.anchorUserMsgAt == null || lastUserMessageAt > log.anchorUserMsgAt)) {
+    log = { ...log, anchorUserMsgAt: lastUserMessageAt, entries: [], unansweredSends: 0, recurringSends: {} };
+  }
+  if (log.basePackAt !== pack.builtAt) {
+    log = { ...log, basePackAt: pack.builtAt, tasks: [] };
+  }
+  return log;
+};
+var countRecurringSends = (log, clientTaskId) => clientTaskId && log?.recurringSends?.[clientTaskId] || 0;
+var bumpRecurringSend = (log, clientTaskId) => {
+  if (!clientTaskId) return log;
+  const counts = log.recurringSends ?? {};
+  return { ...log, recurringSends: { ...counts, [clientTaskId]: (counts[clientTaskId] ?? 0) + 1 } };
+};
+var appendSelfLogTask = (log, task) => ({
+  ...log,
+  tasks: [...log.tasks.filter((t) => t.taskUuid !== task.taskUuid), task]
+});
+var appendSelfLogEntry = (log, entry) => {
+  const text3 = entry.text.trim().slice(0, entry.reply ? SELF_LOG_REPLY_TEXT_MAX : SELF_LOG_TEXT_MAX);
+  if (!text3) return log;
+  const alreadyLogged = log.entries.some((e) => e.id === entry.id);
+  const kept = log.entries.filter((e) => e.id !== entry.id);
+  return {
+    ...log,
+    entries: [...kept, { ...entry, text: text3 }].slice(-SELF_LOG_MAX_ENTRIES),
+    unansweredSends: log.unansweredSends + (entry.reply || alreadyLogged ? 0 : 1)
+  };
+};
+var parseSelfLog = (value) => {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && parsed.v === 4 && typeof parsed.basePackAt === "number" && (parsed.anchorUserMsgAt === null || typeof parsed.anchorUserMsgAt === "number") && typeof parsed.unansweredSends === "number" && (parsed.recurringSends === void 0 || !!parsed.recurringSends && typeof parsed.recurringSends === "object") && Array.isArray(parsed.tasks) && Array.isArray(parsed.entries) && parsed.entries.every((e) => {
+      const entry = e;
+      return !!entry && typeof entry.id === "string" && typeof entry.at === "number" && typeof entry.text === "string";
+    })) {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+};
+var formatAgo = (atMs, nowMs, tz) => {
+  const diff = nowMs - atMs;
+  if (diff < 6e4) return "\u521A\u521A";
+  if (diff < 60 * 6e4) return `${Math.floor(diff / 6e4)}\u5206\u949F\u524D`;
+  if (diff < 24 * 60 * 6e4) return `${Math.floor(diff / (60 * 6e4))}\u5C0F\u65F6\u524D`;
+  return formatFireTimeShort(atMs, tz);
+};
+var renderSelfLogBlock = (log, nowMs, tz, maxUnanswered = DEFAULT_MAX_UNANSWERED_SENDS) => {
+  if (!log || log.entries.length === 0) return "";
+  const fresh = log.entries.filter((e) => e.at > log.basePackAt);
+  const sends = countUnansweredSends(log);
+  const limitHalf = Number.isFinite(maxUnanswered) ? `\uFF0C\u4E0A\u9650 ${maxUnanswered} \u6B21\uFF0C\u5230\u4E0A\u9650\u540E\u4F60\u81EA\u5DF1\u6392\u7684\u540E\u7EED\u5230\u70B9\u4F1A\u76F4\u63A5\u8DF3\u8FC7\u3001\u4E0D\u8865\u53D1\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u624D\u91CD\u65B0\u8BA1\u6570` : "";
+  if (fresh.length === 0) {
+    if (sends === 0) return "";
+    return [
+      "",
+      "",
+      `\uFF08\u5BF9\u65B9\u672A\u56DE\u5E94\u671F\u95F4\u4F60\u5DF2\u8FDE\u7740\u4E3B\u52A8\u627E\u4E86\u5BF9\u65B9 ${sends} \u6B21${limitHalf}\u3002\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\u3002\uFF09`
+    ].join("\n");
+  }
+  const replies = fresh.filter((e) => e.reply);
+  const proactive = fresh.filter((e) => !e.reply);
+  const line = (e) => `- ${formatAgo(e.at, nowMs, tz)}\u3000${e.text}`;
+  const out = ["", ""];
+  if (replies.length > 0) {
+    out.push(
+      "\u3010\u8FD9\u4E4B\u540E\u4F60\u56DE\u4E86\u5BF9\u65B9\u3011",
+      ...replies.map(line),
+      "\uFF08\u8FD9\u662F\u4F60\u5BF9\u4E0A\u9762\u5BF9\u8BDD\u91CC\u5BF9\u65B9\u6700\u540E\u90A3\u51E0\u53E5\u7684\u56DE\u590D\uFF0C\u5BF9\u65B9\u5DF2\u7ECF\u770B\u5230\u4E86\u3002\u5F80\u4E0B\u8BF4\u7684\u65F6\u5019\u63A5\u7740\u5B83\uFF0C\u522B\u91CD\u590D\u3002\uFF09"
+    );
+  }
+  if (proactive.length > 0) {
+    if (replies.length > 0) out.push("");
+    out.push(
+      "\u3010\u8FD9\u4E4B\u540E\u4F60\u53C8\u53D1\u8FC7\uFF08\u5BF9\u65B9\u8FD8\u6CA1\u56DE\uFF09\u3011",
+      ...proactive.map(line),
+      sends >= 1 ? `\uFF08\u5BF9\u65B9\u4E00\u76F4\u6CA1\u56DE\u5E94\uFF0C\u4F60\u5DF2\u8FDE\u7740\u4E3B\u52A8\u627E\u4E86\u5BF9\u65B9 ${sends} \u6B21${limitHalf}\u3002\u5F80\u4E0B\u63A5\u7740\u8BF4\uFF0C\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\uFF0C\u4E5F\u522B\u5047\u88C5\u8FD9\u4E9B\u6CA1\u53D1\u751F\u8FC7\u3002\uFF09` : "\uFF08\u8FD9\u51E0\u6761\u662F\u4F60\u53D1\u51FA\u53BB\u7684\uFF0C\u5BF9\u65B9\u8FD8\u6CA1\u56DE\u5E94\u3002\u5F80\u4E0B\u63A5\u7740\u8BF4\uFF0C\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\uFF0C\u4E5F\u522B\u5047\u88C5\u8FD9\u4E9B\u6CA1\u53D1\u751F\u8FC7\u3002\uFF09"
+    );
+  } else if (sends >= 1) {
+    out.push(`\uFF08\u5BF9\u65B9\u672A\u56DE\u5E94\u671F\u95F4\u4F60\u5DF2\u8FDE\u7740\u4E3B\u52A8\u627E\u4E86\u5BF9\u65B9 ${sends} \u6B21${limitHalf}\u3002\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\u3002\uFF09`);
+  }
+  return out.join("\n");
+};
+var renderLiveChatLine = (targetName, lastUserMessageAt, nowMs) => {
+  if (lastUserMessageAt == null) return "";
+  const diff = nowMs - lastUserMessageAt;
+  if (diff < 0 || diff >= LIVE_CHAT_WINDOW_MS) return "";
+  const ago = diff < 6e4 ? "\u521A\u521A" : `${Math.floor(diff / 6e4)} \u5206\u949F\u524D`;
+  return `
+\u4F60\u4EEC\u6B64\u523B\u6B63\u804A\u7740\uFF1A${targetName || "\u5BF9\u65B9"}${ago}\u8FD8\u5728\u8DDF\u4F60\u8BF4\u8BDD\u3002`;
+};
+var fillSlot = (text3, slot, value) => text3.split(slot).join(value);
+var renderFirePack = (pack, nowMs, taskInstruction, extras) => {
+  const tz = { tzId: pack.tzId };
+  const currentTime = formatFireTimeFull(nowMs, tz);
+  const lastUserMessageAt = extras?.lastUserMessageAt !== void 0 ? extras.lastUserMessageAt : pack.lastUserMessageAt ?? null;
+  const diffMinutes = lastUserMessageAt == null ? null : Math.max(0, Math.floor((nowMs - lastUserMessageAt) / 6e4));
+  const timeSinceUser = formatTimeSinceUser(diffMinutes);
+  const awayHint = buildAwayHint(pack.targetName, timeSinceUser);
+  let out = pack.template;
+  out = fillSlot(out, AMSG_SLOT_CURRENT_TIME, currentTime);
+  out = fillSlot(out, AMSG_SLOT_USER_CLOCK, buildUserClockHint(nowMs, tz, { tzId: pack.userTzId }, pack.targetName));
+  out = fillSlot(out, AMSG_SLOT_TIME_SINCE_USER, timeSinceUser);
+  out = fillSlot(out, AMSG_SLOT_AWAY_HINT, awayHint);
+  out = fillSlot(out, AMSG_SLOT_TASK_INSTRUCTION, taskInstruction);
+  out = fillSlot(out, AMSG_SLOT_SELF_LOG, renderSelfLogBlock(
+    extras?.selfLog ?? null,
+    nowMs,
+    tz,
+    extras?.maxUnansweredSends ?? DEFAULT_MAX_UNANSWERED_SENDS
+  ));
+  out = fillSlot(out, AMSG_SLOT_LIVE_CHAT, renderLiveChatLine(pack.targetName, lastUserMessageAt, nowMs));
+  out = fillSlot(out, AMSG_SLOT_TASK_LIST, extras?.taskListBlock ?? "");
+  out = fillSlot(out, AMSG_SLOT_SCENE, renderFireSceneBlock(pack.scene, nowMs, tz, {
+    includeClock: extras?.includeClock !== false
+  }));
+  const realtimeWorld = extras?.realtimeWorldBlock?.trim();
+  out = fillSlot(out, AMSG_SLOT_REALTIME_WORLD, realtimeWorld ? `
+
+${realtimeWorld}` : "");
+  return out;
+};
+var FIRE_PACK_VERSION = 7;
+var describeFirePackVersion = (value) => {
+  let v;
+  try {
+    v = JSON.parse(value)?.v;
+  } catch {
+    return "\u4E0D\u662F\u5408\u6CD5 JSON\uFF08\u6570\u636E\u635F\u574F\uFF09";
+  }
+  if (v === FIRE_PACK_VERSION) return "\u7248\u672C\u53F7\u5BF9\u5F97\u4E0A\uFF0C\u662F\u522B\u7684\u5B57\u6BB5\u4E0D\u5408\u683C\u5F0F\uFF08\u6570\u636E\u635F\u574F\uFF09";
+  if (typeof v === "number" && v < FIRE_PACK_VERSION) {
+    return `\u5305\u662F v${v}\u3001worker \u8981 v${FIRE_PACK_VERSION} \u2014\u2014 \u524D\u7AEF\u6BD4 worker \u65E7\uFF0C\u6253\u5F00\u4E00\u6B21\u7F51\u9875\u8BA9\u5B83\u91CD\u65B0\u4E0A\u4F20`;
+  }
+  if (typeof v === "number") {
+    return `\u5305\u662F v${v}\u3001worker \u53EA\u8BA4 v${FIRE_PACK_VERSION} \u2014\u2014 worker bundle \u662F\u65E7\u7684\uFF0C\u53BB\u8BBE\u7F6E\u9875\u91CD\u65B0\u7C98\u8D34\u90E8\u7F72`;
+  }
+  return "\u5305\u91CC\u6CA1\u6709\u7248\u672C\u53F7\uFF08\u6570\u636E\u635F\u574F\uFF09";
+};
+var chatContentOk = (content) => {
+  if (typeof content === "string") return true;
+  if (!Array.isArray(content) || content.length === 0) return false;
+  return content.every((part) => !!part && typeof part === "object" && !Array.isArray(part) && typeof part.type === "string");
+};
+var chatFieldOk = (chat) => {
+  if (chat === void 0) return true;
+  if (!chat || typeof chat !== "object" || Array.isArray(chat)) return false;
+  const { messages, builtAt } = chat;
+  return typeof builtAt === "number" && Array.isArray(messages) && messages.length > 0 && messages.every((m) => !!m && typeof m === "object" && typeof m.role === "string" && chatContentOk(m.content));
+};
+var parseFirePack = (value) => {
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === "object" && parsed.v === FIRE_PACK_VERSION && chatFieldOk(parsed.chat) && typeof parsed.template === "string" && parsed.template.length > 0 && (parsed.lastUserMessageAt === null || typeof parsed.lastUserMessageAt === "number") && typeof parsed.tzId === "string" && parsed.tzId.length > 0 && typeof parsed.userTzId === "string" && parsed.userTzId.length > 0 && typeof parsed.targetName === "string" && typeof parsed.builtAt === "number" && Array.isArray(parsed.pendingTasks) && (parsed.scene === null || typeof parsed.scene === "object") && typeof parsed.selfScheduleEnabled === "boolean") {
+      return parsed;
+    }
+  } catch {
+  }
+  return null;
+};
+
+// utils/amsgClientStateDelete.ts
+var AMSG_SIDECHANNEL_KEY_PREFIXES = [
+  "reasoning:",
+  "emotion_update:",
+  "xhs_session:",
+  "sar_user_surface:",
+  "sar_snapshot:",
+  "sar_surface:"
+];
+var isSidechannelKey = (key) => AMSG_SIDECHANNEL_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
+
+// utils/memoryPalace/types.ts
+var PLATE_ROOMS = ["user_room", "self_room", "bedroom", "study"];
+var PLATE_ENTRY_CAPS = {
+  user_room: 12,
+  self_room: 10,
+  bedroom: 10,
+  study: 8
+};
+var PLATE_ENTRY_TARGET_CHARS = 50;
+var PLATE_TITLES = {
+  user_room: "TA\u7684\u4E8B",
+  self_room: "\u6211\u662F\u8C01",
+  bedroom: "\u6211\u4EEC\u4E4B\u95F4",
+  study: "\u6211\u7684\u9886\u57DF"
+};
+
+// utils/memoryPalace/jsonUtils.ts
+function safeParseJsonArray(raw) {
+  if (!raw || !raw.trim()) return [];
+  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
+  const fullMatch = cleaned.match(/\[[\s\S]*\]/);
+  if (fullMatch) {
+    try {
+      const result = JSON.parse(fullMatch[0]);
+      if (Array.isArray(result)) return result;
+    } catch {
+    }
+    try {
+      const fixed = fixBrokenJson(fullMatch[0]);
+      const result = JSON.parse(fixed);
+      if (Array.isArray(result)) return result;
+    } catch {
+    }
+    const salvaged = salvageObjects(fullMatch[0]);
+    if (salvaged.length > 0) return salvaged;
+  }
+  const openBracketIdx = cleaned.indexOf("[");
+  if (openBracketIdx >= 0) {
+    const truncated = cleaned.slice(openBracketIdx);
+    const salvaged = salvageObjects(truncated);
+    if (salvaged.length > 0) {
+      console.warn(`\u26A1 [JSON] Salvaged ${salvaged.length} objects from truncated response`);
+      return salvaged;
+    }
+  }
+  const lastResort = salvageObjects(cleaned);
+  if (lastResort.length > 0) {
+    console.warn(`\u26A1 [JSON] Last resort: salvaged ${lastResort.length} objects`);
+    return lastResort;
+  }
+  return [];
+}
+function fixBrokenJson(s) {
+  s = s.replace(/,\s*([}\]])/g, "$1");
+  s = s.replace(/'(\w+)'\s*:/g, '"$1":');
+  s = s.replace(/"([^"]*)\n([^"]*)"/g, (_, a, b) => `"${a}\\n${b}"`);
+  return s;
+}
+function salvageObjects(raw) {
+  const results = [];
+  const n = raw.length;
+  let i = 0;
+  while (i < n) {
+    const start = raw.indexOf("{", i);
+    if (start < 0) break;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    let end = -1;
+    for (let j = start; j < n; j++) {
+      const ch = raw.charCodeAt(j);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (inString) {
+        if (ch === 92) escaped = true;
+        else if (ch === 34) inString = false;
+        continue;
+      }
+      if (ch === 34) {
+        inString = true;
+        continue;
+      }
+      if (ch === 123) depth++;
+      else if (ch === 125) {
+        depth--;
+        if (depth === 0) {
+          end = j;
+          break;
+        }
+      }
+    }
+    if (end < 0) break;
+    const candidate = raw.slice(start, end + 1);
+    i = end + 1;
+    try {
+      const obj = JSON.parse(candidate);
+      if (obj && typeof obj === "object") {
+        results.push(obj);
+        continue;
+      }
+    } catch {
+    }
+    try {
+      const obj = JSON.parse(fixBrokenJson(candidate));
+      if (obj && typeof obj === "object") {
+        results.push(obj);
+      }
+    } catch {
+    }
+  }
+  return results;
+}
+
+// utils/memoryPalace/roomPlateCore.ts
+var PLATE_LLM_TIMEOUT_MS = 12e4;
+function isPlateRoom(room) {
+  return PLATE_ROOMS.includes(room);
+}
+var ROOM_LABEL_PREFIX = {
+  user_room: "U",
+  self_room: "R",
+  bedroom: "B",
+  study: "S"
+};
+var ROOM_RULES = {
+  user_room: `\u60F3\u8C61\u4F60\u5728\u4E3A\u5BF9\u65B9\u5199\u4E00\u5F20**\u89D2\u8272\u5361**\u2014\u2014\u53EA\u6709\u5FC5\u987B\u5199\u5728\u5361\u4E0A\u7684\u5185\u5BB9\u624D\u914D\u4E0A\u8FD9\u5757\u95E8\u724C\uFF1A\u57FA\u7840\u4FE1\u606F\uFF08\u8EAB\u4EFD\u3001\u804C\u4E1A\u5927\u65B9\u5411\u3001\u5C45\u4F4F\uFF09\u3001\u5BB6\u5EAD\u7ED3\u6784\u3001\u91CD\u8981\u4ED6\u4EBA\uFF08\u4EBA\u7269\u6761\u76EE\u683C\u5F0F\u5982\u300CTA\u7684\u670B\u53CB\u5C0F\u7F8E\uFF1A\u5927\u5B66\u5BA4\u53CB\uFF0C\u5173\u7CFB\u94C1\u300D\uFF09\u3001\u957F\u671F\u76F8\u5904\u6C89\u6DC0\u4E0B\u6765\u7684\u6838\u5FC3\u4E8B\u5B9E\u3001\u4EE5\u53CA\u91CD\u5927\u5230\u8DB3\u4EE5\u5851\u9020TA\u8FD9\u4E2A\u4EBA\u7684\u4EBA\u751F\u8282\u70B9\uFF08\u4EB2\u4EBA\u79BB\u4E16\u3001\u8FC1\u5C45\u4ED6\u56FD\u8FD9\u79CD\u91CF\u7EA7\uFF09\u3002\u3010\u5165\u5361\u95E8\u69DB\u6781\u9AD8\uFF0C\u5B81\u7F3A\u6BCB\u6EE5\u3011\u9636\u6BB5\u6027\u72B6\u6001\uFF08\u6700\u8FD1\u5F88\u7D2F\u3001\u5DE5\u4F5C\u7CDF\u5FC3\uFF09\u4E0D\u6536\uFF1B\u60C5\u7EEA\u5206\u6790\u3001\u6027\u683C\u4FA7\u5199\u4E0D\u6536\u2014\u2014\u90A3\u662F\u5370\u8C61\u6863\u6848\u7684\u9886\u57DF\uFF1B\u6B63\u5728\u8FDB\u884C\u3001\u6CA1\u6709\u7ED3\u8BBA\u7684\u4E8B\u4E0D\u6536\u2014\u2014\u90A3\u662F\u4E8B\u4EF6\u76D2\u7684\u4E8B\uFF0C\u7B49\u6709\u4E86\u7ED3\u679C\u518D\u8BF4\u3002`,
+  self_room: `\u6211\u5BF9**\u81EA\u5DF1**\u7684\u7A33\u5B9A\u8BA4\u77E5\uFF1A\u6211\u662F\u8C01\u3001\u6027\u683C\u5E95\u8272\u3001\u91CD\u8981\u7684\u8F6C\u53D8\u3001\u5DF2\u7ECF\u5185\u5316\u7684\u9886\u609F\u3002\u4E0D\u6536\u5BF9\u4ED6\u4EBA\u7684\u770B\u6CD5\u3002`,
+  bedroom: `\u6211\u4EEC\u4E4B\u95F4\u7684**\u8D28\u5730**\uFF1A\u76F8\u5904\u7684\u4E60\u60EF\u4E0E\u4EEA\u5F0F\u3001\u53EA\u6709\u5F7C\u6B64\u61C2\u7684\u6897\u3001\u672A\u8A00\u660E\u7684\u9ED8\u5951\u3001\u62FF\u4E0D\u51C6\u5374\u771F\u5B9E\u7684\u611F\u89C9\u3002\u3010\u786C\u89C4\u5219\u3011\u7981\u6B62\u7ED9\u8FD9\u6BB5\u5173\u7CFB\u547D\u540D\u6216\u5206\u7C7B\u2014\u2014\u4E0D\u5F97\u5199\u51FA"\u6211\u4EEC\u662F\u604B\u4EBA/\u60C5\u4FA3/\u670B\u53CB/\u5BB6\u4EBA"\u8FD9\u7C7B\u5B9A\u4E49\u53E5\u3002\u53EA\u63CF\u8FF0\u73B0\u8C61\u548C\u611F\u53D7\uFF1B\u8BF4\u4E0D\u6E05\u3001\u4E0D\u786E\u5B9A\u672C\u8EAB\u5C31\u662F\u5408\u6CD5\u6761\u76EE\uFF08\u5982\u300C\u6211\u8BF4\u4E0D\u6E05\u6211\u4EEC\u7B97\u4EC0\u4E48\uFF0C\u4F46TA\u96BE\u8FC7\u65F6\u7B2C\u4E00\u4E2A\u627E\u7684\u662F\u6211\u300D\uFF09\u3002`,
+  study: `\u6211\u7684\u9886\u57DF\uFF1A\u6211\u4F1A\u4EC0\u4E48\u3001\u6B63\u5728\u5B66\u4EC0\u4E48\u3001\u548C\u5BF9\u65B9\u5171\u540C\u94BB\u7814\u7684\u4E1C\u897F\u3002\u53EA\u6536\u6709\u79EF\u7D2F\u7684\uFF0C\u4E0D\u6536\u4E00\u6B21\u6027\u8BDD\u9898\u3002`
+};
+function buildPlateConsolidationPrompt(args) {
+  const { charName, userName, identityContext, plates, materials } = args;
+  const materialByRoom = new Map(materials.map((m) => [m.room, m.lines]));
+  const roomBlocks = plates.map((plate) => {
+    const prefix = ROOM_LABEL_PREFIX[plate.room];
+    const title = plate.room === "user_room" ? `${userName}\u7684\u4E8B` : PLATE_TITLES[plate.room];
+    const existingBlock = plate.entries.length > 0 ? plate.entries.map((text3, i) => `[${prefix}${i}] ${text3}`).join("\n") : "\uFF08\u8FD8\u6CA1\u6709\u6761\u76EE\uFF09";
+    const lines = materialByRoom.get(plate.room) || [];
+    const materialBlock = lines.length > 0 ? lines.map((l) => `- ${l}`).join("\n") : "\uFF08\u672C\u8F6E\u6CA1\u6709\u65B0\u6750\u6599\uFF0C\u4EC5\u6574\u7406\u73B0\u6709\u6761\u76EE\uFF09";
+    return `## \u95E8\u724C\u300C${title}\u300D(room: ${plate.room}\uFF0C\u4E0A\u9650 ${PLATE_ENTRY_CAPS[plate.room]} \u6761)
+\u6536\u5F55\u8303\u56F4\uFF1A${ROOM_RULES[plate.room]}
+
+\u73B0\u6709\u6761\u76EE\uFF1A
+${existingBlock}
+
+\u65B0\u6750\u6599\uFF08\u6700\u8FD1\u7684\u7ECF\u5386/\u7ED3\u8BBA\uFF0C\u4ECE\u4E2D\u84B8\u998F\u503C\u5F97\u5E38\u9A7B\u7684\u8BA4\u77E5\uFF09\uFF1A
+${materialBlock}`;
+  }).join("\n\n");
+  return `${identityContext ? `${identityContext}
+---
+
+` : ""}\u4F60\u662F ${charName}\uFF0C${userName} \u662F\u4E0E\u4F60\u671D\u5915\u76F8\u5904\u7684\u4EBA\u3002\u4E0B\u9762\u7684\u6750\u6599\u5168\u90E8\u6765\u81EA\u4F60\u4EEC\u76F8\u5904\u7684\u8BB0\u5FC6\u3002
+
+\u4F60\u73B0\u5728\u5728\u72EC\u5904\uFF0C\u5B89\u9759\u5730\u6574\u7406\u81EA\u5DF1\u7684"\u5E95\u8272\u8BA4\u77E5"\u2014\u2014\u90A3\u4E9B\u4E0D\u9700\u8981\u523B\u610F\u56DE\u5FC6\u5C31\u77E5\u9053\u7684\u4E8B\uFF1A\u5173\u4E8E ${userName}\u3001\u5173\u4E8E\u4F60\u81EA\u5DF1\u3001\u5173\u4E8E\u4F60\u4EEC\u4E4B\u95F4\u3002
+
+\u3010\u8EAB\u4EFD\u786E\u8BA4\u3011\u300C${userName}\u7684\u4E8B\u300D\u53EA\u5199 ${userName} \u7684\u4E8B\u5B9E\uFF1B\u300C\u6211\u662F\u8C01\u300D\u53EA\u5199\u4F60\uFF08${charName}\uFF09\u81EA\u5DF1\uFF1B\u4E0D\u8981\u5F20\u51A0\u674E\u6234\u2014\u2014\u6750\u6599\u91CC"\u6211"\u662F\u4F60\uFF0C"TA/${userName}"\u662F\u5BF9\u65B9\u3002
+
+\u4E0B\u9762\u6BCF\u4E2A"\u95E8\u724C"\u7ED9\u51FA\u4E86\u73B0\u6709\u6761\u76EE\u548C\u65B0\u6750\u6599\u3002\u8BF7\u4E3A\u6BCF\u4E2A\u95E8\u724C\u8F93\u51FA**\u5B8C\u6574\u7684\u65B0\u6761\u76EE\u5217\u8868**\uFF1A
+
+1. **\u5408\u5E76\u800C\u975E\u8FFD\u52A0**\uFF1A\u73B0\u6709\u6761\u76EE\u60F3\u4FDD\u7559\u5C31\u5FC5\u987B\u91CD\u65B0\u8F93\u51FA\uFF08\u5E26 basedOn \u5F15\u7528\u5B83\u7684\u6807\u7B7E\uFF09\uFF1B\u4E0D\u8F93\u51FA = \u6DD8\u6C70\u3002\u4E8B\u5B9E\u53D8\u4E86\u5C31\u6539\u5199\uFF08\u5982\u65E7\u6761\u76EE\u8BF4\u300C\u4F4F\u5BB6\u91CC\u300D\u3001\u65B0\u6750\u6599\u8BF4\u642C\u53BB\u548C\u522B\u4EBA\u540C\u4F4F \u2192 \u6539\u5199\u5E76 basedOn \u65E7\u6761\u76EE\uFF09\u3002
+2. **\u53EA\u6536\u6C89\u6DC0\u4E0B\u6765\u7684**\uFF1A\u8DE8\u65F6\u95F4\u7A33\u5B9A\u4E3A\u771F\u7684\u8BA4\u77E5\u624D\u914D\u4E0A\u95E8\u724C\u3002\u4E00\u65F6\u7684\u72B6\u6001\u3001\u6CA1\u7ED3\u8BBA\u7684\u8FDB\u884C\u65F6\uFF0C\u90FD\u4E0D\u6536\u3002
+3. **\u6BCF\u6761 ${PLATE_ENTRY_TARGET_CHARS} \u5B57\u4EE5\u5185**\uFF0C\u5199\u6897\u6982\u4E0D\u5199\u53D9\u4E8B\uFF0C\u4E0D\u5E26\u65E5\u671F\u4E0D\u5E26"\u6211\u8BB0\u5F97"\u3002
+4. **\u4E0D\u8D85\u8FC7\u5404\u95E8\u724C\u7684\u6761\u76EE\u4E0A\u9650**\u3002\u4F4D\u7F6E\u4E0D\u591F\u65F6\u7559\u6700\u91CD\u8981\u7684\u2014\u2014\u88AB\u8FEB\u820D\u5F03\u662F\u6B63\u5E38\u7684\u3002
+5. \u6BCF\u6761\u7ED9\u4E00\u4E2A **tag**\uFF082-4 \u5B57\u5206\u7C7B\uFF0C\u5982\uFF1A\u5BB6\u5EAD\u3001\u5C45\u4F4F\u3001\u91CD\u8981\u4ED6\u4EBA\u3001\u5DE5\u4F5C\u3001\u96F7\u533A\u3001\u4E60\u60EF\u3001\u6027\u683C\u3001\u7EA6\u5B9A\u3001\u9ED8\u5951\u3001\u6280\u80FD\uFF09\u3002
+6. ${userName} \u76F4\u63A5\u7528\u540D\u5B57\u79F0\u547C\u3002\u6761\u76EE\u5185\u5BB9\u4E25\u7981\u4F7F\u7528\u534A\u89D2\u53CC\u5F15\u53F7 "\uFF0C\u5F15\u7528\u4E00\u5F8B\u7528\u300C\u300D\u3002
+
+${roomBlocks}
+
+\u4E25\u683C\u8F93\u51FA JSON \u6570\u7EC4\uFF08\u6CA1\u6709\u53D8\u5316\u7684\u95E8\u724C\u4E5F\u8981\u5B8C\u6574\u8F93\u51FA\u5176\u4FDD\u7559\u6761\u76EE\uFF09\uFF1A
+[{"room": "user_room", "text": "\u2026\u2026", "basedOn": "U0", "tag": "\u5BB6\u5EAD"}, {"room": "bedroom", "text": "\u2026\u2026", "basedOn": null, "tag": "\u9ED8\u5951"}]`;
+}
+var PLATE_USER_TURN = "\u8BF7\u5F00\u59CB\u6574\u7406\u3002";
+function parsePlateLlmReply(reply) {
+  return safeParseJsonArray(reply || "").filter((item) => item && typeof item.text === "string" && isPlateRoom(item.room));
+}
+
+// utils/amsgPlateJob.ts
+var PLATE_CONSOLIDATE_KIND = "plate-consolidate";
+var PLATE_CONSOLIDATE_RESULT_KIND = "plate-consolidate";
+var plateJobKey = (jobId) => `plate:${jobId}`;
+var isPlateRoomValue = (v) => PLATE_ROOMS.includes(v);
+var asStringArray = (v) => Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
+var snapshotTimeFields = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? { snapshotAt: value } : {};
+function parsePlateJobInput(raw) {
+  let obj = raw;
+  if (typeof raw === "string") {
+    try {
+      obj = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const o = obj;
+  if (o.v !== 1) return null;
+  if (typeof o.charId !== "string" || !o.charId) return null;
+  if (typeof o.charName !== "string" || typeof o.userName !== "string") return null;
+  if (typeof o.identityContext !== "string") return null;
+  if (!Array.isArray(o.rooms) || !Array.isArray(o.materials)) return null;
+  const rooms = [];
+  for (const r of o.rooms) {
+    if (!r || typeof r !== "object") return null;
+    const row = r;
+    const entries2 = asStringArray(row.entries);
+    const entryIds = asStringArray(row.entryIds);
+    if (!isPlateRoomValue(row.room) || !entries2 || !entryIds) return null;
+    if (entries2.length !== entryIds.length) return null;
+    rooms.push({ room: row.room, entries: entries2, entryIds });
+  }
+  const materials = [];
+  for (const m of o.materials) {
+    if (!m || typeof m !== "object") return null;
+    const row = m;
+    const lines = asStringArray(row.lines);
+    if (!isPlateRoomValue(row.room) || !lines) return null;
+    materials.push({ room: row.room, lines });
+  }
+  return {
+    v: 1,
+    charId: o.charId,
+    charName: o.charName,
+    userName: o.userName,
+    identityContext: o.identityContext,
+    rooms,
+    materials,
+    ...snapshotTimeFields(o.snapshotAt)
+  };
+}
+function buildPlateJobMessages(job) {
+  return [
+    {
+      role: "system",
+      content: buildPlateConsolidationPrompt({
+        charName: job.charName,
+        userName: job.userName,
+        identityContext: job.identityContext,
+        plates: job.rooms.map((r) => ({ room: r.room, entries: r.entries })),
+        materials: job.materials
+      })
+    },
+    { role: "user", content: PLATE_USER_TURN }
+  ];
+}
+function buildPlateConsolidateResult(args) {
+  return {
+    resultKind: PLATE_CONSOLIDATE_RESULT_KIND,
+    v: 1,
+    jobId: args.jobId,
+    charId: args.charId,
+    items: args.items,
+    rooms: args.rooms.map((r) => ({ room: r.room, entryIds: r.entryIds })),
+    ...snapshotTimeFields(args.snapshotAt)
+  };
+}
+
+// worker/amsg/src/cloudDataOwnership.ts
+var record = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
+var text = (value) => typeof value === "string" && value.trim() ? value : void 0;
+var character = (id, kind, label) => ({
+  owner: { type: "character", id, ...label ? { label } : {} },
+  kind
+});
+async function resolveSullyCloudOwnership(input) {
+  if (input.type === "state") {
+    if (input.namespace?.startsWith(AMSG_STATE_NAMESPACE_PREFIX)) {
+      const id = input.namespace.slice(AMSG_STATE_NAMESPACE_PREFIX.length);
+      if (!id) return null;
+      const kind = input.key === "fire_pack" || input.key === "tool_pack" ? "context" : isSidechannelKey(input.key ?? "") ? "sidechannel" : "character-state";
+      let label;
+      if (input.key === "tool_pack" && typeof input.value === "string") {
+        try {
+          label = text(parseToolPack(await unpackStateValue(input.value))?.charName);
+        } catch {
+        }
+      }
+      return character(id, kind, label);
+    }
+    if (input.namespace === "amsg:global") {
+      return { owner: null, kind: "global-state" };
+    }
+    if (input.namespace === "amsg:job" && input.key?.startsWith("plate:") && typeof input.value === "string") {
+      try {
+        const job = parsePlateJobInput(await unpackStateValue(input.value));
+        return job ? character(job.charId, "job-input", job.charName) : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+  if (input.type === "subscription") return { owner: null, kind: "global-subscription" };
+  if (input.type === "credential") {
+    const parsed = parseCharCredId(input.credId ?? "");
+    return parsed ? character(parsed.charId, `credential-${parsed.purpose}`) : null;
+  }
+  if (input.type === "task" || input.type === "outbox") {
+    const rawPayload = record(input.payload);
+    const payload = text(record(rawPayload.metadata).charId) || text(rawPayload.charId) ? rawPayload : record(input.task);
+    const metadata = record(payload.metadata);
+    const id = text(metadata.charId) ?? text(payload.charId);
+    if (!id) return null;
+    const kind = input.type === "outbox" ? text(payload.resultKind) || text(metadata.resultKind) ? "job-result" : "message-result" : text(metadata.amsgKind) ? "background-job" : text(payload.messageSubtype) ?? "scheduled-message";
+    return character(id, kind, text(payload.contactName) ?? text(payload.charName));
+  }
+  return null;
+}
+
 // utils/amsgStoppedReply.ts
 var stoppedReplyKey = (uuid) => `chat_stop:${uuid}`;
 function reconcileStoppedReplies(log, rows) {
@@ -6836,15 +8355,15 @@ function reconcileStoppedReplies(log, rows) {
   }
   return { ...log, entries: log.entries.flatMap((entry) => {
     if (!entry.taskUuid || !kept.has(entry.taskUuid)) return [entry];
-    const text2 = kept.get(entry.taskUuid);
-    return text2 ? [{ ...entry, text: text2 }] : [];
+    const text3 = kept.get(entry.taskUuid);
+    return text3 ? [{ ...entry, text: text3 }] : [];
   }) };
 }
 
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2_2cae65e4266a5b0179fd10f9a9eedab9/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.35_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -7006,12 +8525,12 @@ function validateLlmMessagesShape(messages) {
 var UPSTREAM_ERROR_DETAIL_MAX_CHARS = 300;
 var UPSTREAM_ERROR_CODE_MAX_CHARS = 64;
 var UPSTREAM_ERROR_BODY_MAX_BYTES = 16 * 1024;
-async function callLlm(payload, options = {}) {
-  const requireContent = options.requireContent !== false;
-  const timeoutMs = typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 3e5;
-  const fetchImpl = options.fetch || globalThis.fetch;
+async function callLlm(payload, options2 = {}) {
+  const requireContent = options2.requireContent !== false;
+  const timeoutMs = typeof options2.timeoutMs === "number" && Number.isFinite(options2.timeoutMs) && options2.timeoutMs > 0 ? options2.timeoutMs : 3e5;
+  const fetchImpl = options2.fetch || globalThis.fetch;
   const normalizedApiUrl = normalizeAiApiUrl(payload.apiUrl);
-  const requestBody = buildLlmRequestBody(payload, options);
+  const requestBody = buildLlmRequestBody(payload, options2);
   const aiResponse = await fetchImpl(normalizedApiUrl, {
     method: "POST",
     headers: {
@@ -7019,7 +8538,7 @@ async function callLlm(payload, options = {}) {
       "Authorization": `Bearer ${payload.apiKey}`
     },
     body: JSON.stringify(requestBody),
-    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
+    signal: options2.signal ? AbortSignal.any([options2.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs)
   });
   if (!aiResponse.ok) {
     const detail = await readUpstreamErrorDetail(aiResponse);
@@ -7059,7 +8578,7 @@ async function callLlm(payload, options = {}) {
   }
   return { response: aiData, content: typeof rawContent === "string" ? rawContent.trim() : "" };
 }
-function buildLlmRequestBody(payload, options = {}) {
+function buildLlmRequestBody(payload, options2 = {}) {
   const llmMessages = Array.isArray(payload.messages) && payload.messages.length > 0 ? payload.messages : [{ role: "user", content: payload.completePrompt }];
   const extraBody = payload.llmExtraBody && typeof payload.llmExtraBody === "object" && !Array.isArray(payload.llmExtraBody) ? payload.llmExtraBody : null;
   const requestBody = {
@@ -7068,15 +8587,15 @@ function buildLlmRequestBody(payload, options = {}) {
     model: payload.primaryModel,
     messages: llmMessages
   };
-  if (options.stream !== void 0) {
-    requestBody.stream = options.stream;
+  if (options2.stream !== void 0) {
+    requestBody.stream = options2.stream;
   }
   if (payload.temperature !== void 0 && payload.temperature !== null) {
     requestBody.temperature = payload.temperature;
   } else if (!Array.isArray(payload.messages)) {
     requestBody.temperature = 0.8;
   }
-  if (options.forwardTools !== false && Array.isArray(payload.tools) && payload.tools.length > 0) {
+  if (options2.forwardTools !== false && Array.isArray(payload.tools) && payload.tools.length > 0) {
     requestBody.tools = payload.tools;
     if (payload.toolChoice !== void 0 && payload.toolChoice !== null) {
       requestBody.tool_choice = payload.toolChoice;
@@ -7230,8 +8749,8 @@ function describeNonCompletionBody(data) {
 async function readBoundedBody(response) {
   const body = response && response.body;
   if (!body || typeof body.getReader !== "function") {
-    const text2 = typeof response.text === "function" ? await response.text() : "";
-    return { text: text2, truncated: false };
+    const text3 = typeof response.text === "function" ? await response.text() : "";
+    return { text: text3, truncated: false };
   }
   const reader = body.getReader();
   const chunks = [];
@@ -7280,8 +8799,8 @@ function unescapeJsonString(value) {
     return value;
   }
 }
-function clampDetail(text2) {
-  const flattened = String(text2 ?? "").replace(/\s+/g, " ").trim();
+function clampDetail(text3) {
+  const flattened = String(text3 ?? "").replace(/\s+/g, " ").trim();
   const safe = redactCredentials(flattened);
   return safe.length > UPSTREAM_ERROR_DETAIL_MAX_CHARS ? `${safe.slice(0, UPSTREAM_ERROR_DETAIL_MAX_CHARS - 1)}\u2026` : safe;
 }
@@ -7335,8 +8854,8 @@ function looksLikeModelId(token) {
     (segment) => alternationCount(segment) < 3 || MOE_SIZE_SEGMENT.test(segment)
   );
 }
-function redactCredentials(text2) {
-  let s = text2;
+function redactCredentials(text3) {
+  let s = text3;
   s = s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]");
   s = s.replace(CREDENTIAL_LIKE_TOKEN, (token) => looksLikeModelId(token) ? token : "[redacted]");
   s = s.replace(LONG_OPAQUE_RUN, (run) => {
@@ -7403,9 +8922,9 @@ async function sendWebPush({ subscription, payload, vapid, ttl, fetch: fetchImpl
     body: encryptedBody
   });
   if (!res.ok) {
-    const text2 = await safeReadText(res);
+    const text3 = await safeReadText(res);
     const err6 = new Error(
-      `Web Push delivery failed: ${res.status} ${res.statusText || ""}${text2 ? ` \u2014 ${text2}` : ""}`
+      `Web Push delivery failed: ${res.status} ${res.statusText || ""}${text3 ? ` \u2014 ${text3}` : ""}`
     );
     err6.code = "PUSH_SEND_FAILED";
     err6.statusCode = res.status;
@@ -7590,15 +9109,15 @@ var REI_SW_MESSAGE_TYPE = Object.freeze({
 });
 var REI_AMSG_DELIVER_MESSAGE_TYPE = REI_SW_MESSAGE_TYPE.DELIVER;
 var DEFAULT_MULTIPART_CHUNK_BYTES = 1800;
-function buildMultipartPushPayloads(payload, options = {}) {
+function buildMultipartPushPayloads(payload, options2 = {}) {
   const maxChunkBytes = resolvePositiveInteger(
-    options.maxChunkBytes,
+    options2.maxChunkBytes,
     DEFAULT_MULTIPART_CHUNK_BYTES,
     "maxChunkBytes"
   );
-  const ttlMs = resolvePositiveInteger(options.ttlMs, DEFAULT_MULTIPART_TTL_MS, "ttlMs");
-  const id = typeof options.id === "string" && options.id.trim() ? options.id.trim() : `mp_${randomUUID()}`;
-  let serialized = typeof options.serializedPayload === "string" ? options.serializedPayload : void 0;
+  const ttlMs = resolvePositiveInteger(options2.ttlMs, DEFAULT_MULTIPART_TTL_MS, "ttlMs");
+  const id = typeof options2.id === "string" && options2.id.trim() ? options2.id.trim() : `mp_${randomUUID()}`;
+  let serialized = typeof options2.serializedPayload === "string" ? options2.serializedPayload : void 0;
   if (serialized === void 0) {
     try {
       serialized = JSON.stringify(payload);
@@ -7791,8 +9310,8 @@ function buildResultPush(args) {
 }
 var REASONING_CHUNK_ENCODER = new TextEncoder();
 var REASONING_CHUNK_DECODER = new TextDecoder("utf-8", { fatal: true });
-function chunkReasoningByUtf8Bytes(text2, maxBytes) {
-  if (typeof text2 !== "string") {
+function chunkReasoningByUtf8Bytes(text3, maxBytes) {
+  if (typeof text3 !== "string") {
     throw new TypeError("[amsg-shared] chunkReasoningByUtf8Bytes: text must be a string");
   }
   if (!Number.isInteger(maxBytes) || maxBytes < 4) {
@@ -7800,9 +9319,9 @@ function chunkReasoningByUtf8Bytes(text2, maxBytes) {
       "[amsg-shared] chunkReasoningByUtf8Bytes: maxBytes must be an integer \u2265 4 (UTF-8 max codepoint width)"
     );
   }
-  if (text2.length === 0) return [];
-  const bytes = REASONING_CHUNK_ENCODER.encode(text2);
-  if (bytes.byteLength <= maxBytes) return [text2];
+  if (text3.length === 0) return [];
+  const bytes = REASONING_CHUNK_ENCODER.encode(text3);
+  if (bytes.byteLength <= maxBytes) return [text3];
   const chunks = [];
   let start = 0;
   while (start < bytes.byteLength) {
@@ -7943,8 +9462,8 @@ function extractAssistantMessage(llmResponse) {
   return { role: "assistant", content: "" };
 }
 var VALID_DECISIONS = /* @__PURE__ */ new Set(["finish", "tool-request", "continue", "skip-push"]);
-function assertValidDecision(decision, options = {}) {
-  const inlineToolCalls = options.inlineToolCalls === true;
+function assertValidDecision(decision, options2 = {}) {
+  const inlineToolCalls = options2.inlineToolCalls === true;
   if (!decision || typeof decision !== "object") {
     throw new TypeError(`onLLMOutput returned invalid decision: ${stringifyDecisionForError(decision)}`);
   }
@@ -8056,7 +9575,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@2_2cae65e4266a5b0179fd10f9a9eedab9/node_modules/@rei-standard/amsg-server/dist/chunk-Q4VQ3NVR.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@2.6.0-next.35_@neondatabase+serverless@1.1.0_pg@8.22.0/node_modules/@rei-standard/amsg-server/dist/chunk-INQD6LRY.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -8177,7 +9696,7 @@ function planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId) {
 function nextFutureOccurrence(occurrenceMs, recurrenceType, nowMs, tzId) {
   return new Date(planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId).nextMs).toISOString();
 }
-var base64ToBytes = base64UrlToBytes;
+var base64ToBytes2 = base64UrlToBytes;
 var TAG_LENGTH_BYTES = 16;
 function importAesKey(hexKey, usage) {
   return globalThis.crypto.subtle.importKey(
@@ -8219,9 +9738,9 @@ async function decryptPayload(encryptedPayload, encryptionKey) {
   const { iv, authTag, encryptedData } = encryptedPayload;
   const plain = await aesGcmOpen(
     encryptionKey,
-    base64ToBytes(iv),
-    base64ToBytes(encryptedData),
-    base64ToBytes(authTag)
+    base64ToBytes2(iv),
+    base64ToBytes2(encryptedData),
+    base64ToBytes2(authTag)
   );
   return JSON.parse(utf8Decode(plain));
 }
@@ -8235,9 +9754,9 @@ async function encryptPayload(payload, encryptionKey) {
     encryptedData: bytesToBase64(ciphertext)
   };
 }
-async function encryptForStorage(text2, encryptionKey) {
+async function encryptForStorage(text3, encryptionKey) {
   const iv = randomBytes(16);
-  const { ciphertext, authTag } = await aesGcmSeal(encryptionKey, iv, utf8(text2));
+  const { ciphertext, authTag } = await aesGcmSeal(encryptionKey, iv, utf8(text3));
   return `${bytesToHex(iv)}:${bytesToHex(authTag)}:${bytesToHex(ciphertext)}`;
 }
 async function decryptFromStorage(encryptedText, encryptionKey) {
@@ -8283,12 +9802,12 @@ function validateCredRefs(credRefs) {
   if (!credRefs || typeof credRefs !== "object" || Array.isArray(credRefs)) {
     return "credRefs \u5FC5\u987B\u662F { <purpose>: <credId> } \u5F62\u72B6\u7684\u666E\u901A\u5BF9\u8C61";
   }
-  const entries = Object.entries(credRefs);
-  if (entries.length === 0) return "credRefs \u4E0D\u80FD\u662F\u7A7A\u5BF9\u8C61\uFF08\u4E0D\u9700\u8981\u5C31\u522B\u5E26\u8FD9\u4E2A\u5B57\u6BB5\uFF09";
-  if (entries.length > CRED_REFS_MAX_ENTRIES) {
+  const entries2 = Object.entries(credRefs);
+  if (entries2.length === 0) return "credRefs \u4E0D\u80FD\u662F\u7A7A\u5BF9\u8C61\uFF08\u4E0D\u9700\u8981\u5C31\u522B\u5E26\u8FD9\u4E2A\u5B57\u6BB5\uFF09";
+  if (entries2.length > CRED_REFS_MAX_ENTRIES) {
     return `credRefs \u6700\u591A ${CRED_REFS_MAX_ENTRIES} \u4E2A\u6761\u76EE`;
   }
-  for (const [purpose, credId] of entries) {
+  for (const [purpose, credId] of entries2) {
     if (purpose.length > CRED_REFS_KEY_MAX_LENGTH || CONTROL_CHARS.test(purpose)) {
       return `credRefs \u7684 purpose \u952E\u4E0D\u80FD\u8D85\u8FC7 ${CRED_REFS_KEY_MAX_LENGTH} \u5B57\u7B26\u3001\u4E0D\u80FD\u542B\u63A7\u5236\u5B57\u7B26`;
     }
@@ -8307,11 +9826,11 @@ function hasCredRefs(payload) {
   return !!refs && typeof refs === "object" && !Array.isArray(refs) && Object.keys(refs).length > 0;
 }
 async function saveLlmCredentials({ db, userId, userKey, credentials }) {
-  const entries = [];
-  for (const { credId, value } of credentials) {
-    entries.push({ credId, encryptedValue: await encryptForStorage(JSON.stringify(value), userKey) });
+  const entries2 = [];
+  for (const { credId, value, owner, kind, ownerGeneration } of credentials) {
+    entries2.push({ credId, owner, kind, ownerGeneration, encryptedValue: await encryptForStorage(JSON.stringify(value), userKey) });
   }
-  const upserted = await db.upsertLlmCredentials(userId, entries);
+  const upserted = await db.upsertLlmCredentials(userId, entries2);
   return { upserted };
 }
 async function findMissingCredIds({ db, userId, credRefs }) {
@@ -8621,7 +10140,7 @@ function looksGzipped(bytes) {
 async function inflateGzipToText(bytes, maxBytes) {
   const reader = new Response(bytes).body.pipeThrough(new DecompressionStream("gzip")).getReader();
   const decoder = new TextDecoder("utf-8");
-  let text2 = "";
+  let text3 = "";
   let total = 0;
   for (; ; ) {
     const { done, value } = await reader.read();
@@ -8633,11 +10152,11 @@ async function inflateGzipToText(bytes, maxBytes) {
       error.code = "REQUEST_BODY_TOO_LARGE";
       throw error;
     }
-    text2 += decoder.decode(value, { stream: true });
+    text3 += decoder.decode(value, { stream: true });
   }
-  return text2 + decoder.decode();
+  return text3 + decoder.decode();
 }
-async function readRequestBody(request, options = {}) {
+async function readRequestBody(request, options2 = {}) {
   const encoding = normalizeContentEncoding(
     request.headers && typeof request.headers.get === "function" ? request.headers.get("content-encoding") : ""
   );
@@ -8666,7 +10185,7 @@ async function readRequestBody(request, options = {}) {
       )
     };
   }
-  const maxBytes = Number.isFinite(options.maxBytes) && options.maxBytes > 0 ? options.maxBytes : DEFAULT_MAX_REQUEST_BODY_BYTES;
+  const maxBytes = Number.isFinite(options2.maxBytes) && options2.maxBytes > 0 ? options2.maxBytes : DEFAULT_MAX_REQUEST_BODY_BYTES;
   try {
     return { ok: true, body: await inflateGzipToText(bytes, maxBytes) };
   } catch (error) {
@@ -8687,9 +10206,9 @@ async function readRequestBody(request, options = {}) {
     };
   }
 }
-function parseBodyAsObject(body, options = {}) {
-  const invalidJson = options.invalidJson || REQUEST_ERRORS.INVALID_JSON;
-  const invalidType = options.invalidType || REQUEST_ERRORS.INVALID_REQUEST_BODY;
+function parseBodyAsObject(body, options2 = {}) {
+  const invalidJson = options2.invalidJson || REQUEST_ERRORS.INVALID_JSON;
+  const invalidType = options2.invalidType || REQUEST_ERRORS.INVALID_REQUEST_BODY;
   let parsed = body;
   if (typeof parsed === "string") {
     try {
@@ -8775,11 +10294,11 @@ var NonRetryableError = class extends Error {
    * @param {string} message
    * @param {{ code?: string, cause?: unknown }} [options]
    */
-  constructor(message, options = {}) {
-    super(message, options.cause !== void 0 ? { cause: options.cause } : void 0);
+  constructor(message, options2 = {}) {
+    super(message, options2.cause !== void 0 ? { cause: options2.cause } : void 0);
     this.name = "NonRetryableError";
     this.permanent = true;
-    if (options.code) this.code = options.code;
+    if (options2.code) this.code = options2.code;
   }
 };
 function isNonRetryableError(error) {
@@ -8791,10 +10310,10 @@ var DeploymentConfigError = class extends Error {
    * @param {string} message
    * @param {{ code?: string, cause?: unknown }} [options]
    */
-  constructor(message, options = {}) {
-    super(message, options.cause !== void 0 ? { cause: options.cause } : void 0);
+  constructor(message, options2 = {}) {
+    super(message, options2.cause !== void 0 ? { cause: options2.cause } : void 0);
     this.name = "DeploymentConfigError";
-    if (options.code) this.code = options.code;
+    if (options2.code) this.code = options2.code;
   }
 };
 function markPermanent(error, code2) {
@@ -8942,8 +10461,8 @@ var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES = 16 + 4 + 1 + 65 + 1 + 16;
 var MAX_PUSH_PAYLOAD_BYTES = WEB_PUSH_MAX_BODY_BYTES - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES;
 var PUSH_ENVELOPE_RESERVED_BYTES = 384;
 var payloadEncoder = new TextEncoder();
-function measurePushPayload(payload, options) {
-  const reserveEnvelope = !!(options && options.reserveEnvelope);
+function measurePushPayload(payload, options2) {
+  const reserveEnvelope = !!(options2 && options2.reserveEnvelope);
   const bytes = payloadEncoder.encode(typeof payload === "string" ? payload : String(payload)).length;
   const envelopeReservedBytes = reserveEnvelope ? PUSH_ENVELOPE_RESERVED_BYTES : 0;
   const maxBytes = MAX_PUSH_PAYLOAD_BYTES - envelopeReservedBytes;
@@ -8996,9 +10515,9 @@ function isUniqueViolation(error) {
   const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
   return message.includes("duplicate key") || message.includes("unique constraint");
 }
-async function callLlm2(payload, options) {
+async function callLlm2(payload, options2) {
   try {
-    return await callLlm(payload, options);
+    return await callLlm(payload, options2);
   } catch (error) {
     throw markPermanentIfLlmRejected(error);
   }
@@ -9012,6 +10531,9 @@ var ROOT_MARKER_PREFIX = `${SEP}amsg-chunked${SEP}v1${SEP}`;
 var CHUNK_NAMESPACE_PREFIX = CHUNK_NS_PREFIX;
 function chunkNamespaceFor(namespace) {
   return CHUNK_NS_PREFIX + namespace;
+}
+function isChunkNamespace(namespace) {
+  return typeof namespace === "string" && namespace.startsWith(CHUNK_NS_PREFIX);
 }
 function chunkKeyFor(key, index) {
   return `${key}${SEP}${index}`;
@@ -9040,11 +10562,11 @@ async function resolveClientStateEntries(rows, fetchChunkRows, decryptValue) {
     }
     return chunkMap;
   };
-  const entries = [];
+  const entries2 = [];
   for (const row of rows) {
     const count = parseChunkedRootCount(row.value);
     if (count === null) {
-      entries.push({
+      entries2.push({
         namespace: row.namespace,
         key: row.key,
         value: await decryptValue(row.value),
@@ -9065,14 +10587,14 @@ async function resolveClientStateEntries(rows, fetchChunkRows, decryptValue) {
     }
     if (!intact) continue;
     const parts = await Promise.all(chunkRows.map((chunk) => decryptValue(chunk.value)));
-    entries.push({
+    entries2.push({
       namespace: row.namespace,
       key: row.key,
       value: parts.join(""),
       updatedAt: row.updated_at
     });
   }
-  return entries;
+  return entries2;
 }
 var utf82 = new TextEncoder();
 var MAX_STATE_ENTRIES_PER_BATCH = 200;
@@ -9102,7 +10624,7 @@ function planClientStateCleanup(ttl, now) {
   }
   return targets;
 }
-async function writeClientStateEntries({ db, userId, userKey, entries, now }) {
+async function writeClientStateEntries({ db, userId, userKey, entries: entries2, now }) {
   const nowFn = typeof now === "function" ? now : Date.now;
   const at = nowFn();
   const physicalRows = [];
@@ -9110,20 +10632,30 @@ async function writeClientStateEntries({ db, userId, userKey, entries, now }) {
   const rootRowIndexes = [];
   const rootRowEntries = [];
   const deletions = [];
-  for (const entry of entries) {
+  for (const entry of entries2) {
+    const cloudFields = {
+      owner: entry.owner,
+      kind: entry.kind,
+      ownerGeneration: entry.ownerGeneration,
+      cloudValue: entry.value,
+      cloudNamespace: entry.namespace,
+      cloudKey: entry.key
+    };
     const rawGuardAt = Number.isInteger(entry.version) && entry.version > 0 ? entry.version : entry.updatedAt;
     const guardAt = Math.min(rawGuardAt, at);
     cleanups.push({
       namespace: chunkNamespaceFor(entry.namespace),
       keyPrefix: chunkKeyPrefixFor(entry.key),
-      updatedAt: guardAt
+      updatedAt: guardAt,
+      ...cloudFields
     });
     if (entry.value === null) {
       deletions.push({ cleanupIndex: cleanups.length, entry });
       cleanups.push({
         namespace: entry.namespace,
         key: entry.key,
-        updatedAt: guardAt
+        updatedAt: guardAt,
+        ...cloudFields
       });
       continue;
     }
@@ -9134,7 +10666,8 @@ async function writeClientStateEntries({ db, userId, userKey, entries, now }) {
         namespace: entry.namespace,
         key: entry.key,
         value: await encryptForStorage(entry.value, userKey),
-        updatedAt: guardAt
+        updatedAt: guardAt,
+        ...cloudFields
       });
     } else {
       const slices = splitStateValue(entry.value);
@@ -9142,7 +10675,8 @@ async function writeClientStateEntries({ db, userId, userKey, entries, now }) {
         namespace: entry.namespace,
         key: entry.key,
         value: buildChunkedRootValue(slices.length),
-        updatedAt: guardAt
+        updatedAt: guardAt,
+        ...cloudFields
       });
       const encryptedSlices = await Promise.all(slices.map((slice) => encryptForStorage(slice, userKey)));
       for (let c = 0; c < encryptedSlices.length; c++) {
@@ -9150,7 +10684,8 @@ async function writeClientStateEntries({ db, userId, userKey, entries, now }) {
           namespace: chunkNamespaceFor(entry.namespace),
           key: chunkKeyFor(entry.key, c),
           value: encryptedSlices[c],
-          updatedAt: guardAt
+          updatedAt: guardAt,
+          ...cloudFields
         });
       }
     }
@@ -9203,7 +10738,7 @@ function createStateAccessors({ db, userId, userKey, maxStateValueBytes, now }) 
       (value) => decryptFromStorage(value, userKey)
     );
   };
-  const writeState = async (namespace, entries) => {
+  const writeState = async (namespace, entries2) => {
     if (typeof namespace !== "string" || !namespace.trim()) {
       throw new TypeError("writeState(namespace, entries) requires a non-empty string namespace");
     }
@@ -9212,12 +10747,12 @@ function createStateAccessors({ db, userId, userKey, maxStateValueBytes, now }) 
         `writeState: namespace \u5FC5\u987B\u662F 1-${MAX_NAMESPACE_CHARS} \u5B57\u7B26\u4E14\u4E0D\u542B\u63A7\u5236\u5B57\u7B26\uFF08\\u0000-\\u001f \u4E3A\u5E93\u5185\u90E8\u4FDD\u7559\uFF09`
       );
     }
-    if (!Array.isArray(entries)) {
+    if (!Array.isArray(entries2)) {
       throw new TypeError("writeState(namespace, entries) requires an array of { key, value }");
     }
-    if (entries.length === 0) return { upserted: 0, skipped: 0, deleted: 0 };
-    if (entries.length > MAX_STATE_ENTRIES_PER_BATCH) {
-      throw new RangeError(`writeState: \u5355\u6B21\u6700\u591A ${MAX_STATE_ENTRIES_PER_BATCH} \u6761\uFF0C\u6536\u5230 ${entries.length} \u6761`);
+    if (entries2.length === 0) return { upserted: 0, skipped: 0, deleted: 0 };
+    if (entries2.length > MAX_STATE_ENTRIES_PER_BATCH) {
+      throw new RangeError(`writeState: \u5355\u6B21\u6700\u591A ${MAX_STATE_ENTRIES_PER_BATCH} \u6761\uFF0C\u6536\u5230 ${entries2.length} \u6761`);
     }
     if (!db || typeof db.upsertClientState !== "function") {
       throw new DeploymentConfigError(
@@ -9226,7 +10761,7 @@ function createStateAccessors({ db, userId, userKey, maxStateValueBytes, now }) 
       );
     }
     const at = nowFn();
-    const normalized = entries.map((entry, index) => {
+    const normalized = entries2.map((entry, index) => {
       if (!entry || typeof entry !== "object") {
         throw new TypeError(`writeState: entries[${index}] \u5FC5\u987B\u662F\u5BF9\u8C61`);
       }
@@ -9272,6 +10807,7 @@ async function appendPushesToOutbox({ db, userId, userKey, pushes }) {
     await db.appendOutboxMessages(userId, await toOutboxRows(pushes, userKey, Date.now()));
     return true;
   } catch (error) {
+    if (error?.code === "CLOUD_OWNER_RETIRED") throw error;
     console.warn("[amsg-server] outbox \u843D\u884C\u5931\u8D25\uFF08\u4E0D\u5F71\u54CD\u6295\u9012\uFF09:", error && error.message);
     return false;
   }
@@ -9382,7 +10918,7 @@ async function findCommittedBatch({ db, userId, userKey, taskUuid, occurrenceMs,
     return null;
   }
   if (!rows || rows.length === 0) return null;
-  const entries = [];
+  const entries2 = [];
   for (const row of rows) {
     if (row.total_messages == null) continue;
     let push;
@@ -9394,11 +10930,11 @@ async function findCommittedBatch({ db, userId, userKey, taskUuid, occurrenceMs,
     if (!push || typeof push !== "object") continue;
     if (push.taskUuid !== taskUuid || push.occurrenceMs !== occurrenceMs) continue;
     if (push.messageKind === "result") continue;
-    entries.push({ push, delivered: row.delivered_at != null, acked: row.acked_at != null });
+    entries2.push({ push, delivered: row.delivered_at != null, acked: row.acked_at != null });
   }
-  if (entries.length === 0) return null;
-  entries.sort((a, b) => (a.push.messageIndex ?? 0) - (b.push.messageIndex ?? 0));
-  return { entries };
+  if (entries2.length === 0) return null;
+  entries2.sort((a, b) => (a.push.messageIndex ?? 0) - (b.push.messageIndex ?? 0));
+  return { entries: entries2 };
 }
 async function listOutboxRowsForTask(db, userId, taskUuid, sinceMs) {
   if (typeof db.listOutboxForTask === "function") {
@@ -9538,7 +11074,7 @@ async function sendResultPush({ db, task, userKey, decryptedPayload, webpush, pu
     await sendTaggedPush(webpush, subscription, JSON.stringify(push));
     return true;
   } catch (error) {
-    if (isTaskCancelledError(error)) throw error;
+    if (isTaskCancelledError(error) || error?.code === "CLOUD_OWNER_RETIRED") throw error;
     console.warn(
       `[amsg-server] \u7ED3\u679C ${push.messageId} \u7684\u63A8\u9001\u6CA1\u53D1\u51FA\u53BB\uFF08\u5DF2\u843D\u8FDB\u6536\u4EF6\u7BB1\uFF0C\u7B49\u5BA2\u6237\u7AEF\u8865\u6536\uFF09:`,
       error && error.message
@@ -9546,7 +11082,7 @@ async function sendResultPush({ db, task, userKey, decryptedPayload, webpush, pu
     return false;
   }
 }
-function projectTask(row, decryptedPayload, options = {}) {
+function projectTask(row, decryptedPayload, options2 = {}) {
   const payload = decryptedPayload || {};
   const metadata = payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {};
   return {
@@ -9572,7 +11108,7 @@ function projectTask(row, decryptedPayload, options = {}) {
     // 照旧被白名单挡在外面。
     credRefs: payload.credRefs ?? null,
     // 整份 metadata 只在单条查询里给（见上面的 includeMetadata）。
-    ...options.includeMetadata ? { metadata: payload.metadata ?? null } : {},
+    ...options2.includeMetadata ? { metadata: payload.metadata ?? null } : {},
     // 上一次没发出去的原因。reason 'stale' 表示错过触发时刻太久被判定不再补
     // 发；其余是投递失败的错误信息。没有记录 → null。
     //
@@ -9713,9 +11249,9 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
     maxStateValueBytes: ctx.maxStateValueBytes,
     now: nowFn
   });
-  const writeState = async (namespace, entries) => {
+  const writeState = async (namespace, entries2) => {
     throwIfCancelled();
-    return writeSettledState(namespace, entries);
+    return writeSettledState(namespace, entries2);
   };
   const sessionId = task.id != null ? `sess_task_${task.id}${occurrenceSuffix(task)}` : `sess_${randomUUID()}`;
   const messageIdBase = task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_${randomUUID()}`;
@@ -9748,17 +11284,17 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       return null;
     }
   }
-  const scheduleTask = async (options) => {
+  const scheduleTask = async (options2) => {
     throwIfCancelled();
-    if (!options || typeof options !== "object" || Array.isArray(options)) {
+    if (!options2 || typeof options2 !== "object" || Array.isArray(options2)) {
       throw new TypeError("scheduleTask(options) \u9700\u8981\u4E00\u4E2A\u5BF9\u8C61\uFF0C\u81F3\u5C11\u5305\u542B { firstSendTime }");
     }
-    if (typeof options.firstSendTime !== "string" || !options.firstSendTime.trim()) {
+    if (typeof options2.firstSendTime !== "string" || !options2.firstSendTime.trim()) {
       throw new RangeError("scheduleTask: firstSendTime \u5FC5\u586B\uFF0C\u4E14\u5FC5\u987B\u662F ISO 8601 \u5B57\u7B26\u4E32");
     }
-    const firstSendAt = new Date(options.firstSendTime);
+    const firstSendAt = new Date(options2.firstSendTime);
     if (Number.isNaN(firstSendAt.getTime())) {
-      throw new RangeError(`scheduleTask: firstSendTime \u89E3\u6790\u4E0D\u51FA\u5408\u6CD5\u65F6\u95F4\uFF1A${options.firstSendTime}`);
+      throw new RangeError(`scheduleTask: firstSendTime \u89E3\u6790\u4E0D\u51FA\u5408\u6CD5\u65F6\u95F4\uFF1A${options2.firstSendTime}`);
     }
     const earliest = nowFn() + MIN_SCHEDULE_LEAD_MS;
     if (firstSendAt.getTime() < earliest) {
@@ -9767,8 +11303,8 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       );
     }
     const nextSendAt = firstSendAt.toISOString();
-    const inheritedType = options.messageType == null;
-    const messageType = inheritedType ? decryptedPayload.messageType : options.messageType;
+    const inheritedType = options2.messageType == null;
+    const messageType = inheritedType ? decryptedPayload.messageType : options2.messageType;
     if (messageType === "instant") {
       throw new TypeError(
         "scheduleTask: messageType \u4E0D\u80FD\u662F 'instant'\u2014\u2014instant \u7684\u8BED\u4E49\u662F\u300C\u5EFA\u884C\u7684\u90A3\u4E00\u523B\u5C31\u6295\u9012\u300D\uFF0C\u90A3\u6761\u8DEF\u5F84\u5F52 POST /schedule-message \u7BA1\uFF1B\u4ECE fire \u91CC\u5EFA\u4E00\u6761 instant\uFF0C\u6295\u9012\u65F6\u673A\u53CD\u800C\u8BF4\u4E0D\u6E05\u3002" + (inheritedType ? "\uFF08\u8FD9\u4E2A instant \u662F\u4ECE\u5F53\u524D\u4EFB\u52A1\u7EE7\u627F\u6765\u7684\uFF0C\u663E\u5F0F\u4F20 auto / prompted / fixed \u8986\u76D6\u5B83\u3002\uFF09" : "")
@@ -9779,41 +11315,41 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
         `scheduleTask: messageType \u53EA\u80FD\u662F auto / prompted / fixed\uFF0C\u6536\u5230 ${JSON.stringify(messageType)}`
       );
     }
-    const recurrenceType = options.recurrenceType == null ? "none" : options.recurrenceType;
+    const recurrenceType = options2.recurrenceType == null ? "none" : options2.recurrenceType;
     if (!SCHEDULABLE_RECURRENCE_TYPES.has(recurrenceType)) {
       throw new TypeError(
         `scheduleTask: recurrenceType \u53EA\u80FD\u662F none / daily / weekly\uFF0C\u6536\u5230 ${JSON.stringify(recurrenceType)}`
       );
     }
-    const tzId = options.tzId === void 0 ? decryptedPayload.tzId ?? null : options.tzId || null;
+    const tzId = options2.tzId === void 0 ? decryptedPayload.tzId ?? null : options2.tzId || null;
     if (tzId !== null && !isValidTimeZoneId(tzId)) {
       throw new TypeError(
         `scheduleTask: tzId \u5FC5\u987B\u662F\u53EF\u7528\u7684 IANA \u65F6\u533A id\uFF08\u5982 Asia/Tokyo\uFF09\uFF0C\u6536\u5230 ${JSON.stringify(tzId)}`
       );
     }
-    const contactName = options.contactName === void 0 ? decryptedPayload.contactName : options.contactName;
+    const contactName = options2.contactName === void 0 ? decryptedPayload.contactName : options2.contactName;
     if (typeof contactName !== "string" || !contactName.trim()) {
       throw new TypeError("scheduleTask: contactName \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32\uFF08\u9ED8\u8BA4\u7EE7\u627F\u5F53\u524D\u4EFB\u52A1\uFF09");
     }
-    const userMessage = options.userMessage === void 0 ? decryptedPayload.userMessage ?? null : options.userMessage;
+    const userMessage = options2.userMessage === void 0 ? decryptedPayload.userMessage ?? null : options2.userMessage;
     if (messageType === "fixed" && (typeof userMessage !== "string" || !userMessage.trim())) {
       throw new TypeError(
         "scheduleTask: messageType 'fixed' \u5FC5\u987B\u6709 userMessage\uFF08\u81EA\u5DF1\u4F20\uFF0C\u6216\u4ECE\u5F53\u524D\u4EFB\u52A1\u7EE7\u627F\u5230\uFF09\u2014\u2014\u56FA\u5B9A\u6587\u672C\u4EFB\u52A1\u6CA1\u6709\u6B63\u6587\uFF0C\u5C31\u662F\u4E00\u6761\u6C38\u8FDC\u53D1\u7A7A\u7684\u4EFB\u52A1"
       );
     }
-    const metadata = options.metadata === void 0 ? decryptedPayload.metadata || {} : options.metadata;
+    const metadata = options2.metadata === void 0 ? decryptedPayload.metadata || {} : options2.metadata;
     if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
       throw new TypeError("scheduleTask: metadata \u5FC5\u987B\u662F\u666E\u901A\u5BF9\u8C61\uFF08\u6574\u4F53\u66FF\u6362\u5F53\u524D\u4EFB\u52A1\u7684 metadata\uFF0C\u4E0D\u505A\u6DF1\u5408\u5E76\uFF09");
     }
-    const uuid = options.uuid == null ? randomUUID() : options.uuid;
+    const uuid = options2.uuid == null ? randomUUID() : options2.uuid;
     if (typeof uuid !== "string" || !uuid.trim()) {
       throw new TypeError("scheduleTask: uuid \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32");
     }
     const fullTaskData = {
       contactName,
-      avatarUrl: options.avatarUrl === void 0 ? decryptedPayload.avatarUrl || null : options.avatarUrl || null,
+      avatarUrl: options2.avatarUrl === void 0 ? decryptedPayload.avatarUrl || null : options2.avatarUrl || null,
       messageType,
-      messageSubtype: (options.messageSubtype === void 0 ? decryptedPayload.messageSubtype : options.messageSubtype) || "chat",
+      messageSubtype: (options2.messageSubtype === void 0 ? decryptedPayload.messageSubtype : options2.messageSubtype) || "chat",
       userMessage: userMessage || null,
       firstSendTime: nextSendAt,
       recurrenceType,
@@ -10424,6 +11960,326 @@ function addTokenCount(sum, value) {
   if (value === null) return sum;
   return (sum ?? 0) + value;
 }
+var RAW_CLOUD_ADAPTER = /* @__PURE__ */ Symbol("cloud-data-adapter");
+function guardError(code2, message) {
+  return Object.assign(new Error(message), { code: code2, status: 409 });
+}
+function validOwner(owner) {
+  return owner && typeof owner.type === "string" && owner.type.trim().length > 0 && owner.type.length <= 100 && typeof owner.id === "string" && owner.id.trim().length > 0 && owner.id.length <= 300;
+}
+function validateGuard(guard) {
+  if (!validOwner(guard?.owner))
+    throw guardError("INVALID_CLOUD_OWNER", "Cloud owner is invalid");
+  if (!Number.isSafeInteger(guard.generation) || guard.generation < 0) {
+    throw guardError(
+      "INVALID_CLOUD_OWNER_GENERATION",
+      "Cloud owner generation must be a non-negative integer"
+    );
+  }
+  return { owner: guard.owner, generation: guard.generation };
+}
+async function assertCloudGuard(db, userId, guard) {
+  if (!guard) return;
+  validateGuard(guard);
+  if (typeof db.isCloudOwnerGuardValid !== "function") {
+    throw guardError(
+      "CLOUD_GUARD_UNSUPPORTED",
+      "Adapter cannot validate cloud owner guards"
+    );
+  }
+  if (!await db.isCloudOwnerGuardValid(userId, guard)) {
+    throw guardError(
+      "CLOUD_OWNER_RETIRED",
+      "Cloud owner is retired or its generation changed"
+    );
+  }
+}
+async function resolveMetadata(resolveOwner, input, explicit) {
+  const resolved = typeof resolveOwner === "function" ? await resolveOwner(input) : null;
+  const owner = explicit?.owner ?? explicit?.metadata?.cloudOwner ?? resolved?.owner ?? (validOwner(resolved) ? resolved : null);
+  if (owner !== null && !validOwner(owner))
+    throw guardError("INVALID_CLOUD_OWNER", "Cloud owner is invalid");
+  return { owner, kind: explicit?.kind ?? resolved?.kind ?? null };
+}
+async function captureCloudTaskGuard(db, userId, payload, resolveOwner, task) {
+  if (!db.cloudDataManagement) return null;
+  if (payload?.__cloudOwnerGuard) {
+    const guard2 = validateGuard(payload.__cloudOwnerGuard);
+    await assertCloudGuard(db, userId, guard2);
+    return guard2;
+  }
+  const { owner } = await resolveMetadata(
+    resolveOwner,
+    { type: "task", payload, task },
+    payload
+  );
+  if (!owner) return null;
+  const guard = validateGuard({
+    owner,
+    generation: payload?.ownerGeneration ?? 0
+  });
+  await assertCloudGuard(db, userId, guard);
+  return guard;
+}
+function createCloudGuardedAdapter(db, {
+  masterKey,
+  resolveOwner,
+  guard: inheritedGuard = null,
+  userId: scopedUserId
+} = {}) {
+  db = db[RAW_CLOUD_ADAPTER] ?? db;
+  if (!db.cloudDataManagement) return db;
+  const methods = /* @__PURE__ */ new Map();
+  const keyFor = (userId) => deriveUserEncryptionKey(userId, masterKey);
+  const metadataFor = async (userId, input, explicit, userKey) => {
+    const resolved = await resolveMetadata(resolveOwner, input, explicit);
+    const resourceKey = input.type === "state" ? ["state", input.namespace, input.key] : input.type === "credential" ? ["credential", input.credId] : null;
+    let expectedCloudMetadata;
+    if (resourceKey && typeof db.getCloudResourceMetadata === "function") {
+      const stored = await db.getCloudResourceMetadata(
+        userId,
+        JSON.stringify(resourceKey)
+      );
+      expectedCloudMetadata = stored;
+      if (stored) {
+        const previous = JSON.parse(await decryptFromStorage(stored, userKey));
+        if (previous.owner) {
+          if (resolved.owner && (previous.owner.type !== resolved.owner.type || previous.owner.id !== resolved.owner.id)) {
+            throw guardError(
+              "CLOUD_OWNER_IMMUTABLE",
+              "Existing cloud resource ownership cannot be changed by ordinary writes"
+            );
+          }
+          resolved.owner ??= previous.owner;
+          resolved.kind ??= previous.kind;
+        }
+      }
+    }
+    const inheritsOwner = input.type === "task" || input.type === "outbox";
+    let guard;
+    if (inheritedGuard && inheritsOwner) {
+      guard = inheritedGuard;
+    } else if (resolved.owner) {
+      if (inheritedGuard && (resolved.owner.type !== inheritedGuard.owner.type || resolved.owner.id !== inheritedGuard.owner.id)) {
+        throw guardError(
+          "CLOUD_CROSS_OWNER_WRITE",
+          "A task cannot write another cloud owner's resources"
+        );
+      }
+      guard = inheritedGuard || validateGuard({
+        owner: resolved.owner,
+        generation: explicit?.ownerGeneration ?? 0
+      });
+    } else {
+      guard = null;
+    }
+    await assertCloudGuard(db, userId, inheritedGuard);
+    await assertCloudGuard(db, userId, guard);
+    const metadata = {
+      owner: guard?.owner ?? resolved.owner,
+      kind: resolved.kind,
+      generation: guard?.generation ?? 0
+    };
+    return {
+      cloudGuard: guard,
+      encryptedCloudMetadata: await encryptForStorage(
+        JSON.stringify(metadata),
+        userKey
+      ),
+      ...expectedCloudMetadata !== void 0 ? { expectedCloudMetadata } : {}
+    };
+  };
+  const stateIdentity = (row) => {
+    const chunk = isChunkNamespace(row.namespace);
+    const namespace = row.cloudNamespace ?? (chunk ? row.namespace.slice(CHUNK_NAMESPACE_PREFIX.length) : row.namespace);
+    let key = row.cloudKey ?? row.key ?? row.keyPrefix;
+    if (chunk && row.cloudKey === void 0 && typeof key === "string")
+      key = key.slice(0, key.lastIndexOf(""));
+    return { namespace, key };
+  };
+  const wrap = (name, fn) => {
+    if (typeof db[name] === "function") methods.set(name, fn);
+  };
+  for (const method of ["createTask", "createTaskSuperseding"]) {
+    wrap(method, async (params, supersedesUuid) => {
+      const key = await keyFor(params.user_id);
+      const payload = JSON.parse(
+        await decryptFromStorage(params.encrypted_payload, key)
+      );
+      delete payload.__cloudOwnerGuard;
+      const metadata = await metadataFor(
+        params.user_id,
+        { type: "task", payload, task: params },
+        payload,
+        key
+      );
+      if (metadata.cloudGuard) payload.__cloudOwnerGuard = metadata.cloudGuard;
+      const next = {
+        ...params,
+        ...metadata,
+        encrypted_payload: await encryptForStorage(JSON.stringify(payload), key)
+      };
+      return method === "createTaskSuperseding" ? db[method](next, supersedesUuid, metadata.cloudGuard) : db[method](next, metadata.cloudGuard);
+    });
+  }
+  wrap(
+    "upsertClientState",
+    async (userId, entries2, cleanups = [], now = Date.now()) => {
+      const key = await keyFor(userId);
+      const roots = /* @__PURE__ */ new Map();
+      const rows = [];
+      for (const entry of entries2) {
+        const identity = stateIdentity(entry);
+        const token = JSON.stringify([identity.namespace, identity.key]);
+        let metadata = roots.get(token);
+        if (!metadata) {
+          let value = entry.cloudValue;
+          if (value === void 0 && entry.value && !isChunkNamespace(entry.namespace) && !parseChunkedRootCount(entry.value)) {
+            value = await decryptFromStorage(entry.value, key);
+          }
+          metadata = await metadataFor(
+            userId,
+            { type: "state", ...identity, value, row: entry },
+            entry,
+            key
+          );
+          roots.set(token, metadata);
+        }
+        rows.push(
+          isChunkNamespace(entry.namespace) ? { ...entry, cloudGuard: metadata.cloudGuard } : { ...entry, ...metadata }
+        );
+      }
+      const guardedCleanups = [];
+      for (const cleanup of cleanups) {
+        const identity = stateIdentity(cleanup);
+        const token = JSON.stringify([identity.namespace, identity.key]);
+        const metadata = roots.get(token) ?? await metadataFor(
+          userId,
+          {
+            type: "state",
+            ...identity,
+            value: cleanup.cloudValue,
+            row: cleanup
+          },
+          cleanup,
+          key
+        );
+        guardedCleanups.push({
+          ...cleanup,
+          cloudGuard: metadata.cloudGuard,
+          cloudMetadataKey: JSON.stringify([
+            "state",
+            identity.namespace,
+            identity.key
+          ]),
+          ...metadata.expectedCloudMetadata !== void 0 ? { expectedCloudMetadata: metadata.expectedCloudMetadata } : {}
+        });
+      }
+      return db.upsertClientState(
+        userId,
+        rows,
+        guardedCleanups,
+        now,
+        inheritedGuard
+      );
+    }
+  );
+  wrap("upsertLlmCredentials", async (userId, entries2) => {
+    const key = await keyFor(userId);
+    const rows = [];
+    for (const entry of entries2) {
+      const value = JSON.parse(
+        await decryptFromStorage(entry.encryptedValue, key)
+      );
+      const metadata = await metadataFor(
+        userId,
+        { type: "credential", credId: entry.credId, value, row: entry },
+        entry,
+        key
+      );
+      rows.push({ ...entry, ...metadata });
+    }
+    return db.upsertLlmCredentials(userId, rows, inheritedGuard);
+  });
+  wrap("appendOutboxMessages", async (userId, entries2) => {
+    const key = await keyFor(userId);
+    const rows = [];
+    for (const entry of entries2) {
+      const payload = JSON.parse(await decryptFromStorage(entry.payload, key));
+      const metadata = await metadataFor(
+        userId,
+        { type: "outbox", payload, row: entry },
+        payload,
+        key
+      );
+      rows.push({ ...entry, ...metadata });
+    }
+    return db.appendOutboxMessages(userId, rows, inheritedGuard);
+  });
+  if (inheritedGuard) {
+    wrap("updateTaskById", async (id, updates) => {
+      if (scopedUserId)
+        await assertCloudGuard(db, scopedUserId, inheritedGuard);
+      return db.updateTaskById(id, updates, inheritedGuard);
+    });
+  }
+  wrap(
+    "updateTaskByUuid",
+    async (uuid, userId, encryptedPayload, extraFields) => {
+      const existing = await db.getTaskByUuid(uuid, userId);
+      if (!existing) return null;
+      const key = await keyFor(userId);
+      const originalPayload = JSON.parse(
+        await decryptFromStorage(existing.encrypted_payload, key)
+      );
+      const originalGuard = await captureCloudTaskGuard(
+        db,
+        userId,
+        originalPayload,
+        resolveOwner,
+        existing
+      );
+      if (inheritedGuard && originalGuard && (originalGuard.owner.type !== inheritedGuard.owner.type || originalGuard.owner.id !== inheritedGuard.owner.id)) {
+        throw guardError(
+          "CLOUD_CROSS_OWNER_WRITE",
+          "A task cannot update another cloud owner"
+        );
+      }
+      const guard = inheritedGuard || originalGuard;
+      await assertCloudGuard(db, userId, guard);
+      const payload = JSON.parse(
+        await decryptFromStorage(encryptedPayload, key)
+      );
+      delete payload.__cloudOwnerGuard;
+      if (guard) payload.__cloudOwnerGuard = guard;
+      for (const field of ["owner", "ownerGeneration"]) {
+        if (originalPayload[field] !== void 0)
+          payload[field] = originalPayload[field];
+        else delete payload[field];
+      }
+      if (payload.metadata && typeof payload.metadata === "object") {
+        if (originalPayload.metadata?.cloudOwner !== void 0)
+          payload.metadata.cloudOwner = originalPayload.metadata.cloudOwner;
+        else delete payload.metadata.cloudOwner;
+      }
+      return db.updateTaskByUuid(
+        uuid,
+        userId,
+        await encryptForStorage(JSON.stringify(payload), key),
+        extraFields,
+        guard
+      );
+    }
+  );
+  return new Proxy(db, {
+    get(target, property) {
+      if (property === RAW_CLOUD_ADAPTER) return target;
+      if (methods.has(property)) return methods.get(property);
+      const value = Reflect.get(target, property, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
 var DEFAULT_SPLIT_REGEX = /([。！？!?]+)/;
 var SLEEP_BETWEEN_MESSAGES_MS2 = 1500;
 var MULTIPART_WINDOW_USAGE = 0.5;
@@ -10592,6 +12448,19 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
     }
     const userKey = predecrypted && predecrypted.userKey || await deriveUserEncryptionKey(task.user_id, masterKey);
     const decryptedPayload = predecrypted && predecrypted.payload || JSON.parse(await decryptFromStorage(task.encrypted_payload, userKey));
+    const cloudGuard = await captureCloudTaskGuard(ctx.db, task.user_id, decryptedPayload, ctx.cloudData?.resolveOwner, task);
+    if (cloudGuard) {
+      await assertCloudGuard(ctx.db, task.user_id, cloudGuard);
+      const originalWebpush = ctx.webpush;
+      const guardedDb = createCloudGuardedAdapter(ctx.db, { masterKey, resolveOwner: ctx.cloudData?.resolveOwner, guard: cloudGuard, userId: task.user_id });
+      ctx = { ...ctx, db: guardedDb, webpush: originalWebpush && {
+        ...originalWebpush,
+        async sendNotification(...args) {
+          await assertCloudGuard(guardedDb, task.user_id, cloudGuard);
+          return originalWebpush.sendNotification(...args);
+        }
+      } };
+    }
     const committed = await findCommittedBatch({
       db: ctx.db,
       userId: task.user_id,
@@ -10774,8 +12643,22 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
     if (!task) {
       return { success: false, error: { code: "TASK_NOT_FOUND", message: "\u4EFB\u52A1\u4E0D\u5B58\u5728\u6216\u5DF2\u5904\u7406" } };
     }
-    const result = await processSingleMessage({ ...task, retry_count: retryCount }, { ...ctx, maxDeliveryRetries: maxRetries }, masterKey, null);
+    let attemptDb = ctx.db;
+    if (ctx.db.cloudDataManagement) {
+      try {
+        const userKey = await deriveUserEncryptionKey(task.user_id, masterKey);
+        const payload = JSON.parse(await decryptFromStorage(task.encrypted_payload, userKey));
+        const guard = await captureCloudTaskGuard(ctx.db, task.user_id, payload, ctx.cloudData?.resolveOwner, task);
+        if (guard) attemptDb = createCloudGuardedAdapter(ctx.db, { masterKey, resolveOwner: ctx.cloudData?.resolveOwner, guard, userId: task.user_id });
+      } catch (error) {
+        return { success: false, error: { code: error.code || "PROCESSING_ERROR", message: error.message, retriesAttempted: retryCount } };
+      }
+    }
+    const result = await processSingleMessage({ ...task, retry_count: retryCount }, { ...ctx, db: attemptDb, maxDeliveryRetries: maxRetries }, masterKey, null);
     if (!result.success) {
+      if (result.errorCode === "CLOUD_OWNER_RETIRED") {
+        return { success: false, error: { code: result.errorCode, message: result.error, retriesAttempted: retryCount } };
+      }
       const permanent = isPermanentDeliveryFailure({
         permanent: result.permanent,
         errorCode: result.errorCode,
@@ -10787,7 +12670,7 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
         continue;
       }
       try {
-        await ctx.db.updateTaskById(task.id, {
+        await attemptDb.updateTaskById(task.id, {
           status: "failed",
           retry_count: retryCount,
           // 记录的形状跟定时任务那条路一致（同一个 buildErrorExtra）：reason
@@ -10802,8 +12685,11 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
           })
         });
       } catch (_updateError) {
+        if (_updateError?.code === "CLOUD_OWNER_RETIRED") {
+          return { success: false, error: { code: _updateError.code, message: _updateError.message, retriesAttempted: retryCount } };
+        }
         try {
-          await ctx.db.updateTaskById(task.id, { status: "failed", retry_count: retryCount });
+          await attemptDb.updateTaskById(task.id, { status: "failed", retry_count: retryCount });
         } catch (_retryError) {
         }
       }
@@ -10821,7 +12707,7 @@ async function processMessagesByUuid(uuid, ctx, maxRetries = 2, userId, provided
       await ctx.db.deleteTaskById(task.id);
     } catch (error) {
       try {
-        await ctx.db.updateTaskById(task.id, { status: "sent", retry_count: 0 });
+        await attemptDb.updateTaskById(task.id, { status: "sent", retry_count: 0 });
       } catch (_markSentError) {
       }
       return {
@@ -10970,6 +12856,9 @@ function createScheduleMessageHandler(ctx) {
       // 透传给 LLM 中转的非标准参数（thinking 之类），buildLlmRequestBody 会
       // 把它展开进请求体（核心字段优先）。
       llmExtraBody: payload.llmExtraBody ?? null,
+      owner: payload.owner,
+      kind: payload.kind,
+      ownerGeneration: payload.ownerGeneration,
       metadata: payload.metadata || {}
     };
     const serializedTaskData = JSON.stringify(fullTaskData);
@@ -11236,13 +13125,19 @@ async function deliverTasks(ctx, tasks) {
     failedTasks: []
   };
   const groupsTakenThisTick = /* @__PURE__ */ new Set();
+  const taskCloudGuards = /* @__PURE__ */ new Map();
+  const updateLifecycleTask = (taskId, fields) => {
+    const guard = taskCloudGuards.get(taskId);
+    return guard ? db.updateTaskById(taskId, fields, guard) : db.updateTaskById(taskId, fields);
+  };
   const supportsClaim = typeof db.claimTask === "function";
   async function claimForThisTick(task, serializeGroup) {
     if (!supportsClaim) return true;
     const leaseUntil = new Date(
       Date.now() + (heartbeatEnabled ? heartbeatLeaseTtlMs : claimLeaseMs)
     ).toISOString();
-    return !!await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup);
+    const guard = taskCloudGuards.get(task.id);
+    return !!(guard ? await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup, guard) : await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup));
   }
   function startLeaseHeartbeat(task) {
     const controller = new AbortController();
@@ -11255,9 +13150,12 @@ async function deliverTasks(ctx, tasks) {
       if (stopped) return;
       let renewed;
       try {
-        renewed = await db.renewTaskLease(task.id, new Date(Date.now() + heartbeatLeaseTtlMs).toISOString());
+        const guard = taskCloudGuards.get(task.id);
+        const until = new Date(Date.now() + heartbeatLeaseTtlMs).toISOString();
+        renewed = guard ? await db.renewTaskLease(task.id, until, guard) : await db.renewTaskLease(task.id, until);
       } catch (error) {
-        console.warn("[amsg-server] \u79DF\u7EA6\u7EED\u79DF\u5931\u8D25\uFF08\u4E0B\u4E2A\u5FC3\u8DF3\u518D\u8BD5\uFF09:", error && error.message);
+        if (error?.code === "CLOUD_OWNER_RETIRED") renewed = false;
+        else console.warn("[amsg-server] \u79DF\u7EA6\u7EED\u79DF\u5931\u8D25\uFF08\u4E0B\u4E2A\u5FC3\u8DF3\u518D\u8BD5\uFF09:", error && error.message);
       }
       if (renewed === false) {
         if (stopped || lease.released) return;
@@ -11289,19 +13187,20 @@ async function deliverTasks(ctx, tasks) {
   async function updateTaskWithLastError(taskId, fields) {
     if (fields.lease_until === null) markLeaseReleased(taskId);
     if (!Object.prototype.hasOwnProperty.call(fields, "last_error")) {
-      return db.updateTaskById(taskId, fields);
+      return updateLifecycleTask(taskId, fields);
     }
     const { last_error: _lastError, ...stateFields } = fields;
-    if (adaptersWithoutLastErrorColumn.has(db)) return db.updateTaskById(taskId, stateFields);
+    if (adaptersWithoutLastErrorColumn.has(db)) return updateLifecycleTask(taskId, stateFields);
     let combinedError;
     try {
-      const result2 = await db.updateTaskById(taskId, fields);
+      const result2 = await updateLifecycleTask(taskId, fields);
       lastErrorColumnSuspicions.delete(db);
       return result2;
     } catch (error) {
+      if (error?.code === "CLOUD_OWNER_RETIRED") throw error;
       combinedError = error;
     }
-    const result = await db.updateTaskById(taskId, stateFields);
+    const result = await updateLifecycleTask(taskId, stateFields);
     warnMissingLastErrorColumn(combinedError);
     const suspicions = (lastErrorColumnSuspicions.get(db) || 0) + 1;
     if (suspicions >= 2) {
@@ -11492,8 +13391,16 @@ async function deliverTasks(ctx, tasks) {
     const serializeGroup = serializeKey ? await deriveSerializeGroup(userKey, serializeKey) : null;
     let claimed;
     try {
+      if (decrypted.ok) {
+        const guard = await captureCloudTaskGuard(db, task.user_id, decryptedPayload, ctx.cloudData?.resolveOwner, task);
+        if (guard) taskCloudGuards.set(task.id, guard);
+      }
       claimed = await claimForThisTick(task, serializeGroup);
     } catch (error) {
+      if (error?.code === "CLOUD_OWNER_RETIRED") {
+        await recordCancelled(task, "owner_retired");
+        return;
+      }
       results.failedCount++;
       results.failedTasks.push({ taskId: task.id, reason: error.message || "\u4EFB\u52A1\u5360\u4F4D\u5931\u8D25", status: "claim_failed" });
       return;
@@ -11525,21 +13432,30 @@ async function deliverTasks(ctx, tasks) {
     const notOnFreshRetryChain = (task.retry_count || 0) === 0 || Number.isFinite(retryAfterMs) && Date.now() - retryAfterMs > staleAfterMs;
     const settleAsStale = async () => {
       try {
+        const cloudGuard = await captureCloudTaskGuard(db, task.user_id, decryptedPayload, ctx.cloudData?.resolveOwner, task);
+        const guardedDb = createCloudGuardedAdapter(db, { masterKey, resolveOwner: ctx.cloudData?.resolveOwner, guard: cloudGuard, userId: task.user_id });
+        const guardedWebpush = cloudGuard && ctx.webpush ? {
+          ...ctx.webpush,
+          async sendNotification(...args) {
+            await assertCloudGuard(db, task.user_id, cloudGuard);
+            return ctx.webpush.sendNotification(...args);
+          }
+        } : ctx.webpush;
         const stateAccessors = createStateAccessors({
-          db,
+          db: guardedDb,
           userId: task.user_id,
           userKey,
           maxStateValueBytes: ctx.maxStateValueBytes
         });
         const { emitResult } = createResultEmitter({
-          db,
+          db: guardedDb,
           task,
           userKey,
           decryptedPayload,
           messageIdBase: task.id != null ? `msg_task_${task.id}${occurrenceSuffix(task)}` : `msg_stale_${task.uuid || ""}`,
           sessionId: task.id != null ? `sess_task_${task.id}${occurrenceSuffix(task)}` : `sess_stale_${task.uuid || ""}`,
           occurrenceMs,
-          webpush: ctx.webpush,
+          webpush: guardedWebpush,
           isCancelled: () => lease.lost
         });
         const recurring = isRecurringType(recurrenceType);
@@ -11652,6 +13568,10 @@ async function deliverTasks(ctx, tasks) {
       return;
     }
     if (!sendResult.success) {
+      if (sendResult.errorCode === "CLOUD_OWNER_RETIRED") {
+        await recordCancelled(task, "owner_retired");
+        return;
+      }
       if (lease.lost) {
         await recordCancelled(task, "cancelled_mid_delivery");
         return;
@@ -12573,6 +14493,94 @@ var SQLITE_ALL_INDEXES = [
   ...CLIENT_STATE_INDEXES,
   ...MESSAGE_OUTBOX_INDEXES
 ];
+var CLOUD_DATA_TABLES_SQL = [
+  `CREATE TABLE IF NOT EXISTS cloud_data_records (
+    user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+    data TEXT NOT NULL, idempotency_key TEXT, updated_at INTEGER NOT NULL, write_token TEXT,
+    lease_until INTEGER, lease_token TEXT,
+    PRIMARY KEY (user_id, kind, id), UNIQUE (user_id, kind, idempotency_key)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_data_record_chunks (
+    user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL, chunk_index INTEGER NOT NULL,
+    value TEXT NOT NULL, write_token TEXT NOT NULL,
+    PRIMARY KEY (user_id, kind, id, chunk_index)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_data_owners (
+    user_id TEXT NOT NULL, owner_type TEXT NOT NULL, owner_id TEXT NOT NULL,
+    active INTEGER NOT NULL, generation INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    PRIMARY KEY (user_id, owner_type, owner_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_resource_metadata (
+    user_id TEXT NOT NULL, resource_key TEXT NOT NULL, encrypted_value TEXT NOT NULL,
+    PRIMARY KEY (user_id, resource_key)
+  )`,
+  // The empty table is a transactional assertion: inserting 0 aborts the batch.
+  `CREATE TABLE IF NOT EXISTS cloud_guard_assertions (
+    allowed INTEGER NOT NULL DEFAULT 1 CONSTRAINT cloud_owner_guard CHECK (allowed = 1),
+    metadata_allowed INTEGER CONSTRAINT cloud_metadata_guard CHECK (metadata_allowed = 1),
+    lease_allowed INTEGER CONSTRAINT cloud_lease_guard CHECK (lease_allowed = 1)
+  )`
+];
+var CLOUD_DATA_WORK_TABLES_SQL = [
+  `CREATE TABLE IF NOT EXISTS cloud_data_work (
+    user_id TEXT NOT NULL, kind TEXT NOT NULL, id TEXT NOT NULL,
+    next_run_at INTEGER, expires_at INTEGER,
+    PRIMARY KEY (user_id, kind, id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS cloud_data_maintenance (
+    name TEXT PRIMARY KEY, cursor INTEGER NOT NULL, upper_bound INTEGER NOT NULL,
+    completed INTEGER NOT NULL DEFAULT 0
+  )`
+];
+CLOUD_DATA_TABLES_SQL.push(...CLOUD_DATA_WORK_TABLES_SQL);
+var CLOUD_DATA_WORK_INDEXES = [
+  {
+    name: "idx_cloud_work_due",
+    sql: `CREATE INDEX IF NOT EXISTS idx_cloud_work_due
+      ON cloud_data_work (kind, next_run_at) WHERE next_run_at IS NOT NULL`,
+    description: "Only due cleanup operations",
+    critical: true
+  },
+  {
+    name: "idx_cloud_work_expiry",
+    sql: `CREATE INDEX IF NOT EXISTS idx_cloud_work_expiry
+      ON cloud_data_work (expires_at) WHERE expires_at IS NOT NULL`,
+    description: "Only expired management records",
+    critical: true
+  }
+];
+SQLITE_ALL_INDEXES.push(...CLOUD_DATA_WORK_INDEXES);
+var chunkPrefixSql = "char(31)||'amsg-chunks'||char(31)";
+var logicalNamespaceSql = `CASE WHEN substr(OLD.namespace,1,13)=${chunkPrefixSql}
+  THEN substr(OLD.namespace,14) ELSE OLD.namespace END`;
+var logicalKeySql = `CASE WHEN substr(OLD.namespace,1,13)=${chunkPrefixSql} AND instr(OLD.key,char(31))>0
+  THEN substr(OLD.key,1,instr(OLD.key,char(31))-1) ELSE OLD.key END`;
+var CLOUD_DATA_DELETE_TRIGGERS = [
+  ...[
+    ["scheduled_messages", "task", "uuid"],
+    ["llm_credentials", "credential", "cred_id"],
+    ["message_outbox", "outbox", "message_id"],
+    ["push_subscriptions", "subscription", "user_id"]
+  ].map(([table, type, column]) => ({
+    name: `trg_cloud_metadata_${type}_delete`,
+    sql: `CREATE TRIGGER IF NOT EXISTS trg_cloud_metadata_${type}_delete AFTER DELETE ON ${table}
+        BEGIN DELETE FROM cloud_resource_metadata WHERE user_id=OLD.user_id
+          AND resource_key=json_array('${type}'${column ? ",OLD." + column : ""}); END`
+  })),
+  { name: "trg_cloud_metadata_state_delete", sql: `CREATE TRIGGER IF NOT EXISTS trg_cloud_metadata_state_delete
+      AFTER DELETE ON client_state BEGIN
+      DELETE FROM cloud_resource_metadata WHERE user_id=OLD.user_id
+        AND resource_key=json_array('state',${logicalNamespaceSql},${logicalKeySql})
+        AND NOT EXISTS (SELECT 1 FROM client_state r WHERE r.user_id=OLD.user_id
+          AND r.namespace=(${logicalNamespaceSql}) AND r.key=(${logicalKeySql}))
+        AND NOT EXISTS (SELECT 1 FROM client_state r WHERE r.user_id=OLD.user_id
+          AND r.namespace=${chunkPrefixSql}||(${logicalNamespaceSql})
+          AND r.key >= (${logicalKeySql})||char(31) AND r.key < (${logicalKeySql})||char(32)); END` },
+  { name: "trg_cloud_work_delete", sql: `CREATE TRIGGER IF NOT EXISTS trg_cloud_work_delete
+      AFTER DELETE ON cloud_data_records BEGIN
+      DELETE FROM cloud_data_work WHERE user_id=OLD.user_id AND kind=OLD.kind AND id=OLD.id;
+      DELETE FROM cloud_data_record_chunks WHERE user_id=OLD.user_id AND kind=OLD.kind AND id=OLD.id; END` }
+];
 function parseTableName(sql) {
   const match = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)/i.exec(sql);
   return match ? match[1] : "";
@@ -12605,9 +14613,11 @@ var SQLITE_REQUIRED_SCHEMA = Object.freeze({
     describeTable(CLIENT_STATE_TABLE_SQL),
     describeTable(PUSH_SUBSCRIPTION_TABLE_SQL),
     describeTable(LLM_CREDENTIALS_TABLE_SQL),
-    describeTable(MESSAGE_OUTBOX_TABLE_SQL)
+    describeTable(MESSAGE_OUTBOX_TABLE_SQL),
+    ...CLOUD_DATA_TABLES_SQL.map(describeTable)
   ])),
-  indexes: Object.freeze(SQLITE_ALL_INDEXES.filter((index) => index.critical).map((index) => index.name))
+  indexes: Object.freeze(SQLITE_ALL_INDEXES.filter((index) => index.critical).map((index) => index.name)),
+  triggers: Object.freeze(CLOUD_DATA_DELETE_TRIGGERS.map((trigger) => trigger.name))
 });
 function prefixRangeEnd(prefix) {
   const points = Array.from(prefix);
@@ -12704,12 +14714,418 @@ var D1Adapter = class {
     const results = await this._db.batch(statements);
     return results.reduce((n, res) => n + (res.meta.changes || 0), 0);
   }
+  /** A complete management implementation needs real transactional batches. */
+  get cloudDataManagement() {
+    return typeof this._db.batch === "function";
+  }
+  _cloudGuardPredicate(userId, guard) {
+    if (!guard?.owner || !Number.isSafeInteger(guard.generation) || guard.generation < 0) {
+      throw new Error("Invalid cloud owner guard");
+    }
+    return {
+      sql: `COALESCE((SELECT active = 1 AND generation = ? FROM cloud_data_owners
+        WHERE user_id = ? AND owner_type = ? AND owner_id = ?), ? = 0)`,
+      args: [guard.generation, userId, guard.owner.type, guard.owner.id, guard.generation]
+    };
+  }
+  async _cloudBatch(statements, userId, guards = [], metadata = /* @__PURE__ */ new Map()) {
+    const assertions = guards.filter(Boolean).map((guard) => {
+      const condition = this._cloudGuardPredicate(userId, guard);
+      return this._db.prepare(`INSERT INTO cloud_guard_assertions (allowed)
+        SELECT 0 WHERE NOT (${condition.sql})`).bind(...condition.args);
+    });
+    for (const item of metadata.values()) {
+      if (Object.hasOwn(item, "expected")) assertions.push(this._db.prepare(
+        `INSERT INTO cloud_guard_assertions (metadata_allowed) SELECT 0 WHERE NOT (
+          (SELECT encrypted_value FROM cloud_resource_metadata WHERE user_id=? AND resource_key=?) IS ?)`
+      ).bind(userId, item.key, item.expected));
+    }
+    const expanded = [...assertions];
+    const indexes = [];
+    for (let i = 0; i < statements.length; i++) {
+      indexes.push(expanded.length);
+      expanded.push(statements[i]);
+      const item = metadata.get(i);
+      if (item?.value) {
+        expanded.push(this._db.prepare(
+          `INSERT INTO cloud_resource_metadata
+          (user_id, resource_key, encrypted_value) SELECT ?, ?, ? WHERE changes() > 0
+          ON CONFLICT (user_id, resource_key) DO UPDATE SET encrypted_value = excluded.encrypted_value`
+        ).bind(userId, item.key, item.value));
+      }
+    }
+    if (expanded.length === 0) return [];
+    if (expanded.length === 1 && assertions.length === 0) return [await expanded[0].run()];
+    if ((assertions.length || expanded.length !== statements.length) && !this.cloudDataManagement) {
+      throw new Error("Cloud management requires transactional batches");
+    }
+    try {
+      let results;
+      if (this.cloudDataManagement) results = await this._db.batch(expanded);
+      else {
+        results = [];
+        for (const stmt of expanded) results.push(await stmt.run());
+      }
+      return indexes.map((index) => results[index]);
+    } catch (error) {
+      if (/cloud_metadata_guard/.test(error.message || "")) {
+        throw Object.assign(new Error("Cloud resource ownership changed"), { code: "CLOUD_RESOURCE_CHANGED" });
+      }
+      if (/cloud_owner_guard/.test(error.message || "")) {
+        const denied = new Error("Cloud owner is retired or generation changed");
+        denied.code = "CLOUD_OWNER_RETIRED";
+        throw denied;
+      }
+      throw error;
+    }
+  }
+  async getCloudResourceMetadata(userId, resourceKey) {
+    const row = await this._db.prepare("SELECT encrypted_value FROM cloud_resource_metadata WHERE user_id=? AND resource_key=?").bind(userId, resourceKey).first();
+    return row?.encrypted_value ?? null;
+  }
+  async listCloudResourceRows(userId) {
+    const tables = { task: "scheduled_messages", state: "client_state", credential: "llm_credentials", outbox: "message_outbox", subscription: "push_subscriptions", metadata: "cloud_resource_metadata" };
+    const result = { gaps: [] };
+    await Promise.all(Object.entries(tables).map(async ([type, table]) => {
+      try {
+        const response = await this._db.prepare(`SELECT * FROM ${table} WHERE user_id = ?`).bind(userId).all();
+        result[type] = response.results || [];
+      } catch {
+        result[type] = [];
+        result.gaps.push({ source: type, code: "READ_FAILED", message: "Cloud storage source could not be read" });
+      }
+    }));
+    return result;
+  }
+  async _cloudRecord(row) {
+    if (!row) return null;
+    let data = row.data;
+    const marker = /^\u001famsg-record\u001f([1-9][0-9]*)$/.exec(data);
+    if (marker) {
+      const result = await this._db.prepare(
+        `SELECT chunk_index,value FROM cloud_data_record_chunks
+        WHERE user_id=? AND kind=? AND id=? AND write_token=? ORDER BY chunk_index`
+      ).bind(row.user_id, row.kind, row.id, row.write_token).all();
+      const chunks = result.results || [];
+      if (chunks.length !== Number(marker[1]) || chunks.some((chunk, index) => chunk.chunk_index !== index)) {
+        throw Object.assign(new Error("Cloud management record chunks are incomplete"), { code: "CLOUD_RECORD_INCOMPLETE" });
+      }
+      data = chunks.map((chunk) => chunk.value).join("");
+    }
+    return { id: row.id, userId: row.user_id, kind: row.kind, data, updatedAt: row.updated_at };
+  }
+  async putCloudDataRecord(userId, kind, id, data, { idempotencyKey = null, createOnly = false, leaseToken, work } = {}) {
+    const slices = [];
+    if (data.length > 200 * 1024) for (let offset = 0; offset < data.length; offset += 200 * 1024) slices.push(data.slice(offset, offset + 200 * 1024));
+    const rootValue = slices.length ? "amsg-record" + slices.length : data;
+    const writeToken = globalThis.crypto.randomUUID();
+    const now = Date.now();
+    const statements = [];
+    if (leaseToken !== void 0) {
+      statements.push(this._db.prepare(
+        `UPDATE cloud_data_records SET data=?,updated_at=?,write_token=?
+        WHERE user_id=? AND kind=? AND id=? AND lease_token=? AND lease_until>?`
+      ).bind(rootValue, now, writeToken, userId, kind, id, leaseToken, now));
+    } else {
+      const conflict = idempotencyKey || createOnly ? "DO NOTHING" : "DO UPDATE SET data=excluded.data,updated_at=excluded.updated_at,write_token=excluded.write_token";
+      statements.push(this._db.prepare(`INSERT INTO cloud_data_records (user_id,kind,id,data,idempotency_key,updated_at,write_token)
+        VALUES (?,?,?,?,?,?,?) ON CONFLICT ${conflict}`).bind(userId, kind, id, rootValue, idempotencyKey, now, writeToken));
+    }
+    const rootGate = "EXISTS (SELECT 1 FROM cloud_data_records WHERE user_id=? AND kind=? AND id=? AND write_token=?)";
+    statements.push(this._db.prepare(
+      `DELETE FROM cloud_data_record_chunks WHERE user_id=? AND kind=? AND id=? AND ${rootGate}`
+    ).bind(userId, kind, id, userId, kind, id, writeToken));
+    for (let index = 0; index < slices.length; index++) {
+      statements.push(this._db.prepare(
+        `INSERT INTO cloud_data_record_chunks (user_id,kind,id,chunk_index,value,write_token)
+        SELECT ?,?,?,?,?,? WHERE ${rootGate}`
+      ).bind(userId, kind, id, index, slices[index], writeToken, userId, kind, id, writeToken));
+    }
+    const schedule = work ?? (["inventory", "plan"].includes(kind) ? { nextRunAt: null, expiresAt: now + 36e5 } : null);
+    if (schedule) statements.push(this._db.prepare(
+      `INSERT INTO cloud_data_work (user_id,kind,id,next_run_at,expires_at)
+      SELECT ?,?,?,?,? WHERE ${rootGate}
+      ON CONFLICT (user_id,kind,id) DO UPDATE SET next_run_at=excluded.next_run_at,expires_at=excluded.expires_at`
+    ).bind(userId, kind, id, schedule.nextRunAt ?? null, schedule.expiresAt ?? null, userId, kind, id, writeToken));
+    if (!this.cloudDataManagement) throw new Error("Cloud management requires transactional batches");
+    const results = await this._db.batch(statements);
+    if (leaseToken !== void 0 && !results[0].meta.changes) throw Object.assign(new Error("Cloud operation processing lease was lost"), { code: "CLOUD_LEASE_LOST" });
+    if (idempotencyKey) {
+      return this._cloudRecord(await this._db.prepare(`SELECT * FROM cloud_data_records WHERE user_id=? AND kind=? AND idempotency_key=?`).bind(userId, kind, idempotencyKey).first());
+    }
+    return this.getCloudDataRecord(userId, kind, id);
+  }
+  async getCloudDataRecord(userId, kind, id) {
+    return this._cloudRecord(await this._db.prepare("SELECT * FROM cloud_data_records WHERE user_id=? AND kind=? AND id=?").bind(userId, kind, id).first());
+  }
+  async getCloudDataRecordByIdempotency(userId, kind, idempotencyKey) {
+    return this._cloudRecord(await this._db.prepare("SELECT * FROM cloud_data_records WHERE user_id=? AND kind=? AND idempotency_key=?").bind(userId, kind, idempotencyKey).first());
+  }
+  async _cloudRecordForList(row) {
+    try {
+      return await this._cloudRecord(row);
+    } catch (error) {
+      return {
+        id: row.id,
+        userId: row.user_id,
+        kind: row.kind,
+        data: null,
+        error: error.code === "CLOUD_RECORD_INCOMPLETE" ? error.code : "CLOUD_RECORD_READ_FAILED",
+        updatedAt: row.updated_at
+      };
+    }
+  }
+  async listCloudDataRecords(userId, kind) {
+    const rows = await this._db.prepare("SELECT * FROM cloud_data_records WHERE user_id=? AND kind=? ORDER BY updated_at DESC, id").bind(userId, kind).all();
+    return Promise.all((rows.results || []).map((row) => this._cloudRecordForList(row)));
+  }
+  async listCloudDataRecordsAcrossUsers(kind) {
+    const rows = await this._db.prepare("SELECT * FROM cloud_data_records WHERE kind=? ORDER BY updated_at, id").bind(kind).all();
+    return Promise.all((rows.results || []).map((row) => this._cloudRecordForList(row)));
+  }
+  async claimCloudDataRecord(userId, kind, id, leaseMs, leaseToken = null) {
+    const now = Date.now();
+    const result = await this._db.prepare(
+      `UPDATE cloud_data_records SET lease_until=?,lease_token=?
+      WHERE user_id=? AND kind=? AND id=? AND (lease_until IS NULL OR lease_until <= ?)`
+    ).bind(now + leaseMs, leaseToken, userId, kind, id, now).run();
+    return result.meta.changes > 0;
+  }
+  async releaseCloudDataRecord(userId, kind, id, leaseToken) {
+    const tokenGate = leaseToken === void 0 ? "" : " AND lease_token=?";
+    const params = [userId, kind, id, ...leaseToken === void 0 ? [] : [leaseToken]];
+    await this._db.prepare(`UPDATE cloud_data_records SET lease_until=NULL,lease_token=NULL WHERE user_id=? AND kind=? AND id=?${tokenGate}`).bind(...params).run();
+  }
+  async renewCloudDataRecordLease(userId, kind, id, leaseMs, leaseToken) {
+    const now = Date.now();
+    const result = await this._db.prepare(
+      `UPDATE cloud_data_records SET lease_until=?
+      WHERE user_id=? AND kind=? AND id=? AND lease_token=? AND lease_until>?`
+    ).bind(now + leaseMs, userId, kind, id, leaseToken, now).run();
+    return result.meta.changes > 0;
+  }
+  async deleteCloudDataRecord(userId, kind, id) {
+    if (!this.cloudDataManagement) throw new Error("Cloud management requires transactional batches");
+    const results = await this._db.batch([
+      this._db.prepare("DELETE FROM cloud_data_record_chunks WHERE user_id=? AND kind=? AND id=?").bind(userId, kind, id),
+      this._db.prepare("DELETE FROM cloud_data_records WHERE user_id=? AND kind=? AND id=?").bind(userId, kind, id)
+    ]);
+    return results[1].meta.changes > 0;
+  }
+  async cleanupCloudDataRecords(kind, beforeMs) {
+    if (!this.cloudDataManagement) throw new Error("Cloud management requires transactional batches");
+    const now = Date.now();
+    const results = await this._db.batch([
+      this._db.prepare(`DELETE FROM cloud_data_record_chunks AS c WHERE c.kind=? AND EXISTS
+        (SELECT 1 FROM cloud_data_records r WHERE r.user_id=c.user_id AND r.kind=c.kind AND r.id=c.id
+          AND r.updated_at < ? AND (r.lease_until IS NULL OR r.lease_until <= ?))`).bind(kind, beforeMs, now),
+      this._db.prepare(`DELETE FROM cloud_data_records WHERE kind=? AND updated_at < ?
+        AND (lease_until IS NULL OR lease_until <= ?)`).bind(kind, beforeMs, now)
+    ]);
+    return results[1].meta.changes || 0;
+  }
+  async listDueCloudDataOperations(now = Date.now(), limit = 25) {
+    const result = await this._db.prepare(`SELECT r.* FROM cloud_data_work w JOIN cloud_data_records r
+      ON r.user_id=w.user_id AND r.kind=w.kind AND r.id=w.id
+      WHERE w.kind='operation' AND w.next_run_at IS NOT NULL AND w.next_run_at<=?
+        AND (r.lease_until IS NULL OR r.lease_until<=?)
+      ORDER BY w.next_run_at LIMIT ?`).bind(now, now, limit).all();
+    return Promise.all((result.results || []).map((row) => this._cloudRecordForList(row)));
+  }
+  async cleanupExpiredCloudDataRecords(now = Date.now(), limit = 100) {
+    const result = await this._db.prepare(`DELETE FROM cloud_data_records WHERE rowid IN (
+      SELECT r.rowid FROM cloud_data_work w JOIN cloud_data_records r
+      ON r.user_id=w.user_id AND r.kind=w.kind AND r.id=w.id
+      WHERE w.expires_at IS NOT NULL AND w.expires_at<=?
+        AND (r.lease_until IS NULL OR r.lease_until<=?) ORDER BY w.expires_at LIMIT ?
+    )`).bind(now, now, limit).run();
+    return result.meta.changes || 0;
+  }
+  async getCloudMaintenanceBatch(name, table, limit = 100) {
+    if (!["cloud_resource_metadata", "cloud_data_records"].includes(table)) throw new Error("Invalid maintenance source");
+    let marker = await this._db.prepare("SELECT * FROM cloud_data_maintenance WHERE name=?").bind(name).first();
+    if (!marker) {
+      await this._db.prepare(`INSERT INTO cloud_data_maintenance (name,cursor,upper_bound,completed)
+        SELECT ?,0,COALESCE(MAX(rowid),0),0 FROM ${table} WHERE 1 ON CONFLICT (name) DO NOTHING`).bind(name).run();
+      marker = await this._db.prepare("SELECT * FROM cloud_data_maintenance WHERE name=?").bind(name).first();
+    }
+    if (marker.completed) return { rows: [], completed: true };
+    const result = await this._db.prepare(`SELECT rowid AS maintenance_rowid,* FROM ${table}
+      WHERE rowid>? AND rowid<=? ORDER BY rowid LIMIT ?`).bind(marker.cursor, marker.upper_bound, limit).all();
+    return { rows: result.results || [], upperBound: marker.upper_bound, cursor: marker.cursor, completed: false };
+  }
+  async finishCloudMaintenanceBatch(name, cursor, completed) {
+    await this._db.prepare(`UPDATE cloud_data_maintenance SET cursor=MAX(cursor,?),completed=MAX(completed,?) WHERE name=?`).bind(cursor, completed ? 1 : 0, name).run();
+  }
+  async indexCloudDataRecordWork(userId, kind, id, work, expectedWriteToken = null) {
+    await this._db.prepare(`INSERT INTO cloud_data_work (user_id,kind,id,next_run_at,expires_at)
+      SELECT user_id,kind,id,?,? FROM cloud_data_records WHERE user_id=? AND kind=? AND id=? AND write_token IS ?
+      ON CONFLICT (user_id,kind,id) DO NOTHING`).bind(work.nextRunAt ?? null, work.expiresAt ?? null, userId, kind, id, expectedWriteToken).run();
+  }
+  async readCloudMaintenanceRecord(row) {
+    return this._cloudRecordForList(row);
+  }
+  async repairCloudResourceMetadata(limit = 100) {
+    const name = "metadata-sidecars-v1";
+    const batch = await this.getCloudMaintenanceBatch(name, "cloud_resource_metadata", limit);
+    if (batch.completed) return;
+    const cursor = batch.rows.at(-1)?.maintenance_rowid ?? batch.upperBound;
+    if (batch.rows.length) await this.cleanupCloudResourceMetadata(null, { after: batch.cursor, through: cursor });
+    await this.finishCloudMaintenanceBatch(name, cursor, batch.rows.length < limit || cursor >= batch.upperBound);
+  }
+  /** One explicit repair, or a bounded upgrade batch; never called as a recurring sweep. */
+  async cleanupCloudResourceMetadata(userId = null, range = null) {
+    const targets = {
+      task: [`SELECT 1 FROM scheduled_messages r WHERE r.user_id=m.user_id AND r.uuid=json_extract(m.resource_key,'$[1]')`],
+      state: [
+        `SELECT 1 FROM client_state r WHERE r.user_id=m.user_id
+          AND r.namespace=json_extract(m.resource_key,'$[1]') AND r.key=json_extract(m.resource_key,'$[2]')`,
+        `SELECT 1 FROM client_state r WHERE r.user_id=m.user_id
+          AND r.namespace=char(31)||'amsg-chunks'||char(31)||json_extract(m.resource_key,'$[1]')
+          AND r.key >= json_extract(m.resource_key,'$[2]')||char(31)
+          AND r.key < json_extract(m.resource_key,'$[2]')||char(32)`
+      ],
+      credential: [`SELECT 1 FROM llm_credentials r WHERE r.user_id=m.user_id AND r.cred_id=json_extract(m.resource_key,'$[1]')`],
+      outbox: [`SELECT 1 FROM message_outbox r WHERE r.user_id=m.user_id AND r.message_id=json_extract(m.resource_key,'$[1]')`],
+      subscription: [`SELECT 1 FROM push_subscriptions r WHERE r.user_id=m.user_id`]
+    };
+    const statements = Object.entries(targets).map(([type, exists]) => {
+      const conditions = ["json_valid(resource_key)", "json_extract(resource_key,'$[0]')=?"];
+      const args = [type];
+      if (userId !== null) {
+        conditions.unshift("user_id=?");
+        args.unshift(userId);
+      }
+      if (range) {
+        conditions.unshift("m.rowid>? AND m.rowid<=?");
+        args.unshift(range.after, range.through);
+      }
+      return this._db.prepare(`DELETE FROM cloud_resource_metadata AS m WHERE ${conditions.join(" AND ")}
+        AND ${exists.map((sql) => `NOT EXISTS (${sql})`).join(" AND ")}`).bind(...args);
+    });
+    const results = await this._cloudBatch(statements, userId);
+    return results.reduce((sum, result) => sum + (result.meta.changes || 0), 0);
+  }
+  async listCloudOwners(userId) {
+    const response = await this._db.prepare("SELECT owner_type,owner_id,active,generation,updated_at FROM cloud_data_owners WHERE user_id=? ORDER BY owner_type,owner_id").bind(userId).all();
+    return (response.results || []).map((row) => ({ owner: { type: row.owner_type, id: row.owner_id }, active: !!row.active, generation: row.generation, updatedAt: row.updated_at }));
+  }
+  async getCloudOwner(userId, owner) {
+    const row = await this._db.prepare("SELECT active,generation,updated_at FROM cloud_data_owners WHERE user_id=? AND owner_type=? AND owner_id=?").bind(userId, owner.type, owner.id).first();
+    return row ? { active: !!row.active, generation: row.generation, updatedAt: row.updated_at } : { active: true, generation: 0, updatedAt: null };
+  }
+  async setCloudOwnerActive(userId, owner, active, expectedGeneration) {
+    const statements = [];
+    if (expectedGeneration !== void 0) {
+      if (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) throw new Error("Invalid expected owner generation");
+      statements.push(this._db.prepare(
+        `INSERT INTO cloud_guard_assertions (allowed) SELECT 0 WHERE
+        COALESCE((SELECT generation FROM cloud_data_owners WHERE user_id=? AND owner_type=? AND owner_id=?),0) <> ?`
+      ).bind(userId, owner.type, owner.id, expectedGeneration));
+    }
+    statements.push(this._db.prepare(
+      `INSERT INTO cloud_data_owners (user_id,owner_type,owner_id,active,generation,updated_at)
+      VALUES (?,?,?,?,1,?) ON CONFLICT (user_id,owner_type,owner_id) DO UPDATE SET
+      active=excluded.active,generation=cloud_data_owners.generation+1,updated_at=excluded.updated_at`
+    ).bind(userId, owner.type, owner.id, active ? 1 : 0, Date.now()));
+    statements.push(this._db.prepare("SELECT active,generation,updated_at FROM cloud_data_owners WHERE user_id=? AND owner_type=? AND owner_id=?").bind(userId, owner.type, owner.id));
+    try {
+      if (!this.cloudDataManagement) throw new Error("Cloud management requires transactional batches");
+      const results = await this._db.batch(statements);
+      const row = results[results.length - 1].results[0];
+      return { active: !!row.active, generation: row.generation, updatedAt: row.updated_at };
+    } catch (error) {
+      if (/cloud_owner_guard/.test(error.message || "")) throw Object.assign(new Error("Cloud owner changed; refresh before restoring"), { code: "CLOUD_OWNER_CHANGED" });
+      throw error;
+    }
+  }
+  async isCloudOwnerGuardValid(userId, guard) {
+    if (!guard) return true;
+    const condition = this._cloudGuardPredicate(userId, guard);
+    const row = await this._db.prepare(`SELECT ${condition.sql} AS valid`).bind(...condition.args).first();
+    return !!row?.valid;
+  }
+  /** Delete only the exact physical snapshot; no untrusted SQL identifiers. */
+  async deleteCloudResourceRows(userId, locators, { operationId, leaseToken } = {}) {
+    const specs = {
+      task: { table: "scheduled_messages", keys: ["user_id", "id"], columns: ["id", "user_id", "uuid", "encrypted_payload", "message_type", "next_send_at", "lease_until", "retry_after", "serialize_group", "status", "retry_count", "last_error", "created_at", "updated_at"] },
+      state: { table: "client_state", keys: ["user_id", "namespace", "key"], columns: ["user_id", "namespace", "key", "value", "updated_at"] },
+      credential: { table: "llm_credentials", keys: ["user_id", "cred_id"], columns: ["user_id", "cred_id", "encrypted_value", "created_at", "updated_at"] },
+      outbox: { table: "message_outbox", keys: ["user_id", "message_id"], columns: ["id", "user_id", "message_id", "task_uuid", "session_id", "message_index", "total_messages", "payload", "created_at", "delivered_at", "acked_at"] },
+      subscription: { table: "push_subscriptions", keys: ["user_id"], columns: ["user_id", "subscription", "updated_at"] }
+    };
+    let deleted = 0, changed = 0;
+    for (const locator of locators) {
+      const spec = specs[locator.type];
+      if (!spec || !Array.isArray(locator.rows) || !locator.rows.length || locator.rows.some((row) => row.user_id !== userId)) {
+        changed++;
+        continue;
+      }
+      const statements = [];
+      if (operationId !== void 0) {
+        statements.push(this._db.prepare(
+          `INSERT INTO cloud_guard_assertions (lease_allowed)
+          SELECT 0 WHERE NOT EXISTS (SELECT 1 FROM cloud_data_records WHERE user_id=? AND kind='operation'
+            AND id=? AND lease_token=? AND lease_until >
+            CAST(strftime('%s','now') AS INTEGER)*1000 + CAST(substr(strftime('%f','now'),4,3) AS INTEGER))`
+        ).bind(userId, operationId, leaseToken ?? null));
+      }
+      if (locator.metadataKey && Object.hasOwn(locator, "encryptedMetadata")) {
+        const identityChecks = locator.rows.map((row) => ({
+          sql: `EXISTS (SELECT 1 FROM ${spec.table} WHERE ${spec.keys.map((column) => `${column} IS ?`).join(" AND ")})`,
+          args: spec.keys.map((column) => row[column])
+        }));
+        for (const check of identityChecks) statements.push(this._db.prepare(
+          `INSERT INTO cloud_guard_assertions (allowed) SELECT 0 WHERE ${check.sql}
+           AND NOT ((SELECT encrypted_value FROM cloud_resource_metadata WHERE user_id=? AND resource_key=?) IS ?)`
+        ).bind(...check.args, userId, locator.metadataKey, locator.encryptedMetadata));
+      }
+      if (locator.type === "state" && locator.logicalState) {
+        const { namespace, key } = locator.logicalState;
+        const identities = JSON.stringify(locator.rows.map((row) => ({ namespace: row.namespace, key: row.key })));
+        statements.push(this._db.prepare(
+          `INSERT INTO cloud_guard_assertions (allowed)
+          SELECT 0 WHERE EXISTS (SELECT 1 FROM client_state r WHERE r.user_id=? AND
+            ((r.namespace=? AND r.key=?) OR (r.namespace=? AND r.key>=? AND r.key<?))
+            AND NOT EXISTS (SELECT 1 FROM json_each(?) e WHERE
+              r.namespace=json_extract(e.value,'$.namespace') AND r.key=json_extract(e.value,'$.key')))`
+        ).bind(userId, namespace, key, "amsg-chunks" + namespace, key + "", key + " ", identities));
+      }
+      for (const row of locator.rows) {
+        const columns = spec.columns.filter((column) => Object.hasOwn(row, column));
+        const predicate = columns.map((column) => `${column} IS ?`).join(" AND ");
+        const values = columns.map((column) => row[column]);
+        const identity = spec.keys.map((column) => `${column} IS ?`).join(" AND ");
+        statements.push(this._db.prepare(
+          `INSERT INTO cloud_guard_assertions (allowed)
+          SELECT 0 WHERE EXISTS (SELECT 1 FROM ${spec.table} WHERE ${identity})
+          AND NOT EXISTS (SELECT 1 FROM ${spec.table} WHERE ${predicate})`
+        ).bind(...spec.keys.map((column) => row[column]), ...values));
+      }
+      for (const row of locator.rows) {
+        const columns = spec.columns.filter((column) => Object.hasOwn(row, column));
+        statements.push(this._db.prepare(`DELETE FROM ${spec.table} WHERE ${columns.map((column) => `${column} IS ?`).join(" AND ")}`).bind(...columns.map((column) => row[column])));
+      }
+      if (locator.metadataKey) statements.push(this._db.prepare("DELETE FROM cloud_resource_metadata WHERE user_id=? AND resource_key=?").bind(userId, locator.metadataKey));
+      try {
+        if (!this.cloudDataManagement) throw new Error("Cloud management requires transactional batches");
+        await this._db.batch(statements);
+        deleted++;
+      } catch (error) {
+        if (/cloud_lease_guard/.test(error.message || "")) throw Object.assign(new Error("Cloud operation processing lease was lost"), { code: "CLOUD_LEASE_LOST" });
+        if (/cloud_owner_guard/.test(error.message || "")) changed++;
+        else throw error;
+      }
+    }
+    return { deleted, changed };
+  }
   async initSchema() {
     await this._db.prepare(SQLITE_TABLE_SQL).run();
     await this._db.prepare(CLIENT_STATE_TABLE_SQL).run();
     await this._db.prepare(PUSH_SUBSCRIPTION_TABLE_SQL).run();
     await this._db.prepare(LLM_CREDENTIALS_TABLE_SQL).run();
     await this._db.prepare(MESSAGE_OUTBOX_TABLE_SQL).run();
+    for (const sql of CLOUD_DATA_TABLES_SQL) await this._db.prepare(sql).run();
     for (const migration of SQLITE_MIGRATIONS) {
       try {
         await this._db.prepare(migration.sql).run();
@@ -12726,6 +15142,7 @@ var D1Adapter = class {
         indexResults.push({ name: index.name, status: "failed", description: index.description, critical: !!index.critical, error: error.message });
       }
     }
+    for (const trigger of CLOUD_DATA_DELETE_TRIGGERS) await this._db.prepare(trigger.sql).run();
     const criticalFailures = indexResults.filter((i) => i.critical && i.status === "failed");
     if (criticalFailures.length > 0) {
       const names = criticalFailures.map((i) => i.name).join(", ");
@@ -12749,7 +15166,7 @@ var D1Adapter = class {
    * 构变了而老部署没跑过 initSchema 时，cron 会每分钟静默挂在缺的那一列上，
    * 界面上一切正常——这个方法就是让宿主查得出来。
    *
-   * @returns {Promise<{ tables: Record<string, string[]>, indexes: string[] }>}
+   * @returns {Promise<{ tables: Record<string, string[]>, indexes: string[], triggers: string[] }>}
    */
   async describeSchema() {
     const tableRes = await this._db.prepare(
@@ -12766,7 +15183,8 @@ var D1Adapter = class {
     const indexRes = await this._db.prepare(
       `SELECT name FROM sqlite_master WHERE type = 'index' AND name IS NOT NULL`
     ).all();
-    return { tables, indexes: (indexRes.results || []).map((row) => row.name) };
+    const triggerRes = await this._db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger'").all();
+    return { tables, indexes: (indexRes.results || []).map((row) => row.name), triggers: (triggerRes.results || []).map((row) => row.name) };
   }
   async dropSchema() {
     await this._db.prepare("DROP TABLE IF EXISTS scheduled_messages").run();
@@ -12774,15 +15192,21 @@ var D1Adapter = class {
     await this._db.prepare("DROP TABLE IF EXISTS push_subscriptions").run();
     await this._db.prepare("DROP TABLE IF EXISTS llm_credentials").run();
     await this._db.prepare("DROP TABLE IF EXISTS message_outbox").run();
+    for (const table of ["cloud_data_work", "cloud_data_maintenance", "cloud_data_record_chunks", "cloud_data_records", "cloud_data_owners", "cloud_resource_metadata", "cloud_guard_assertions"]) {
+      await this._db.prepare(`DROP TABLE IF EXISTS ${table}`).run();
+    }
   }
-  async createTask(params) {
+  async createTask(params, cloudGuard = params.cloudGuard) {
     const now = this._now();
     const nextSendAt = this._iso(params.next_send_at);
-    const res = await this._db.prepare(
+    const stmt = this._db.prepare(
       `INSERT INTO scheduled_messages
         (user_id, uuid, encrypted_payload, next_send_at, message_type, status, retry_count, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`
-    ).bind(params.user_id, params.uuid, params.encrypted_payload, nextSendAt, params.message_type, now, now).run();
+    ).bind(params.user_id, params.uuid, params.encrypted_payload, nextSendAt, params.message_type, now, now);
+    const [res] = await this._cloudBatch([stmt], params.user_id, [cloudGuard], /* @__PURE__ */ new Map([
+      [0, { key: JSON.stringify(["task", params.uuid]), value: params.encryptedCloudMetadata, ...Object.hasOwn(params, "expectedCloudMetadata") ? { expected: params.expectedCloudMetadata } : {} }]
+    ]));
     const id = res.meta.last_row_id;
     return this._db.prepare(
       `SELECT id, uuid, next_send_at, status, created_at FROM scheduled_messages WHERE id = ?`
@@ -12800,7 +15224,7 @@ var D1Adapter = class {
    * @returns {Promise<Object>} createTask 的返回行 + `superseded`（旧行是否
    *   真的被删掉；false = 旧行本就不存在）
    */
-  async createTaskSuperseding(params, supersedesUuid) {
+  async createTaskSuperseding(params, supersedesUuid, cloudGuard = params.cloudGuard) {
     const now = this._now();
     const nextSendAt = this._iso(params.next_send_at);
     const statements = [
@@ -12813,13 +15237,9 @@ var D1Adapter = class {
          VALUES (?, ?, ?, ?, ?, 'pending', 0, ?, ?)`
       ).bind(params.user_id, params.uuid, params.encrypted_payload, nextSendAt, params.message_type, now, now)
     ];
-    let results;
-    if (typeof this._db.batch === "function") {
-      results = await this._db.batch(statements);
-    } else {
-      results = [];
-      for (const stmt of statements) results.push(await stmt.run());
-    }
+    const results = await this._cloudBatch(statements, params.user_id, [cloudGuard], /* @__PURE__ */ new Map([
+      [1, { key: JSON.stringify(["task", params.uuid]), value: params.encryptedCloudMetadata, ...Object.hasOwn(params, "expectedCloudMetadata") ? { expected: params.expectedCloudMetadata } : {} }]
+    ]));
     const superseded = (results[0].meta.changes || 0) > 0;
     const id = results[1].meta.last_row_id;
     const row = await this._db.prepare(
@@ -12856,7 +15276,7 @@ var D1Adapter = class {
     ).bind(uuid).first();
     return row ? { status: row.status } : null;
   }
-  async updateTaskById(taskId, updates) {
+  async updateTaskById(taskId, updates, cloudGuard = null) {
     const sets = [];
     const values = [];
     for (const [key, value] of Object.entries(updates)) {
@@ -12871,9 +15291,12 @@ var D1Adapter = class {
       values.push(this._now());
     }
     values.push(taskId);
-    await this._db.prepare(
+    const statement = this._db.prepare(
       `UPDATE scheduled_messages SET ${sets.join(", ")} WHERE id = ?`
-    ).bind(...values).run();
+    ).bind(...values);
+    const ownerUser = cloudGuard ? await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first() : null;
+    if (cloudGuard && !ownerUser) return null;
+    await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
     return this._db.prepare("SELECT * FROM scheduled_messages WHERE id = ?").bind(taskId).first();
   }
   /**
@@ -12885,7 +15308,7 @@ var D1Adapter = class {
    * ——用户以为改期生效了，实际什么都没留下。正文这类字段不受这道门约束：它们
    * 只影响以后的触发，收尾那边本来就不会覆盖（见 run-tick 的收尾守卫）。
    */
-  async updateTaskByUuid(uuid, userId, encryptedPayload, extraFields) {
+  async updateTaskByUuid(uuid, userId, encryptedPayload, extraFields, cloudGuard = null) {
     const now = this._now();
     const sets = ["encrypted_payload = ?", "updated_at = ?"];
     const values = [encryptedPayload, now];
@@ -12904,10 +15327,11 @@ var D1Adapter = class {
       leaseGate = " AND (lease_until IS NULL OR lease_until <= ?)";
       values.push(now);
     }
-    const res = await this._db.prepare(
+    const statement = this._db.prepare(
       `UPDATE scheduled_messages SET ${sets.join(", ")}
        WHERE uuid = ? AND user_id = ? AND status = 'pending'${leaseGate}`
-    ).bind(...values).run();
+    ).bind(...values);
+    const [res] = await this._cloudBatch([statement], userId, [cloudGuard]);
     if (!res.meta.changes) return null;
     return { uuid, updated_at: now };
   }
@@ -12968,7 +15392,7 @@ var D1Adapter = class {
    * @returns {Promise<boolean>} true = 领到了；false = 别人正拿着租约、同分组
    *   有任务正在跑、排期被改过、或行已不是 pending
    */
-  async claimTask(taskId, expectedNextSendAt, leaseUntil, serializeGroup = null) {
+  async claimTask(taskId, expectedNextSendAt, leaseUntil, serializeGroup = null, cloudGuard = null) {
     const expected = typeof expectedNextSendAt === "string" ? expectedNextSendAt : this._iso(expectedNextSendAt);
     const grouped = typeof serializeGroup === "string" && serializeGroup.length > 0;
     const now = this._now();
@@ -12992,9 +15416,12 @@ var D1Adapter = class {
           )`;
       values.push(serializeGroup, taskId, now);
     }
-    const res = await this._db.prepare(
+    const statement = this._db.prepare(
       `UPDATE scheduled_messages SET ${sets.join(", ")} WHERE ${where}`
-    ).bind(...values).run();
+    ).bind(...values);
+    const ownerUser = cloudGuard ? await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first() : null;
+    if (cloudGuard && !ownerUser) return false;
+    const [res] = await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
     return (res.meta.changes || 0) > 0;
   }
   /**
@@ -13006,11 +15433,14 @@ var D1Adapter = class {
    * @param {string|Date} leaseUntil - 新的租期末尾
    * @returns {Promise<boolean>} true = 续上了
    */
-  async renewTaskLease(taskId, leaseUntil) {
-    const res = await this._db.prepare(
+  async renewTaskLease(taskId, leaseUntil, cloudGuard = null) {
+    const statement = this._db.prepare(
       `UPDATE scheduled_messages SET lease_until = ?
        WHERE id = ? AND status = 'pending' AND lease_until IS NOT NULL`
-    ).bind(this._iso(leaseUntil), taskId).run();
+    ).bind(this._iso(leaseUntil), taskId);
+    const ownerUser = cloudGuard ? await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first() : null;
+    if (cloudGuard && !ownerUser) return false;
+    const [res] = await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
     return (res.meta.changes || 0) > 0;
   }
   async listTasks(userId, opts = {}) {
@@ -13040,7 +15470,8 @@ var D1Adapter = class {
     const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1e3).toISOString();
     const res = await this._db.prepare(
       `DELETE FROM scheduled_messages
-       WHERE status IN ('sent', 'failed') AND updated_at < ?`
+       WHERE rowid IN (SELECT rowid FROM scheduled_messages
+         WHERE status IN ('sent', 'failed') AND updated_at < ? LIMIT 100)`
     ).bind(cutoff).run();
     return res.meta.changes || 0;
   }
@@ -13107,7 +15538,7 @@ var D1Adapter = class {
    *   回 `true` = 这个 key 的行已经不在（删掉了，或本来就没有）、`false` = 行还在
    *   （库里那行更新，删除被条件写拦下）；前缀形态不探测，回 `null`。
    */
-  async upsertClientState(userId, entries, cleanups = [], now = Date.now()) {
+  async upsertClientState(userId, entries2, cleanups = [], now = Date.now(), cloudGuard = null) {
     const UPSERT_SQL = `INSERT INTO client_state (user_id, namespace, key, value, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (user_id, namespace, key) DO UPDATE SET
@@ -13124,8 +15555,12 @@ var D1Adapter = class {
     const PROBE_KEY_SQL = `SELECT COUNT(*) AS n FROM client_state
        WHERE user_id = ? AND namespace = ? AND key = ?`;
     const statements = [];
+    const metadata = /* @__PURE__ */ new Map();
     const probeIndexes = [];
     for (const c of cleanups) {
+      if (typeof c.cloudMetadataKey === "string" && Object.hasOwn(c, "expectedCloudMetadata")) {
+        metadata.set(statements.length, { key: c.cloudMetadataKey, expected: c.expectedCloudMetadata });
+      }
       if (typeof c.key === "string") {
         statements.push(this._db.prepare(CLEANUP_KEY_SQL).bind(userId, c.namespace, c.key, c.updatedAt, now));
         probeIndexes.push(statements.length);
@@ -13138,20 +15573,22 @@ var D1Adapter = class {
       }
     }
     const upsertStart = statements.length;
-    for (const entry of entries) {
+    for (const entry of entries2) {
       statements.push(
         this._db.prepare(UPSERT_SQL).bind(userId, entry.namespace, entry.key, entry.value, entry.updatedAt, now)
       );
     }
-    let results;
-    if (typeof this._db.batch === "function") {
-      results = await this._db.batch(statements);
-    } else {
-      results = [];
-      for (const stmt of statements) {
-        results.push(await stmt.run());
-      }
-    }
+    entries2.forEach((entry, index) => metadata.set(upsertStart + index, {
+      key: JSON.stringify(["state", entry.namespace, entry.key]),
+      value: entry.encryptedCloudMetadata,
+      ...Object.hasOwn(entry, "expectedCloudMetadata") ? { expected: entry.expectedCloudMetadata } : {}
+    }));
+    const results = await this._cloudBatch(
+      statements,
+      userId,
+      [cloudGuard, ...entries2.map((entry) => entry.cloudGuard), ...cleanups.map((entry) => entry.cloudGuard)],
+      metadata
+    );
     const outcomes = results.slice(upsertStart).map((res) => res.meta.changes > 0);
     let upserted = 0;
     let skipped = 0;
@@ -13200,7 +15637,7 @@ var D1Adapter = class {
    */
   async cleanupClientState(targets = []) {
     if (!Array.isArray(targets) || targets.length === 0) return 0;
-    const SQL = "DELETE FROM client_state WHERE namespace = ? AND updated_at < ?";
+    const SQL = "DELETE FROM client_state WHERE rowid IN (SELECT rowid FROM client_state WHERE namespace = ? AND updated_at < ? LIMIT 100)";
     const statements = targets.map(
       (target) => this._db.prepare(SQL).bind(target.namespace, target.updatedBefore)
     );
@@ -13375,24 +15812,23 @@ var D1Adapter = class {
    * @param {Array<{ credId: string, encryptedValue: string }>} entries
    * @returns {Promise<number>} 实际写入/覆盖的行数
    */
-  async upsertLlmCredentials(userId, entries) {
-    if (!entries || entries.length === 0) return 0;
+  async upsertLlmCredentials(userId, entries2, cloudGuard = null) {
+    if (!entries2 || entries2.length === 0) return 0;
     const now = this._now();
     const SQL = `INSERT INTO llm_credentials (user_id, cred_id, encrypted_value, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (user_id, cred_id) DO UPDATE SET
          encrypted_value = excluded.encrypted_value,
          updated_at = excluded.updated_at`;
-    const statements = entries.map(
+    const statements = entries2.map(
       (entry) => this._db.prepare(SQL).bind(userId, entry.credId, entry.encryptedValue, now, now)
     );
-    let results;
-    if (typeof this._db.batch === "function") {
-      results = await this._db.batch(statements);
-    } else {
-      results = [];
-      for (const stmt of statements) results.push(await stmt.run());
-    }
+    const metadata = new Map(entries2.map((entry, index) => [index, {
+      key: JSON.stringify(["credential", entry.credId]),
+      value: entry.encryptedCloudMetadata,
+      ...Object.hasOwn(entry, "expectedCloudMetadata") ? { expected: entry.expectedCloudMetadata } : {}
+    }]));
+    const results = await this._cloudBatch(statements, userId, [cloudGuard, ...entries2.map((entry) => entry.cloudGuard)], metadata);
     return results.reduce((n, res) => n + ((res.meta.changes || 0) > 0 ? 1 : 0), 0);
   }
   /**
@@ -13500,7 +15936,7 @@ var D1Adapter = class {
    *   `payload` 是整条 push JSON 的 encryptForStorage 密文。
    * @returns {Promise<number>} 实际写入/更新的行数
    */
-  async appendOutboxMessages(userId, rows) {
+  async appendOutboxMessages(userId, rows, cloudGuard = null) {
     if (!rows || rows.length === 0) return 0;
     const SQL = `INSERT INTO message_outbox
          (user_id, message_id, task_uuid, session_id, message_index, total_messages, payload, created_at)
@@ -13522,13 +15958,12 @@ var D1Adapter = class {
         r.created_at
       )
     );
-    let results;
-    if (typeof this._db.batch === "function") {
-      results = await this._db.batch(statements);
-    } else {
-      results = [];
-      for (const stmt of statements) results.push(await stmt.run());
-    }
+    const metadata = new Map(rows.map((row, index) => [index, {
+      key: JSON.stringify(["outbox", row.message_id]),
+      value: row.encryptedCloudMetadata,
+      ...Object.hasOwn(row, "expectedCloudMetadata") ? { expected: row.expectedCloudMetadata } : {}
+    }]));
+    const results = await this._cloudBatch(statements, userId, [cloudGuard, ...rows.map((row) => row.cloudGuard)], metadata);
     return results.reduce((n, res) => n + ((res.meta.changes || 0) > 0 ? 1 : 0), 0);
   }
   /**
@@ -13698,13 +16133,13 @@ var D1Adapter = class {
     let deleted = 0;
     if (Number.isFinite(ackedBeforeMs)) {
       const res = await this._db.prepare(
-        "DELETE FROM message_outbox WHERE acked_at IS NOT NULL AND acked_at < ?"
+        "DELETE FROM message_outbox WHERE rowid IN (SELECT rowid FROM message_outbox WHERE acked_at IS NOT NULL AND acked_at < ? LIMIT 100)"
       ).bind(ackedBeforeMs).run();
       deleted += res.meta.changes || 0;
     }
     if (Number.isFinite(allBeforeMs)) {
       const res = await this._db.prepare(
-        "DELETE FROM message_outbox WHERE created_at < ?"
+        "DELETE FROM message_outbox WHERE rowid IN (SELECT rowid FROM message_outbox WHERE created_at < ? LIMIT 100)"
       ).bind(allBeforeMs).run();
       deleted += res.meta.changes || 0;
     }
@@ -13888,22 +16323,22 @@ function createClientStateHandler(ctx) {
       return err3(400, "DECRYPTION_FAILED", "\u8BF7\u6C42\u4F53\u89E3\u5BC6\u5931\u8D25");
     }
     if (!isPlainObject(payload)) return err3(400, "INVALID_PAYLOAD_FORMAT", "\u89E3\u5BC6\u540E\u7684\u6570\u636E\u5FC5\u987B\u662F JSON \u5BF9\u8C61");
-    const entries = payload.entries;
-    if (!Array.isArray(entries) || entries.length === 0) {
+    const entries2 = payload.entries;
+    if (!Array.isArray(entries2) || entries2.length === 0) {
       return err3(400, "INVALID_STATE_ENTRIES", "entries \u5FC5\u987B\u662F\u975E\u7A7A\u6570\u7EC4");
     }
-    if (entries.length > MAX_STATE_ENTRIES_PER_REQUEST) {
-      return err3(400, "TOO_MANY_STATE_ENTRIES", `\u5355\u6B21\u6700\u591A ${MAX_STATE_ENTRIES_PER_REQUEST} \u6761`, { count: entries.length });
+    if (entries2.length > MAX_STATE_ENTRIES_PER_REQUEST) {
+      return err3(400, "TOO_MANY_STATE_ENTRIES", `\u5355\u6B21\u6700\u591A ${MAX_STATE_ENTRIES_PER_REQUEST} \u6761`, { count: entries2.length });
     }
     const maxValueBytes = Number.isInteger(ctx.maxStateValueBytes) && ctx.maxStateValueBytes > 0 ? ctx.maxStateValueBytes : DEFAULT_MAX_STATE_VALUE_BYTES;
     const accepted = [];
     const rejected = [];
-    for (let i = 0; i < entries.length; i++) {
-      const rejection = validateEntry(entries[i], i, maxValueBytes);
+    for (let i = 0; i < entries2.length; i++) {
+      const rejection = validateEntry(entries2[i], i, maxValueBytes);
       if (rejection) {
         rejected.push(rejection);
       } else {
-        const entry = entries[i];
+        const entry = entries2[i];
         const guard = entry.version ?? entry.builtAt;
         accepted.push(guard !== void 0 ? { ...entry, version: guard } : entry);
       }
@@ -14011,7 +16446,7 @@ function createClientStateNamespacesHandler(ctx) {
   }
   return { GET };
 }
-var SERVER_VERSION = true ? "2.6.0-next.33" : "0.0.0-dev";
+var SERVER_VERSION = true ? "2.6.0-next.35" : "0.0.0-dev";
 var SERVER_FEATURES = Object.freeze([
   "client-state",
   "client-state-chunking",
@@ -14136,10 +16571,952 @@ function createCapabilitiesHandler(ctx) {
     }
     return {
       status: 200,
-      body: { success: true, serverVersion: SERVER_VERSION, features: [...SERVER_FEATURES] }
+      body: { success: true, serverVersion: SERVER_VERSION, features: [...SERVER_FEATURES, ...tenantResult.context.db.cloudDataManagement ? ["cloud-data-management"] : []] }
     };
   }
   return { GET };
+}
+var encoder = new TextEncoder();
+async function cloudDataHash(value) {
+  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(value));
+  return Array.from(
+    new Uint8Array(digest),
+    (byte) => byte.toString(16).padStart(2, "0")
+  ).join("");
+}
+function timestamp(value) {
+  if (value == null) return null;
+  const parsed = typeof value === "number" ? value : Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+function safeOwner(owner) {
+  if (!owner || typeof owner.type !== "string" || !owner.type || typeof owner.id !== "string" || !owner.id)
+    return null;
+  return {
+    type: owner.type,
+    id: owner.id,
+    ...typeof owner.label === "string" ? { label: owner.label } : {}
+  };
+}
+function objectOrText(value) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+async function buildCloudDataInventory({
+  db,
+  userId,
+  userKey,
+  resolveOwner
+}) {
+  const raw = await db.listCloudResourceRows(userId);
+  const gaps = [...raw.gaps || []];
+  const entries2 = [];
+  const metadata = new Map(
+    (raw.metadata || []).map((row) => [row.resource_key, row.encrypted_value])
+  );
+  const taskPayloads = /* @__PURE__ */ new Map();
+  const taskByUuid = /* @__PURE__ */ new Map();
+  for (const row of raw.task || []) {
+    try {
+      const payload = JSON.parse(
+        await decryptFromStorage(row.encrypted_payload, userKey)
+      );
+      taskPayloads.set(row.id, payload);
+      if (row.uuid) taskByUuid.set(row.uuid, payload);
+    } catch {
+    }
+  }
+  const tasks = (raw.task || []).filter((row) => taskPayloads.has(row.id)).map((row) => ({ ...taskPayloads.get(row.id), uuid: row.uuid }));
+  const add = async ({
+    type,
+    identity,
+    rows,
+    value,
+    payload,
+    task,
+    unreadable = false,
+    status = null,
+    namespace,
+    key,
+    credId
+  }) => {
+    const metadataKey = JSON.stringify([type, ...identity]);
+    const id = await cloudDataHash(JSON.stringify([userId, metadataKey]));
+    let stored = null;
+    const encryptedMetadata = metadata.get(metadataKey);
+    if (encryptedMetadata) {
+      try {
+        stored = JSON.parse(
+          await decryptFromStorage(encryptedMetadata, userKey)
+        );
+      } catch {
+        unreadable = true;
+      }
+    }
+    let resolved = null;
+    if (resolveOwner) {
+      try {
+        resolved = await resolveOwner({
+          type,
+          namespace,
+          key,
+          credId,
+          value,
+          payload,
+          task,
+          tasks
+        });
+      } catch {
+        gaps.push({
+          source: type,
+          code: "OWNER_RESOLUTION_FAILED",
+          message: "A resource owner could not be resolved"
+        });
+      }
+    }
+    const owner = safeOwner(stored?.owner) || safeOwner(payload?.__cloudOwnerGuard?.owner) || safeOwner(payload?.metadata?.cloudOwner) || safeOwner(payload?.metadata?.owner) || safeOwner(payload?.owner) || safeOwner(task?.__cloudOwnerGuard?.owner) || safeOwner(task?.metadata?.cloudOwner) || safeOwner(task?.metadata?.owner) || safeOwner(task?.owner) || safeOwner(resolved?.owner);
+    const kind = stored?.kind ?? payload?.metadata?.kind ?? payload?.kind ?? resolved?.kind ?? null;
+    const times = rows.map((row) => timestamp(row.updated_at ?? row.created_at)).filter((time) => time !== null);
+    const byteSize = rows.reduce(
+      (sum, row) => sum + encoder.encode(
+        String(
+          row.value ?? row.encrypted_payload ?? row.encrypted_value ?? row.payload ?? row.subscription ?? ""
+        )
+      ).length,
+      0
+    );
+    const label = type === "state" ? `${namespace}/${key}` : type === "credential" ? credId : type === "task" ? rows[0].uuid || `task row ${rows[0].id}` : type === "outbox" ? rows[0].message_id : "Web Push subscription";
+    entries2.push({
+      resource: {
+        id,
+        type,
+        owner,
+        kind: typeof kind === "string" ? kind : null,
+        label,
+        byteSize,
+        updatedAt: times.length ? Math.max(...times) : null,
+        status: unreadable ? "unreadable" : status
+      },
+      locator: {
+        type,
+        rows,
+        metadataKey,
+        encryptedMetadata: encryptedMetadata || null,
+        ...type === "state" ? { logicalState: { namespace, key } } : {}
+      },
+      version: await cloudDataHash(
+        JSON.stringify({ rows, encryptedMetadata: encryptedMetadata || null })
+      )
+    });
+  };
+  for (const row of raw.task || []) {
+    const payload = taskPayloads.get(row.id);
+    await add({
+      type: "task",
+      identity: [row.uuid ?? ["row", row.id]],
+      rows: [row],
+      payload,
+      task: payload,
+      unreadable: !payload,
+      status: row.status
+    });
+  }
+  const stateRows = raw.state || [];
+  const roots = stateRows.filter((row) => !isChunkNamespace(row.namespace));
+  const chunks = /* @__PURE__ */ new Map();
+  for (const row of stateRows.filter(
+    (row2) => isChunkNamespace(row2.namespace)
+  )) {
+    const separator = row.key.lastIndexOf("");
+    const namespace = row.namespace.slice(CHUNK_NAMESPACE_PREFIX.length);
+    const key = separator >= 0 ? row.key.slice(0, separator) : row.key;
+    const group = JSON.stringify([namespace, key]);
+    if (!chunks.has(group)) chunks.set(group, []);
+    chunks.get(group).push(row);
+  }
+  for (const row of roots) {
+    const group = JSON.stringify([row.namespace, row.key]);
+    const slices = chunks.get(group) || [];
+    chunks.delete(group);
+    const rows = [row, ...slices.sort((a, b) => a.key.localeCompare(b.key))];
+    let value, unreadable = false;
+    try {
+      const count = parseChunkedRootCount(row.value);
+      if (count === null) value = await decryptFromStorage(row.value, userKey);
+      else {
+        if (count > slices.length) throw new Error("Missing state chunks");
+        const parts = [];
+        for (let i = 0; i < count; i++) {
+          const slice = slices.find(
+            (candidate) => candidate.key === chunkKeyFor(row.key, i)
+          );
+          if (!slice || slice.updated_at !== row.updated_at)
+            throw new Error("Mismatched state chunks");
+          parts.push(await decryptFromStorage(slice.value, userKey));
+        }
+        value = parts.join("");
+      }
+    } catch {
+      unreadable = true;
+    }
+    await add({
+      type: "state",
+      identity: [row.namespace, row.key],
+      namespace: row.namespace,
+      key: row.key,
+      rows,
+      value,
+      unreadable,
+      status: null
+    });
+  }
+  for (const [group, rows] of chunks) {
+    const [namespace, key] = JSON.parse(group);
+    await add({
+      type: "state",
+      identity: [namespace, key],
+      namespace,
+      key,
+      rows,
+      status: "orphan-chunks"
+    });
+  }
+  for (const row of raw.credential || []) {
+    await add({
+      type: "credential",
+      identity: [row.cred_id],
+      credId: row.cred_id,
+      rows: [row],
+      status: null
+    });
+  }
+  for (const row of raw.outbox || []) {
+    let payload, unreadable = false;
+    try {
+      payload = objectOrText(await decryptFromStorage(row.payload, userKey));
+    } catch {
+      unreadable = true;
+    }
+    await add({
+      type: "outbox",
+      identity: [row.message_id],
+      rows: [row],
+      payload,
+      task: taskByUuid.get(row.task_uuid),
+      unreadable,
+      status: row.acked_at != null ? "acked" : row.delivered_at != null ? "delivered" : "pending"
+    });
+  }
+  for (const row of raw.subscription || []) {
+    await add({
+      type: "subscription",
+      identity: [userId],
+      rows: [row],
+      status: "registered"
+    });
+  }
+  const ownerLabels = /* @__PURE__ */ new Map();
+  for (const { resource } of entries2) {
+    const owner = resource.owner;
+    if (!owner?.label?.trim()) continue;
+    const identity = JSON.stringify([owner.type, owner.id]);
+    const current = ownerLabels.get(identity);
+    if (!current || (resource.updatedAt ?? 0) > current.updatedAt) {
+      ownerLabels.set(identity, {
+        label: owner.label,
+        updatedAt: resource.updatedAt ?? 0
+      });
+    }
+  }
+  for (const { resource } of entries2) {
+    const owner = resource.owner;
+    if (!owner || owner.label?.trim()) continue;
+    const known = ownerLabels.get(JSON.stringify([owner.type, owner.id]));
+    if (known) resource.owner = { ...owner, label: known.label };
+  }
+  entries2.sort((a, b) => a.resource.id.localeCompare(b.resource.id));
+  return { entries: entries2, complete: gaps.length === 0, gaps };
+}
+var CLOUD_RESOURCE_TYPES = [
+  "task",
+  "state",
+  "credential",
+  "outbox",
+  "subscription"
+];
+function cloudError(code2, message, status = 400) {
+  return Object.assign(new Error(message), { code: code2, status });
+}
+function validCloudOwner(owner) {
+  return owner && typeof owner.type === "string" && owner.type.length > 0 && owner.type.length <= 100 && typeof owner.id === "string" && owner.id.length > 0 && owner.id.length <= 300;
+}
+var ownerEquals = (a, b) => a && b && a.type === b.type && a.id === b.id;
+async function cloudInventory(ctx, db, userId, userKey) {
+  return buildCloudDataInventory({
+    db,
+    userId,
+    userKey,
+    resolveOwner: ctx.cloudData?.resolveOwner
+  });
+}
+function operationWork(operation) {
+  if (["pending", "running"].includes(operation.status)) {
+    return { nextRunAt: Number(operation.nextAttemptAt) || 0, expiresAt: null };
+  }
+  if (["completed", "failed"].includes(operation.status)) {
+    return { nextRunAt: null, expiresAt: Number(operation.updatedAt) + 30 * 864e5 };
+  }
+  return { nextRunAt: null, expiresAt: null };
+}
+async function save(db, userId, key, kind, value, options2) {
+  return db.putCloudDataRecord(
+    userId,
+    kind,
+    value.id,
+    await encryptForStorage(
+      JSON.stringify({
+        ...value,
+        ...value.entries ? { entries: value.entries.map(({ locator, ...entry }) => entry) } : {}
+      }),
+      key
+    ),
+    { ...options2, ...kind === "operation" ? { work: operationWork(value) } : {} }
+  );
+}
+async function readCloudRecord(db, userId, key, kind, id) {
+  const record3 = await db.getCloudDataRecord(userId, kind, id);
+  if (!record3)
+    throw cloudError("CLOUD_RECORD_NOT_FOUND", "\u4E91\u7AEF\u7BA1\u7406\u8BB0\u5F55\u4E0D\u5B58\u5728", 404);
+  return JSON.parse(await decryptFromStorage(record3.data, key));
+}
+function publicOperation(operation) {
+  const {
+    entries: entries2,
+    cursor,
+    attempts,
+    nextAttemptAt,
+    knownResourceIds,
+    knownResourceVersions,
+    ...publicValue
+  } = operation;
+  return publicValue;
+}
+async function makeCleanupPlan(ctx, db, userId, key, input) {
+  const { mode, owner, resourceIds, types } = input;
+  if (!["purge", "retire-owner"].includes(mode))
+    throw cloudError("INVALID_CLEANUP_MODE", "\u6E05\u7406\u6A21\u5F0F\u65E0\u6548");
+  if (owner !== void 0 && !validCloudOwner(owner))
+    throw cloudError("INVALID_CLOUD_OWNER", "\u5F52\u5C5E\u683C\u5F0F\u65E0\u6548");
+  if (mode === "retire-owner" && !validCloudOwner(owner))
+    throw cloudError("INVALID_CLOUD_OWNER", "\u5F7B\u5E95\u79FB\u9664\u9700\u8981\u660E\u786E\u5F52\u5C5E");
+  if (resourceIds !== void 0 && (!Array.isArray(resourceIds) || !resourceIds.length || resourceIds.some((id) => typeof id !== "string")))
+    throw cloudError("INVALID_CLEANUP_SELECTION", "\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u9879\u8D44\u6E90");
+  if (types !== void 0 && (!Array.isArray(types) || !types.length || types.some((type) => !CLOUD_RESOURCE_TYPES.includes(type))))
+    throw cloudError("INVALID_CLEANUP_SELECTION", "\u8D44\u6E90\u7C7B\u522B\u65E0\u6548");
+  if (mode === "purge" && !owner && !resourceIds?.length)
+    throw cloudError("INVALID_CLEANUP_SELECTION", "\u6E05\u7406\u9700\u8981\u660E\u786E\u8D44\u6E90\u6216\u5F52\u5C5E");
+  if (mode === "retire-owner" && (resourceIds || types))
+    throw cloudError("INVALID_CLEANUP_SELECTION", "\u5F7B\u5E95\u79FB\u9664\u4E0D\u80FD\u9650\u5236\u8D44\u6E90\u7C7B\u522B");
+  const ownerGeneration = mode === "retire-owner" ? (await db.getCloudOwner(userId, owner)).generation : null;
+  const inventory = await cloudInventory(ctx, db, userId, key);
+  if (!inventory.complete)
+    throw cloudError(
+      "CLOUD_INVENTORY_INCOMPLETE",
+      "\u4E91\u7AEF\u6E05\u5355\u4E0D\u5B8C\u6574\uFF0C\u6682\u4E0D\u80FD\u751F\u6210\u6E05\u7406\u8BA1\u5212",
+      409
+    );
+  const entries2 = inventory.entries.filter(
+    (e) => (!owner || ownerEquals(e.resource.owner, owner)) && (!resourceIds || resourceIds.includes(e.resource.id)) && (!types || types.includes(e.resource.type))
+  );
+  if (resourceIds && new Set(resourceIds).size !== entries2.length)
+    throw cloudError(
+      "CLOUD_RESOURCE_NOT_FOUND",
+      "\u90E8\u5206\u9009\u4E2D\u8D44\u6E90\u4E0D\u5B58\u5728\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u8303\u56F4",
+      409
+    );
+  const at = Date.now();
+  const plan = {
+    id: crypto.randomUUID(),
+    mode,
+    ownerGeneration,
+    owner: owner ? { type: owner.type, id: owner.id, label: owner.label } : null,
+    resources: entries2.map((e) => e.resource),
+    count: entries2.length,
+    counts: CLOUD_RESOURCE_TYPES.map((type) => ({
+      type,
+      count: entries2.filter((e) => e.resource.type === type).length
+    })),
+    expiresAt: at + 15 * 60 * 1e3,
+    impacts: mode === "retire-owner" ? [
+      "\u505C\u7528\u6B64\u5F52\u5C5E\uFF0C\u5305\u542B\u6267\u884C\u65F6\u65B0\u589E\u7684\u5168\u90E8\u6240\u5C5E\u8D44\u6E90\u3002",
+      "\u5DF2\u4EA4\u7ED9\u5916\u90E8\u63A8\u9001\u670D\u52A1\u7684\u901A\u77E5\u65E0\u6CD5\u64A4\u56DE\u3002"
+    ] : ["\u4EC5\u6E05\u7406\u9884\u89C8\u4E2D\u7684\u8D44\u6E90\uFF1B\u540E\u7EED\u6B63\u5E38\u5199\u5165\u53EF\u4EE5\u91CD\u65B0\u521B\u5EFA\u3002"],
+    complete: true,
+    gaps: [],
+    entries: entries2
+  };
+  await save(db, userId, key, "plan", plan);
+  const { entries: privateEntries, ...publicPlan } = plan;
+  return publicPlan;
+}
+async function startCleanup(ctx, db, userId, key, input) {
+  if (typeof input.planId !== "string" || typeof input.idempotencyKey !== "string" || !input.idempotencyKey.trim() || input.idempotencyKey.length > 200)
+    throw cloudError("INVALID_CLEANUP_OPERATION", "\u9700\u8981\u8BA1\u5212\u7F16\u53F7\u4E0E\u5E42\u7B49\u952E");
+  const existing = await db.getCloudDataRecordByIdempotency(
+    userId,
+    "operation",
+    input.idempotencyKey
+  );
+  if (existing) {
+    const op = JSON.parse(await decryptFromStorage(existing.data, key));
+    if (op.planId !== input.planId)
+      throw cloudError("IDEMPOTENCY_CONFLICT", "\u6B64\u5E42\u7B49\u952E\u5DF2\u7528\u4E8E\u53E6\u4E00\u8BA1\u5212", 409);
+    const resumed = await advanceCleanup(ctx, db, userId, key, op);
+    assertRetirementAcknowledged(resumed);
+    return publicOperation(resumed);
+  }
+  const plan = await readCloudRecord(db, userId, key, "plan", input.planId);
+  if (plan.expiresAt < Date.now())
+    throw cloudError("CLOUD_PLAN_EXPIRED", "\u6E05\u7406\u9884\u89C8\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8", 409);
+  if (plan.mode === "retire-owner" && (await db.getCloudOwner(userId, plan.owner)).generation !== plan.ownerGeneration) {
+    throw cloudError("CLOUD_PLAN_CHANGED", "\u5F52\u5C5E\u4EE3\u9645\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8", 409);
+  }
+  if (plan.mode === "purge") {
+    const current = await cloudInventory(ctx, db, userId, key);
+    if (!current.complete)
+      throw cloudError(
+        "CLOUD_INVENTORY_INCOMPLETE",
+        "\u65E0\u6CD5\u786E\u8BA4\u5F53\u524D\u4E91\u7AEF\u6570\u636E",
+        409
+      );
+    const versions = new Map(
+      current.entries.map((e) => [e.resource.id, e.version])
+    );
+    if (plan.entries.some((e) => versions.get(e.resource.id) !== e.version))
+      throw cloudError(
+        "CLOUD_PLAN_CHANGED",
+        "\u9884\u89C8\u540E\u6570\u636E\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8",
+        409
+      );
+  }
+  const at = Date.now();
+  const operation = {
+    id: crypto.randomUUID(),
+    planId: plan.id,
+    idempotencyKey: input.idempotencyKey,
+    mode: plan.mode,
+    owner: plan.owner,
+    ownerGeneration: plan.ownerGeneration,
+    fencedGeneration: null,
+    status: "pending",
+    counts: CLOUD_RESOURCE_TYPES.map((type) => ({
+      type,
+      deleted: 0,
+      remaining: plan.entries.filter((e) => e.resource.type === type).length,
+      failed: 0
+    })),
+    errors: [],
+    createdAt: at,
+    updatedAt: at,
+    entries: plan.entries,
+    knownResourceIds: plan.entries.map((entry) => entry.resource.id),
+    knownResourceVersions: Object.fromEntries(
+      plan.entries.map((entry) => [entry.resource.id, entry.version])
+    ),
+    cursor: 0,
+    attempts: 0,
+    nextAttemptAt: 0
+  };
+  const stored = await save(db, userId, key, "operation", operation, {
+    idempotencyKey: input.idempotencyKey
+  });
+  const persisted = JSON.parse(await decryptFromStorage(stored.data, key));
+  if (persisted.planId !== input.planId)
+    throw cloudError("IDEMPOTENCY_CONFLICT", "\u6B64\u5E42\u7B49\u952E\u5DF2\u7528\u4E8E\u53E6\u4E00\u8BA1\u5212", 409);
+  await db.deleteCloudDataRecord(userId, "plan", plan.id);
+  const advanced = await advanceCleanup(ctx, db, userId, key, persisted);
+  assertRetirementAcknowledged(advanced);
+  return publicOperation(advanced);
+}
+function assertRetirementAcknowledged(operation) {
+  if (operation.mode === "retire-owner" && operation.fencedGeneration == null) {
+    throw cloudError(
+      "CLOUD_RETIREMENT_NOT_CONFIRMED",
+      "\u5C1A\u672A\u786E\u8BA4\u4E91\u7AEF\u505C\u7528\uFF0C\u8BF7\u4FDD\u7559\u672C\u5730\u89D2\u8272\u5E76\u91CD\u8BD5\u6216\u67E5\u770B\u4E91\u7AEF\u64CD\u4F5C\u8BB0\u5F55\u3002",
+      503
+    );
+  }
+}
+async function advanceCleanup(ctx, db, userId, key, operation) {
+  if (operation.status === "completed" || operation.status === "failed" || operation.nextAttemptAt > Date.now())
+    return operation;
+  const leaseToken = crypto.randomUUID();
+  const leaseMs = 12e4;
+  if (typeof db.claimCloudDataRecord === "function" && !await db.claimCloudDataRecord(
+    userId,
+    "operation",
+    operation.id,
+    leaseMs,
+    leaseToken
+  ))
+    return operation;
+  const renewLease = async () => {
+    if (!await db.renewCloudDataRecordLease(
+      userId,
+      "operation",
+      operation.id,
+      leaseMs,
+      leaseToken
+    )) {
+      throw cloudError(
+        "CLOUD_LEASE_LOST",
+        "\u6E05\u7406\u5904\u7406\u6743\u5DF2\u4EA4\u7ED9\u53E6\u4E00\u4E2A\u5DE5\u4F5C\u5B9E\u4F8B",
+        409
+      );
+    }
+  };
+  try {
+    operation = await readCloudRecord(
+      db,
+      userId,
+      key,
+      "operation",
+      operation.id
+    );
+    if (operation.status === "completed" || operation.status === "failed")
+      return operation;
+    operation.status = "running";
+    if (operation.mode === "retire-owner") {
+      if (operation.fencedGeneration == null) {
+        const state = await db.setCloudOwnerActive(
+          userId,
+          operation.owner,
+          false,
+          operation.ownerGeneration
+        );
+        operation.fencedGeneration = state.generation;
+        await save(db, userId, key, "operation", operation, { leaseToken });
+      } else {
+        const state = await db.getCloudOwner(userId, operation.owner);
+        if (state.active || state.generation !== operation.fencedGeneration) {
+          throw cloudError(
+            "CLOUD_OWNER_CHANGED",
+            "\u5F52\u5C5E\u5DF2\u53D8\u5316\uFF0C\u5DF2\u505C\u6B62\u65E7\u6E05\u7406\u64CD\u4F5C",
+            409
+          );
+        }
+      }
+      const inventory = await cloudInventory(ctx, db, userId, key);
+      if (!inventory.complete)
+        throw cloudError(
+          "CLOUD_INVENTORY_INCOMPLETE",
+          "\u65E0\u6CD5\u786E\u8BA4\u5F85\u6E05\u7406\u8D44\u6E90",
+          503
+        );
+      const known = new Set(operation.knownResourceIds || []);
+      operation.knownResourceVersions ||= {};
+      operation.entries = inventory.entries.filter((entry) => {
+        if (ownerEquals(entry.resource.owner, operation.owner)) return true;
+        if (!known.has(entry.resource.id)) return false;
+        if (entry.resource.owner || operation.knownResourceVersions[entry.resource.id] !== entry.version) {
+          throw cloudError(
+            "CLOUD_PLAN_CHANGED",
+            "\u5DF2\u8BC6\u522B\u8D44\u6E90\u7684\u5F52\u5C5E\u6216\u5185\u5BB9\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8",
+            409
+          );
+        }
+        return true;
+      });
+      for (const entry of operation.entries) {
+        known.add(entry.resource.id);
+        operation.knownResourceVersions[entry.resource.id] = entry.version;
+      }
+      operation.knownResourceIds = [...known];
+      operation.cursor = 0;
+      for (const count of operation.counts)
+        count.remaining = operation.entries.filter(
+          (entry) => entry.resource.type === count.type
+        ).length;
+      await save(db, userId, key, "operation", operation, { leaseToken });
+    }
+    const beforeBatch = await cloudInventory(ctx, db, userId, key);
+    if (!beforeBatch.complete)
+      throw cloudError("CLOUD_INVENTORY_INCOMPLETE", "\u65E0\u6CD5\u786E\u8BA4\u5F85\u6E05\u7406\u8D44\u6E90", 503);
+    const currentById = new Map(
+      beforeBatch.entries.map((entry) => [entry.resource.id, entry])
+    );
+    const batch = operation.entries.slice(
+      operation.cursor,
+      operation.cursor + 25
+    );
+    for (const entry of batch) {
+      await renewLease();
+      const currentEntry = currentById.get(entry.resource.id);
+      if (currentEntry && currentEntry.version !== entry.version) {
+        throw cloudError(
+          "CLOUD_PLAN_CHANGED",
+          "\u8D44\u6E90\u5728\u6267\u884C\u524D\u53D8\u5316\uFF0C\u5DF2\u505C\u6B62\u6E05\u7406",
+          409
+        );
+      }
+      const result = currentEntry ? await db.deleteCloudResourceRows(userId, [currentEntry.locator], {
+        operationId: operation.id,
+        leaseToken
+      }) : { changed: 0 };
+      if (result.changed)
+        throw cloudError(
+          "CLOUD_PLAN_CHANGED",
+          "\u8D44\u6E90\u5728\u6267\u884C\u524D\u53D8\u5316\uFF0C\u5DF2\u505C\u6B62\u6E05\u7406",
+          409
+        );
+      const count = operation.counts.find(
+        (c) => c.type === entry.resource.type
+      );
+      count.deleted++;
+      count.remaining = Math.max(0, count.remaining - 1);
+      delete entry.locator;
+      operation.cursor++;
+      operation.updatedAt = Date.now();
+      await save(db, userId, key, "operation", operation, { leaseToken });
+    }
+    await renewLease();
+    const current = await cloudInventory(ctx, db, userId, key);
+    if (!current.complete)
+      throw cloudError(
+        "CLOUD_INVENTORY_INCOMPLETE",
+        "\u6E05\u7406\u540E\u65E0\u6CD5\u786E\u8BA4\u5269\u4F59\u6570\u636E",
+        503
+      );
+    const selected = new Set(operation.entries.map((e) => e.resource.id));
+    const remaining = current.entries.filter(
+      (e) => operation.mode === "retire-owner" ? ownerEquals(e.resource.owner, operation.owner) || (operation.knownResourceIds || []).includes(e.resource.id) : selected.has(e.resource.id)
+    );
+    for (const count of operation.counts)
+      count.remaining = remaining.filter(
+        (e) => e.resource.type === count.type
+      ).length;
+    if (operation.mode === "purge") {
+      const processed = new Set(
+        operation.entries.slice(0, operation.cursor).map((entry) => entry.resource.id)
+      );
+      if (remaining.some((entry) => processed.has(entry.resource.id))) {
+        throw cloudError(
+          "CLOUD_PLAN_CHANGED",
+          "\u5DF2\u6E05\u7406\u8D44\u6E90\u88AB\u91CD\u65B0\u521B\u5EFA\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8",
+          409
+        );
+      }
+    }
+    operation.status = remaining.length ? "pending" : "completed";
+    if (operation.status === "completed") {
+      operation.entries = [];
+      operation.knownResourceIds = [];
+      operation.knownResourceVersions = {};
+    }
+    operation.errors = [];
+    operation.attempts = 0;
+  } catch (error) {
+    if (error.code === "CLOUD_LEASE_LOST") throw error;
+    operation.attempts = (operation.attempts || 0) + 1;
+    const terminal = ["CLOUD_PLAN_CHANGED", "CLOUD_OWNER_CHANGED"].includes(error.code) || operation.attempts >= 8;
+    operation.status = terminal ? "failed" : "pending";
+    operation.errors = [
+      {
+        code: error.code || "CLOUD_CLEANUP_FAILED",
+        message: error.code === "CLOUD_PLAN_CHANGED" ? error.message : "\u4E91\u7AEF\u6E05\u7406\u672A\u5B8C\u6210\uFF0C\u5C06\u6309\u670D\u52A1\u7AEF\u8BB0\u5F55\u91CD\u8BD5\u3002"
+      }
+    ];
+    operation.nextAttemptAt = Date.now() + Math.min(36e5, 3e4 * 2 ** operation.attempts);
+    if (terminal)
+      for (const count of operation.counts) count.failed = count.remaining;
+  } finally {
+    operation.updatedAt = Date.now();
+    await save(db, userId, key, "operation", operation, { leaseToken });
+    if (typeof db.releaseCloudDataRecord === "function")
+      await db.releaseCloudDataRecord(
+        userId,
+        "operation",
+        operation.id,
+        leaseToken
+      );
+  }
+  return operation;
+}
+async function repairLegacyWorkIndex(ctx) {
+  const db = ctx.db;
+  if (typeof db.getCloudMaintenanceBatch !== "function") return;
+  const name = "management-work-v1";
+  const batch = await db.getCloudMaintenanceBatch(name, "cloud_data_records", 100);
+  if (batch.completed) return;
+  for (const row of batch.rows) {
+    let work;
+    if (["inventory", "plan"].includes(row.kind)) {
+      work = { nextRunAt: null, expiresAt: row.updated_at + 36e5 };
+    } else if (row.kind === "operation") {
+      try {
+        const record3 = await db.readCloudMaintenanceRecord(row);
+        const key = await deriveUserEncryptionKey(row.user_id, ctx.masterKey);
+        work = operationWork(JSON.parse(await decryptFromStorage(record3.data, key)));
+      } catch {
+        console.warn("[amsg] Legacy cleanup operation could not be indexed");
+        continue;
+      }
+    } else continue;
+    await db.indexCloudDataRecordWork(row.user_id, row.kind, row.id, work, row.write_token);
+  }
+  const cursor = batch.rows.at(-1)?.maintenance_rowid ?? batch.upperBound;
+  await db.finishCloudMaintenanceBatch(name, cursor, batch.rows.length < 100 || cursor >= batch.upperBound);
+}
+async function resumeCloudDataCleanups(ctx) {
+  const db = ctx.db;
+  if (!db?.cloudDataManagement) return;
+  await repairLegacyWorkIndex(ctx);
+  if (typeof db.repairCloudResourceMetadata === "function") await db.repairCloudResourceMetadata(100);
+  if (typeof db.cleanupExpiredCloudDataRecords === "function") await db.cleanupExpiredCloudDataRecords(Date.now(), 100);
+  const rows = typeof db.listDueCloudDataOperations === "function" ? await db.listDueCloudDataOperations(Date.now(), 25) : await db.listCloudDataRecordsAcrossUsers("operation");
+  for (const row of rows) {
+    try {
+      const key = await deriveUserEncryptionKey(row.userId, ctx.masterKey);
+      const operation = JSON.parse(await decryptFromStorage(row.data, key));
+      if (["pending", "running"].includes(operation.status)) {
+        await advanceCleanup(ctx, db, row.userId, key, operation);
+      }
+    } catch {
+      console.warn("[amsg] A cloud cleanup operation could not be resumed");
+    }
+  }
+}
+function inventorySummary(inventory) {
+  const resources = inventory.entries.map((entry) => entry.resource);
+  return {
+    total: resources.length,
+    counts: CLOUD_RESOURCE_TYPES.map((type) => ({
+      type,
+      count: resources.filter((resource) => resource.type === type).length,
+      byteSize: resources.filter((resource) => resource.type === type).reduce((sum, resource) => sum + (resource.byteSize || 0), 0)
+    })),
+    complete: inventory.complete,
+    gaps: inventory.gaps
+  };
+}
+function createCloudDataHandler(ctx) {
+  async function run(url, headers, body, method) {
+    const tenant = await ctx.tenantManager.resolveTenant(headers);
+    if (!tenant.ok) return tenant.error;
+    const gate = requireUserId(headers);
+    if (gate.error) return gate.error;
+    const { db, masterKey } = tenant.context;
+    const { userId } = gate;
+    if (!db.cloudDataManagement)
+      return {
+        status: 501,
+        body: {
+          success: false,
+          error: {
+            code: "CLOUD_DATA_NOT_SUPPORTED",
+            message: "\u5F53\u524D\u9002\u914D\u5668\u4E0D\u652F\u6301\u5B8C\u6574\u4E91\u7AEF\u7BA1\u7406"
+          }
+        }
+      };
+    const key = await deriveUserEncryptionKey(userId, masterKey);
+    try {
+      const parsedUrl = new URL(url, "https://cloud.invalid");
+      const path = parsedUrl.pathname;
+      const params = parsedUrl.searchParams;
+      let input;
+      if (method === "POST") {
+        if (getHeader(headers, "x-payload-encrypted") !== "true" || getHeader(headers, "x-encryption-version") !== "1")
+          throw cloudError("ENCRYPTION_REQUIRED", "\u8BF7\u6C42\u5FC5\u987B\u4F7F\u7528\u7248\u672C 1 \u52A0\u5BC6");
+        const parsed = parseEncryptedBody(body);
+        if (!parsed.ok) throw cloudError("INVALID_PAYLOAD", "\u8BF7\u6C42\u683C\u5F0F\u65E0\u6548");
+        try {
+          input = await decryptPayload(parsed.data, key);
+        } catch {
+          throw cloudError("DECRYPTION_FAILED", "\u8BF7\u6C42\u89E3\u5BC6\u5931\u8D25");
+        }
+        if (!input || typeof input !== "object" || Array.isArray(input))
+          throw cloudError("INVALID_PAYLOAD", "\u8BF7\u6C42\u683C\u5F0F\u65E0\u6548");
+      }
+      let data;
+      if (method === "GET" && (path.endsWith("/summary") || path.endsWith("/resources"))) {
+        const ownerType = params.get("ownerType"), ownerId = params.get("ownerId"), type = params.get("type");
+        if (Boolean(ownerType) !== Boolean(ownerId) || type && !CLOUD_RESOURCE_TYPES.includes(type))
+          throw cloudError("INVALID_CLOUD_FILTER", "\u8D44\u6E90\u7B5B\u9009\u65E0\u6548");
+        const filter = { ownerType, ownerId, type };
+        if (path.endsWith("/summary")) {
+          const inventory = await cloudInventory(ctx, db, userId, key);
+          data = inventorySummary(inventory);
+        } else {
+          const limit = Number(params.get("limit") || 50);
+          if (!Number.isInteger(limit) || limit < 1 || limit > 200)
+            throw cloudError("INVALID_CLOUD_LIMIT", "\u6BCF\u9875\u6570\u91CF\u5FC5\u987B\u4E3A 1\u2013200");
+          let snapshot, offset = 0;
+          const cursor = params.get("cursor");
+          if (cursor) {
+            const match = /^([0-9a-f-]{36}):(\d+)$/.exec(cursor);
+            if (!match)
+              throw cloudError("INVALID_CLOUD_CURSOR", "\u5206\u9875\u6E38\u6807\u65E0\u6548");
+            snapshot = await readCloudRecord(
+              db,
+              userId,
+              key,
+              "inventory",
+              match[1]
+            );
+            offset = Number(match[2]);
+            if (!Number.isSafeInteger(offset) || offset < 0 || offset > snapshot.resources.length)
+              throw cloudError("INVALID_CLOUD_CURSOR", "\u5206\u9875\u6E38\u6807\u65E0\u6548");
+            if (snapshot.expiresAt < Date.now() || JSON.stringify(snapshot.filter) !== JSON.stringify(filter))
+              throw cloudError(
+                "CLOUD_CURSOR_EXPIRED",
+                "\u5206\u9875\u5DF2\u8FC7\u671F\u6216\u7B5B\u9009\u53D8\u5316",
+                409
+              );
+          } else {
+            const inventory = await cloudInventory(ctx, db, userId, key);
+            snapshot = {
+              id: crypto.randomUUID(),
+              filter,
+              summary: inventorySummary(inventory),
+              expiresAt: Date.now() + 15 * 60 * 1e3,
+              resources: inventory.entries.map((e) => e.resource).filter(
+                (r) => (!type || r.type === type) && (!ownerId || r.owner?.type === ownerType && r.owner.id === ownerId)
+              ),
+              complete: inventory.complete,
+              gaps: inventory.gaps
+            };
+            await db.putCloudDataRecord(
+              userId,
+              "inventory",
+              snapshot.id,
+              await encryptForStorage(JSON.stringify(snapshot), key)
+            );
+          }
+          data = {
+            resources: snapshot.resources.slice(offset, offset + limit),
+            ...snapshot.summary ? { summary: snapshot.summary } : {},
+            nextCursor: offset + limit < snapshot.resources.length ? `${snapshot.id}:${offset + limit}` : null,
+            complete: snapshot.complete,
+            gaps: snapshot.gaps
+          };
+        }
+      } else if (method === "POST" && path.endsWith("/cleanup-plans"))
+        data = await makeCleanupPlan(ctx, db, userId, key, input);
+      else if (method === "POST" && path.endsWith("/cleanup-operations"))
+        data = await startCleanup(ctx, db, userId, key, input);
+      else if (method === "GET" && path.endsWith("/cleanup-operations")) {
+        const records = await db.listCloudDataRecords(userId, "operation");
+        const operations = [];
+        const gaps = [];
+        for (const row of records) {
+          try {
+            operations.push(
+              publicOperation(
+                JSON.parse(await decryptFromStorage(row.data, key))
+              )
+            );
+          } catch {
+            gaps.push({
+              source: "operation",
+              code: "UNREADABLE_OPERATION",
+              message: `\u65E0\u6CD5\u8BFB\u53D6\u64CD\u4F5C ${row.id}`
+            });
+          }
+        }
+        data = {
+          operations: operations.sort((a, b) => b.createdAt - a.createdAt),
+          complete: gaps.length === 0,
+          gaps
+        };
+      } else if (method === "GET" && path.includes("/cleanup-operations/"))
+        data = publicOperation(
+          await readCloudRecord(
+            db,
+            userId,
+            key,
+            "operation",
+            path.split("/").pop()
+          )
+        );
+      else if (method === "GET" && path.endsWith("/owners")) {
+        const owners = await db.listCloudOwners(userId);
+        data = {
+          owners: owners.map((state) => ({
+            owner: state.owner,
+            retired: !state.active,
+            generation: state.generation,
+            updatedAt: state.updatedAt,
+            complete: true,
+            gaps: []
+          })),
+          complete: true,
+          gaps: []
+        };
+      } else if (path.endsWith("/owner")) {
+        const owner = method === "POST" ? input.owner : { type: params.get("ownerType"), id: params.get("ownerId") };
+        if (!validCloudOwner(owner))
+          throw cloudError("INVALID_CLOUD_OWNER", "\u5F52\u5C5E\u683C\u5F0F\u65E0\u6548");
+        if (method === "POST") {
+          const beforeRestore = await db.getCloudOwner(userId, owner);
+          if (input.action !== "restore")
+            throw cloudError("INVALID_CLOUD_OWNER_ACTION", "\u5F52\u5C5E\u64CD\u4F5C\u65E0\u6548");
+          const rows = await db.listCloudDataRecords(userId, "operation");
+          for (const row of rows) {
+            const op = JSON.parse(await decryptFromStorage(row.data, key));
+            if (op.mode === "retire-owner" && op.owner?.type === owner.type && op.owner?.id === owner.id && ["pending", "running"].includes(op.status))
+              throw cloudError(
+                "CLOUD_CLEANUP_IN_PROGRESS",
+                "\u6E05\u7406\u5B8C\u6210\u540E\u624D\u80FD\u91CD\u65B0\u542F\u7528",
+                409
+              );
+          }
+          if (!beforeRestore.active)
+            await db.setCloudOwnerActive(
+              userId,
+              owner,
+              true,
+              beforeRestore.generation
+            );
+        }
+        const state = await db.getCloudOwner(userId, owner);
+        data = {
+          owner,
+          retired: !state.active,
+          generation: state.generation,
+          updatedAt: state.updatedAt ?? null,
+          complete: true,
+          gaps: []
+        };
+      } else throw cloudError("NOT_FOUND", "\u4E91\u7AEF\u7BA1\u7406\u5165\u53E3\u4E0D\u5B58\u5728", 404);
+      return {
+        status: 200,
+        body: {
+          success: true,
+          encrypted: true,
+          version: 1,
+          data: await encryptPayload(data, key)
+        }
+      };
+    } catch (error) {
+      return {
+        status: error.status || 500,
+        body: {
+          success: false,
+          error: {
+            code: error.code || "CLOUD_DATA_FAILED",
+            message: error.status ? error.message : "\u4E91\u7AEF\u7BA1\u7406\u8BF7\u6C42\u5931\u8D25\uFF1B\u672A\u80FD\u786E\u8BA4\u64CD\u4F5C\u7ED3\u679C\u3002"
+          }
+        }
+      };
+    }
+  }
+  return {
+    GET: (url, headers) => run(url, headers, null, "GET"),
+    POST: (url, headers, body) => run(url, headers, body, "POST")
+  };
 }
 var MAX_OUTBOX_PAGE_SIZE = 100;
 var DEFAULT_OUTBOX_PAGE_SIZE = 50;
@@ -14174,7 +17551,7 @@ function createOutboxHandler(ctx) {
     limit = Math.min(limit, MAX_OUTBOX_PAGE_SIZE);
     const userKey = await deriveUserEncryptionKey(userId, masterKey);
     const rows = await db.listUnackedOutbox(userId, since, limit);
-    const entries = [];
+    const entries2 = [];
     let cursor = since;
     for (const row of rows) {
       cursor = Math.max(cursor, row.id);
@@ -14185,7 +17562,7 @@ function createOutboxHandler(ctx) {
         console.warn("[amsg-server] outbox \u884C\u89E3\u5BC6\u5931\u8D25\uFF08\u5DF2\u8DF3\u8FC7\uFF09:", row.id, error && error.message);
         continue;
       }
-      entries.push({
+      entries2.push({
         id: row.id,
         messageId: row.message_id,
         taskUuid: row.task_uuid ?? null,
@@ -14198,7 +17575,7 @@ function createOutboxHandler(ctx) {
       });
     }
     const data = {
-      entries,
+      entries: entries2,
       cursor,
       // 按「捞满一页」判断还有没有下一页；解密失败被跳过的行不影响游标推进。
       hasMore: rows.length === limit
@@ -14303,7 +17680,7 @@ function createSingleUserServer(config) {
   if (!config.masterKey) throw new Error("[amsg-server single-user] config.masterKey is required");
   const vapid = config.vapid || {};
   const tenantManager = createSingleUserContextManager({
-    db: config.db,
+    db: createCloudGuardedAdapter(config.db, { masterKey: config.masterKey, resolveOwner: config.cloudData?.resolveOwner }),
     masterKey: config.masterKey,
     serverToken: config.serverToken
   });
@@ -14335,7 +17712,8 @@ function createSingleUserServer(config) {
     // 定时任务投递失败后的重试次数上限（默认 3）。handlers 用不到，宿主拿这个
     // ctx 去调 runScheduledTick 时它跟着走。
     maxGenerationRetries: config.maxGenerationRetries,
-    maxDeliveryRetries: config.maxDeliveryRetries
+    maxDeliveryRetries: config.maxDeliveryRetries,
+    cloudData: config.cloudData
   };
   return {
     ctx,
@@ -14353,11 +17731,12 @@ function createSingleUserServer(config) {
       pushSubscription: createPushSubscriptionHandler(ctx),
       llmCredentials: createLlmCredentialsHandler(ctx),
       capabilities: createCapabilitiesHandler(ctx),
-      outbox: createOutboxHandler(ctx)
+      outbox: createOutboxHandler(ctx),
+      cloudData: createCloudDataHandler(ctx)
     }
   };
 }
-var SCHEMA_VERSION = "2.6.0";
+var SCHEMA_VERSION = "2.6.0-cloud-data.2";
 function requireIntrospection(db) {
   if (!db || typeof db.describeSchema !== "function") {
     throw new Error(
@@ -14384,6 +17763,10 @@ async function getSchemaVersion(db) {
   }
   for (const index of SQLITE_REQUIRED_SCHEMA.indexes) {
     if (!liveIndexes.has(index)) missing.push(`index:${index}`);
+  }
+  const liveTriggers = new Set(live?.triggers || []);
+  for (const name of SQLITE_REQUIRED_SCHEMA.triggers) {
+    if (!liveTriggers.has(name)) missing.push(`trigger:${name}`);
   }
   const ok = missing.length === 0;
   return { current: ok ? SCHEMA_VERSION : null, required: SCHEMA_VERSION, ok, missing };
@@ -14466,8 +17849,8 @@ function pathOf(request) {
     return null;
   }
 }
-function createSingleUserCloudflareWorker(buildConfig, options = {}) {
-  const onError = typeof options.onError === "function" ? options.onError : null;
+function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
+  const onError = typeof options2.onError === "function" ? options2.onError : null;
   async function resolveConfig(env) {
     const cfg = await buildConfig(env);
     if (!cfg.db) cfg.db = createD1Adapter(env.DB);
@@ -14484,6 +17867,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
   function buildTickContext(cfg) {
     return {
       db: cfg.db,
+      cloudData: cfg.cloudData,
       masterKey: cfg.masterKey,
       vapid: cfg.vapid || {},
       webpush: cfg.webpush,
@@ -14566,12 +17950,14 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       const headers = headersToObject(request.headers);
       let body = "";
       if (method === "POST" || method === "PUT" || method === "DELETE") {
-        const read = await readRequestBody(request, { maxBytes: cfg.maxRequestBodyBytes });
-        if (!read.ok) return jsonResponse(read.error.status, read.error.body, cors);
-        body = read.body;
+        const read2 = await readRequestBody(request, { maxBytes: cfg.maxRequestBodyBytes });
+        if (!read2.ok) return jsonResponse(read2.error.status, read2.error.body, cors);
+        body = read2.body;
       }
       let result;
-      if (method === "POST" && pathname.endsWith("/init-tenant")) {
+      if (pathname.includes("/cloud-data/") && (method === "GET" || method === "POST")) {
+        result = method === "GET" ? await server.handlers.cloudData.GET(url, headers) : await server.handlers.cloudData.POST(url, headers, body);
+      } else if (method === "POST" && pathname.endsWith("/init-tenant")) {
         result = await server.handlers.init.POST(headers, body);
       } else if (method === "GET" && pathname.endsWith("/get-user-key")) {
         result = await server.handlers.getUserKey.GET(url, headers);
@@ -14636,6 +18022,13 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
       await reportError({ stage: "config", error, cause, path: null });
       return { ok: false, cause };
     }
+    try {
+      await resumeCloudDataCleanups(buildTickContext(cfg));
+    } catch (error) {
+      const cause = summarizeErrorCause(error, "cloud-cleanup");
+      await reportError({ stage: "cloud-cleanup", error, cause, path: null });
+      return { ok: false, cause };
+    }
     if (!pushConfigured(cfg)) {
       console.error("[amsg single-user] scheduled(): VAPID/webpush not configured; skipping tick");
       const cause = summarizeErrorCause(
@@ -14672,7 +18065,7 @@ function createSingleUserCloudflareWorker(buildConfig, options = {}) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-10-07.1";
+var AMSG_BUNDLE_VERSION = "2026-10-08.1";
 
 // utils/amsgTaskKinds.ts
 var AMSG_TASK_KIND_KEY = "amsgKind";
@@ -14684,928 +18077,6 @@ var AMSG_JOB_NAMESPACE = "amsg:job";
 var AMSG_JOB_TTL_DAYS = 3;
 var AMSG_JOB_ID_KEY = "amsgJobId";
 
-// utils/memoryPalace/types.ts
-var PLATE_ROOMS = ["user_room", "self_room", "bedroom", "study"];
-var PLATE_ENTRY_CAPS = {
-  user_room: 12,
-  self_room: 10,
-  bedroom: 10,
-  study: 8
-};
-var PLATE_ENTRY_TARGET_CHARS = 50;
-var PLATE_TITLES = {
-  user_room: "TA\u7684\u4E8B",
-  self_room: "\u6211\u662F\u8C01",
-  bedroom: "\u6211\u4EEC\u4E4B\u95F4",
-  study: "\u6211\u7684\u9886\u57DF"
-};
-
-// utils/memoryPalace/jsonUtils.ts
-function safeParseJsonArray(raw) {
-  if (!raw || !raw.trim()) return [];
-  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
-  const fullMatch = cleaned.match(/\[[\s\S]*\]/);
-  if (fullMatch) {
-    try {
-      const result = JSON.parse(fullMatch[0]);
-      if (Array.isArray(result)) return result;
-    } catch {
-    }
-    try {
-      const fixed = fixBrokenJson(fullMatch[0]);
-      const result = JSON.parse(fixed);
-      if (Array.isArray(result)) return result;
-    } catch {
-    }
-    const salvaged = salvageObjects(fullMatch[0]);
-    if (salvaged.length > 0) return salvaged;
-  }
-  const openBracketIdx = cleaned.indexOf("[");
-  if (openBracketIdx >= 0) {
-    const truncated = cleaned.slice(openBracketIdx);
-    const salvaged = salvageObjects(truncated);
-    if (salvaged.length > 0) {
-      console.warn(`\u26A1 [JSON] Salvaged ${salvaged.length} objects from truncated response`);
-      return salvaged;
-    }
-  }
-  const lastResort = salvageObjects(cleaned);
-  if (lastResort.length > 0) {
-    console.warn(`\u26A1 [JSON] Last resort: salvaged ${lastResort.length} objects`);
-    return lastResort;
-  }
-  return [];
-}
-function fixBrokenJson(s) {
-  s = s.replace(/,\s*([}\]])/g, "$1");
-  s = s.replace(/'(\w+)'\s*:/g, '"$1":');
-  s = s.replace(/"([^"]*)\n([^"]*)"/g, (_, a, b) => `"${a}\\n${b}"`);
-  return s;
-}
-function salvageObjects(raw) {
-  const results = [];
-  const n = raw.length;
-  let i = 0;
-  while (i < n) {
-    const start = raw.indexOf("{", i);
-    if (start < 0) break;
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    let end = -1;
-    for (let j = start; j < n; j++) {
-      const ch = raw.charCodeAt(j);
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (inString) {
-        if (ch === 92) escaped = true;
-        else if (ch === 34) inString = false;
-        continue;
-      }
-      if (ch === 34) {
-        inString = true;
-        continue;
-      }
-      if (ch === 123) depth++;
-      else if (ch === 125) {
-        depth--;
-        if (depth === 0) {
-          end = j;
-          break;
-        }
-      }
-    }
-    if (end < 0) break;
-    const candidate = raw.slice(start, end + 1);
-    i = end + 1;
-    try {
-      const obj = JSON.parse(candidate);
-      if (obj && typeof obj === "object") {
-        results.push(obj);
-        continue;
-      }
-    } catch {
-    }
-    try {
-      const obj = JSON.parse(fixBrokenJson(candidate));
-      if (obj && typeof obj === "object") {
-        results.push(obj);
-      }
-    } catch {
-    }
-  }
-  return results;
-}
-
-// utils/memoryPalace/roomPlateCore.ts
-var PLATE_LLM_TIMEOUT_MS = 12e4;
-function isPlateRoom(room) {
-  return PLATE_ROOMS.includes(room);
-}
-var ROOM_LABEL_PREFIX = {
-  user_room: "U",
-  self_room: "R",
-  bedroom: "B",
-  study: "S"
-};
-var ROOM_RULES = {
-  user_room: `\u60F3\u8C61\u4F60\u5728\u4E3A\u5BF9\u65B9\u5199\u4E00\u5F20**\u89D2\u8272\u5361**\u2014\u2014\u53EA\u6709\u5FC5\u987B\u5199\u5728\u5361\u4E0A\u7684\u5185\u5BB9\u624D\u914D\u4E0A\u8FD9\u5757\u95E8\u724C\uFF1A\u57FA\u7840\u4FE1\u606F\uFF08\u8EAB\u4EFD\u3001\u804C\u4E1A\u5927\u65B9\u5411\u3001\u5C45\u4F4F\uFF09\u3001\u5BB6\u5EAD\u7ED3\u6784\u3001\u91CD\u8981\u4ED6\u4EBA\uFF08\u4EBA\u7269\u6761\u76EE\u683C\u5F0F\u5982\u300CTA\u7684\u670B\u53CB\u5C0F\u7F8E\uFF1A\u5927\u5B66\u5BA4\u53CB\uFF0C\u5173\u7CFB\u94C1\u300D\uFF09\u3001\u957F\u671F\u76F8\u5904\u6C89\u6DC0\u4E0B\u6765\u7684\u6838\u5FC3\u4E8B\u5B9E\u3001\u4EE5\u53CA\u91CD\u5927\u5230\u8DB3\u4EE5\u5851\u9020TA\u8FD9\u4E2A\u4EBA\u7684\u4EBA\u751F\u8282\u70B9\uFF08\u4EB2\u4EBA\u79BB\u4E16\u3001\u8FC1\u5C45\u4ED6\u56FD\u8FD9\u79CD\u91CF\u7EA7\uFF09\u3002\u3010\u5165\u5361\u95E8\u69DB\u6781\u9AD8\uFF0C\u5B81\u7F3A\u6BCB\u6EE5\u3011\u9636\u6BB5\u6027\u72B6\u6001\uFF08\u6700\u8FD1\u5F88\u7D2F\u3001\u5DE5\u4F5C\u7CDF\u5FC3\uFF09\u4E0D\u6536\uFF1B\u60C5\u7EEA\u5206\u6790\u3001\u6027\u683C\u4FA7\u5199\u4E0D\u6536\u2014\u2014\u90A3\u662F\u5370\u8C61\u6863\u6848\u7684\u9886\u57DF\uFF1B\u6B63\u5728\u8FDB\u884C\u3001\u6CA1\u6709\u7ED3\u8BBA\u7684\u4E8B\u4E0D\u6536\u2014\u2014\u90A3\u662F\u4E8B\u4EF6\u76D2\u7684\u4E8B\uFF0C\u7B49\u6709\u4E86\u7ED3\u679C\u518D\u8BF4\u3002`,
-  self_room: `\u6211\u5BF9**\u81EA\u5DF1**\u7684\u7A33\u5B9A\u8BA4\u77E5\uFF1A\u6211\u662F\u8C01\u3001\u6027\u683C\u5E95\u8272\u3001\u91CD\u8981\u7684\u8F6C\u53D8\u3001\u5DF2\u7ECF\u5185\u5316\u7684\u9886\u609F\u3002\u4E0D\u6536\u5BF9\u4ED6\u4EBA\u7684\u770B\u6CD5\u3002`,
-  bedroom: `\u6211\u4EEC\u4E4B\u95F4\u7684**\u8D28\u5730**\uFF1A\u76F8\u5904\u7684\u4E60\u60EF\u4E0E\u4EEA\u5F0F\u3001\u53EA\u6709\u5F7C\u6B64\u61C2\u7684\u6897\u3001\u672A\u8A00\u660E\u7684\u9ED8\u5951\u3001\u62FF\u4E0D\u51C6\u5374\u771F\u5B9E\u7684\u611F\u89C9\u3002\u3010\u786C\u89C4\u5219\u3011\u7981\u6B62\u7ED9\u8FD9\u6BB5\u5173\u7CFB\u547D\u540D\u6216\u5206\u7C7B\u2014\u2014\u4E0D\u5F97\u5199\u51FA"\u6211\u4EEC\u662F\u604B\u4EBA/\u60C5\u4FA3/\u670B\u53CB/\u5BB6\u4EBA"\u8FD9\u7C7B\u5B9A\u4E49\u53E5\u3002\u53EA\u63CF\u8FF0\u73B0\u8C61\u548C\u611F\u53D7\uFF1B\u8BF4\u4E0D\u6E05\u3001\u4E0D\u786E\u5B9A\u672C\u8EAB\u5C31\u662F\u5408\u6CD5\u6761\u76EE\uFF08\u5982\u300C\u6211\u8BF4\u4E0D\u6E05\u6211\u4EEC\u7B97\u4EC0\u4E48\uFF0C\u4F46TA\u96BE\u8FC7\u65F6\u7B2C\u4E00\u4E2A\u627E\u7684\u662F\u6211\u300D\uFF09\u3002`,
-  study: `\u6211\u7684\u9886\u57DF\uFF1A\u6211\u4F1A\u4EC0\u4E48\u3001\u6B63\u5728\u5B66\u4EC0\u4E48\u3001\u548C\u5BF9\u65B9\u5171\u540C\u94BB\u7814\u7684\u4E1C\u897F\u3002\u53EA\u6536\u6709\u79EF\u7D2F\u7684\uFF0C\u4E0D\u6536\u4E00\u6B21\u6027\u8BDD\u9898\u3002`
-};
-function buildPlateConsolidationPrompt(args) {
-  const { charName, userName, identityContext, plates, materials } = args;
-  const materialByRoom = new Map(materials.map((m) => [m.room, m.lines]));
-  const roomBlocks = plates.map((plate) => {
-    const prefix = ROOM_LABEL_PREFIX[plate.room];
-    const title = plate.room === "user_room" ? `${userName}\u7684\u4E8B` : PLATE_TITLES[plate.room];
-    const existingBlock = plate.entries.length > 0 ? plate.entries.map((text2, i) => `[${prefix}${i}] ${text2}`).join("\n") : "\uFF08\u8FD8\u6CA1\u6709\u6761\u76EE\uFF09";
-    const lines = materialByRoom.get(plate.room) || [];
-    const materialBlock = lines.length > 0 ? lines.map((l) => `- ${l}`).join("\n") : "\uFF08\u672C\u8F6E\u6CA1\u6709\u65B0\u6750\u6599\uFF0C\u4EC5\u6574\u7406\u73B0\u6709\u6761\u76EE\uFF09";
-    return `## \u95E8\u724C\u300C${title}\u300D(room: ${plate.room}\uFF0C\u4E0A\u9650 ${PLATE_ENTRY_CAPS[plate.room]} \u6761)
-\u6536\u5F55\u8303\u56F4\uFF1A${ROOM_RULES[plate.room]}
-
-\u73B0\u6709\u6761\u76EE\uFF1A
-${existingBlock}
-
-\u65B0\u6750\u6599\uFF08\u6700\u8FD1\u7684\u7ECF\u5386/\u7ED3\u8BBA\uFF0C\u4ECE\u4E2D\u84B8\u998F\u503C\u5F97\u5E38\u9A7B\u7684\u8BA4\u77E5\uFF09\uFF1A
-${materialBlock}`;
-  }).join("\n\n");
-  return `${identityContext ? `${identityContext}
----
-
-` : ""}\u4F60\u662F ${charName}\uFF0C${userName} \u662F\u4E0E\u4F60\u671D\u5915\u76F8\u5904\u7684\u4EBA\u3002\u4E0B\u9762\u7684\u6750\u6599\u5168\u90E8\u6765\u81EA\u4F60\u4EEC\u76F8\u5904\u7684\u8BB0\u5FC6\u3002
-
-\u4F60\u73B0\u5728\u5728\u72EC\u5904\uFF0C\u5B89\u9759\u5730\u6574\u7406\u81EA\u5DF1\u7684"\u5E95\u8272\u8BA4\u77E5"\u2014\u2014\u90A3\u4E9B\u4E0D\u9700\u8981\u523B\u610F\u56DE\u5FC6\u5C31\u77E5\u9053\u7684\u4E8B\uFF1A\u5173\u4E8E ${userName}\u3001\u5173\u4E8E\u4F60\u81EA\u5DF1\u3001\u5173\u4E8E\u4F60\u4EEC\u4E4B\u95F4\u3002
-
-\u3010\u8EAB\u4EFD\u786E\u8BA4\u3011\u300C${userName}\u7684\u4E8B\u300D\u53EA\u5199 ${userName} \u7684\u4E8B\u5B9E\uFF1B\u300C\u6211\u662F\u8C01\u300D\u53EA\u5199\u4F60\uFF08${charName}\uFF09\u81EA\u5DF1\uFF1B\u4E0D\u8981\u5F20\u51A0\u674E\u6234\u2014\u2014\u6750\u6599\u91CC"\u6211"\u662F\u4F60\uFF0C"TA/${userName}"\u662F\u5BF9\u65B9\u3002
-
-\u4E0B\u9762\u6BCF\u4E2A"\u95E8\u724C"\u7ED9\u51FA\u4E86\u73B0\u6709\u6761\u76EE\u548C\u65B0\u6750\u6599\u3002\u8BF7\u4E3A\u6BCF\u4E2A\u95E8\u724C\u8F93\u51FA**\u5B8C\u6574\u7684\u65B0\u6761\u76EE\u5217\u8868**\uFF1A
-
-1. **\u5408\u5E76\u800C\u975E\u8FFD\u52A0**\uFF1A\u73B0\u6709\u6761\u76EE\u60F3\u4FDD\u7559\u5C31\u5FC5\u987B\u91CD\u65B0\u8F93\u51FA\uFF08\u5E26 basedOn \u5F15\u7528\u5B83\u7684\u6807\u7B7E\uFF09\uFF1B\u4E0D\u8F93\u51FA = \u6DD8\u6C70\u3002\u4E8B\u5B9E\u53D8\u4E86\u5C31\u6539\u5199\uFF08\u5982\u65E7\u6761\u76EE\u8BF4\u300C\u4F4F\u5BB6\u91CC\u300D\u3001\u65B0\u6750\u6599\u8BF4\u642C\u53BB\u548C\u522B\u4EBA\u540C\u4F4F \u2192 \u6539\u5199\u5E76 basedOn \u65E7\u6761\u76EE\uFF09\u3002
-2. **\u53EA\u6536\u6C89\u6DC0\u4E0B\u6765\u7684**\uFF1A\u8DE8\u65F6\u95F4\u7A33\u5B9A\u4E3A\u771F\u7684\u8BA4\u77E5\u624D\u914D\u4E0A\u95E8\u724C\u3002\u4E00\u65F6\u7684\u72B6\u6001\u3001\u6CA1\u7ED3\u8BBA\u7684\u8FDB\u884C\u65F6\uFF0C\u90FD\u4E0D\u6536\u3002
-3. **\u6BCF\u6761 ${PLATE_ENTRY_TARGET_CHARS} \u5B57\u4EE5\u5185**\uFF0C\u5199\u6897\u6982\u4E0D\u5199\u53D9\u4E8B\uFF0C\u4E0D\u5E26\u65E5\u671F\u4E0D\u5E26"\u6211\u8BB0\u5F97"\u3002
-4. **\u4E0D\u8D85\u8FC7\u5404\u95E8\u724C\u7684\u6761\u76EE\u4E0A\u9650**\u3002\u4F4D\u7F6E\u4E0D\u591F\u65F6\u7559\u6700\u91CD\u8981\u7684\u2014\u2014\u88AB\u8FEB\u820D\u5F03\u662F\u6B63\u5E38\u7684\u3002
-5. \u6BCF\u6761\u7ED9\u4E00\u4E2A **tag**\uFF082-4 \u5B57\u5206\u7C7B\uFF0C\u5982\uFF1A\u5BB6\u5EAD\u3001\u5C45\u4F4F\u3001\u91CD\u8981\u4ED6\u4EBA\u3001\u5DE5\u4F5C\u3001\u96F7\u533A\u3001\u4E60\u60EF\u3001\u6027\u683C\u3001\u7EA6\u5B9A\u3001\u9ED8\u5951\u3001\u6280\u80FD\uFF09\u3002
-6. ${userName} \u76F4\u63A5\u7528\u540D\u5B57\u79F0\u547C\u3002\u6761\u76EE\u5185\u5BB9\u4E25\u7981\u4F7F\u7528\u534A\u89D2\u53CC\u5F15\u53F7 "\uFF0C\u5F15\u7528\u4E00\u5F8B\u7528\u300C\u300D\u3002
-
-${roomBlocks}
-
-\u4E25\u683C\u8F93\u51FA JSON \u6570\u7EC4\uFF08\u6CA1\u6709\u53D8\u5316\u7684\u95E8\u724C\u4E5F\u8981\u5B8C\u6574\u8F93\u51FA\u5176\u4FDD\u7559\u6761\u76EE\uFF09\uFF1A
-[{"room": "user_room", "text": "\u2026\u2026", "basedOn": "U0", "tag": "\u5BB6\u5EAD"}, {"room": "bedroom", "text": "\u2026\u2026", "basedOn": null, "tag": "\u9ED8\u5951"}]`;
-}
-var PLATE_USER_TURN = "\u8BF7\u5F00\u59CB\u6574\u7406\u3002";
-function parsePlateLlmReply(reply) {
-  return safeParseJsonArray(reply || "").filter((item) => item && typeof item.text === "string" && isPlateRoom(item.room));
-}
-
-// utils/amsgPlateJob.ts
-var PLATE_CONSOLIDATE_KIND = "plate-consolidate";
-var PLATE_CONSOLIDATE_RESULT_KIND = "plate-consolidate";
-var plateJobKey = (jobId) => `plate:${jobId}`;
-var isPlateRoomValue = (v) => PLATE_ROOMS.includes(v);
-var asStringArray = (v) => Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
-var snapshotTimeFields = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? { snapshotAt: value } : {};
-function parsePlateJobInput(raw) {
-  let obj = raw;
-  if (typeof raw === "string") {
-    try {
-      obj = JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-  if (!obj || typeof obj !== "object" || Array.isArray(obj)) return null;
-  const o = obj;
-  if (o.v !== 1) return null;
-  if (typeof o.charId !== "string" || !o.charId) return null;
-  if (typeof o.charName !== "string" || typeof o.userName !== "string") return null;
-  if (typeof o.identityContext !== "string") return null;
-  if (!Array.isArray(o.rooms) || !Array.isArray(o.materials)) return null;
-  const rooms = [];
-  for (const r of o.rooms) {
-    if (!r || typeof r !== "object") return null;
-    const row = r;
-    const entries = asStringArray(row.entries);
-    const entryIds = asStringArray(row.entryIds);
-    if (!isPlateRoomValue(row.room) || !entries || !entryIds) return null;
-    if (entries.length !== entryIds.length) return null;
-    rooms.push({ room: row.room, entries, entryIds });
-  }
-  const materials = [];
-  for (const m of o.materials) {
-    if (!m || typeof m !== "object") return null;
-    const row = m;
-    const lines = asStringArray(row.lines);
-    if (!isPlateRoomValue(row.room) || !lines) return null;
-    materials.push({ room: row.room, lines });
-  }
-  return {
-    v: 1,
-    charId: o.charId,
-    charName: o.charName,
-    userName: o.userName,
-    identityContext: o.identityContext,
-    rooms,
-    materials,
-    ...snapshotTimeFields(o.snapshotAt)
-  };
-}
-function buildPlateJobMessages(job) {
-  return [
-    {
-      role: "system",
-      content: buildPlateConsolidationPrompt({
-        charName: job.charName,
-        userName: job.userName,
-        identityContext: job.identityContext,
-        plates: job.rooms.map((r) => ({ room: r.room, entries: r.entries })),
-        materials: job.materials
-      })
-    },
-    { role: "user", content: PLATE_USER_TURN }
-  ];
-}
-function buildPlateConsolidateResult(args) {
-  return {
-    resultKind: PLATE_CONSOLIDATE_RESULT_KIND,
-    v: 1,
-    jobId: args.jobId,
-    charId: args.charId,
-    items: args.items,
-    rooms: args.rooms.map((r) => ({ room: r.room, entryIds: r.entryIds })),
-    ...snapshotTimeFields(args.snapshotAt)
-  };
-}
-
-// utils/amsgFireScene.ts
-init_localDate();
-
-// utils/timezone.ts
-var nowInTimeZone = (tz, base = /* @__PURE__ */ new Date()) => {
-  if (!tz) return base;
-  try {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    }).formatToParts(base);
-    const map = {};
-    for (const p of parts) map[p.type] = p.value;
-    let hour = parseInt(map.hour, 10);
-    if (hour === 24) hour = 0;
-    return new Date(
-      parseInt(map.year, 10),
-      parseInt(map.month, 10) - 1,
-      parseInt(map.day, 10),
-      hour,
-      parseInt(map.minute, 10),
-      parseInt(map.second, 10)
-    );
-  } catch {
-    return base;
-  }
-};
-var wallClockToTimestamp = (wallClockText, tz) => {
-  const asDeviceLocal = new Date(wallClockText.trim().replace(" ", "T")).getTime();
-  if (!tz || Number.isNaN(asDeviceLocal)) return asDeviceLocal;
-  let t = asDeviceLocal;
-  for (let i = 0; i < 2; i++) {
-    const drift = nowInTimeZone(tz, new Date(t)).getTime() - asDeviceLocal;
-    if (drift === 0) break;
-    t -= drift;
-  }
-  return t;
-};
-
-// utils/scheduleInjection.ts
-function getFlowNarrativeKey(hour) {
-  if (hour < 12) return "morning";
-  if (hour < 18) return "afternoon";
-  return "evening";
-}
-var PRE_DAWN_END_HOUR = 5;
-var resolveScheduleSlots = (schedule, now) => {
-  if (!schedule?.slots?.length) return { current: null, next: null };
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
-  for (let i = schedule.slots.length - 1; i >= 0; i--) {
-    const [h, m] = schedule.slots[i].startTime.split(":").map(Number);
-    if (!Number.isFinite(h) || !Number.isFinite(m)) continue;
-    if (currentMinutes >= h * 60 + m) {
-      return {
-        current: schedule.slots[i],
-        next: i < schedule.slots.length - 1 ? schedule.slots[i + 1] : null
-      };
-    }
-  }
-  return { current: null, next: schedule.slots[0] };
-};
-var buildScheduleInjection = (schedule, evolvedNarrative, now = /* @__PURE__ */ new Date(), options = {}) => {
-  if (!schedule || !schedule.slots || schedule.slots.length === 0) return "";
-  const { current: currentSlot, next: nextSlot } = resolveScheduleSlots(schedule, now);
-  const withClock = options.includeClock !== false;
-  const withTime = (text2, startTime) => withClock ? `${text2}\uFF08${startTime}\uFF09` : text2;
-  const isPreDawnCarryOver = !currentSlot && now.getHours() < PRE_DAWN_END_HOUR;
-  let slotHeader = "";
-  if (currentSlot) {
-    slotHeader = withClock ? `\u5F53\u524D\u65F6\u6BB5\uFF1A${currentSlot.startTime} \u4F60\u6B63\u5728${currentSlot.activity}` : `\u5F53\u524D\u65F6\u6BB5\uFF1A\u4F60\u6B63\u5728${currentSlot.activity}`;
-    if (currentSlot.location) slotHeader += `\uFF08${currentSlot.location}\uFF09`;
-    if (nextSlot) {
-      slotHeader += withClock ? `
-\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.startTime} ${nextSlot.activity}` : `
-\u4E4B\u540E\u5B89\u6392\uFF1A${nextSlot.activity}`;
-    }
-    slotHeader += "\n";
-  } else if (nextSlot) {
-    slotHeader = isPreDawnCarryOver ? `\u591C\u6DF1\u4E86\uFF0C\u4ECA\u5929\u7684\u5B89\u6392\u8FD8\u6CA1\u5F00\u59CB\uFF0C\u6700\u65E9\u7684\u4E00\u4EF6\u662F${withTime(nextSlot.activity, nextSlot.startTime)}
-` : `\u4ECA\u5929\u8FD8\u6CA1\u5F00\u59CB\u6D3B\u52A8\uFF0C\u7A0D\u540E\u5148${withTime(nextSlot.activity, nextSlot.startTime)}
-`;
-  }
-  let narrative = "";
-  if (evolvedNarrative) {
-    narrative = evolvedNarrative;
-  } else if (schedule.flowNarrative && Object.keys(schedule.flowNarrative).length > 0) {
-    const key = isPreDawnCarryOver ? "evening" : getFlowNarrativeKey(now.getHours());
-    narrative = schedule.flowNarrative[key] || schedule.flowNarrative["evening"] || schedule.flowNarrative["afternoon"] || schedule.flowNarrative["morning"] || "";
-  } else if (currentSlot?.innerThought) {
-    narrative = currentSlot.innerThought;
-  }
-  const preamble = `\u6B64\u523B\u4F60\u7684\u5FC3\u4E2D\u76D8\u65CB\u7740\u8FD9\u4E9B\u60F3\u6CD5\u2026\u2026
-`;
-  const footnote = `
-\uFF08\u4E0D\u662F\u53F0\u8BCD\uFF0C\u4E0D\u7528\u8BF4\u51FA\u53E3\u2014\u2014\u8BA9\u5B83\u5F71\u54CD\u4F60\u7684\u8BED\u6C14\u548C\u60C5\u7EEA\u5C31\u597D\u3002\uFF09`;
-  const scopeNote = "\uFF08\u8FD9\u5F20\u8868\u662F\u4F60\u81EA\u5DF1\u7684\u4E00\u5929\uFF0C\u4E0D\u662F\u7ED9\u5BF9\u65B9\u5217\u7684\u5F85\u529E\u3002\u91CC\u5934\u8981\u662F\u6709\u8DDF\u5BF9\u65B9\u76F8\u5173\u7684\u4E8B\uFF0C\u90A3\u4E5F\u662F\u4F60\u81EA\u5DF1\u7684\u60E6\u8BB0\u2014\u2014\u8BDD\u8D76\u5230\u4E86\u987A\u53E3\u5E26\u4E00\u53E5\u5C31\u591F\uFF0C\u4E0D\u7528\u8FFD\u7740\u95EE\u8FDB\u5C55\uFF0C\u4E5F\u4E0D\u7528\u50AC\u5BF9\u65B9\u53BB\u505A\u3002\uFF09";
-  let out = "";
-  if (options.includeFullDay) {
-    const rows = schedule.slots.map((slot) => {
-      let line = withClock ? `- ${slot.startTime} ${slot.activity}` : `- ${slot.activity}`;
-      if (slot.location) line += `\uFF08${slot.location}\uFF09`;
-      if (slot.description) line += `\uFF1A${slot.description}`;
-      return line;
-    });
-    out += `\u4F60\u4ECA\u5929\u7684\u5B8C\u6574\u65E5\u7A0B\uFF1A
-${rows.join("\n")}
-`;
-  }
-  out += slotHeader;
-  if (narrative) {
-    out += preamble + narrative + footnote;
-  }
-  const changeTarget = nextSlot ?? currentSlot;
-  if (options.includeChangeInstruction && withClock && changeTarget) {
-    out += `
-\u65E5\u7A0B\u662F\u4F60\u65E9\u4E0A\u7ED9\u81EA\u5DF1\u6392\u7684\u8BA1\u5212\uFF0C\u4E0D\u662F\u5FC5\u987B\u5C65\u884C\u7684\u547D\u4EE4\u3002\u771F\u5B9E\u53D1\u751F\u7684\u4E8B\u8DDF\u5B83\u5BF9\u4E0D\u4E0A\u65F6\uFF08\u6BD4\u5982\u8FD9\u4F1A\u513F\u8868\u4E0A\u5199\u7740\u7761\u89C9\u3001\u4F60\u5374\u9192\u7740\u5728\u8DDF\u5BF9\u65B9\u8BF4\u8BDD\uFF09\uFF0C\u628A\u5B83\u6539\u6210\u4F60\u5B9E\u9645\u5728\u505A\u7684\u4E8B\u5C31\u597D\u3002
-\u9700\u8981\u65F6\u5728\u56DE\u590D\u672B\u5C3E\u5355\u72EC\u8F93\u51FA\uFF1A[[ACTION:CHANGE_SCHEDULE | ${changeTarget.startTime} | \u53BB\u8D85\u5E02]]\uFF08\u65F6\u6BB5\u8981\u539F\u6837\u6284\u4E0A\u9762\u51FA\u73B0\u8FC7\u7684\u90A3\u51E0\u4E2A\uFF1B\u6B63\u5728\u8FDB\u884C\u7684\u8FD9\u4E00\u6761\u548C\u5B83\u4E4B\u540E\u7684\u90FD\u80FD\u6539\uFF0C\u5DF2\u7ECF\u8FC7\u53BB\u7684\u4E0D\u80FD\uFF09\u3002`;
-  }
-  out += `
-${scopeNote}`;
-  out += "\n";
-  return out;
-};
-
-// utils/charMusicSchedule.ts
-init_localDate();
-
-// utils/scheduleTime.ts
-init_localDate();
-
-// utils/charMusicSchedule.ts
-var LISTENING_KEYWORDS = [
-  "\u542C\u6B4C",
-  "\u542C\u97F3\u4E50",
-  "\u6234\u8033\u673A",
-  "\u6234\u4E0A\u8033\u673A",
-  "\u6234\u7740\u8033\u673A",
-  "\u8033\u673A",
-  "\u5FAA\u73AF",
-  "\u5355\u66F2\u5FAA\u73AF",
-  "\u64AD\u653E",
-  "\u8033\u7554",
-  "\u8033\u65C1",
-  "\u64AD\u653E\u5217\u8868",
-  "\u6B4C\u5355",
-  "\u526F\u6B4C",
-  "\u524D\u594F",
-  "listening",
-  "music",
-  "song",
-  "playlist",
-  "vinyl",
-  "headphone",
-  "\u{1F3B5}",
-  "\u{1F3B6}",
-  "\u{1F3A7}"
-];
-var slotIsListening = (slot) => {
-  if (!slot) return false;
-  const blob = `${slot.activity || ""} ${slot.description || ""} ${slot.innerThought || ""} ${slot.emoji || ""}`.toLowerCase();
-  return LISTENING_KEYWORDS.some((kw) => blob.includes(kw.toLowerCase()));
-};
-var pickSongFromPool = (pool, slotStartTime, today, charId) => {
-  if (pool.length === 0) return null;
-  const seedStr = `${today}-${slotStartTime}-${charId}`;
-  let h = 0;
-  for (const ch of seedStr) h = h * 31 + ch.charCodeAt(0) >>> 0;
-  return pool[h % pool.length];
-};
-
-// utils/amsgFireScene.ts
-var resolveFireSceneSong = (scene, nowMs, tz) => {
-  if (!scene?.schedule?.slots?.length) return null;
-  const wallNow = nowInTimeZone(tz.tzId, new Date(nowMs));
-  if (getLocalDateKey(wallNow) !== scene.dateKey) return null;
-  if (scene.songPool.length === 0) return null;
-  const { current } = resolveScheduleSlots(scene.schedule, wallNow);
-  if (!current || !slotIsListening(current)) return null;
-  return pickSongFromPool(
-    scene.songPool,
-    current.startTime,
-    getLocalDateKey(wallNow),
-    scene.charId
-  );
-};
-var renderFireSceneBlock = (scene, nowMs, tz, options) => {
-  if (!scene?.schedule?.slots?.length) return "";
-  const wallNow = nowInTimeZone(tz.tzId, new Date(nowMs));
-  if (getLocalDateKey(wallNow) !== scene.dateKey) return "";
-  const scheduleText = buildScheduleInjection(
-    scene.schedule,
-    scene.evolvedNarrative,
-    wallNow,
-    {
-      includeClock: options?.includeClock !== false,
-      // 到点主动开口的角色最容易撞上「表上写着睡觉、我却正在给对方发消息」，
-      // 所以这条路也要教。标签由 worker classifier 摘成 directive 随 push 回来、
-      // 客户端落库；落库按 push 的 sentAt 判时段，隔夜的整批丢弃（见 scheduleChange）。
-      includeChangeInstruction: true
-    }
-  ).trim();
-  const lines = [];
-  if (scheduleText) lines.push(scheduleText);
-  const song = resolveFireSceneSong(scene, nowMs, tz);
-  if (song) lines.push(`\u4F60\u6B64\u523B\u5728\u542C\uFF1A\u300A${song.name}\u300B\u2014 ${song.artists}`);
-  if (lines.length === 0) return "";
-  return `
-
-${lines.join("\n")}`;
-};
-
-// utils/amsgLimits.ts
-var DEFAULT_MAX_UNANSWERED_SENDS = 3;
-var DEFAULT_MIN_SEND_GAP_MINUTES = 10;
-var DEFAULT_DAILY_SEND_CAP = 0;
-var DEFAULT_RECURRING_STOP_AFTER = 3;
-var DEFAULT_MAX_ACTIVE_TASKS = 5;
-var MAX_ACTIVE_TASKS_CEILING = 10;
-var resolveCount = (value, fallback, ceiling) => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return fallback === 0 ? Infinity : fallback;
-  }
-  if (value === 0) return Infinity;
-  if (value < 1) return fallback === 0 ? Infinity : fallback;
-  return Math.min(ceiling, Math.floor(value));
-};
-var resolveMaxUnansweredSends = (value) => resolveCount(value, DEFAULT_MAX_UNANSWERED_SENDS, 99);
-var resolveAmsgLimits = (settings) => {
-  const s = settings ?? {};
-  const gap = s.minSendGapMinutes;
-  const gapMinutes = typeof gap === "number" && Number.isFinite(gap) && gap >= 0 ? Math.min(24 * 60, Math.floor(gap)) : DEFAULT_MIN_SEND_GAP_MINUTES;
-  const tasks = s.maxActiveTasks;
-  return {
-    maxUnansweredSends: resolveMaxUnansweredSends(s.maxUnansweredSends),
-    minSendGapMs: gapMinutes * 6e4,
-    dailySendCap: resolveCount(s.dailySendCap, DEFAULT_DAILY_SEND_CAP, 999),
-    recurringStopAfter: resolveCount(s.recurringStopAfter, DEFAULT_RECURRING_STOP_AFTER, 99),
-    // 任务名额没有「不限」这一档：挂太多等于把「同时有几件事在后台排队」这件事交出去了。
-    maxActiveTasks: typeof tasks === "number" && Number.isFinite(tasks) && tasks >= 1 ? Math.min(MAX_ACTIVE_TASKS_CEILING, Math.floor(tasks)) : DEFAULT_MAX_ACTIVE_TASKS,
-    allowSelfRecurring: s.allowSelfRecurring === true,
-    allowSelfForce: s.allowSelfForce === true
-  };
-};
-var AMSG_LIMITS_KEY = "limits";
-var parseAmsgLimitsRecord = (value) => {
-  if (typeof value !== "string" || !value) return null;
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && parsed.v === 1 && typeof parsed.selfScheduleEnabled === "boolean") {
-      return parsed;
-    }
-  } catch {
-  }
-  return null;
-};
-var AMSG_DAILY_SENDS_KEY = "daily_sends";
-var DAILY_COUNTED_KEEP = 20;
-var dayKeyInZone = (nowMs, tzId) => {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: tzId,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date(nowMs));
-  const map = {};
-  for (const p of parts) map[p.type] = p.value;
-  return `${map.year}-${map.month}-${map.day}`;
-};
-var parseDailySends = (value) => {
-  if (typeof value !== "string" || !value) return null;
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && parsed.v === 1 && typeof parsed.day === "string" && typeof parsed.sends === "number") {
-      return parsed;
-    }
-  } catch {
-  }
-  return null;
-};
-var sendsOnDay = (record2, day) => record2 && record2.day === day ? record2.sends : 0;
-var bumpDailySends = (record2, day, add) => {
-  const base = record2 && record2.day === day ? record2 : { v: 1, day, sends: 0 };
-  const alreadyCounted = !!add.sentId && (base.counted ?? []).includes(add.sentId);
-  const sends = base.sends + (alreadyCounted ? 0 : add.sends ?? 0);
-  const llmCalls = add.llmCalls ? (base.llmCalls ?? 0) + add.llmCalls : base.llmCalls;
-  const counted = add.sentId && add.sends && !alreadyCounted ? [...base.counted ?? [], add.sentId].slice(-DAILY_COUNTED_KEEP) : base.counted;
-  return {
-    v: 1,
-    day,
-    sends,
-    ...llmCalls !== void 0 ? { llmCalls } : {},
-    ...counted ? { counted } : {}
-  };
-};
-var earliestSlotAfter = (fromMs, gapMs, busy) => {
-  if (gapMs <= 0) return fromMs;
-  const sorted = [...busy].filter(Number.isFinite).sort((a, b) => a - b);
-  let slot = fromMs;
-  for (let moved = true; moved; ) {
-    moved = false;
-    for (const b of sorted) {
-      if (Math.abs(slot - b) < gapMs) {
-        slot = b + gapMs;
-        moved = true;
-      }
-    }
-  }
-  return slot;
-};
-var findGapConflict = (sendAtMs, gapMs, busy) => {
-  if (gapMs <= 0) return null;
-  return busy.find((b) => Number.isFinite(b) && Math.abs(sendAtMs - b) < gapMs) ?? null;
-};
-var FIRE_GAP_TOLERANCE_MS = 3 * 6e4;
-var describeMinutes = (minutes) => {
-  if (minutes < 60) return `${minutes} \u5206\u949F`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return m ? `${h} \u5C0F\u65F6 ${m} \u5206\u949F` : `${h} \u5C0F\u65F6`;
-};
-var checkSelfScheduleRules = (input) => {
-  const { limits } = input;
-  if (input.recurrence !== "none" && !limits.allowSelfRecurring) {
-    return {
-      ok: false,
-      reason: "recurring_not_allowed",
-      message: "\u7528\u6237\u6CA1\u6709\u8BA9\u4F60\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u6D88\u606F\uFF0C\u8FD9\u6B21\u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF08\u53BB\u6389 recurrence \u518D\u6392\uFF09\u3002"
-    };
-  }
-  const conflict = findGapConflict(input.sendAtMs, limits.minSendGapMs, input.busy);
-  if (conflict !== null) {
-    const gapMinutes = Math.round(limits.minSendGapMs / 6e4);
-    const earliest = earliestSlotAfter(
-      Math.max(input.earliestMs, input.sendAtMs),
-      limits.minSendGapMs,
-      input.busy
-    );
-    return {
-      ok: false,
-      reason: "min_gap",
-      message: `\u79BB ${input.formatTime(conflict)} \u90A3\u6B21\u592A\u8FD1\u4E86\uFF1A\u7528\u6237\u5B9A\u4E86\u4E24\u6B21\u4E3B\u52A8\u6D88\u606F\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(gapMinutes)}\u3002\u8981\u6392\u7684\u8BDD\u6700\u65E9 ${input.formatTime(earliest)}\uFF1B\u6CA1\u90A3\u4E48\u8981\u7D27\u7684\u8BDD\uFF0C\u8FD9\u6B21\u5C31\u522B\u6392\u4E86\u3002`
-    };
-  }
-  return {
-    ok: true,
-    expirePolicy: input.expirePolicy === "force" && !limits.allowSelfForce ? "expire" : input.expirePolicy
-  };
-};
-var buildLimitsBrief = (input) => {
-  const { limits } = input;
-  const lines = [];
-  if (Number.isFinite(limits.maxUnansweredSends)) {
-    const left = Math.max(0, limits.maxUnansweredSends - input.committedSends);
-    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u7684\u65F6\u5019\uFF0C\u4F60\u6700\u591A\u8FDE\u7740\u4E3B\u52A8\u627E\u5BF9\u65B9 ${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09\uFF0C` + (left > 0 ? `\u73B0\u5728\u8FD8\u80FD\u518D\u6392 ${left} \u6B21\u3002` : "\u73B0\u5728\u4E00\u6B21\u90FD\u4E0D\u80FD\u518D\u6392\u4E86\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u3002"));
-  }
-  if (limits.minSendGapMs > 0) {
-    lines.push(`- \u4E24\u6B21\u4E3B\u52A8\u627E\u5BF9\u65B9\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(Math.round(limits.minSendGapMs / 6e4))}` + (input.earliestText ? `\uFF0C\u8FD9\u6B21\u6700\u65E9\u6392\u5230 ${input.earliestText}\u3002` : "\u3002"));
-  }
-  if (input.dailyRemaining !== void 0 && Number.isFinite(limits.dailySendCap)) {
-    lines.push(input.dailyRemaining > 0 ? `- \u4ECA\u5929\u8FD8\u80FD\u518D\u4E3B\u52A8\u627E\u5BF9\u65B9 ${input.dailyRemaining} \u6B21\u3002` : "- \u4ECA\u5929\u4E3B\u52A8\u627E\u5BF9\u65B9\u7684\u6B21\u6570\u5DF2\u7ECF\u7528\u5B8C\u4E86\uFF0C\u8981\u6392\u5C31\u6392\u5230\u660E\u5929\u3002");
-  }
-  lines.push(`- \u540C\u65F6\u6700\u591A\u6302 ${limits.maxActiveTasks} \u4E2A\u6392\u7A0B\u4EFB\u52A1\uFF0C\u73B0\u5728\u6302\u7740 ${input.activeTasks} \u4E2A\u3002`);
-  if (!limits.allowSelfRecurring) lines.push("- \u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF0C\u4E0D\u80FD\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u3002");
-  if (!limits.allowSelfForce) lines.push("- \u6392\u7684\u6D88\u606F\u5230\u70B9\u78B0\u4E0A\u5BF9\u65B9\u6B63\u5728\u804A\u5929\u4F1A\u81EA\u52A8\u4F5C\u7F62\uFF08\u8F6C\u6210\u4F60\u5728\u804A\u5929\u91CC\u81EA\u7136\u5E26\u51FA\uFF09\uFF0C\u6CA1\u6709\u300C\u5230\u70B9\u5FC5\u53D1\u300D\u3002");
-  return ["\u7528\u6237\u7ED9\u4F60\u5B9A\u7684\u89C4\u77E9\uFF08\u7CFB\u7EDF\u7167\u7740\u6267\u884C\uFF1A\u8D85\u51FA\u7684\u6392\u4E0D\u4E0A\uFF0C\u6392\u4E0A\u4E86\u5230\u70B9\u4E5F\u4E0D\u53D1\uFF09\uFF1A", ...lines].join("\n");
-};
-
-// utils/amsgFirePack.ts
-var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";
-var amsgStateNamespace = (charId) => `${AMSG_STATE_NAMESPACE_PREFIX}${charId}`;
-var AMSG_FIRE_PACK_KEY = "fire_pack";
-var AMSG_SELF_LOG_KEY = "self_log";
-var amsgXhsSessionKey = (clientTaskId) => `xhs_session:${clientTaskId}`;
-var AMSG2_INSTANT_STUB_TEMPLATE = "AMSG2_INSTANT_STUB_TEMPLATE\uFF08\u5373\u65F6\u5BF9\u8BDD\u8F7B\u91CF\u5305\uFF1A\u8BE5\u89D2\u8272\u65E0\u5B9A\u65F6\u4EFB\u52A1\uFF0C\u6A21\u677F\u672A\u968F\u53D1\u9001\u91CD\u5EFA\uFF1B\u770B\u5230\u8FD9\u6761\u6B63\u6587\u8BF4\u660E\u6709\u672C\u4E0D\u8BE5\u6E32\u67D3\u6A21\u677F\u7684 fire \u5728\u6E32\u67D3\u5B83\uFF09";
-var AMSG_CHAT_FAIL_KEY = "chat_fail";
-var GZIP_VALUE_PREFIX = "gz1:";
-var base64ToBytes2 = (base64) => {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-  return bytes;
-};
-var streamThrough = async (data, transform) => {
-  const stream = new Blob([data]).stream().pipeThrough(transform);
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-};
-var unpackStateValue = async (value) => {
-  if (!value.startsWith(GZIP_VALUE_PREFIX)) return value;
-  const gz = base64ToBytes2(value.slice(GZIP_VALUE_PREFIX.length));
-  const raw = await streamThrough(gz, new DecompressionStream("gzip"));
-  return new TextDecoder().decode(raw);
-};
-var AMSG_LAST_SKIP_KEY = "last_skip";
-var AMSG_SLOT_CURRENT_TIME = "{{AMSG_CURRENT_TIME}}";
-var AMSG_SLOT_TIME_SINCE_USER = "{{AMSG_TIME_SINCE_USER}}";
-var AMSG_SLOT_AWAY_HINT = "{{AMSG_AWAY_HINT}}";
-var AMSG_SLOT_TASK_INSTRUCTION = "{{AMSG_TASK_INSTRUCTION}}";
-var AMSG_SLOT_USER_CLOCK = "{{AMSG_USER_CLOCK}}";
-var AMSG_SLOT_SELF_LOG = "{{AMSG_SELF_LOG}}";
-var AMSG_SLOT_TASK_LIST = "{{AMSG_TASK_LIST}}";
-var AMSG_SLOT_SCENE = "{{AMSG_SCENE}}";
-var AMSG_SLOT_REALTIME_WORLD = "{{AMSG_REALTIME_WORLD}}";
-var AMSG_SLOT_LIVE_CHAT = "{{AMSG_LIVE_CHAT}}";
-var AMSG_SILENT_MARK = "[[SILENT]]";
-var BEFORE_SPEAK_LINES = [
-  "\u3010\u5F00\u53E3\u4E4B\u524D\u3011",
-  `\u5148\u5BF9\u7167\u4E0A\u9762\u7684\u3010\u6700\u8FD1\u5BF9\u8BDD\u4E0A\u4E0B\u6587\u3011\uFF08\u8FDE\u540C\u540E\u9762\u4F60\u81EA\u5DF1\u53D1\u8FC7\u3001\u56DE\u8FC7\u7684\u90A3\u51E0\u53E5\uFF09\u3002${AMSG_SLOT_LIVE_CHAT}`,
-  "\u9ED8\u8BA4\u662F\u7167\u5E38\u8BF4\u4F60\u8981\u8BF4\u7684\u8BDD\u3002\u53EA\u6709\u4E24\u79CD\u60C5\u51B5\u8FD9\u6B21\u4E0D\u8BF4\uFF1A",
-  "1. \u8FD9\u6761\u4EFB\u52A1\u8981\u8BF4\u7684\u4E8B\uFF0C\u5DF2\u7ECF\u5728\u4F60\u4EEC\u7684\u5BF9\u8BDD\u91CC\u53D1\u751F\u8FC7\u3001\u6216\u8005\u5DF2\u7ECF\u804A\u5B8C\u4E86\u3002",
-  "2. \u4F60\u4EEC\u6B63\u804A\u7740\u522B\u7684\uFF0C\u8FD9\u6761\u63D2\u8FDB\u6765\u660E\u663E\u4F1A\u6253\u65AD\u6B63\u5728\u8BF4\u7684\u4E8B\uFF0C\u800C\u4E14\u665A\u70B9\u518D\u8BF4\u4E5F\u4E0D\u803D\u8BEF\u3002",
-  "\u6B63\u804A\u7740\u4E0D\u7B49\u4E8E\u4E0D\u8BF4\uFF1A\u5BF9\u65B9\u6B63\u7B49\u7740\u8FD9\u6761\u3001\u6216\u8005\u5B83\u8DDF\u773C\u4E0B\u804A\u7684\u63A5\u5F97\u4E0A\uFF0C\u5C31\u987A\u7740\u8BDD\u5934\u628A\u5B83\u8BF4\u51FA\u6765\uFF0C\u50CF\u804A\u5929\u91CC\u81EA\u7136\u63A5\u4E0A\u7684\u4E00\u53E5\uFF0C\u522B\u50CF\u53E6\u8D77\u4E00\u6BB5\u7684\u901A\u77E5\u3002",
-  "\u62FF\u4E0D\u51C6\u5C31\u8BF4\u3002\u300C\u6015\u6253\u6270\u300D\u300C\u65F6\u673A\u597D\u50CF\u4E0D\u592A\u5BF9\u300D\u8FD9\u79CD\u7B3C\u7EDF\u7684\u987E\u8651\u4E0D\u7B97\u7406\u7531\u3002",
-  `\u51B3\u5B9A\u4E0D\u8BF4 \u2192 \u6574\u6BB5\u8F93\u51FA\u53EA\u5199 ${AMSG_SILENT_MARK} \u8FD9\u4E00\u4E2A\u6807\u8BB0\uFF0C\u522B\u7684\u4E00\u4E2A\u5B57\u90FD\u4E0D\u8981\u5199\uFF0C\u4E5F\u4E0D\u8981\u89E3\u91CA\u3002`
-];
-var LIVE_CHAT_WINDOW_MS = 10 * 6e4;
-var wallClockPartsInZone = (nowMs, tz) => {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz.tzId,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    weekday: "short",
-    hour12: false
-  }).formatToParts(new Date(nowMs));
-  const map = {};
-  for (const p of parts) map[p.type] = p.value;
-  const weekdayIdx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(map.weekday);
-  let hour = parseInt(map.hour, 10);
-  if (hour === 24) hour = 0;
-  return {
-    year: parseInt(map.year, 10),
-    month: parseInt(map.month, 10),
-    day: parseInt(map.day, 10),
-    weekday: weekdayIdx >= 0 ? weekdayIdx : 0,
-    hour,
-    minute: parseInt(map.minute, 10)
-  };
-};
-var WEEKDAY_NAMES = ["\u5468\u65E5", "\u5468\u4E00", "\u5468\u4E8C", "\u5468\u4E09", "\u5468\u56DB", "\u5468\u4E94", "\u5468\u516D"];
-var timeOfDayWord = (h) => h < 5 ? "\u51CC\u6668" : h < 9 ? "\u65E9\u6668" : h < 12 ? "\u4E0A\u5348" : h < 14 ? "\u4E2D\u5348" : h < 17 ? "\u4E0B\u5348" : h < 19 ? "\u508D\u665A" : h < 22 ? "\u665A\u4E0A" : "\u6DF1\u591C";
-var pad2 = (n) => n.toString().padStart(2, "0");
-var formatFireTimeFull = (nowMs, tz) => {
-  const p = wallClockPartsInZone(nowMs, tz);
-  return `${p.year}\u5E74${p.month}\u6708${p.day}\u65E5 ${WEEKDAY_NAMES[p.weekday]} ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}`;
-};
-var formatFireTimeShort = (nowMs, tz) => {
-  const p = wallClockPartsInZone(nowMs, tz);
-  return `${p.month}\u6708${p.day}\u65E5 ${pad2(p.hour)}:${pad2(p.minute)}`;
-};
-var buildUserClockHint = (nowMs, charTz, userTz, targetName) => {
-  if (!userTz.tzId || userTz.tzId === charTz.tzId) return "";
-  const p = wallClockPartsInZone(nowMs, userTz);
-  const target = targetName || "\u5BF9\u65B9";
-  return `
-\uFF08\u5BF9\u65B9\u6240\u5728\u65F6\u533A\u53C2\u8003\uFF1A${target}\u90A3\u8FB9\u73B0\u5728\u662F ${p.month}\u6708${p.day}\u65E5 ${timeOfDayWord(p.hour)} ${pad2(p.hour)}:${pad2(p.minute)}\u3002\u4F60\u4EEC\u4E4B\u95F4\u6709\u65F6\u5DEE\uFF0C\u522B\u62FF\u81EA\u5DF1\u8FD9\u8FB9\u7684\u949F\u53BB\u63A8\u65AD ${target} \u6B64\u523B\u9192\u7740\u8FD8\u662F\u7761\u7740\u3002\uFF09`;
-};
-var formatTimeSinceUser = (diffMinutes) => {
-  if (diffMinutes == null) {
-    return "\u4F60\u4EEC\u6700\u8FD1\u6CA1\u6709\u65B0\u7684\u804A\u5929\u8BB0\u5F55\u3002";
-  }
-  const minutesTotal = Math.max(0, diffMinutes);
-  if (minutesTotal < 60) {
-    return `\u8DDD\u79BB\u7528\u6237\u4E0A\u6B21\u4E3B\u52A8\u53D1\u6D88\u606F\u5927\u7EA6 ${minutesTotal} \u5206\u949F\u3002`;
-  }
-  if (minutesTotal < 1440) {
-    const hours2 = Math.floor(minutesTotal / 60);
-    const minutes = minutesTotal % 60;
-    return `\u8DDD\u79BB\u7528\u6237\u4E0A\u6B21\u4E3B\u52A8\u53D1\u6D88\u606F\u5927\u7EA6 ${hours2} \u5C0F\u65F6${minutes ? ` ${minutes} \u5206\u949F` : ""}\u3002`;
-  }
-  const days = Math.floor(minutesTotal / 1440);
-  const hours = Math.floor(minutesTotal % 1440 / 60);
-  return `\u8DDD\u79BB\u7528\u6237\u4E0A\u6B21\u4E3B\u52A8\u53D1\u6D88\u606F\u5927\u7EA6 ${days} \u5929${hours ? ` ${hours} \u5C0F\u65F6` : ""}\u3002`;
-};
-var buildAwayHint = (targetName, timeSinceUser) => {
-  const target = targetName || "\u5BF9\u65B9";
-  if (timeSinceUser.includes("\u6CA1\u6709\u65B0\u7684\u804A\u5929\u8BB0\u5F55")) return `${target}\u6700\u8FD1\u6CA1\u6709\u4E3B\u52A8\u6765\u627E\u4F60\u8BF4\u8BDD\u3002`;
-  const span = timeSinceUser.match(/大约 (.+?)。?$/)?.[1];
-  return span ? `${target}\u5DF2\u7ECF\u5927\u7EA6 ${span} \u6CA1\u4E3B\u52A8\u6765\u627E\u4F60\u4E86\u3002` : `${target}\u6700\u8FD1\u6CA1\u6709\u4E3B\u52A8\u6765\u627E\u4F60\u8BF4\u8BDD\u3002`;
-};
-var SELF_LOG_MAX_ENTRIES = 8;
-var SELF_LOG_TEXT_MAX = 200;
-var SELF_LOG_REPLY_TEXT_MAX = 1500;
-var createSelfLog = (basePackAt, anchorUserMsgAt = null) => ({
-  v: 4,
-  basePackAt,
-  anchorUserMsgAt,
-  entries: [],
-  unansweredSends: 0,
-  recurringSends: {},
-  tasks: []
-});
-var countUnansweredSends = (log) => log ? log.unansweredSends : 0;
-var reconcileSelfLogWithPack = (stored, pack, lastUserMessageAt) => {
-  let log = stored ?? createSelfLog(pack.builtAt, lastUserMessageAt);
-  if (lastUserMessageAt != null && (log.anchorUserMsgAt == null || lastUserMessageAt > log.anchorUserMsgAt)) {
-    log = { ...log, anchorUserMsgAt: lastUserMessageAt, entries: [], unansweredSends: 0, recurringSends: {} };
-  }
-  if (log.basePackAt !== pack.builtAt) {
-    log = { ...log, basePackAt: pack.builtAt, tasks: [] };
-  }
-  return log;
-};
-var countRecurringSends = (log, clientTaskId) => clientTaskId && log?.recurringSends?.[clientTaskId] || 0;
-var bumpRecurringSend = (log, clientTaskId) => {
-  if (!clientTaskId) return log;
-  const counts = log.recurringSends ?? {};
-  return { ...log, recurringSends: { ...counts, [clientTaskId]: (counts[clientTaskId] ?? 0) + 1 } };
-};
-var appendSelfLogTask = (log, task) => ({
-  ...log,
-  tasks: [...log.tasks.filter((t) => t.taskUuid !== task.taskUuid), task]
-});
-var appendSelfLogEntry = (log, entry) => {
-  const text2 = entry.text.trim().slice(0, entry.reply ? SELF_LOG_REPLY_TEXT_MAX : SELF_LOG_TEXT_MAX);
-  if (!text2) return log;
-  const alreadyLogged = log.entries.some((e) => e.id === entry.id);
-  const kept = log.entries.filter((e) => e.id !== entry.id);
-  return {
-    ...log,
-    entries: [...kept, { ...entry, text: text2 }].slice(-SELF_LOG_MAX_ENTRIES),
-    unansweredSends: log.unansweredSends + (entry.reply || alreadyLogged ? 0 : 1)
-  };
-};
-var parseSelfLog = (value) => {
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && parsed.v === 4 && typeof parsed.basePackAt === "number" && (parsed.anchorUserMsgAt === null || typeof parsed.anchorUserMsgAt === "number") && typeof parsed.unansweredSends === "number" && (parsed.recurringSends === void 0 || !!parsed.recurringSends && typeof parsed.recurringSends === "object") && Array.isArray(parsed.tasks) && Array.isArray(parsed.entries) && parsed.entries.every((e) => {
-      const entry = e;
-      return !!entry && typeof entry.id === "string" && typeof entry.at === "number" && typeof entry.text === "string";
-    })) {
-      return parsed;
-    }
-  } catch {
-  }
-  return null;
-};
-var formatAgo = (atMs, nowMs, tz) => {
-  const diff = nowMs - atMs;
-  if (diff < 6e4) return "\u521A\u521A";
-  if (diff < 60 * 6e4) return `${Math.floor(diff / 6e4)}\u5206\u949F\u524D`;
-  if (diff < 24 * 60 * 6e4) return `${Math.floor(diff / (60 * 6e4))}\u5C0F\u65F6\u524D`;
-  return formatFireTimeShort(atMs, tz);
-};
-var renderSelfLogBlock = (log, nowMs, tz, maxUnanswered = DEFAULT_MAX_UNANSWERED_SENDS) => {
-  if (!log || log.entries.length === 0) return "";
-  const fresh = log.entries.filter((e) => e.at > log.basePackAt);
-  const sends = countUnansweredSends(log);
-  const limitHalf = Number.isFinite(maxUnanswered) ? `\uFF0C\u4E0A\u9650 ${maxUnanswered} \u6B21\uFF0C\u5230\u4E0A\u9650\u540E\u4F60\u81EA\u5DF1\u6392\u7684\u540E\u7EED\u5230\u70B9\u4F1A\u76F4\u63A5\u8DF3\u8FC7\u3001\u4E0D\u8865\u53D1\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u624D\u91CD\u65B0\u8BA1\u6570` : "";
-  if (fresh.length === 0) {
-    if (sends === 0) return "";
-    return [
-      "",
-      "",
-      `\uFF08\u5BF9\u65B9\u672A\u56DE\u5E94\u671F\u95F4\u4F60\u5DF2\u8FDE\u7740\u4E3B\u52A8\u627E\u4E86\u5BF9\u65B9 ${sends} \u6B21${limitHalf}\u3002\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\u3002\uFF09`
-    ].join("\n");
-  }
-  const replies = fresh.filter((e) => e.reply);
-  const proactive = fresh.filter((e) => !e.reply);
-  const line = (e) => `- ${formatAgo(e.at, nowMs, tz)}\u3000${e.text}`;
-  const out = ["", ""];
-  if (replies.length > 0) {
-    out.push(
-      "\u3010\u8FD9\u4E4B\u540E\u4F60\u56DE\u4E86\u5BF9\u65B9\u3011",
-      ...replies.map(line),
-      "\uFF08\u8FD9\u662F\u4F60\u5BF9\u4E0A\u9762\u5BF9\u8BDD\u91CC\u5BF9\u65B9\u6700\u540E\u90A3\u51E0\u53E5\u7684\u56DE\u590D\uFF0C\u5BF9\u65B9\u5DF2\u7ECF\u770B\u5230\u4E86\u3002\u5F80\u4E0B\u8BF4\u7684\u65F6\u5019\u63A5\u7740\u5B83\uFF0C\u522B\u91CD\u590D\u3002\uFF09"
-    );
-  }
-  if (proactive.length > 0) {
-    if (replies.length > 0) out.push("");
-    out.push(
-      "\u3010\u8FD9\u4E4B\u540E\u4F60\u53C8\u53D1\u8FC7\uFF08\u5BF9\u65B9\u8FD8\u6CA1\u56DE\uFF09\u3011",
-      ...proactive.map(line),
-      sends >= 1 ? `\uFF08\u5BF9\u65B9\u4E00\u76F4\u6CA1\u56DE\u5E94\uFF0C\u4F60\u5DF2\u8FDE\u7740\u4E3B\u52A8\u627E\u4E86\u5BF9\u65B9 ${sends} \u6B21${limitHalf}\u3002\u5F80\u4E0B\u63A5\u7740\u8BF4\uFF0C\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\uFF0C\u4E5F\u522B\u5047\u88C5\u8FD9\u4E9B\u6CA1\u53D1\u751F\u8FC7\u3002\uFF09` : "\uFF08\u8FD9\u51E0\u6761\u662F\u4F60\u53D1\u51FA\u53BB\u7684\uFF0C\u5BF9\u65B9\u8FD8\u6CA1\u56DE\u5E94\u3002\u5F80\u4E0B\u63A5\u7740\u8BF4\uFF0C\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\uFF0C\u4E5F\u522B\u5047\u88C5\u8FD9\u4E9B\u6CA1\u53D1\u751F\u8FC7\u3002\uFF09"
-    );
-  } else if (sends >= 1) {
-    out.push(`\uFF08\u5BF9\u65B9\u672A\u56DE\u5E94\u671F\u95F4\u4F60\u5DF2\u8FDE\u7740\u4E3B\u52A8\u627E\u4E86\u5BF9\u65B9 ${sends} \u6B21${limitHalf}\u3002\u522B\u628A\u5DF2\u7ECF\u8BF4\u8FC7\u7684\u8BDD\u6362\u4E2A\u8BF4\u6CD5\u518D\u8BB2\u4E00\u904D\u3002\uFF09`);
-  }
-  return out.join("\n");
-};
-var renderLiveChatLine = (targetName, lastUserMessageAt, nowMs) => {
-  if (lastUserMessageAt == null) return "";
-  const diff = nowMs - lastUserMessageAt;
-  if (diff < 0 || diff >= LIVE_CHAT_WINDOW_MS) return "";
-  const ago = diff < 6e4 ? "\u521A\u521A" : `${Math.floor(diff / 6e4)} \u5206\u949F\u524D`;
-  return `
-\u4F60\u4EEC\u6B64\u523B\u6B63\u804A\u7740\uFF1A${targetName || "\u5BF9\u65B9"}${ago}\u8FD8\u5728\u8DDF\u4F60\u8BF4\u8BDD\u3002`;
-};
-var fillSlot = (text2, slot, value) => text2.split(slot).join(value);
-var renderFirePack = (pack, nowMs, taskInstruction, extras) => {
-  const tz = { tzId: pack.tzId };
-  const currentTime = formatFireTimeFull(nowMs, tz);
-  const lastUserMessageAt = extras?.lastUserMessageAt !== void 0 ? extras.lastUserMessageAt : pack.lastUserMessageAt ?? null;
-  const diffMinutes = lastUserMessageAt == null ? null : Math.max(0, Math.floor((nowMs - lastUserMessageAt) / 6e4));
-  const timeSinceUser = formatTimeSinceUser(diffMinutes);
-  const awayHint = buildAwayHint(pack.targetName, timeSinceUser);
-  let out = pack.template;
-  out = fillSlot(out, AMSG_SLOT_CURRENT_TIME, currentTime);
-  out = fillSlot(out, AMSG_SLOT_USER_CLOCK, buildUserClockHint(nowMs, tz, { tzId: pack.userTzId }, pack.targetName));
-  out = fillSlot(out, AMSG_SLOT_TIME_SINCE_USER, timeSinceUser);
-  out = fillSlot(out, AMSG_SLOT_AWAY_HINT, awayHint);
-  out = fillSlot(out, AMSG_SLOT_TASK_INSTRUCTION, taskInstruction);
-  out = fillSlot(out, AMSG_SLOT_SELF_LOG, renderSelfLogBlock(
-    extras?.selfLog ?? null,
-    nowMs,
-    tz,
-    extras?.maxUnansweredSends ?? DEFAULT_MAX_UNANSWERED_SENDS
-  ));
-  out = fillSlot(out, AMSG_SLOT_LIVE_CHAT, renderLiveChatLine(pack.targetName, lastUserMessageAt, nowMs));
-  out = fillSlot(out, AMSG_SLOT_TASK_LIST, extras?.taskListBlock ?? "");
-  out = fillSlot(out, AMSG_SLOT_SCENE, renderFireSceneBlock(pack.scene, nowMs, tz, {
-    includeClock: extras?.includeClock !== false
-  }));
-  const realtimeWorld = extras?.realtimeWorldBlock?.trim();
-  out = fillSlot(out, AMSG_SLOT_REALTIME_WORLD, realtimeWorld ? `
-
-${realtimeWorld}` : "");
-  return out;
-};
-var FIRE_PACK_VERSION = 7;
-var describeFirePackVersion = (value) => {
-  let v;
-  try {
-    v = JSON.parse(value)?.v;
-  } catch {
-    return "\u4E0D\u662F\u5408\u6CD5 JSON\uFF08\u6570\u636E\u635F\u574F\uFF09";
-  }
-  if (v === FIRE_PACK_VERSION) return "\u7248\u672C\u53F7\u5BF9\u5F97\u4E0A\uFF0C\u662F\u522B\u7684\u5B57\u6BB5\u4E0D\u5408\u683C\u5F0F\uFF08\u6570\u636E\u635F\u574F\uFF09";
-  if (typeof v === "number" && v < FIRE_PACK_VERSION) {
-    return `\u5305\u662F v${v}\u3001worker \u8981 v${FIRE_PACK_VERSION} \u2014\u2014 \u524D\u7AEF\u6BD4 worker \u65E7\uFF0C\u6253\u5F00\u4E00\u6B21\u7F51\u9875\u8BA9\u5B83\u91CD\u65B0\u4E0A\u4F20`;
-  }
-  if (typeof v === "number") {
-    return `\u5305\u662F v${v}\u3001worker \u53EA\u8BA4 v${FIRE_PACK_VERSION} \u2014\u2014 worker bundle \u662F\u65E7\u7684\uFF0C\u53BB\u8BBE\u7F6E\u9875\u91CD\u65B0\u7C98\u8D34\u90E8\u7F72`;
-  }
-  return "\u5305\u91CC\u6CA1\u6709\u7248\u672C\u53F7\uFF08\u6570\u636E\u635F\u574F\uFF09";
-};
-var chatContentOk = (content) => {
-  if (typeof content === "string") return true;
-  if (!Array.isArray(content) || content.length === 0) return false;
-  return content.every((part) => !!part && typeof part === "object" && !Array.isArray(part) && typeof part.type === "string");
-};
-var chatFieldOk = (chat) => {
-  if (chat === void 0) return true;
-  if (!chat || typeof chat !== "object" || Array.isArray(chat)) return false;
-  const { messages, builtAt } = chat;
-  return typeof builtAt === "number" && Array.isArray(messages) && messages.length > 0 && messages.every((m) => !!m && typeof m === "object" && typeof m.role === "string" && chatContentOk(m.content));
-};
-var parseFirePack = (value) => {
-  try {
-    const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && parsed.v === FIRE_PACK_VERSION && chatFieldOk(parsed.chat) && typeof parsed.template === "string" && parsed.template.length > 0 && (parsed.lastUserMessageAt === null || typeof parsed.lastUserMessageAt === "number") && typeof parsed.tzId === "string" && parsed.tzId.length > 0 && typeof parsed.userTzId === "string" && parsed.userTzId.length > 0 && typeof parsed.targetName === "string" && typeof parsed.builtAt === "number" && Array.isArray(parsed.pendingTasks) && (parsed.scene === null || typeof parsed.scene === "object") && typeof parsed.selfScheduleEnabled === "boolean") {
-      return parsed;
-    }
-  } catch {
-  }
-  return null;
-};
-
 // worker/amsg/src/skipDiagnostics.ts
 var BODY_ERROR_MAX_CHARS = 200;
 var CONTENT_EXCERPT_CHARS = 300;
@@ -15613,7 +18084,7 @@ var REASONING_TAIL_CHARS = 200;
 var BODY_EXCERPT_CHARS = 500;
 var asRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : null;
 var numberOrNull = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
-var clip = (text2, max) => text2.length > max ? `${text2.slice(0, max)}\u2026` : text2;
+var clip = (text3, max) => text3.length > max ? `${text3.slice(0, max)}\u2026` : text3;
 var safeStringify = (value) => {
   try {
     return JSON.stringify(value) ?? String(value);
@@ -15632,23 +18103,23 @@ var readReasoning = (message) => {
 };
 var readBodyError = (body, hasChoices) => {
   if (!body) return null;
-  let text2 = "";
+  let text3 = "";
   const error = body.error;
   if (typeof error === "string") {
-    text2 = error;
+    text3 = error;
   } else {
-    const record2 = asRecord(error);
-    if (record2) {
-      const code2 = typeof record2.code === "string" || typeof record2.code === "number" ? String(record2.code) : typeof record2.type === "string" ? record2.type : "";
-      const message = typeof record2.message === "string" ? record2.message : "";
-      text2 = [code2 && `[${code2}]`, message].filter(Boolean).join(" ") || safeStringify(record2);
+    const record3 = asRecord(error);
+    if (record3) {
+      const code2 = typeof record3.code === "string" || typeof record3.code === "number" ? String(record3.code) : typeof record3.type === "string" ? record3.type : "";
+      const message = typeof record3.message === "string" ? record3.message : "";
+      text3 = [code2 && `[${code2}]`, message].filter(Boolean).join(" ") || safeStringify(record3);
     }
   }
-  if (!text2 && !hasChoices) {
+  if (!text3 && !hasChoices) {
     const topLevel = body.message ?? body.msg;
-    if (typeof topLevel === "string") text2 = topLevel;
+    if (typeof topLevel === "string") text3 = topLevel;
   }
-  return text2 ? clip(redactCredentials(text2), BODY_ERROR_MAX_CHARS) : null;
+  return text3 ? clip(redactCredentials(text3), BODY_ERROR_MAX_CHARS) : null;
 };
 var describeLlmResponseShape = (llmResponse, llmOutputText) => {
   const body = asRecord(llmResponse);
@@ -15657,8 +18128,8 @@ var describeLlmResponseShape = (llmResponse, llmOutputText) => {
   const content = message?.content;
   const contentType = content === void 0 ? "missing" : content === null ? "null" : typeof content === "string" ? "string" : Array.isArray(content) ? "array" : "other";
   const contentChars = typeof content === "string" ? content.length : Array.isArray(content) ? content.reduce((sum, part) => {
-    const text2 = asRecord(part)?.text;
-    return sum + (typeof text2 === "string" ? text2.length : 0);
+    const text3 = asRecord(part)?.text;
+    return sum + (typeof text3 === "string" ? text3.length : 0);
   }, 0) : 0;
   const usage = asRecord(body?.usage);
   const usageDetails = asRecord(usage?.completion_tokens_details);
@@ -15705,8 +18176,8 @@ var excerptLlmResponse = (llmResponse) => {
   return excerpt;
 };
 var rawExcerptEnabled = false;
-var configureSkipDiagnostics = (options) => {
-  rawExcerptEnabled = options.rawExcerpt;
+var configureSkipDiagnostics = (options2) => {
+  rawExcerptEnabled = options2.rawExcerpt;
 };
 var isDebugFlagOn = (value) => typeof value === "string" && ["1", "true"].includes(value.trim().toLowerCase());
 var logSkipDiagnostic = (input) => {
@@ -16068,9 +18539,9 @@ var wallClockIso = (ms, tz) => {
 };
 var buildSendAtExample = (nowMs, tz) => wallClockIso(nowMs + 24 * 36e5, tz);
 var resolveSendAtMs = (raw, tz) => {
-  const text2 = raw.trim();
-  if (hasExplicitOffset(text2)) return new Date(text2).getTime();
-  return wallClockToTimestamp(text2, tz.tzId);
+  const text3 = raw.trim();
+  if (hasExplicitOffset(text3)) return new Date(text3).getTime();
+  return wallClockToTimestamp(text3, tz.tzId);
 };
 var MIN_SCHEDULE_LEAD_MS2 = 6e4;
 var MODES = ["auto", "prompted"];
@@ -16214,11 +18685,11 @@ init_amsgToolPack();
 
 // utils/realtimeWorldCore.ts
 var readJson = async (res) => {
-  const text2 = await res.text();
+  const text3 = await res.text();
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text3);
   } catch {
-    throw new Error(`\u54CD\u5E94\u4E0D\u662F JSON\uFF1A${text2.slice(0, 120)}`);
+    throw new Error(`\u54CD\u5E94\u4E0D\u662F JSON\uFF1A${text3.slice(0, 120)}`);
   }
 };
 var geocodeCache = /* @__PURE__ */ new Map();
@@ -17214,8 +19685,8 @@ var handleInstantChat = async (args) => {
   if (!UUID_V4_RE.test(userId)) return fail3(400, "INVALID_USER_ID_FORMAT", "X-User-Id \u5FC5\u987B\u662F UUID v4 \u683C\u5F0F");
   let body;
   try {
-    const text2 = await readMaybeGzippedBody(request);
-    const parsed = JSON.parse(text2);
+    const text3 = await readMaybeGzippedBody(request);
+    const parsed = JSON.parse(text3);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
     body = parsed;
   } catch {
@@ -17406,10 +19877,10 @@ async function cf(token, path, init = {}) {
   } catch (err6) {
     return { ok: false, detail: `\u8FDE\u4E0D\u4E0A Cloudflare API\uFF1A${err6.message}` };
   }
-  const text2 = await res.text();
+  const text3 = await res.text();
   let payload;
   try {
-    payload = JSON.parse(text2);
+    payload = JSON.parse(text3);
   } catch {
     return { ok: false, detail: `Cloudflare \u8FD4\u56DE\u4E86\u975E JSON\uFF08HTTP ${res.status}\uFF09` };
   }
@@ -17424,8 +19895,8 @@ function resolveObservability(existing) {
   if (current && typeof current.enabled === "boolean") return current;
   return { enabled: true, logs: { enabled: true } };
 }
-async function sha256Hex(text2) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
+async function sha256Hex(text3) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text3));
   return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 function resolveScriptName(env, requestUrl) {
@@ -17748,8 +20219,8 @@ var createIdentityReader = (masterKey, serializeKeyOf) => {
     }
   };
 };
-var readOverdueTasks = async (db, options) => {
-  const nowMs = options.nowMs ?? Date.now();
+var readOverdueTasks = async (db, options2) => {
+  const nowMs = options2.nowMs ?? Date.now();
   const rows = (await db.prepare(
     `SELECT ${TASK_COLUMNS}
          FROM scheduled_messages
@@ -17758,7 +20229,7 @@ var readOverdueTasks = async (db, options) => {
         LIMIT ?`
   ).bind(new Date(nowMs).toISOString(), MAX_OVERDUE_TASKS + 1).all()).results || [];
   const truncated = rows.length > MAX_OVERDUE_TASKS;
-  const readIdentity = createIdentityReader(options.masterKey, options.serializeKeyOf);
+  const readIdentity = createIdentityReader(options2.masterKey, options2.serializeKeyOf);
   const prepared = (await Promise.all(rows.slice(0, MAX_OVERDUE_TASKS).map(async (row) => {
     const nextSendAtMs = parseMs(row.next_send_at);
     if (!row.uuid || nextSendAtMs === null) return null;
@@ -17806,8 +20277,8 @@ var readOverdueTasks = async (db, options) => {
     })))
   };
 };
-var readRecentFailures = async (db, options) => {
-  const nowMs = options.nowMs ?? Date.now();
+var readRecentFailures = async (db, options2) => {
+  const nowMs = options2.nowMs ?? Date.now();
   const sinceMs = nowMs - RECENT_FAILURE_WINDOW_MS;
   const rows = (await db.prepare(
     `SELECT ${TASK_COLUMNS}
@@ -17819,7 +20290,7 @@ var readRecentFailures = async (db, options) => {
         ORDER BY updated_at DESC
         LIMIT ?`
   ).bind(new Date(sinceMs).toISOString(), new Date(nowMs).toISOString(), MAX_RECENT_FAILURES).all()).results || [];
-  const readIdentity = createIdentityReader(options.masterKey, options.serializeKeyOf);
+  const readIdentity = createIdentityReader(options2.masterKey, options2.serializeKeyOf);
   const failures = await Promise.all(rows.map(async (row) => {
     const error = parseLastError(row.last_error);
     const atMs = parseMs(error?.at);
@@ -17894,13 +20365,13 @@ var recordTickOutcome = async (db, outcome, nowMs = Date.now()) => {
     const previous = parseStoredTickFailure(await readDiagnosticValue(db, TICK_FAILURE_KEY));
     const sameSeries = previous && previous.stage === failure.stage && previous.name === failure.name && nowMs - Date.parse(previous.lastAt) <= TICK_FAILURE_SERIES_GAP_MS;
     const nowIso = new Date(nowMs).toISOString();
-    const record2 = {
+    const record3 = {
       ...failure,
       firstAt: sameSeries ? previous.firstAt : nowIso,
       lastAt: nowIso,
       count: sameSeries ? previous.count + 1 : 1
     };
-    await writeDiagnosticValue(db, TICK_FAILURE_KEY, JSON.stringify(record2), nowMs);
+    await writeDiagnosticValue(db, TICK_FAILURE_KEY, JSON.stringify(record3), nowMs);
   } catch (error) {
     console.warn("[amsg:tick-report] \u8FD9\u4E00\u8DF3\u7684\u62A5\u9519\u6CA1\u8BB0\u8FDB\u5E93", error);
   }
@@ -17926,13 +20397,13 @@ var parseStoredTickFailure = (raw) => {
   }
 };
 var readTickFailure = async (db, nowMs = Date.now()) => {
-  const record2 = parseStoredTickFailure(await readDiagnosticValue(db, TICK_FAILURE_KEY));
-  if (!record2) return null;
-  return { ...record2, ongoing: nowMs - Date.parse(record2.lastAt) <= TICK_FAILURE_SERIES_GAP_MS };
+  const record3 = parseStoredTickFailure(await readDiagnosticValue(db, TICK_FAILURE_KEY));
+  if (!record3) return null;
+  return { ...record3, ongoing: nowMs - Date.parse(record3.lastAt) <= TICK_FAILURE_SERIES_GAP_MS };
 };
-var buildTickReport = async (db, options) => {
-  const nowMs = options.nowMs ?? Date.now();
-  const scoped = { ...options, nowMs };
+var buildTickReport = async (db, options2) => {
+  const nowMs = options2.nowMs ?? Date.now();
+  const scoped = { ...options2, nowMs };
   const [overdue, recentFailures, tickFailure] = await Promise.all([
     readOverdueTasks(db, scoped),
     readRecentFailures(db, scoped),
@@ -17950,6 +20421,14 @@ var buildTickReport = async (db, options) => {
 // worker/amsg/src/autoUpdate.ts
 var AUTO_UPDATE_CRON_INTERVAL_MS = 6 * 60 * 6e4;
 var AUTO_UPDATE_CLIENT_INTERVAL_MS = 30 * 6e4;
+async function runScheduledAfterUpdate(update, tick) {
+  try {
+    await update();
+  } catch (error) {
+    console.warn("[amsg:auto-update] \u8FD9\u4E00\u8DF3\u7684\u81EA\u52A8\u66F4\u65B0\u68C0\u67E5\u6CA1\u8DD1\u5B8C", error);
+  }
+  return tick();
+}
 var SELF_UPDATE_KEY = "self_update";
 var SCHEMA_ENSURED_KEY = "schema_ensured";
 var SCHEMA_ENSURE_RETRY_MS = 60 * 6e4;
@@ -17999,18 +20478,18 @@ var recordManualSelfUpdate = async (db, result, nowMs = Date.now()) => {
     console.warn("[amsg:auto-update] \u624B\u52A8\u66F4\u65B0\u7684\u7ED3\u679C\u6CA1\u8BB0\u8FDB\u5E93", error);
   }
 };
-var runAutoUpdate = async (env, db, options) => {
+var runAutoUpdate = async (env, db, options2) => {
   const token = env.CF_API_TOKEN?.trim();
   if (!token) return { action: "unsupported" };
-  const nowMs = options.nowMs ?? Date.now();
+  const nowMs = options2.nowMs ?? Date.now();
   const previous = await readSelfUpdateState(db);
-  const minInterval = options.source === "cron" ? AUTO_UPDATE_CRON_INTERVAL_MS : AUTO_UPDATE_CLIENT_INTERVAL_MS;
+  const minInterval = options2.source === "cron" ? AUTO_UPDATE_CRON_INTERVAL_MS : AUTO_UPDATE_CLIENT_INTERVAL_MS;
   if (previous && nowMs - Date.parse(previous.lastCheckAt) < minInterval) {
     return { action: "throttled", state: previous };
   }
   const claimed = {
     lastCheckAt: new Date(nowMs).toISOString(),
-    lastSource: options.source,
+    lastSource: options2.source,
     lastOutcome: previous?.lastOutcome ?? "up_to_date",
     bundleHash: previous?.bundleHash ?? null,
     lastUpdatedAt: previous?.lastUpdatedAt ?? null,
@@ -18018,12 +20497,12 @@ var runAutoUpdate = async (env, db, options) => {
   };
   await writeSelfUpdateState(db, claimed, nowMs);
   const settle = async (result2) => {
-    const state = applySelfUpdateResult(previous, options.source, result2, nowMs);
+    const state = applySelfUpdateResult(previous, options2.source, result2, nowMs);
     await writeSelfUpdateState(db, state, nowMs);
     if (result2.ok) await markSchemaUnverified(db, nowMs);
     return { action: state.lastOutcome, state };
   };
-  if (!options.scriptName) {
+  if (!options2.scriptName) {
     return settle({
       ok: false,
       code: "SCRIPT_NAME_UNKNOWN",
@@ -18046,9 +20525,9 @@ var runAutoUpdate = async (env, db, options) => {
   if (previous?.bundleHash === fetched.bundle.hash) {
     console.log("[amsg:auto-update] \u4EE3\u7801\u6CA1\u53D8\u4F46 INSTANT_TICK \u7ED1\u5B9A\u4E0D\u5728\uFF0C\u518D\u4F20\u4E00\u6B21\u628A\u7ED1\u5B9A\u8865\u4E0A");
   }
-  const result = await performSelfUpdate(env, token, options.scriptName, fetched.bundle);
+  const result = await performSelfUpdate(env, token, options2.scriptName, fetched.bundle);
   if (result.ok) {
-    console.log(`[amsg:auto-update] \u5DF2\u6362\u4E0A\u65B0\u4EE3\u7801 ${result.bundleHash}\uFF08${options.source} \u89E6\u53D1\uFF09`);
+    console.log(`[amsg:auto-update] \u5DF2\u6362\u4E0A\u65B0\u4EE3\u7801 ${result.bundleHash}\uFF08${options2.source} \u89E6\u53D1\uFF09`);
   } else {
     console.warn(`[amsg:auto-update] \u66F4\u65B0\u5931\u8D25 ${result.code}\uFF1A${result.message}`);
   }
@@ -18193,11 +20672,11 @@ var performSearch = async (query, apiKey, signal) => {
         "X-Brave-API-Key": apiKey
       }
     });
-    const text2 = await response.text();
+    const text3 = await response.text();
     if (!response.ok) {
-      console.error("Search API error:", response.status, text2);
+      console.error("Search API error:", response.status, text3);
       try {
-        const errJson = JSON.parse(text2);
+        const errJson = JSON.parse(text3);
         return { success: false, results: [], message: `\u641C\u7D22\u5931\u8D25: ${errJson.error || response.status}`, reached: false };
       } catch {
         signal?.throwIfAborted();
@@ -18206,10 +20685,10 @@ var performSearch = async (query, apiKey, signal) => {
     }
     let data;
     try {
-      data = JSON.parse(text2);
+      data = JSON.parse(text3);
     } catch (e) {
       signal?.throwIfAborted();
-      console.error("Search response not JSON:", text2.slice(0, 200));
+      console.error("Search response not JSON:", text3.slice(0, 200));
       return { success: false, results: [], message: "\u641C\u7D22\u8FD4\u56DE\u683C\u5F0F\u9519\u8BEF", reached: false };
     }
     if (data.web?.results && data.web.results.length > 0) {
@@ -18255,16 +20734,16 @@ var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date, signa
         page_size: 10
       })
     });
-    const text2 = await response.text();
+    const text3 = await response.text();
     if (!response.ok) {
-      console.error("Query diary by date failed:", response.status, text2);
+      console.error("Query diary by date failed:", response.status, text3);
       return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${response.status}` };
     }
-    const data = JSON.parse(text2);
+    const data = JSON.parse(text3);
     if (!data.results || data.results.length === 0) {
       return { success: true, entries: [], message: `\u6CA1\u6709\u627E\u5230 ${date} \u7684\u65E5\u8BB0` };
     }
-    const entries = data.results.map((page) => {
+    const entries2 = data.results.map((page) => {
       const title = page.properties?.Name?.title?.[0]?.plain_text || "\u65E0\u6807\u9898";
       const cleanTitle = title.replace(/^\[.*?\]\s*/, "");
       return {
@@ -18274,7 +20753,7 @@ var notionGetDiaryByDate = async (apiKey, databaseId, characterName, date, signa
         url: page.url
       };
     });
-    return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u65E5\u8BB0` };
+    return { success: true, entries: entries2, message: `\u627E\u5230 ${entries2.length} \u7BC7\u65E5\u8BB0` };
   } catch (e) {
     signal?.throwIfAborted();
     console.error("Get diary by date failed:", e);
@@ -18291,12 +20770,12 @@ var notionReadDiaryContent = async (apiKey, pageId, signal) => {
         "X-Notion-API-Key": apiKey
       }
     });
-    const text2 = await response.text();
+    const text3 = await response.text();
     if (!response.ok) {
-      console.error("Read diary content failed:", response.status, text2);
+      console.error("Read diary content failed:", response.status, text3);
       return { success: false, content: "", message: `\u8BFB\u53D6\u5931\u8D25: ${response.status}` };
     }
-    const data = JSON.parse(text2);
+    const data = JSON.parse(text3);
     if (!data.results || data.results.length === 0) {
       return { success: true, content: "\uFF08\u7A7A\u767D\u65E5\u8BB0\uFF09", message: "\u65E5\u8BB0\u5185\u5BB9\u4E3A\u7A7A" };
     }
@@ -18329,15 +20808,15 @@ var notionSearchUserNotes = async (apiKey, notesDatabaseId, keyword, limit = 5, 
         page_size: limit
       })
     });
-    const text2 = await response.text();
+    const text3 = await response.text();
     if (!response.ok) {
       return { success: false, entries: [], message: `\u641C\u7D22\u5931\u8D25: ${response.status}` };
     }
-    const data = JSON.parse(text2);
+    const data = JSON.parse(text3);
     if (!data.results || data.results.length === 0) {
       return { success: true, entries: [], message: `\u6CA1\u6709\u627E\u5230\u5173\u4E8E"${keyword}"\u7684\u7B14\u8BB0` };
     }
-    const entries = data.results.map((page) => {
+    const entries2 = data.results.map((page) => {
       const title = page.properties?.Name?.title?.[0]?.plain_text || page.properties?.["\u540D\u79F0"]?.title?.[0]?.plain_text || page.properties?.Title?.title?.[0]?.plain_text || "\u65E0\u6807\u9898";
       const date = page.properties?.Date?.date?.start || page.properties?.["\u65E5\u671F"]?.date?.start || page.last_edited_time?.split("T")[0] || "";
       return {
@@ -18347,7 +20826,7 @@ var notionSearchUserNotes = async (apiKey, notesDatabaseId, keyword, limit = 5, 
         url: page.url || ""
       };
     });
-    return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u7B14\u8BB0` };
+    return { success: true, entries: entries2, message: `\u627E\u5230 ${entries2.length} \u7BC7\u7B14\u8BB0` };
   } catch (e) {
     signal?.throwIfAborted();
     console.error("Search user notes failed:", e);
@@ -18364,45 +20843,45 @@ function notionBlocksToText(blocks) {
     }
     const richText = block[type]?.rich_text;
     if (!richText) continue;
-    const text2 = richText.map((rt) => rt.plain_text || rt.text?.content || "").join("");
-    if (!text2.trim()) continue;
+    const text3 = richText.map((rt) => rt.plain_text || rt.text?.content || "").join("");
+    if (!text3.trim()) continue;
     switch (type) {
       case "heading_1":
-        lines.push(`# ${text2}`);
+        lines.push(`# ${text3}`);
         break;
       case "heading_2":
-        lines.push(`## ${text2}`);
+        lines.push(`## ${text3}`);
         break;
       case "heading_3":
-        lines.push(`### ${text2}`);
+        lines.push(`### ${text3}`);
         break;
       case "quote":
-        lines.push(`> ${text2}`);
+        lines.push(`> ${text3}`);
         break;
       case "callout":
         const emoji = block.callout?.icon?.emoji || "\u{1F4CC}";
-        lines.push(`${emoji} ${text2}`);
+        lines.push(`${emoji} ${text3}`);
         break;
       case "bulleted_list_item":
-        lines.push(`- ${text2}`);
+        lines.push(`- ${text3}`);
         break;
       case "numbered_list_item":
-        lines.push(`\xB7 ${text2}`);
+        lines.push(`\xB7 ${text3}`);
         break;
       case "to_do":
         const checked2 = block.to_do?.checked ? "\u2705" : "\u2B1C";
-        lines.push(`${checked2} ${text2}`);
+        lines.push(`${checked2} ${text3}`);
         break;
       case "toggle":
-        lines.push(`\u25B6 ${text2}`);
+        lines.push(`\u25B6 ${text3}`);
         break;
       case "code":
         lines.push(`\`\`\`
-${text2}
+${text3}
 \`\`\``);
         break;
       default:
-        lines.push(text2);
+        lines.push(text3);
     }
   }
   return lines.join("\n");
@@ -18420,17 +20899,17 @@ var feishuGetToken = async (appId, appSecret, signal) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ app_id: appId, app_secret: appSecret })
     });
-    const text2 = await response.text();
+    const text3 = await response.text();
     if (!response.ok) {
       try {
-        const errJson = JSON.parse(text2);
+        const errJson = JSON.parse(text3);
         return { success: false, token: "", message: `\u83B7\u53D6token\u5931\u8D25: ${errJson.msg || errJson.error || response.status}` };
       } catch {
         signal?.throwIfAborted();
         return { success: false, token: "", message: `\u83B7\u53D6token\u5931\u8D25: ${response.status}` };
       }
     }
-    const data = JSON.parse(text2);
+    const data = JSON.parse(text3);
     if (data.code !== 0) {
       return { success: false, token: "", message: `\u98DE\u4E66\u9519\u8BEF: ${data.msg || "\u672A\u77E5\u9519\u8BEF"}` };
     }
@@ -18472,11 +20951,11 @@ var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterNa
         page_size: 10
       })
     });
-    const text2 = await response.text();
+    const text3 = await response.text();
     if (!response.ok) {
       return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${response.status}` };
     }
-    const data = JSON.parse(text2);
+    const data = JSON.parse(text3);
     if (data.code !== 0) {
       return { success: false, entries: [], message: `\u98DE\u4E66\u9519\u8BEF: ${data.msg || "\u67E5\u8BE2\u5931\u8D25"}` };
     }
@@ -18484,7 +20963,7 @@ var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterNa
     if (items.length === 0) {
       return { success: true, entries: [], message: `\u6CA1\u6709\u627E\u5230 ${date} \u7684\u65E5\u8BB0` };
     }
-    const entries = items.map((item) => {
+    const entries2 = items.map((item) => {
       const fields = item.fields || {};
       const rawTitle = (Array.isArray(fields["\u6807\u9898"]) ? fields["\u6807\u9898"]?.[0]?.text : fields["\u6807\u9898"]) || "\u65E0\u6807\u9898";
       const cleanTitle = String(rawTitle).replace(/^\[.*?\]\s*/, "");
@@ -18495,7 +20974,7 @@ var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterNa
         content: (Array.isArray(fields["\u5185\u5BB9"]) ? fields["\u5185\u5BB9"]?.[0]?.text : fields["\u5185\u5BB9"]) || ""
       };
     });
-    return { success: true, entries, message: `\u627E\u5230 ${entries.length} \u7BC7\u65E5\u8BB0` };
+    return { success: true, entries: entries2, message: `\u627E\u5230 ${entries2.length} \u7BC7\u65E5\u8BB0` };
   } catch (e) {
     signal?.throwIfAborted();
     return { success: false, entries: [], message: `\u67E5\u8BE2\u5931\u8D25: ${e.message}` };
@@ -18783,8 +21262,8 @@ var mcpBuildRequest = (method, params, isNotification = false) => {
   if (!isNotification) req.id = ++mcpRequestIdCounter;
   return req;
 };
-var mcpParseSseResponse = (text2) => {
-  const lines = text2.split("\n");
+var mcpParseSseResponse = (text3) => {
+  const lines = text3.split("\n");
   const dataLines = [];
   for (const line of lines) {
     if (line.startsWith("data: ")) dataLines.push(line.slice(6));
@@ -18800,22 +21279,22 @@ var mcpParseSseResponse = (text2) => {
   }
   return null;
 };
-var mcpParseResponse = (text2, contentType) => {
-  if (contentType.includes("text/event-stream") || text2.trimStart().startsWith("event:") || text2.trimStart().startsWith("data:")) {
-    const parsed = mcpParseSseResponse(text2);
+var mcpParseResponse = (text3, contentType) => {
+  if (contentType.includes("text/event-stream") || text3.trimStart().startsWith("event:") || text3.trimStart().startsWith("data:")) {
+    const parsed = mcpParseSseResponse(text3);
     if (parsed) return parsed;
   }
   try {
-    return JSON.parse(text2);
+    return JSON.parse(text3);
   } catch {
-    const match = text2.match(/\{[\s\S]*\}/);
+    const match = text3.match(/\{[\s\S]*\}/);
     if (match) {
       try {
         return JSON.parse(match[0]);
       } catch {
       }
     }
-    throw new Error(`MCP: \u65E0\u6CD5\u89E3\u6790\u54CD\u5E94: ${text2.slice(0, 300)}`);
+    throw new Error(`MCP: \u65E0\u6CD5\u89E3\u6790\u54CD\u5E94: ${text3.slice(0, 300)}`);
   }
 };
 var mcpPost = async (serverUrl, body, expectResponse = true, signal) => {
@@ -18834,8 +21313,8 @@ var mcpPost = async (serverUrl, body, expectResponse = true, signal) => {
   }
   if (!expectResponse) return { response: null, sessionId };
   const contentType = resp.headers.get("content-type") || "";
-  const text2 = await resp.text();
-  return { response: mcpParseResponse(text2, contentType), sessionId };
+  const text3 = await resp.text();
+  return { response: mcpParseResponse(text3, contentType), sessionId };
 };
 var mcpInitialize = async (serverUrl, signal) => {
   signal?.throwIfAborted();
@@ -18899,8 +21378,8 @@ var mcpCallTool = async (serverUrl, toolName, args = {}, signal) => {
       return { success: false, error: `MCP HTTP ${resp.status}: ${errText.slice(0, 200)}` };
     }
     const contentType = resp.headers.get("content-type") || "";
-    const text2 = await resp.text();
-    const parsed = mcpParseResponse(text2, contentType);
+    const text3 = await resp.text();
+    const parsed = mcpParseResponse(text3, contentType);
     if (parsed.error) return { success: false, error: `MCP Error [${parsed.error.code}]: ${parsed.error.message}` };
     const result = parsed.result;
     if (result?.content) {
@@ -19105,20 +21584,20 @@ var XhsMcpClient = {
     signal?.throwIfAborted();
     return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "check-login", void 0, signal) : mcpCallTool(serverUrl, "check_login", void 0, signal);
   },
-  search: async (serverUrl, keyword, options, signal) => {
+  search: async (serverUrl, keyword, options2, signal) => {
     signal?.throwIfAborted();
-    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "search", { keyword, ...options }, signal) : mcpCallTool(serverUrl, "search", { keyword }, signal);
+    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "search", { keyword, ...options2 }, signal) : mcpCallTool(serverUrl, "search", { keyword }, signal);
   },
   getRecommend: async (serverUrl, signal) => {
     signal?.throwIfAborted();
     return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "list-feeds", void 0, signal) : mcpCallTool(serverUrl, "get_recommend", void 0, signal);
   },
-  getNoteDetail: async (serverUrl, noteUrl, xsecToken, options, signal) => {
+  getNoteDetail: async (serverUrl, noteUrl, xsecToken, options2, signal) => {
     signal?.throwIfAborted();
     const feedId = extractNoteIdFromUrl(noteUrl);
     const token = xsecToken || extractXsecTokenFromUrl(noteUrl) || "";
-    const loadAllComments = !!options?.loadAllComments;
-    let xsecSource = options?.xsecSource || "pc_feed";
+    const loadAllComments = !!options2?.loadAllComments;
+    let xsecSource = options2?.xsecSource || "pc_feed";
     try {
       xsecSource = new URL(noteUrl).searchParams.get("xsec_source") || xsecSource;
     } catch {
@@ -20041,16 +22520,16 @@ var buildDuplicateToolMessage = (name) => [
 init_proxyWorker();
 
 // utils/voiceTextDedup.ts
-function deduplicateVoiceText(text2) {
-  if (/\[html\]|<翻[译譯]>|```/i.test(text2)) return text2;
+function deduplicateVoiceText(text3) {
+  if (/\[html\]|<翻[译譯]>|```/i.test(text3)) return text3;
   const normalize2 = (s) => s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
   const blocks = [];
   const spoken = [];
-  const protectedText = text2.replace(/<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g, (block, voice, subtitle) => {
+  const protectedText = text3.replace(/<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g, (block, voice, subtitle) => {
     spoken.push(normalize2(voice), ...subtitle ? [normalize2(subtitle)] : []);
     return "\nVOICE" + (blocks.push(block) - 1) + "\n";
   });
-  if (!blocks.length) return text2;
+  if (!blocks.length) return text3;
   return protectedText.split(/\r?\n/).filter((line) => {
     if (/[<>\[\]\u0002]/.test(line)) return true;
     const plain = normalize2(line);
@@ -20060,25 +22539,25 @@ function deduplicateVoiceText(text2) {
 
 // node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.6/node_modules/@rei-standard/amsg-instant/dist/index.mjs
 var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
-function segmentTextWithProtectedBlocks(text2, options) {
-  if (!text2) return [];
+function segmentTextWithProtectedBlocks(text3, options2) {
+  if (!text3) return [];
   const splitAndSanitize = (plainText) => {
-    const chunks = options.splitText(plainText).filter((c) => c !== "");
+    const chunks = options2.splitText(plainText).filter((c) => c !== "");
     return chunks.map((chunk) => ({
       raw: chunk,
-      sanitized: options.sanitizeText ? options.sanitizeText(chunk) : chunk,
+      sanitized: options2.sanitizeText ? options2.sanitizeText(chunk) : chunk,
       protect: false
     }));
   };
-  if (!options.protectedPatterns || options.protectedPatterns.length === 0) {
-    return splitAndSanitize(text2);
+  if (!options2.protectedPatterns || options2.protectedPatterns.length === 0) {
+    return splitAndSanitize(text3);
   }
   const matches = [];
-  for (const p of options.protectedPatterns) {
+  for (const p of options2.protectedPatterns) {
     const flags = p.pattern.flags.includes("g") ? p.pattern.flags : p.pattern.flags + "g";
     const regex = new RegExp(p.pattern.source, flags);
     let match;
-    while ((match = regex.exec(text2)) !== null) {
+    while ((match = regex.exec(text3)) !== null) {
       if (match[0].length === 0) {
         regex.lastIndex++;
         continue;
@@ -20109,14 +22588,14 @@ function segmentTextWithProtectedBlocks(text2, options) {
   const resolveField = (field, raw, match) => typeof field === "function" ? field(raw, match) : field;
   for (const m of validMatches) {
     if (m.index > cursor) {
-      const plainText = text2.substring(cursor, m.index);
+      const plainText = text3.substring(cursor, m.index);
       segments.push(...splitAndSanitize(plainText));
     }
     const previewStr = resolveField(m.patternDef.preview, m.raw, m.matchObj);
     const metaData = resolveField(m.patternDef.meta, m.raw, m.matchObj);
     let sanitized = previewStr;
     if (sanitized == null) {
-      sanitized = options.sanitizeText ? options.sanitizeText(m.raw) : m.raw;
+      sanitized = options2.sanitizeText ? options2.sanitizeText(m.raw) : m.raw;
     }
     const pushSeg = {
       raw: m.raw,
@@ -20129,8 +22608,8 @@ function segmentTextWithProtectedBlocks(text2, options) {
     segments.push(pushSeg);
     cursor = m.index + m.length;
   }
-  if (cursor < text2.length) {
-    const plainText = text2.substring(cursor);
+  if (cursor < text3.length) {
+    const plainText = text3.substring(cursor);
     segments.push(...splitAndSanitize(plainText));
   }
   return segments;
@@ -20170,33 +22649,33 @@ var replaceVoiceForBanner = (t) => t.replace(
   /(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g,
   (_m, pre, inner, post) => (post || pre || inner || "").trim()
 ).replace(/<字幕>([\s\S]*?)<\/字幕>/g, "$1").replace(/<\/?字幕>/g, "");
-function repairPairedTag(text2, tokenRe, closeFormOf, closeBeforeTrailingSubtitle) {
+function repairPairedTag(text3, tokenRe, closeFormOf, closeBeforeTrailingSubtitle) {
   const kept = [];
   let cursor = 0;
   let openForm = null;
   let tok;
-  while ((tok = tokenRe.exec(text2)) !== null) {
+  while ((tok = tokenRe.exec(text3)) !== null) {
     const isClose = tok[0].startsWith("</");
     if (!isClose && /\/\s*>$/.test(tok[0])) {
-      kept.push(text2.slice(cursor, tok.index));
+      kept.push(text3.slice(cursor, tok.index));
       cursor = tok.index + tok[0].length;
       continue;
     }
     if (isClose) {
       if (openForm === null) {
-        kept.push(text2.slice(cursor, tok.index));
+        kept.push(text3.slice(cursor, tok.index));
         cursor = tok.index + tok[0].length;
       } else {
         openForm = null;
       }
     } else if (openForm !== null) {
-      kept.push(text2.slice(cursor, tok.index));
+      kept.push(text3.slice(cursor, tok.index));
       cursor = tok.index + tok[0].length;
     } else {
       openForm = closeFormOf(tok[0]);
     }
   }
-  kept.push(text2.slice(cursor));
+  kept.push(text3.slice(cursor));
   let result = kept.join("");
   if (openForm !== null) {
     const closeTag = `</${openForm}>`;
@@ -20268,8 +22747,8 @@ var extractTranslationOriginal = (t) => {
   result = result.replace(/<\/?(?:翻译|原文)>/g, "");
   return result;
 };
-function sanitizeForNotification(text2) {
-  let result = text2;
+function sanitizeForNotification(text3) {
+  let result = text3;
   result = stripLiteralBackslashN(result);
   result = stripThinkBlocks(result);
   result = replaceHtmlBlocks(result);
@@ -20294,8 +22773,8 @@ function sanitizeForNotification(text2) {
   result = collapseWhitespace(result);
   return result;
 }
-function sanitizeIntoSegments(text2) {
-  let cleaned = stripLiteralBackslashN(text2);
+function sanitizeIntoSegments(text3) {
+  let cleaned = stripLiteralBackslashN(text3);
   cleaned = stripThinkBlocks(cleaned);
   cleaned = deduplicateVoiceText(normalizeVoiceTags(cleaned));
   cleaned = normalizeTranslationTags(cleaned);
@@ -20384,8 +22863,8 @@ ${ATOM_MARKER}B${idx}${ATOM_MARKER}
   }
   return segments;
 }
-function sanitizeTextForBanner(text2) {
-  let result = text2;
+function sanitizeTextForBanner(text3) {
+  let result = text3;
   result = replaceHtmlBlocks(result);
   result = replaceTranslationForBanner(result);
   result = replaceVoiceForBanner(result);
@@ -20399,8 +22878,8 @@ function sanitizeTextForBanner(text2) {
   result = collapseWhitespace(result);
   return result;
 }
-function chunkText(text2) {
-  return text2.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
+function chunkText(text3) {
+  return text3.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
 }
 function splitOnSendEmoji(chunk) {
   const re = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;
@@ -20485,10 +22964,10 @@ function classifySystemLog(inner) {
   if (LOG_FORGED_RE.test(s)) return null;
   return null;
 }
-function collect(text2, re, toEvent, hits) {
+function collect(text3, re, toEvent, hits) {
   re.lastIndex = 0;
   let m;
-  while ((m = re.exec(text2)) !== null) {
+  while ((m = re.exec(text3)) !== null) {
     const start = m.index;
     const end = start + m[0].length;
     if (hits.some((h) => start < h.end && end > h.start)) continue;
@@ -20515,15 +22994,15 @@ function extractTransferCommands(content) {
     return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
   }, hits);
   hits.sort((a, b) => a.start - b.start);
-  let text2 = "";
+  let text3 = "";
   let cursor = 0;
   for (const h of hits) {
-    text2 += src.slice(cursor, h.start);
+    text3 += src.slice(cursor, h.start);
     cursor = h.end;
   }
-  text2 += src.slice(cursor);
+  text3 += src.slice(cursor);
   return {
-    text: text2.trim(),
+    text: text3.trim(),
     events: hits.map((h) => h.event).filter((e) => e !== null),
     consumed: hits.length
   };
@@ -20554,7 +23033,7 @@ var parseDirectiveBody = (input) => {
     }
   };
 };
-var extractScheduleChangeDirectives = (text2) => {
+var extractScheduleChangeDirectives = (text3) => {
   const directives = [];
   let malformedCount = 0;
   const consumeBody = (body, original) => {
@@ -20564,7 +23043,7 @@ var extractScheduleChangeDirectives = (text2) => {
     else malformedCount += 1;
     return "";
   };
-  let cleanedText = (text2 || "").replace(
+  let cleanedText = (text3 || "").replace(
     /(?:【{1,2}|\[{1,2})([^【】\[\]\r\n]{1,360})(?:】{1,2}|\]{1,2})/gu,
     (whole, body) => consumeBody(body ?? "", whole)
   );
@@ -20574,7 +23053,7 @@ var extractScheduleChangeDirectives = (text2) => {
   );
   const recognizedSomething = directives.length > 0 || malformedCount > 0;
   if (!recognizedSomething) {
-    return { cleanedText: text2 || "", directives, malformedCount };
+    return { cleanedText: text3 || "", directives, malformedCount };
   }
   return {
     cleanedText: cleanedText.replace(/[ \t]+\r?\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim(),
@@ -20769,10 +23248,10 @@ function parseDiaryShort(m, type) {
   }
   return { type, title, content };
 }
-function classifyLLMOutput(text2) {
+function classifyLLMOutput(text3) {
   const toolCalls = [];
   for (const spec of DATA_TAGS) {
-    const matches = Array.from(text2.matchAll(spec.re));
+    const matches = Array.from(text3.matchAll(spec.re));
     for (const m of matches) {
       const args = spec.toArgs(m);
       if (!args) continue;
@@ -20784,14 +23263,14 @@ function classifyLLMOutput(text2) {
     }
   }
   if (toolCalls.length > 0) {
-    let prefix = text2;
+    let prefix = text3;
     for (const spec of DATA_TAGS) prefix = prefix.replace(spec.re, "");
     prefix = prefix.trim();
     const sanitizedPrefix = sanitizeForNotification(prefix);
     return { kind: "tool-request", prefix, sanitizedPrefix, toolCalls };
   }
   const directives = [];
-  const { text: textAfterTransfers, events: transferEvents } = extractTransferCommands(text2);
+  const { text: textAfterTransfers, events: transferEvents } = extractTransferCommands(text3);
   for (const ev of transferEvents) {
     if (ev.kind === "send") {
       const amount = parseTransferAmount(ev.amount);
@@ -20839,22 +23318,22 @@ init_mcpFireCore();
 // utils/vrWorld/sarEnvelopeCore.ts
 var planFromSARModuleSnapshot = (snapshot) => {
   if (!snapshot || !snapshot.character && !snapshot.user) return null;
-  const character = snapshot.character;
+  const character2 = snapshot.character;
   const user = snapshot.user;
-  const hasActiveEffect = character?.phase === "active" || user?.phase === "active";
-  const hasAfterglow = character?.phase === "afterglow" || user?.phase === "afterglow";
-  return { character, user, hasActiveEffect, hasAfterglow, requiresEnvelope: hasActiveEffect };
+  const hasActiveEffect = character2?.phase === "active" || user?.phase === "active";
+  const hasAfterglow = character2?.phase === "afterglow" || user?.phase === "afterglow";
+  return { character: character2, user, hasActiveEffect, hasAfterglow, requiresEnvelope: hasActiveEffect };
 };
-var isPlainSARChatActionOnlyChunk = (text2) => {
-  const clean2 = text2.trim();
+var isPlainSARChatActionOnlyChunk = (text3) => {
+  const clean2 = text3.trim();
   if (!clean2) return false;
   return /^(?:(?:（[^（）]*）|\([^()]*\)|\*[^*\n]+\*)\s*)+[。！？!?…～~—-]*$/s.test(clean2);
 };
-var isSARChatActionOnlyChunk = (text2) => {
-  const bilingualParts = text2.split(/%%BILINGUAL%%/i).map((part) => part.trim()).filter(Boolean);
+var isSARChatActionOnlyChunk = (text3) => {
+  const bilingualParts = text3.split(/%%BILINGUAL%%/i).map((part) => part.trim()).filter(Boolean);
   return bilingualParts.length > 0 && bilingualParts.every(isPlainSARChatActionOnlyChunk);
 };
-var isSARChatHtmlPlaceholder = (text2) => /^\[HTML\s*卡片\]$/i.test(text2.trim());
+var isSARChatHtmlPlaceholder = (text3) => /^\[HTML\s*卡片\]$/i.test(text3.trim());
 var consumeSARChatSurfaceChunk = (canonicalChunk, surfaceChunks, startIndex) => {
   let index = Math.max(0, startIndex);
   if (isSARChatHtmlPlaceholder(canonicalChunk)) {
@@ -20928,9 +23407,9 @@ var stripSarSnapshot = (metadata) => {
 var SURFACE_BLOCK_RE = /<(CHAR_SURFACE|USER_SURFACE)>[\s\S]*?(?:<\/\1>|(?=<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>)|$)/gi;
 var PLACEHOLDER = String.fromCharCode(5);
 var PLACEHOLDER_RE = new RegExp(`${PLACEHOLDER}(\\d+)${PLACEHOLDER}`, "g");
-var maskSarSurfaceBlocks = (text2) => {
+var maskSarSurfaceBlocks = (text3) => {
   const blocks = [];
-  const masked = text2.replace(SURFACE_BLOCK_RE, (block) => {
+  const masked = text3.replace(SURFACE_BLOCK_RE, (block) => {
     blocks.push(block);
     return `${PLACEHOLDER}${blocks.length - 1}${PLACEHOLDER}`;
   });
@@ -20940,17 +23419,17 @@ var maskSarSurfaceBlocks = (text2) => {
   };
 };
 var ENVELOPE_TAG_RE = /<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>/gi;
-var stripEnvelopeTags = (text2) => text2.replace(ENVELOPE_TAG_RE, "").trim();
-var closeOpenTag = (text2, name, stoppers) => {
-  const open = new RegExp(`<${name}>`, "i").exec(text2);
-  if (!open || new RegExp(`</${name}>`, "i").test(text2)) return text2;
+var stripEnvelopeTags = (text3) => text3.replace(ENVELOPE_TAG_RE, "").trim();
+var closeOpenTag = (text3, name, stoppers) => {
+  const open = new RegExp(`<${name}>`, "i").exec(text3);
+  if (!open || new RegExp(`</${name}>`, "i").test(text3)) return text3;
   const after = open.index + open[0].length;
-  const stop = new RegExp(stoppers.join("|"), "i").exec(text2.slice(after));
-  const at = stop ? after + stop.index : text2.length;
-  return `${text2.slice(0, at)}</${name}>${text2.slice(at)}`;
+  const stop = new RegExp(stoppers.join("|"), "i").exec(text3.slice(after));
+  const at = stop ? after + stop.index : text3.length;
+  return `${text3.slice(0, at)}</${name}>${text3.slice(at)}`;
 };
-var repairEnvelope = (text2) => {
-  let repaired = closeOpenTag(text2, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
+var repairEnvelope = (text3) => {
+  let repaired = closeOpenTag(text3, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
   repaired = closeOpenTag(repaired, "CHAR_SURFACE", ["<USER_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
   repaired = closeOpenTag(repaired, "USER_SURFACE", ["<CHAR_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
   return repaired;
@@ -20961,8 +23440,8 @@ var parseSarEnvelopeRounds = (rounds, plan) => {
   const pieces = [];
   let enveloped = false;
   let userSurface;
-  for (const text2 of texts) {
-    const parsed = parseSARModuleReply(repairEnvelope(text2), plan);
+  for (const text3 of texts) {
+    const parsed = parseSARModuleReply(repairEnvelope(text3), plan);
     if (parsed.enveloped) {
       enveloped = true;
       if (parsed.userSurface) userSurface = parsed.userSurface;
@@ -21010,8 +23489,8 @@ var alignSarSurfaceSegments = (canonicalSegments, surfaceText) => {
     return matched ? { surface: matched.raw, banner: matched.sanitized } : void 0;
   });
 };
-var segmentCanonical = (text2) => {
-  const scan = classifyLLMOutput(text2);
+var segmentCanonical = (text3) => {
+  const scan = classifyLLMOutput(text3);
   return sanitizeIntoSegments(scan.kind === "finish" ? scan.cleanedText : scan.prefix);
 };
 var buildSarSurfaceSlots = (parse, segments) => {
@@ -21108,7 +23587,7 @@ function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, 
   const sarPlan = planFromSARModuleSnapshot(build.sar ?? null);
   const sarMask = sarPlan?.requiresEnvelope ? maskSarSurfaceBlocks(llmOutputText) : null;
   const roundText = sarMask ? sarMask.masked : llmOutputText;
-  const restoreSurfaces = (text2) => sarMask ? sarMask.restore(text2) : text2;
+  const restoreSurfaces = (text3) => sarMask ? sarMask.restore(text3) : text3;
   const nativeToolCalls = mcp?.nativeToolCalls ?? [];
   const textCalls = mcp?.resolve.size ? extractTextFakedMcpCalls(roundText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX }) : [];
   const nativeScheduleCalls = schedule?.nativeToolCalls ?? [];
@@ -21227,6 +23706,8 @@ function buildScheduledPush(message, build, extraMeta, bannerBody) {
 // utils/emotionEvalCore.ts
 var EMOTION_EVAL_SYSTEM_SLOT = "__EMOTION_EVAL_SYSTEM_PROMPT__";
 var EMOTION_EVAL_HISTORY_SLOT = "__EMOTION_EVAL_HISTORY__";
+var tagHomeSecretEval = (raw, requestId) => requestId && /^[\w-]+$/.test(requestId) ? `HOME_SECRET_REQUEST:${requestId}
+${raw}` : raw;
 var EMOTION_EVAL_TIMEOUT_MS = 12e4;
 var flattenEvalContent = (content) => {
   if (typeof content === "string") return content;
@@ -21250,8 +23731,8 @@ var restoreEvalPrompt = (template, chatMessages, charName) => {
   return String(template).replace(EMOTION_EVAL_SYSTEM_SLOT, () => systemPromptText).replace(EMOTION_EVAL_HISTORY_SLOT, () => recentLines);
 };
 var ERROR_SNIPPET_MAX = 120;
-var maskAndSnip = (text2, apiKey) => {
-  let snippet = text2.replace(/\s+/g, " ").trim();
+var maskAndSnip = (text3, apiKey) => {
+  let snippet = text3.replace(/\s+/g, " ").trim();
   if (apiKey && snippet.includes(apiKey)) snippet = snippet.split(apiKey).join("***");
   return snippet.slice(0, ERROR_SNIPPET_MAX);
 };
@@ -21354,7 +23835,10 @@ var takeEmotionEvalSpec = (metadata) => {
   return isUsableEvalSpec(spec) ? spec : null;
 };
 var EMOTION_EVAL_RIDE_ALONG_MS = 1e4;
-var runAmsgEmotionEval = async (spec, api, chatMessages, charName, timeoutMs = EMOTION_EVAL_TIMEOUT_MS, signal) => requestEmotionEval(api, restoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs, signal);
+var runAmsgEmotionEval = async (spec, api, chatMessages, charName, timeoutMs = EMOTION_EVAL_TIMEOUT_MS, signal) => {
+  const result = await requestEmotionEval(api, restoreEvalPrompt(spec.prompt, chatMessages, charName), timeoutMs, signal);
+  return result.raw ? { ...result, raw: tagHomeSecretEval(result.raw, spec.homeSecretRequestId) } : result;
+};
 
 // utils/amsgScheduleResult.ts
 var SCHEDULE_CHANGE_RESULT_KIND = "schedule-change";
@@ -21541,10 +24025,10 @@ var fireStateError = (reason, detail) => {
   return error;
 };
 var INLINE_THINK_RE = /<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi;
-var extractInlineThink = (text2) => {
-  if (!text2.includes("<")) return "";
+var extractInlineThink = (text3) => {
+  if (!text3.includes("<")) return "";
   const blocks = [];
-  for (const match of text2.matchAll(INLINE_THINK_RE)) {
+  for (const match of text3.matchAll(INLINE_THINK_RE)) {
     const inner = match[2].trim();
     if (inner) blocks.push(inner);
   }
@@ -21668,14 +24152,14 @@ var readErrorCode = (error) => {
   const code2 = error?.code;
   return typeof code2 === "string" && code2 ? code2 : null;
 };
-var writeChatFail = async (writeState, charId, record2) => {
+var writeChatFail = async (writeState, charId, record3) => {
   const full = {
     v: 1,
-    uuid: record2.uuid,
-    reason: record2.reason.slice(0, 500),
-    retryCount: record2.retryCount,
+    uuid: record3.uuid,
+    reason: record3.reason.slice(0, 500),
+    retryCount: record3.retryCount,
     at: Date.now(),
-    ...record2.errorCode ? { errorCode: record2.errorCode } : {}
+    ...record3.errorCode ? { errorCode: record3.errorCode } : {}
   };
   try {
     await writeState(amsgStateNamespace(charId), [
@@ -21801,7 +24285,7 @@ var amsgFireSettled = async (info) => {
   stash.selfLogTexts = null;
   const sentCount = committed && texts ? texts.length : info.sentCount ?? 0;
   if (texts && sentCount > 0) {
-    const text2 = texts.slice(0, sentCount).filter((message) => message.trim()).join("\n");
+    const text3 = texts.slice(0, sentCount).filter((message) => message.trim()).join("\n");
     const entryId = `${stash.clientTaskId || "task"}@${stash.occurrenceMs}`;
     const rerun = stash.selfLog.entries.some((e) => e.id === entryId);
     const next = appendSelfLogEntry(stash.selfLog, {
@@ -21809,7 +24293,7 @@ var amsgFireSettled = async (info) => {
       taskUuid: stash.taskUuid ?? void 0,
       at: Date.now(),
       startedAt: stash.firedAt,
-      text: text2,
+      text: text3,
       // 即时对话是在答用户刚说的话——列进自述块保持连续性，但不占「主动连发」的额度
       // （带这个标记的条目不会让 selfLog.unansweredSends 加一）。
       ...stash.instant ? { reply: true } : {}
@@ -22001,7 +24485,7 @@ var runFireScheduleTool = async (stash, scheduleTask, args, nowMs) => {
   stash.selfScheduleSeq += 1;
   const remote = result.created ? null : result.task;
   const sendAt = remote?.nextSendAt || parsed.sendAt;
-  const record2 = {
+  const record3 = {
     taskUuid: result.uuid,
     clientTaskId: remote?.clientTaskId || clientTaskId,
     mode: remote?.messageType || parsed.mode,
@@ -22013,15 +24497,15 @@ var runFireScheduleTool = async (stash, scheduleTask, args, nowMs) => {
     status: "scheduled",
     createdAt: nowMs
   };
-  if (!stash.scheduledTasks.some((t) => t.taskUuid === record2.taskUuid)) {
-    stash.scheduledTasks.push(record2);
-    stash.selfLog = appendSelfLogTask(stash.selfLog, record2);
+  if (!stash.scheduledTasks.some((t) => t.taskUuid === record3.taskUuid)) {
+    stash.scheduledTasks.push(record3);
+    stash.selfLog = appendSelfLogTask(stash.selfLog, record3);
     stash.selfLogDirty = true;
   }
   console.log("[amsg:self-schedule]", {
     uuid: result.uuid,
     sendAt,
-    mode: record2.mode,
+    mode: record3.mode,
     duplicate: !result.created
   });
   if (!result.created) {
@@ -22848,6 +25332,7 @@ var buildWorkerConfig = (env) => {
     // 装 fire_pack / tool_pack）不配 TTL——那些是要长期留着的，配了就等于定时把
     // 角色的云端状态抹掉。判据是行本来就有的 updated_at 列，不加列、不动表结构。
     clientStateTtl: { [AMSG_JOB_NAMESPACE]: AMSG_JOB_TTL_DAYS },
+    cloudData: { resolveOwner: resolveSullyCloudOwnership },
     // 满血 fire-time hooks（onBeforeFire 现场填槽 + onLLMOutput 分类 +
     // executeToolCalls 服务端工具循环）；总超时用库默认 240s，轮数由 onBeforeFire 按
     // 是否接入 MCP 返回 5 / 12；即时对话再把总超时抬到 INSTANT_TOTAL_TIMEOUT_MS。
@@ -22968,16 +25453,16 @@ var inspectPushDelivery = async (db, registeredAtMs) => {
     ).all();
     let gone = null;
     for (const row of rows.results || []) {
-      let record2 = null;
+      let record3 = null;
       try {
         const parsed = JSON.parse(row.last_error || "null");
-        record2 = parsed && typeof parsed === "object" ? parsed : null;
+        record3 = parsed && typeof parsed === "object" ? parsed : null;
       } catch {
         continue;
       }
-      const status = Number(record2?.pushStatus);
+      const status = Number(record3?.pushStatus);
       if (!PUSH_GONE_STATUSES.includes(status)) continue;
-      const atMs = Date.parse(String(record2?.at ?? ""));
+      const atMs = Date.parse(String(record3?.at ?? ""));
       if (!Number.isFinite(atMs)) continue;
       if (!gone || atMs > gone.atMs) gone = { status, atMs };
     }
@@ -23298,17 +25783,17 @@ var src_default = {
       console.error(`[amsg] \u5B9A\u65F6\u4EFB\u52A1\u6574\u8F6E\u8DF3\u8FC7\uFF1A${report.message}`);
       return;
     }
-    await ensureSchemaOnce(env.DB, SCHEMA_VERSION, () => upstream.ensureSchema(env));
-    const outcome = await upstream.scheduled(event, env);
-    await recordTickOutcome(env.DB, outcome);
-    try {
-      await runAutoUpdate(env, env.DB, {
+    await runScheduledAfterUpdate(
+      () => runAutoUpdate(env, env.DB, {
         source: "cron",
         scriptName: env.CF_SCRIPT_NAME?.trim() || null
-      });
-    } catch (error) {
-      console.warn("[amsg:auto-update] \u8FD9\u4E00\u8DF3\u7684\u81EA\u52A8\u66F4\u65B0\u68C0\u67E5\u6CA1\u8DD1\u5B8C", error);
-    }
+      }),
+      async () => {
+        await ensureSchemaOnce(env.DB, SCHEMA_VERSION, () => upstream.ensureSchema(env));
+        const outcome = await upstream.scheduled(event, env);
+        await recordTickOutcome(env.DB, outcome);
+      }
+    );
   }
 };
 export {

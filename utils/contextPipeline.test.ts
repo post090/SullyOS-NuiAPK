@@ -53,3 +53,26 @@ it('世界书底层处理只允许 ContextBuilder 调用；旧文本调用点不
     expect(violations).toEqual([]);
     expect(actual).toEqual(legacyTextCalls);
 });
+
+it('异步上下文必须等待完成，不能把 Promise 拼进提示词或请求', () => {
+    const violations: string[] = [];
+    const asyncEntries = /^ContextBuilder\.(buildCoreContext|buildRoleSettingsContext|buildVolatileCoreState|buildCharacterContext|buildCharacterRequest)$/;
+    for (const path of ['apps', 'components', 'utils', 'features', 'hooks', 'context'].flatMap(dir => sourceFiles(join(process.cwd(), dir)))) {
+        const source = readFileSync(path, 'utf8');
+        if (!source.includes('ContextBuilder.')) continue;
+        const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+        const visit = (node: ts.Node) => {
+            if (ts.isCallExpression(node) && asyncEntries.test(node.expression.getText(file))) {
+                let parent = node.parent;
+                while (ts.isParenthesizedExpression(parent)) parent = parent.parent;
+                // 直接 return 可把 Promise 交给上层；拼接字符串/数组/JSON 前必须 await。
+                if (!ts.isAwaitExpression(parent) && !ts.isReturnStatement(parent)) {
+                    violations.push(`${relative(process.cwd(), path)}:${file.getLineAndCharacterOfPosition(node.getStart()).line + 1}`);
+                }
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(file);
+    }
+    expect(violations).toEqual([]);
+});

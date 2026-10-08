@@ -9,13 +9,13 @@ const user = { name: '测试用户', bio: '', avatar: '' } as UserProfile;
 const character = (extra: Partial<CharacterProfile> = {}) => ({ id: 'stats', name: '角色', avatar: '', systemPrompt: '设定', contextRangePolicyVersion: 1, contextRangeMode: 'manual', memories: [], ...extra } as CharacterProfile);
 
 describe('read-only character statistics', () => {
-    it('keeps monthly summaries with eyes closed; palace does not override open eyes', () => {
+    it('keeps monthly summaries with eyes closed; palace does not override open eyes', async () => {
         const char = character({ memoryPalaceEnabled: true, refinedMemories: { '2026-08': '月度' }, memories: [{ date: '2026年9月1日', summary: '日度', mood: '好' }] as CharacterProfile['memories'] });
         expect(readableContextMemories(char).monthly).toHaveLength(1);
         expect(readableContextMemories(char).daily).toHaveLength(0);
         char.activeMemoryMonths = ['2026-09'];
         expect(readableContextMemories(char).daily[0].entries).toHaveLength(1);
-        expect(ContextBuilder.buildCharacterContext({ char, user }).coreContext).toContain('日度');
+        expect((await ContextBuilder.buildCharacterContext({ char, user })).coreContext).toContain('日度');
         expect(readableContextMemories(char, false).daily).toHaveLength(0);
     });
     it('previews keywords and probability without consuming randomness', () => {

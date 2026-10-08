@@ -10,11 +10,13 @@ vi.mock('./exportGuard',()=>({confirmExportSafety:async()=>true}));
 vi.mock('../components/share/BeautyPresetPreview',()=>({default:({data}:any)=>React.createElement('p',{'data-preview':true},data.name)}));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 HTMLDialogElement.prototype.showModal=vi.fn();HTMLDialogElement.prototype.close=vi.fn();
-beforeEach(()=>{mocks.assets.clear();mocks.request.mockReset();mocks.session={token:'test-token',authorCode:'test-author'};localStorage.clear();localStorage.setItem('sully-beauty-author-defaults-v1',JSON.stringify({credit:'测试作者',platforms:['糯米机美化群']}));});
+beforeEach(()=>{mocks.assets.clear();mocks.request.mockReset();mocks.session={token:'test-token',authorCode:'test-author'};localStorage.clear();localStorage.setItem('sully-beauty-author-notice-v1','seen');localStorage.setItem('sully-beauty-author-defaults-v1',JSON.stringify({credit:'测试作者',platforms:['糯米机美化群']}));});
 const pack=()=>({name:'奶油气泡',format:'sullyos-chat-decoration',version:1,parts:{css:'.sully-chat-header{color:red}'}});
 async function mount(read:()=>Promise<unknown>,bindingId?:string,readCurrent?:()=>Promise<unknown>){
  const host=document.createElement('div');document.body.append(host);const root=createRoot(host);
  await act(async()=>root.render(React.createElement(BeautySharePanel,{kind:'chat-decoration',surface:'author',defaultOpen:true,initialTab:'submit',sources:[{id:'one',bindingId,kind:'chat-decoration',name:'奶油气泡',read,readCurrent}],onReceive:async()=>{}})));
+ // Opening the author surface reads its inventory; the assertions below track submission actions.
+ mocks.request.mockClear();
  const click=async(label:string)=>act(async()=>{const button=Array.from(host.querySelectorAll('button')).find(b=>b.textContent?.startsWith(label));expect(button).toBeTruthy();button!.click();});
  return {host,click,close:async()=>{await act(async()=>root.unmount());host.remove();}};
 }

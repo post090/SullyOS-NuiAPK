@@ -1,9 +1,13 @@
+import {getDailyScheduleForChar} from './dailySchedule';
+import {getLastInnerState} from './emotionState';
 import { readableContextMemories } from './contextMemories';
 import { getCachedUserHolidayReminder, type UserHolidayConfig } from './userHolidays';
 
 import { CharacterProfile, UserProfile, DailySchedule, MountedWorldbook } from '../types';
 import { normalizeUserImpression } from './impression';
 import { getFlowNarrativeKey } from './scheduleGenerator';
+import {buildHomePetContext} from './homePetContext';
+import { buildHomeDefinitionContext } from './homeDefinitionContext';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { buildScheduleInjection as buildScheduleInjectionText } from './scheduleInjection';
 import { TIME_FRAMING_CONVERSATIONAL } from './timeFramingNote';
@@ -27,7 +31,24 @@ import { buildSARModulePrompt } from './vrWorld/sarModuleRuntime';
  * 负责统一构建所有 App 共用的基础角色上下文 (System Prompt)。
  * 包含：身份设定、用户画像、世界观、核心记忆、详细记忆、以及角色内心看法。
  */
+export interface EmotionContextOptions { surface?: 'chat' | 'home'; innerState?: string }
 export const ContextBuilder = {
+    /** 所有入口共用：只读取现有日程，不触发生成；按角色当地日期读取。 */
+    buildCurrentScheduleContext: async (char: CharacterProfile, allowScheduleChange = false, snapshot?: Promise<DailySchedule | null>): Promise<string> => {
+        if (!isScheduleFeatureOn(char)) return '';
+        const schedule = await (snapshot ?? getDailyScheduleForChar(char));
+        if (!schedule) return '';
+        return buildScheduleInjectionText(schedule, undefined, nowInTimeZone(resolveCharTimeZone(char)), {
+            includeFullDay: true, includeClock: char.timeAwarenessEnabled !== false,
+            includeChangeInstruction: allowScheduleChange,
+        });
+    },
+    buildEmotionContext: (char: CharacterProfile, options?: EmotionContextOptions): string => {
+        if ((options?.surface !== 'chat' && options?.surface !== 'home') || !isScheduleFeatureOn(char) || !char.emotionConfig?.enabled) return '';
+        const inner = options.innerState ?? getLastInnerState(char.id);
+        return (char.buffInjection ? char.buffInjection + '\n\n' : '')
+            + (inner.trim() ? '### 当前内心想法\n' + inner.trim() + '\n（这是你的内心状态，不是台词，不必说出口；让它自然影响你的回应。）\n\n' : '');
+    },
     /** Read-only eligibility preview: never samples probability or performs recall. */
     inspectWorldbooks: (char: CharacterProfile, user: UserProfile, history: WorldbookScanMessage[]) =>
         (char.mountedWorldbooks || []).map(book => {
@@ -48,7 +69,7 @@ export const ContextBuilder = {
     buildSARModuleContext: (
         char: CharacterProfile,
         user: UserProfile,
-        surface: 'chat' | 'date',
+        surface: 'chat' | 'date' | 'home',
     ): string => buildSARModulePrompt(char, user, surface),
 
     /**
@@ -57,7 +78,7 @@ export const ContextBuilder = {
      *
      * @param options.skipMemories 跳过月度总结和日度记录（开启记忆宫殿时用向量记忆替代）
      */
-    buildRoleSettingsContext: (char: CharacterProfile, options?: { skipMemories?: boolean }): string => {
+    buildRoleSettingsContext: async (char: CharacterProfile, options?: { skipMemories?: boolean }): Promise<string> => {
         let context = `[System: Character Role Settings]\n\n`;
 
         // 1. 角色名
@@ -124,6 +145,7 @@ export const ContextBuilder = {
             }
         }
 
+        context += await ContextBuilder.buildCurrentScheduleContext(char);
         return context;
     },
 
@@ -131,15 +153,15 @@ export const ContextBuilder = {
      * 构建核心人设上下文
      * @param char 角色档案
      * @param user 用户档案
-     * @param includeDetailedMemories 是否包含激活月份的详细 Log (默认 true)
+     * @param includeDetailedMemories 是否包含神经链接激活月份的详细 Log (默认 true)，不控制向量召回
      * @param memoryPalaceContext 外部注入的记忆宫殿文本（优先级低于 char.memoryPalaceInjection）
      * @param groupOptions 群聊场景下的去重选项：避免和 buildGroupSharedScene 产出的共享块重复
      * @returns 标准化的 Markdown 格式 System Prompt
      */
-    buildCoreContext: (...args: CoreContextArgs): string => buildCharacterContext({
+    buildCoreContext: async (...args: CoreContextArgs): Promise<string> => (await buildCharacterContext({
         char: args[0], user: args[1], includeDetailedMemories: args[2],
         memoryPalaceContext: args[3], groupOptions: args[4], timeOptions: args[5], layout: args[6],
-    }).coreContext,
+    })).coreContext,
 
     /** 一次完成世界书触发、核心上下文和消息深度摆放；history 不传时完整放入核心文本。 */
     buildCharacterContext,
@@ -219,30 +241,32 @@ export const ContextBuilder = {
      * 三块的开关判定与 buildCoreContext 内联版完全一致，只是输出位置交给调用方
      * （聊天主路径放到消息数组末尾的"当前状态" system 消息里）。
      */
-    buildVolatileCoreState: (
+    buildVolatileCoreState: async (
         char: CharacterProfile,
         options?: {
+            /** 兼容旧调用；实时块不含传统详细日志，此参数不控制召回。 */
             includeDetailedMemories?: boolean;
+            emotion?: EmotionContextOptions;
+            /** Fire-pack 的日程由 worker 执行时现取，不能烤入打包时状态。 */
+            scheduleDelivery?: 'worker';
+            /** 仅本次请求共用的读取结果；不缓存到下一轮，null 也不重复查询。 */
+            scheduleSnapshot?: Promise<DailySchedule | null>;
             memoryPalaceContext?: string;
             timeOptions?: { lastInteractionTs?: number; skipTimeAwareness?: boolean; userTimezone?: string; conversational?: boolean };
         },
-    ): string => {
+    ): Promise<string> => {
         let context = ContextBuilder.buildTimeAwarenessBlock(char, options?.timeOptions);
 
-        const includeDetailedMemories = options?.includeDetailedMemories ?? true;
-        if (includeDetailedMemories && char.memoryPalaceEnabled) {
+        if (char.memoryPalaceEnabled) {
             const mpContext = char.memoryPalaceInjection || options?.memoryPalaceContext;
             if (mpContext && mpContext.trim()) {
                 context += `${mpContext}\n\n`;
             }
         }
 
-        if (isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection) {
-            context += `${char.buffInjection}\n\n`;
-            console.log(`🎭 [Context] Buff injected for ${char.name}:\n`, char.buffInjection);
-            console.log(`🎭 [Context] Active buffs:`, JSON.stringify(char.activeBuffs || [], null, 2));
-        }
+        context += ContextBuilder.buildEmotionContext(char, options?.emotion);
 
+        if (options?.scheduleDelivery !== 'worker') context += await ContextBuilder.buildCurrentScheduleContext(char, options?.emotion?.surface === 'chat', options?.scheduleSnapshot);
         return context;
     },
 
@@ -512,7 +536,7 @@ ${addUsage}
     },
 };
 
-const renderCoreContext = (
+const renderCoreContext = async (
         worldbookSections: WorldbookSystemSections,
         char: CharacterProfile,
         user: UserProfile,
@@ -547,8 +571,9 @@ const renderCoreContext = (
              * 只有聊天主路径（chatPrompts.buildSystemPromptParts）用；其他 App 不传，行为不变。
              */
             deferVolatile?: boolean;
+            emotion?: EmotionContextOptions;
         },
-    ): string => {
+    ): Promise<string> => {
         let context = formatWorldbookSection(worldbookSections.beforeCharacter, '世界书 · 角色设定前');
         context += `${groupOptions?.headerOverride ?? '[System: Roleplay Configuration]'}\n\n`;
 
@@ -599,6 +624,10 @@ const renderCoreContext = (
                 if (holiday) context += `- ${holiday}\n\n`;
             }
         }
+
+        // 家园背景由所有入口共用，未设置时不注入。
+        context += buildHomeDefinitionContext(char.homeDefinition, user.name);
+        context += buildHomePetContext(char.home3D);
 
         // 4. [NEW] 印象档案 (Private Impression)
         // 这是角色对用户的私密看法，只有角色知道
@@ -654,14 +683,13 @@ const renderCoreContext = (
         }
 
         // 5b. 记忆宫殿 (Memory Palace) — 向量检索结果
-        // 仅在 includeDetailedMemories 时注入，与详细日志同级
-        // buildCoreContext(false) 的调用点（情绪评估、轻量上下文等）靠月度总结即可
+        // 已准备好的向量召回独立于神经链接详细日志；这里不发起额外召回。
         // 必须用 memoryPalaceEnabled 把关：injectMemoryPalace 在关闭时直接 return、
         // 既不刷新也不清空 char.memoryPalaceInjection，而该字段又会被 saveCharacter
         // 持久化。若此处不校验总开关，关闭后旧的召回结果仍会被注入进 system prompt，
         // 表现为"宫殿已关、后台无召回，角色却还在精准复述记忆"。与下方 Buff 注入同理。
         // deferVolatile：召回结果每轮都变 → 移交 buildVolatileCoreState。
-        if (!layout?.deferVolatile && includeDetailedMemories && char.memoryPalaceEnabled) {
+        if (!layout?.deferVolatile && char.memoryPalaceEnabled) {
             const mpContext = char.memoryPalaceInjection || memoryPalaceContext;
             if (mpContext && mpContext.trim()) {
                 context += `${mpContext}\n\n`;
@@ -669,14 +697,10 @@ const renderCoreContext = (
         }
 
         // 6. 情绪底色 Buff (Emotion Buff Injection)
-        // 放在角色设定之后，使所有调用 ContextBuilder 的 App 都能感知情绪状态
+        // 保留本分支的入口约定：仅私聊/家园显式启用，buff 与内心状态一起处理。
         // 总开关关闭时完全跳过，防止残留 buff 继续污染 prompt
         // deferVolatile：buff 每轮情绪评估后都可能变 → 移交 buildVolatileCoreState。
-        if (!layout?.deferVolatile && isScheduleFeatureOn(char) && char.emotionConfig?.enabled && char.buffInjection) {
-            context += `${char.buffInjection}\n\n`;
-            console.log(`🎭 [Context] Buff injected for ${char.name}:\n`, char.buffInjection);
-            console.log(`🎭 [Context] Active buffs:`, JSON.stringify(char.activeBuffs || [], null, 2));
-        }
+        if (!layout?.deferVolatile) context += ContextBuilder.buildEmotionContext(char, layout?.emotion);
 
         context += formatWorldbookSection(worldbookSections.authorsNoteTop, '世界书 · 作者注释顶部');
         context += formatWorldbookSection(worldbookSections.authorsNoteBottom, '世界书 · 作者注释底部');
@@ -715,6 +739,7 @@ const renderCoreContext = (
             console.log(`✅ [Context] All fields present | context_chars=${context.length}`);
         }
 
+        if (!layout?.deferVolatile) context += await ContextBuilder.buildCurrentScheduleContext(char);
         return context;
     };
 
@@ -734,14 +759,14 @@ export interface CharacterContextInput {
     layout?: CoreContextArgs[6];
 }
 
-function resolveCharacterContext(input: CharacterContextInput) {
+async function resolveCharacterContext(input: CharacterContextInput) {
     const { char, user, history, groupOptions, timeOptions } = input;
     const entries = resolveWorldbookEntries(
         (char.mountedWorldbooks || []).filter(book => !groupOptions?.skipWorldbookIds?.has(book.id)),
         history ?? timeOptions?.worldbookMessages ?? [], char.name, user.name,
     );
     const sections = splitWorldbookSections(entries);
-    const rawCoreContext = renderCoreContext(
+    const rawCoreContext = await renderCoreContext(
         history === undefined ? sections : { ...sections, atDepth: [] },
         char, user, input.includeDetailedMemories, input.memoryPalaceContext,
         groupOptions, timeOptions, input.layout,
@@ -752,8 +777,8 @@ function resolveCharacterContext(input: CharacterContextInput) {
     return { coreContext, sections };
 }
 
-function buildCharacterContext(input: CharacterContextInput) {
-    const { coreContext, sections } = resolveCharacterContext(input);
+async function buildCharacterContext(input: CharacterContextInput) {
+    const { coreContext, sections } = await resolveCharacterContext(input);
     const preparedHistory = input.history === undefined ? [] : injectWorldbookDepthEntries(input.history, sections.atDepth);
     return {
         coreContext,
@@ -763,9 +788,9 @@ function buildCharacterContext(input: CharacterContextInput) {
 }
 
 /** 通用 App 请求入口：角色上下文与挂载世界书自动装配，系统规则不计入对话深度。 */
-function buildCharacterRequest(input: Omit<CharacterContextInput, 'history'>, messages: ContextMessage[]) {
+async function buildCharacterRequest(input: Omit<CharacterContextInput, 'history'>, messages: ContextMessage[]) {
     const history = messages.filter(message => message.role !== 'system' && message.role !== 'developer');
-    const { coreContext, sections } = resolveCharacterContext({ ...input, history });
+    const { coreContext, sections } = await resolveCharacterContext({ ...input, history });
     const prepared = placeWorldbooksInRequest(messages, history, sections.atDepth);
     return [{ role: 'system', content: coreContext }, ...prepared];
 }

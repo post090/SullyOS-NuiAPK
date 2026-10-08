@@ -1,5 +1,5 @@
-import type { APIConfig, CharacterProfile, UserProfile } from '../../types';
 import { ContextBuilder } from '../context';
+import type { APIConfig, CharacterProfile, UserProfile } from '../../types';
 import { extractContent, extractJson, safeFetchJson } from '../safeApi';
 import { EventBoxDB, MemoryNodeDB } from './db';
 import { getLatestRecallReceipt, type RecallReceipt } from './recallReceipts';
@@ -227,10 +227,9 @@ export async function loadRecallRepairSnapshot(
  * 按产品约定明确调用 buildCoreContext(..., false)，同时抹掉所有持久记忆、
  * 召回注入、房间门牌和情绪注入，确保不会暗中再读一次记忆上下文。
  */
-export function buildMemoryRepairCoreContext(
-    char: CharacterProfile,
+export async function buildMemoryRepairCoreContext(char: CharacterProfile,
     user: UserProfile,
-): string {
+): Promise<string> {
     const memoryIsolatedChar: CharacterProfile = {
         ...char,
         memories: [],
@@ -242,7 +241,7 @@ export function buildMemoryRepairCoreContext(
         buffInjection: undefined,
         activeBuffs: [],
     };
-    return ContextBuilder.buildCoreContext(memoryIsolatedChar, user, false);
+    return (await ContextBuilder.buildCoreContext(memoryIsolatedChar, user, false));
 }
 
 function snapshotCandidates(snapshot: RecallRepairSnapshot): Array<{
@@ -311,7 +310,7 @@ export async function diagnoseRecallIssue(params: {
         };
     }
 
-    const coreContext = buildMemoryRepairCoreContext(params.char, params.user);
+    const coreContext = (await buildMemoryRepairCoreContext(params.char, params.user));
     const charName = params.char.name || '对方';
     const userName = params.user.name || '你';
     const candidateText = candidates

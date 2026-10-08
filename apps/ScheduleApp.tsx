@@ -324,7 +324,7 @@ const ScheduleApp: React.FC = () => {
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiConfig.apiKey}` },
                 body: JSON.stringify({
                     model: apiConfig.model,
-                    messages: ContextBuilder.buildCharacterRequest(characterContextInput, messages),
+                    messages: await ContextBuilder.buildCharacterRequest(characterContextInput, messages),
                     temperature: 0.8, max_tokens: 8000,
                 }),
             });

@@ -236,8 +236,8 @@ interface PersonaDraft {
     playlists: { title: string; description: string; mood?: string; coverStyle?: string; language?: string; searchHints?: string[] }[];
 }
 
-const buildPersonaPrompt = (char: CharacterProfile, user: UserProfile): { sys: string; usr: string } => {
-    const core = ContextBuilder.buildRoleSettingsContext(char, { skipMemories: true });
+const buildPersonaPrompt = async (char: CharacterProfile, user: UserProfile): Promise<{ sys: string; usr: string }> => {
+    const core = (await ContextBuilder.buildRoleSettingsContext(char, { skipMemories: true }));
     const sys = `你是一个"音乐人格生成器"。根据给定的角色设定，为这个角色设计一份网易云音乐个人主页的品味档案。
 
 要求:
@@ -338,7 +338,7 @@ export const CharMusicPersona = {
             throw new Error('未配置 API（baseUrl 或 model 为空）');
         }
 
-        const { sys, usr } = buildPersonaPrompt(char, userProfile);
+        const { sys, usr } = (await buildPersonaPrompt(char, userProfile));
         const rawText = await callLlm(apiConfig, sys, usr);
         if (!rawText || !rawText.trim()) {
             throw new Error('LLM 返回为空');

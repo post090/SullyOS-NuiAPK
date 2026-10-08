@@ -124,6 +124,30 @@ const createWorld = async (startClock: string) => {
   vi.useFakeTimers();
   vi.setSystemTime(at(startClock));
 
+  // 真 WebCrypto 在线程池里完成，不能把主机忙时的等待误算成几十秒的模拟时间。
+  // 保留真实加解密，但拨钟前先排空它；业务定时器仍由场景逐步推进。
+  const cryptoJobs = new Set<Promise<unknown>>();
+  const subtle = globalThis.crypto.subtle;
+  for (const method of [
+    'encrypt', 'decrypt', 'deriveKey', 'deriveBits', 'importKey', 'exportKey',
+    'generateKey', 'digest', 'sign', 'verify', 'wrapKey', 'unwrapKey',
+  ] as const) {
+    const original = subtle[method];
+    vi.spyOn(subtle, method).mockImplementation(((...args: unknown[]) => {
+      const job = Reflect.apply(original, subtle, args) as Promise<unknown>;
+      cryptoJobs.add(job);
+      void job.then(() => cryptoJobs.delete(job), () => cryptoJobs.delete(job));
+      return job;
+    }) as any);
+  }
+  const flushCrypto = async () => {
+    await breathe();
+    while (cryptoJobs.size) {
+      await Promise.allSettled([...cryptoJobs]);
+      await breathe();
+    }
+  };
+
   const events: SimEvent[] = [];
   const spans: SimSpan[] = [];
   const ev = (lane: Lane, kind: string, label: string, detail?: string) => {
@@ -220,8 +244,10 @@ const createWorld = async (startClock: string) => {
     let error: unknown;
     promise.then((v) => { value = v; done = true; }, (e) => { error = e; done = true; });
     for (let i = 0; i < maxSteps && !done; i += 1) {
+      await flushCrypto();
+      if (done) break;
       await vi.advanceTimersByTimeAsync(20);
-      await breathe();
+      await flushCrypto();
     }
     if (!done) throw new Error('模拟卡住了：这个 promise 一直没走完');
     if (error) throw error;
@@ -241,9 +267,10 @@ const createWorld = async (startClock: string) => {
   const advance = async (ms: number) => {
     let left = ms;
     while (left > 0) {
+      await flushCrypto();
       const step = Math.min(left, 100);
       await vi.advanceTimersByTimeAsync(step);
-      await breathe();
+      await flushCrypto();
       left -= step;
     }
   };
@@ -256,8 +283,10 @@ const createWorld = async (startClock: string) => {
     const target = at(clock);
     for (;;) {
       const now = Date.now();
-      const nextMinute = Math.max(Math.ceil(now / 60_000) * 60_000, watch.from);
-      if (!watch.auto || !watch.task || nextMinute > target || tickedMinutes.has(nextMinute)) break;
+      let nextMinute = Math.max(Math.ceil(now / 60_000) * 60_000, watch.from);
+      // 一跳在当前毫秒内完成时，继续找下一个分钟，不能提前跳到场景终点。
+      while (tickedMinutes.has(nextMinute)) nextMinute += 60_000;
+      if (!watch.auto || !watch.task || nextMinute > target) break;
       await advance(nextMinute - now);
       tickedMinutes.add(nextMinute);
       // 任务已经出清（发完删行 / 标了终态）就没有可看的了，这一跳不记。

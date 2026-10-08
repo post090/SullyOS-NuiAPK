@@ -1,0 +1,10 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {OSProvider} from '../../context/OSContext';
+import {MusicProvider} from '../../context/MusicContext';
+const RoomApp=React.lazy(()=>import('../../apps/RoomApp'));
+const MemoryPalaceApp=React.lazy(()=>import('../../apps/MemoryPalaceApp'));
+const App=new URLSearchParams(location.search).get('app')==='memory'?MemoryPalaceApp:RoomApp;
+const root=createRoot(document.getElementById('root')!);
+root.render(<React.Suspense fallback={<div role="status" style={{padding:32,color:'#53644c'}}>正在准备家园…</div>}><OSProvider><MusicProvider><App/></MusicProvider></OSProvider></React.Suspense>);
+import.meta.hot?.dispose(()=>root.unmount());

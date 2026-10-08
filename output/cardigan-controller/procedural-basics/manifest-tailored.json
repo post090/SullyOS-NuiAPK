@@ -1,0 +1,26 @@
+[
+  {
+    "id": "basic-tee",
+    "label": "普通短袖T恤",
+    "slot": "top",
+    "asset": "basic-tee-rig.glb",
+    "prefix": "Apparel_",
+    "triangles": 1353,
+    "drawCalls": 2,
+    "hem": 2.25,
+    "sleeveExtent": 0.9,
+    "source": "approved fitted-sweater VNeck=0 neckline, current-body thin shell, A-line short sleeve"
+  },
+  {
+    "id": "swim-shorts",
+    "label": "男士短裤泳衣",
+    "slot": "bottom",
+    "asset": "swim-shorts-rig.glb",
+    "prefix": "Apparel_",
+    "triangles": 832,
+    "drawCalls": 1,
+    "hem": 1.6,
+    "waist": 2.34,
+    "source": "body-sampled waistband and continuous short straight leg pattern"
+  }
+]

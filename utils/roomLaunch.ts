@@ -2,14 +2,14 @@
  * 「进小屋意图」轻量 store（module-level，无 React 依赖）。
  *
  * openApp(AppID.Room) 只能打开小屋 App、无法指定进哪个分区 / 是否直接开梦境。
- * 桌面主题（TamagotchiHome）的世界化入口（家园门、像素电视、床头梦境…）需要
+ * 跨入口导航（家园门、角色拜访、床头梦境…）需要
  * 「打开小屋 App 并落到指定 tab / 指定角色 / 直接开梦境」——用这个 store 传意图：
  * 调用方先 request(...) 再 openApp(Room)，RoomApp 挂载时 consume() 一次并应用。
  */
 
 export interface RoomLaunchIntent {
     charId?: string;
-    tab?: 'room' | 'worldHome' | 'pixelHome';
+    tab?: 'room' | 'worldHome' | 'home3D';
     /** 进该角色房间后直接打开梦境演出 */
     openDream?: boolean;
 }

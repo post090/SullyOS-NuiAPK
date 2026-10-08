@@ -92,7 +92,7 @@ async function callCharAI(
                     body: JSON.stringify({
                         model: apiConfig.model,
                         messages: characterContext
-                            ? ContextBuilder.buildCharacterRequest(characterContext, [{ role: 'user', content: systemPrompt }])
+                            ? (await ContextBuilder.buildCharacterRequest(characterContext, [{ role: 'user', content: systemPrompt }]))
                             : [{ role: 'user', content: systemPrompt }],
                         temperature: 0.85, max_tokens: 8192, stream: false,
                         response_format: { type: 'json_object' },
@@ -221,8 +221,7 @@ const LifeSimApp: React.FC = () => {
             const canUseApi = !!(resolvedApiConfig?.baseUrl && resolvedApiConfig?.apiKey && resolvedApiConfig?.model);
 
             if (canUseApi) {
-                const raw = await callCharAI(
-                    { baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
+                const raw = await callCharAI({ baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
                     buildWorldDramaPlannerPrompt(userProfile, state, state.actionLog)
                 );
                 let rawJson = extractJson(raw);
@@ -433,6 +432,7 @@ const LifeSimApp: React.FC = () => {
     // ── CHAR回合引擎 ──────────────────────────────────────────
 
     const runCharTurns = useCallback(async (initialState: LifeSimState, seededReplayActions: SimAction[] = []) => {
+
         if (!userProfile) return;
         let s = deepClone(initialState);
         const replayActions: SimAction[] = [...seededReplayActions];
@@ -791,8 +791,7 @@ const LifeSimApp: React.FC = () => {
             const canUseApi = !!(userProfile && resolvedApiConfig?.baseUrl && resolvedApiConfig?.apiKey && resolvedApiConfig?.model);
 
             if (canUseApi && userProfile) {
-                const raw = await callCharAI(
-                    { baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
+                const raw = await callCharAI({ baseUrl: resolvedApiConfig.baseUrl, apiKey: resolvedApiConfig.apiKey, model: resolvedApiConfig.model },
                     buildLifeSimSessionSummaryPrompt(userProfile, participantNames, gameState.actionLog)
                 );
                 let rawJson = extractJson(raw);
