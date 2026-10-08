@@ -2933,7 +2933,7 @@ var init_db = __esm({
     init_desktopSkinBackup();
     init_library();
     DB_NAME2 = "AetherOS_Data";
-    DB_VERSION2 = 74;
+    DB_VERSION2 = 75;
     STORE_CHARACTERS = "characters";
     STORE_CHAR_GROUPS = "character_groups";
     STORE_MESSAGES = "messages";

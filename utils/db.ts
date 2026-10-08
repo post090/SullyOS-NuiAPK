@@ -48,7 +48,9 @@ const DB_NAME = 'AetherOS_Data';
 //      见面剧情/面具箱/小红书伪主页、home projection（charId_source 索引）、
 //      home-turn 增量日记（charId_homeTurn 索引）、messages 的 [charId, metadata.deliveryId] 索引
 //      （回执查重不扫整段聊天；Fork 上次合并已带入，与上游 v74 合流）。
-const DB_VERSION = 74;
+// v75：Fork 74 与上游 74 撞号，曾在 Fork v74 build 上使用过的库缺上游引入的三个复合索引，
+//      版本号相等导致 onupgradeneeded 永不触发；bump 到 75 强制触发升级补齐（建表/建索引全部幂等）。
+const DB_VERSION = 75;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）

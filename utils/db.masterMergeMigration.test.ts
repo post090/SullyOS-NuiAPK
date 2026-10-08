@@ -30,7 +30,7 @@ it.each([72,73])('upgrades v%s without losing records and installs both branches
  await seedLegacy(factory,version);
  const {openDB,DB}=await import('./db');const db=await openDB();
  try {
-  expect(db.version).toBe(74);
+  expect(db.version).toBe(75);
   const names=Array.from(db.transaction('messages').objectStore('messages').indexNames);
   expect(names).toEqual(expect.arrayContaining(['charId_source','charId_homeTurn','charId_deliveryId']));
   expect((await DB.getMessagesByCharId('c',true)).map(m=>m.content)).toEqual(['保留原来的聊天','保留原来的家园']);
@@ -75,7 +75,7 @@ it('rolls back an interrupted v72 home-index upgrade, preserves the archive and 
  expect(databaseOpenDiagnostic()).not.toContain('upgrade-committed');
  const retried=await openDB();
  try {
-  expect(retried.version).toBe(74);
+  expect(retried.version).toBe(75);
   expect((await DB.getAllCharacters())[0].name).toBe('旧角色');
   expect(await DB.getAsset('old-wallpaper')).toBe('原图片');
   expect((await DB.getMessagesByCharId('c',true)).map(row=>row.id)).toEqual([1,2]);
