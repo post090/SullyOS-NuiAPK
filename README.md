@@ -134,7 +134,7 @@ VITE_PROXY_WORKER=https://你的地址.workers.dev npm run build
 
 - **VAPID 还是必须配**，和原版一样。哪怕你只用内置拉取（不走浏览器推送），Worker 在生成消息时缺 VAPID 仍会报错。VAPID 公私钥必须和 App「推送凭据 (VAPID)」面板里的那一对完全一致。
 
-- **当前 Nui bundle 版本：`2026-10-07.1`**（`utils/amsgBundleVersion.ts`）。App 设置页会拿这个版本号和你 Worker 报回来的比，不一致就提示"有更新"。顺带修过 bundle 传不上 Cloudflare 的 10021 报错。
+- **当前 Nui bundle 版本：`2026-10-09.1`**（`utils/amsgBundleVersion.ts`）。App 设置页会拿这个版本号和你 Worker 报回来的比，不一致就提示"有更新"。
 
 - **应用内「一键部署 / 装钥匙」依赖主代理 Worker 的 `/cf-api` 路由**。如果你点一键部署时提示"当前的网络代理 Worker 不支持这个操作（缺 /cf-api）"，是因为你那台**主代理 Worker（`worker/index.js`）是旧版本**，重新 `wrangler deploy` 一遍最新的 `worker/index.js` 就有了。实在不想折腾，照 `docs/amsg2-setup-walkthrough.md` 手动部署一样能用，一键部署只是省事的可选项。
   - Worker 自更新按钮要能用，还需要给 amsg Worker 配一个 `CF_API_TOKEN`（只需 Workers Scripts → Edit 权限）；不配就手动重贴 bundle。
