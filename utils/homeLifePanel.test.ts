@@ -4,8 +4,9 @@ import {createRoot} from 'react-dom/client';
 import {afterEach,it,expect,vi} from 'vitest';
 import HomeLifePanel from '../apps/room3d/HomeLifePanel';
 import type {HomeRecord} from '../apps/room3d/types';
-const mocks=vi.hoisted(()=>({reply:vi.fn()}));
+const mocks=vi.hoisted(()=>({reply:vi.fn(),toast:vi.fn()}));
 vi.mock('./homeConversation',()=>({generateHomeReply:mocks.reply}));
+vi.mock('../context/OSContext',()=>({useOS:()=>({addToast:mocks.toast})}));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 const host=document.createElement('div');document.body.append(host);let root:ReturnType<typeof createRoot>;
 let records:HomeRecord[]=[];let manualRevision=0;
@@ -116,6 +117,20 @@ it('cancels an automatic reply when leaving the home app',async()=>{
  const initiative={id:'auto-boundary',roomId:'r',reason:'坐下休息',automatic:true};await render('chat',initiative);expect(mocks.reply).toHaveBeenCalledOnce();const signal=mocks.reply.mock.calls[0][0].signal;
  await act(async()=>root.render(React.createElement(HomeLifePanel,{active:false,initiative,editor:editor as any,character:{id:'c',name:'Sully'} as any,user:{name:'用户'} as any,api:{baseUrl:'test',model:'test'} as any,panel:null,onPanel:()=>{}})));
  expect(signal.aborted).toBe(true);expect(signal.reason.message).toContain('已离开家园');expect(mocks.reply).toHaveBeenCalledOnce();
+ expect(mocks.toast).toHaveBeenCalledOnce();expect(mocks.toast).toHaveBeenCalledWith('已离开家园，停止自动开口');
+});
+it('silently cancels an automatic reply when the tab is hidden, without any toast',async()=>{
+ mocks.reply.mockImplementation(({signal}:any)=>new Promise((_,reject)=>signal.addEventListener('abort',()=>reject(signal.reason))));
+ const initiative={id:'auto-hidden',roomId:'r',reason:'休息',automatic:true};await render('chat',initiative);const signal=mocks.reply.mock.calls[0][0].signal;
+ const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true);try{
+  await act(async()=>{document.dispatchEvent(new Event('visibilitychange'));});
+  expect(signal.aborted).toBe(true);expect(signal.reason.message).toContain('已离开家园');expect(mocks.toast).not.toHaveBeenCalled();
+ }finally{hidden.mockRestore();}
+});
+it('does not toast when leaving the home without an in-flight automatic reply',async()=>{
+ await render('chat');
+ await act(async()=>root.render(React.createElement(HomeLifePanel,{active:false,editor:editor as any,character:{id:'c',name:'Sully'} as any,user:{name:'用户'} as any,api:{baseUrl:'test',model:'test'} as any,panel:null,onPanel:()=>{}})));
+ expect(mocks.toast).not.toHaveBeenCalled();
 });
 it('does not start an automatic request while the document is hidden',async()=>{
  const hidden=vi.spyOn(document,'hidden','get').mockReturnValue(true);try{await render('chat',{id:'hidden-auto',roomId:'r',reason:'休息',automatic:true});expect(mocks.reply).not.toHaveBeenCalled();}finally{hidden.mockRestore();}

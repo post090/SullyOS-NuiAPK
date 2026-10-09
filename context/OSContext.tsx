@@ -1,4 +1,4 @@
-import {isHomeAssetDisposal} from '../utils/homeAssetCancellation';
+import {isHomeAssetDisposal,isHomeLeaveCancellation} from '../utils/homeAssetCancellation';
 import { processHomeMemoryAfterSave } from '../utils/homeMemoryPostHook';
 import { retireCloudCharacter } from '../utils/amsgCloudRetirement';
 import { resolveDialogueApi } from '../utils/characterApi';
@@ -1684,6 +1684,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               // 上游：home 资产的主动取消（删家具等）不算网络失败，直接往外抛，别进入下面的补枪/兜底。
               const requestSignal = (sendArgs[1] as RequestInit | undefined)?.signal || (sendArgs[0] instanceof Request ? sendArgs[0].signal : undefined);
               if (isHomeAssetDisposal(err, requestSignal, urlStr)) throw err;
+              // 离开 3D 家园时主动取消家园交流/情绪评估（共用同一 signal，reason「已离开家园，停止自动开口」）
+              // 同属用户行为而非网络失败：不记 API 失败、不写系统日志，只收尾用户自己开启的一次性抓包，
+              // 提示改为 HomeLifePanel 离开家园时的普通 toast。
+              if (isHomeLeaveCancellation(err, requestSignal)) {
+                  updateApiRequestCaptureUsage({ captureId: apiRequestCaptureId, ok: false });
+                  throw err;
+              }
               // 通用冷启动/回前台补枪：APK 大退重开或切回前台的头几秒，WebView 网络栈尚未就绪，
               // 任何裸 fetch 第一枪都可能招 TypeError（Failed to fetch）——音乐/新闻/天气这些旁路
               // 没有 safeFetchJson 的重试，一炸就直接报错给用户。fetch 本身抛 TypeError 意味着请求

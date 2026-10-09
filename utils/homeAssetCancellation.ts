@@ -4,3 +4,9 @@ export const homeDisposalReason=()=>new DOMException(HOME_DISPOSED,'AbortError')
 export function isHomeAssetDisposal(error:unknown,signal:AbortSignal|null|undefined,url:string){
  return !!signal?.aborted&&(error as any)?.name==='AbortError'&&signal.reason?.name==='AbortError'&&signal.reason?.message===HOME_DISPOSED&&/\/room3d\//.test(url);
 }
+const HOME_LEAVE='已离开家园，停止自动开口';
+export const homeLeaveReason=()=>new DOMException(HOME_LEAVE,'AbortError');
+/** Leaving the 3D home proactively cancels in-flight auto-speech (home chat + emotion eval share one signal): a user action, not a network failure. */
+export function isHomeLeaveCancellation(error:unknown,signal:AbortSignal|null|undefined){
+ return !!signal?.aborted&&(error as any)?.name==='AbortError'&&signal.reason?.name==='AbortError'&&signal.reason?.message===HOME_LEAVE;
+}

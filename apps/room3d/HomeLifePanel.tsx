@@ -1,11 +1,13 @@
 import {trackHomeFeature} from '../../utils/homeAnalytics';
 import {loadMusicPlaybackSnapshot} from '../../context/MusicContext';
+import {useOS} from '../../context/OSContext';
 import type {HomeConversationContext} from '../../utils/homeConversation';
 import {makeDebugLogger} from '../../utils/devDebug';
 const actionLog=makeDebugLogger('api','Home action');
 import {awaitHomeStage} from '../../utils/homeReplyStage';
 import {getLastInnerState} from '../../utils/emotionState';
 import {homeEmotionEnabled} from '../../utils/homeEmotion';
+import {homeLeaveReason} from '../../utils/homeAssetCancellation';
 import type {HomeInitiativeRequest} from './HomePresenceBubbles';
 
 import {Button,Switch} from './islandComponents';
@@ -23,6 +25,7 @@ import {waitForHomeSecretOrigin} from '../../utils/homeSecrets';
 import type {SecretNoteOrigin} from '../../utils/secretNote';
 
 export default function HomeLifePanel({editor,character,user,api,conversationContext,panel,onPanel,onDefinition,onFigures,initiative,active=true,onBusyChange,presentation='home'}:{presentation?:'home'|'homely';onBusyChange?:(busy:boolean)=>void;active?:boolean;initiative?:HomeInitiativeRequest;editor:HomeEditor;character?:CharacterProfile;user?:UserProfile;api?:APIConfig;conversationContext?:HomeConversationContext;panel:string|null;onPanel:(name:string|null)=>void;onDefinition?:()=>void;onFigures?:()=>void}){
+ const {addToast}=useOS();
  const [inner,setInner]=useState<{charId?:string;text:string}>({charId:character?.id,text:character?getLastInnerState(character.id):''});
  useEffect(()=>{
   const id=character?.id;
@@ -41,7 +44,13 @@ export default function HomeLifePanel({editor,character,user,api,conversationCon
  const [replyStage,setReplyStage]=useState('准备上下文');
  const [retry,setRetry]=useState<{userId:string;replyId?:string}>();
  useEffect(()=>{alive.current=true;return()=>{alive.current=false;controller.current?.abort(new DOMException('已离开家园或家园界面重新加载','AbortError'));conversationEnd.current?.();};},[]);
- useEffect(()=>{const stop=()=>{if((!active||document.hidden)&&automaticRequest.current)controller.current?.abort(new DOMException('已离开家园，停止自动开口','AbortError'));};stop();document.addEventListener('visibilitychange',stop);return()=>document.removeEventListener('visibilitychange',stop);},[active]);
+ useEffect(()=>{const stop=()=>{
+  if(!automaticRequest.current)return;const pending=controller.current;if(!pending)return;
+  // 家园交流与情绪评估共用同一 signal，abort 只在这里发生一次，toast 不会重复；没有在途请求就不打扰。
+  // 切后台（document.hidden）静默取消——用户看不见，toast 只会堆积；只有真正离开家园（active 变 false）才提示。
+  if(!active){pending.abort(homeLeaveReason());addToast('已离开家园，停止自动开口');}
+  else if(document.hidden)pending.abort(homeLeaveReason());
+ };stop();document.addEventListener('visibilitychange',stop);return()=>document.removeEventListener('visibilitychange',stop);},[active]);
  useEffect(()=>{if(!panel)return;refresh(n=>n+1);const timer=setInterval(()=>refresh(n=>n+1),1500);return()=>clearInterval(timer);},[panel]);
  useEffect(()=>{if(panel&&panel!=='interact'&&!(presentation==='homely'&&panel==='chat'))sheet.current?.querySelector<HTMLButtonElement>('button')?.focus();},[panel,presentation]);
  const home=editor.getState?.(),records=homeRecords(home),scene=editor.getHomeScene();
