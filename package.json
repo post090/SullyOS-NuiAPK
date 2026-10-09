@@ -17,6 +17,7 @@
     "build:chat-preview": "node scripts/build-chat-preview-css.mjs"
   },
   "dependencies": {
+    "@capacitor-community/media": "^7.0.1",
     "@capacitor-community/speech-recognition": "^6.0.1",
     "@capacitor/android": "^6.0.0",
     "@capacitor/app": "^6.0.0",

@@ -2,11 +2,11 @@ import {trackHomeFeature} from '../../utils/homeAnalytics';
 import {AMSG_INSTANT_CHAT_PENDING_EVENT,AMSG_INSTANT_CHAT_PENDING_LS_KEY,getInstantChatPending} from '../../utils/amsgInstantChat';
 import HomePhotoMode from './HomePhotoMode';
 import {CHAT_GEN_EVENTS,registerEmbeddedChatView} from '../../utils/chatGenEvents';
-import {shareOrDownloadBlob} from '../../utils/shareExport';
+import {savePhotoToGallery,shareOrDownloadBlob} from '../../utils/shareExport';
 import {useOS} from '../../context/OSContext';
 import type {HomePhoneChatProps} from '../Chat';
 import React,{lazy,Suspense,useEffect,useRef,useState} from 'react';
-import {Camera,ChatCircleDots,ArrowLeft,X,DownloadSimple} from '@phosphor-icons/react';
+import {Camera,ChatCircleDots,ArrowLeft,X,DownloadSimple,ShareNetwork} from '@phosphor-icons/react';
 import type {HomeEditor} from './editor';
 import './homePhone.css';
 const Chat=lazy(()=>import('../Chat'));
@@ -15,6 +15,7 @@ function PhoneMessages({homePhone}:{homePhone:HomePhoneChatProps}){const {charac
 function PhoneArt(){return <svg viewBox="0 0 64 80" aria-hidden="true"><g transform="rotate(-9 32 40)"><rect x="12" y="4" width="42" height="70" rx="13" fill="var(--home-phone-case,#b7dfc5)" stroke="var(--home-phone-ink,#718d72)" strokeWidth="2.2"/><rect x="17" y="15" width="32" height="44" rx="6" fill="#fffbea"/><path d="M28 10h10" stroke="var(--home-phone-ink,#718d72)" strokeWidth="2.5" strokeLinecap="round"/><circle cx="33" cy="66" r="3" fill="#fffbea"/><path d="M24 33q9-10 18 0v11H24z" fill="#ebc57b"/><path d="M21 33l12-10 12 10" fill="none" stroke="#a37d48" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><circle cx="29" cy="36" r="1.2" fill="#80663e"/><circle cx="37" cy="36" r="1.2" fill="#80663e"/><path d="M30 40q3 3 6 0" fill="none" stroke="#80663e" strokeWidth="1.5" strokeLinecap="round"/></g><path d="M54 5v8m-4-4h8" stroke="#d8ae62" strokeWidth="2" strokeLinecap="round"/></svg>}
 
 export default function HomePhone({editor,characterId,onOpenChange,onBusyChange,onPhotoChange}:{onPhotoChange?:(active:boolean)=>void;onBusyChange?:(busy:boolean)=>void;editor:HomeEditor;characterId:string;onOpenChange:(open:boolean)=>void}){
+ const {addToast}=useOS();
  const [page,setPage]=useState<'closed'|'home'|'chat'|'photo'|'camera'>('closed'),[photo,setPhoto]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const [unread,setUnread]=useState(false),[visible,setVisible]=useState(!document.hidden);
  useEffect(()=>()=>onPhotoChange?.(false),[onPhotoChange]);
@@ -53,7 +54,7 @@ export default function HomePhone({editor,characterId,onOpenChange,onBusyChange,
    <div className="home-phone-screen">
     {page==='home'&&<div className="home-phone-home"><div className="home-phone-greeting"><PhoneArt/><small>HOME, SWEET HOME</small><h2>今天，也想靠近你</h2><p>就在身边，也有想发给你的话。</p></div><div className="home-phone-apps"><button onClick={()=>change('chat')}><span><ChatCircleDots size={35} weight="duotone"/></span>信息</button><button disabled={busy} onClick={()=>change('camera')}><span><Camera size={35} weight="duotone"/></span>{busy?'拍摄中…':'拍照'}</button></div>{error&&<p role="alert">{error}</p>}<span className="home-phone-flower" aria-hidden="true">✿</span></div>}
     {page==='chat'&&<Suspense fallback={<p className="home-phone-loading" role="status">正在打开信息…</p>}><PhoneMessages homePhone={{characterId,onBack:()=>change('home'),getContext:()=>{const scene=editor.getHomeScene();return scene.present?`【家园手机聊天】此刻你们都在家园里，当前房间是${JSON.stringify(scene.roomName)}。你们正在用手机发信息；沿用正常私聊的交流方式。`:`【家园手机聊天】对方正在家园的${JSON.stringify(scene.roomName)}用手机给你发信息；你当前不在这个房间，不要假定彼此面对面。`;}}}/></Suspense>}
-    {page==='photo'&&<div className="home-phone-photo"><h2>把这一刻收好</h2><img src={photo} alt="刚拍下的家园"/><div><button disabled={busy} onClick={shoot}><Camera size={19}/>重拍</button><button onClick={()=>{if(photoBlob.current)void shareOrDownloadBlob({blob:photoBlob.current,fileName:"家园合影.png",shareTitle:"家园合影",preferDownloadOnWeb:true}).catch(()=>setError("照片保存失败，请重试"));}}><DownloadSimple size={19}/>保存照片</button></div>{error&&<p role="alert">{error}</p>}</div>}
+    {page==='photo'&&<div className="home-phone-photo"><h2>把这一刻收好</h2><img src={photo} alt="刚拍下的家园"/><div><button disabled={busy} onClick={shoot}><Camera size={19}/>重拍</button><button onClick={()=>{const blob=photoBlob.current;if(!blob)return;void (async()=>{try{const result=await savePhotoToGallery({blob,fileName:"家园合影.png"});if(result==='gallery')addToast('已保存到系统相册','success');else if(result==='documents')addToast('已保存到 文档/SullyOS，可在文件管理器查看','success');}catch{setError("照片保存失败，请重试");}})();}}><DownloadSimple size={19}/>保存照片</button><button onClick={()=>{const blob=photoBlob.current;if(!blob)return;void shareOrDownloadBlob({blob,fileName:"家园合影.png",shareTitle:"家园合影"}).catch(()=>setError("分享失败，请重试"));}}><ShareNetwork size={19}/>分享</button></div>{error&&<p role="alert">{error}</p>}</div>}
    </div><span className="home-phone-homebar"/>
   </section>}
  </>;

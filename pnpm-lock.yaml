@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@capacitor-community/media':
+        specifier: ^7.0.1
+        version: 7.0.1(@capacitor/core@6.2.1)
       '@capacitor-community/speech-recognition':
         specifier: ^6.0.1
         version: 6.0.1(@capacitor/core@6.2.1)
@@ -296,6 +299,11 @@ packages:
   '@bramus/specificity@2.4.2':
     resolution: {integrity: sha512-ctxtJ/eA+t+6q2++vj5j7FYX3nRu311q1wfYH3xjlLOsczhlhxAg2FWNUXhpGvAw3BWo1xBcvOV6/YLc2r5FJw==}
     hasBin: true
+
+  '@capacitor-community/media@7.0.1':
+    resolution: {integrity: sha512-SO9cAOakGVKLPS9HGaDU2JoDwskZrBEo7mFCy1L+pjI7qXQhvMseTb24i2BzIiKbJNfYnAcotcDwXLZNmi2pkw==}
+    peerDependencies:
+      '@capacitor/core': ^6.0.0
 
   '@capacitor-community/speech-recognition@6.0.1':
     resolution: {integrity: sha512-/SBP+AbW9k9AWv8UEhPoIy10DvRIJV490oPswSwmY7bQdl43XYSZAG3iIABU6CfPRm0PZoIyeSco34J8vaqf2w==}
@@ -2723,6 +2731,10 @@ snapshots:
   '@bramus/specificity@2.4.2':
     dependencies:
       css-tree: 3.2.1
+
+  '@capacitor-community/media@7.0.1(@capacitor/core@6.2.1)':
+    dependencies:
+      '@capacitor/core': 6.2.1
 
   '@capacitor-community/speech-recognition@6.0.1(@capacitor/core@6.2.1)':
     dependencies:

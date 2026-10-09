@@ -1,16 +1,18 @@
 import PhotoLookLibrary from './PhotoFilterPresets';
 import {PhotoActions} from './PhotoActions';
 import React,{useEffect,useRef,useState} from 'react';
-import {Camera,X,DownloadSimple,ArrowCounterClockwise} from '@phosphor-icons/react';
+import {Camera,X,DownloadSimple,ArrowCounterClockwise,ShareNetwork} from '@phosphor-icons/react';
 import type {HomeEditor} from './editor';
 import {photoLooks,type PhotoLook} from './photoEffects';
-import {shareOrDownloadBlob} from '../../utils/shareExport';
+import {savePhotoToGallery,shareOrDownloadBlob} from '../../utils/shareExport';
+import {useOS} from '../../context/OSContext';
 import './homePhoto.css';
 
 type PhotoFace=Parameters<HomeEditor['setPhotoFace']>[1];
 const expressions={original:'原表情',neutral:'自然',smile:'微笑',happy:'开心',closed:'闭眼笑',surprised:'惊讶'} as const;
 const names={natural:'原片',neon:'霓虹失眠',dream:'粉蓝梦游',afterglow:'末班余光',watercolor:'夏日手绘',daylight:'晴空物语'};
 export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClose:()=>void}){
+ const {addToast}=useOS();
  const canvas=useRef<HTMLCanvasElement>(null),[actors,setActors]=useState<Array<{id:string;label:string}>>([]),[actor,setActor]=useState('');
  const [tab,setTab]=useState('氛围'),[look,setLook]=useState<PhotoLook>({...photoLooks.daylight}),[camera,setCamera]=useState({yaw:0,pitch:4,zoom:1,height:1.2,pan:0});
  const [gap,setGap]=useState(.85),[poses,setPoses]=useState<Record<string,{motion:string;time:number;turn:number}>>({}),[revision,refresh]=useState(0),[shot,setShot]=useState(''),[error,setError]=useState(''),[saving,setSaving]=useState(false),[hidden,setHidden]=useState(false);
@@ -34,7 +36,7 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  return <section className="home-photo-mode" aria-label="合影模式">
   <canvas ref={canvas} className="photo-view" aria-label="照片取景画面" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);pointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY});}} onPointerMove={moveCamera} onPointerUp={e=>pointers.current.delete(e.pointerId)} onPointerCancel={e=>pointers.current.delete(e.pointerId)} onWheel={e=>{cameraChange('zoom',Math.max(.4,Math.min(3,cameraRef.current.zoom*Math.exp(-e.deltaY*.001))));}}/>
   <header><div><small>HOME / PHOTO</small><strong>把此刻留下</strong></div><button aria-label="退出拍照" onClick={onClose}><X size={22}/></button></header>
-  {shot?<div className="photo-result"><img src={shot} alt="拍好的合影"/><div><button onClick={()=>setShot('')}><ArrowCounterClockwise/>继续拍</button><button disabled={saving} onClick={async()=>{setSaving(true);try{const blob=await (await fetch(shot)).blob();await shareOrDownloadBlob({blob,fileName:'家园合影.png',shareTitle:'家园合影',preferDownloadOnWeb:true});}catch{setError('保存失败，请重试');}finally{if(alive.current)setSaving(false);}}}><DownloadSimple/>保存照片</button></div></div>:<>
+  {shot?<div className="photo-result"><img src={shot} alt="拍好的合影"/><div><button onClick={()=>setShot('')}><ArrowCounterClockwise/>继续拍</button><button disabled={saving} onClick={async()=>{setSaving(true);try{const blob=await (await fetch(shot)).blob();const result=await savePhotoToGallery({blob,fileName:'家园合影.png'});if(result==='gallery')addToast('已保存到系统相册','success');else if(result==='documents')addToast('已保存到 文档/SullyOS，可在文件管理器查看','success');}catch{setError('保存失败，请重试');}finally{if(alive.current)setSaving(false);}}}><DownloadSimple/>保存照片</button><button disabled={saving} onClick={()=>{void (async()=>{try{const blob=await (await fetch(shot)).blob();await shareOrDownloadBlob({blob,fileName:'家园合影.png',shareTitle:'家园合影'});}catch{setError('分享失败，请重试');}})();}}><ShareNetwork/>分享</button></div></div>:<>
    <div className="photo-dock" data-preview={tab==='动作'&&compactActions}><div className="photo-dock-tools"><button onClick={()=>setDragMode(dragMode==='orbit'?'pan':'orbit')}>{dragMode==='orbit'?'拖动：旋转':'拖动：平移'}</button><button aria-pressed={original} onClick={()=>setOriginal(!original)}>{original?'恢复滤镜':'暂看原片'}</button><button className="photo-clean" aria-expanded={!hidden} onClick={()=>setHidden(!hidden)}>{hidden?'显示调节 ↑':'纯净取景 · 收起 ↓'}</button></div>
    <div className="photo-controls" hidden={hidden}><nav hidden={tab==='动作'&&compactActions}>{['镜头','人物','动作','氛围'].map(t=><button key={t} aria-pressed={tab===t} onClick={()=>{setTab(t);setCompactActions(false);}}>{t}</button>)}</nav>
     <div className="photo-settings">

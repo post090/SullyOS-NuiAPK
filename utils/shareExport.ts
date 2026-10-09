@@ -45,6 +45,18 @@ const blobToBase64 = (blob: Blob): Promise<string> => new Promise((resolve, reje
     reader.readAsDataURL(blob);
 });
 
+/** Blob → 完整 dataURL（含 data:image/…;base64, 前缀）。@capacitor-community/media 的 savePhoto 要这种格式。 */
+const blobToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+        const dataUrl = String(reader.result || '');
+        if (!/^data:/i.test(dataUrl)) reject(new Error('文件编码失败'));
+        else resolve(dataUrl);
+    };
+    reader.onerror = () => reject(reader.error || new Error('文件读取失败'));
+    reader.readAsDataURL(blob);
+});
+
 const base64ToBlob = (value: string, mimeType: string): Blob => {
     const base64 = value.includes(',') ? value.slice(value.indexOf(',') + 1) : value;
     const binary = atob(base64);
@@ -230,5 +242,71 @@ export async function shareOrDownloadFile(options: ShareOrDownloadOptions): Prom
     anchor.click();
     anchor.remove();
     URL.revokeObjectURL(url);
+    return 'downloaded';
+}
+
+export interface SavePhotoOptions {
+    blob: Blob;
+    /** 带扩展名的文件名，如 `家园合影.png`；实际落盘会自动追加时间戳避免覆盖。 */
+    fileName: string;
+}
+
+export type SavePhotoResult = 'gallery' | 'documents' | 'downloaded';
+
+/**
+ * 把照片保存到本地——和「分享」语义分开的保存出口。
+ *
+ * 原生端通过 @capacitor-community/media 写进系统相册的 SullyOS 相册（Android 存放于
+ * external media dir/SullyOS/，插件默认模式不需要存储权限，保存后立刻出现在系统相册）。
+ * 外部壳工程没装该插件时插件调用会 reject（not implemented），降级写公共文档目录
+ * （文档/SullyOS/），文件管理器可见——WebView 里裸 `a.download` 基本没反应，
+ * 不能假装保存成功。网页端走浏览器下载。
+ *
+ * 之前家园合影的「保存照片」按钮复用了 shareOrDownloadBlob，在原生端被统一出口改写成
+ * 系统分享面板——按钮写着保存、实际弹分享，这就是本函数存在的理由。
+ */
+export async function savePhotoToGallery(options: SavePhotoOptions): Promise<SavePhotoResult> {
+    const { blob, fileName } = options;
+    if (!(blob instanceof Blob) || blob.size === 0) throw new Error('文件为空，无法保存');
+    const stamp = new Date().toISOString().slice(0, 19).replace(/\D/g, '');
+    const dot = fileName.lastIndexOf('.');
+    const stem = dot > 0 ? `${fileName.slice(0, dot)}_${stamp}` : `${fileName}_${stamp}`;
+    const stamped = dot > 0 ? `${stem}${fileName.slice(dot)}` : stem;
+
+    if (Capacitor.isNativePlatform()) {
+        try {
+            const { Media } = await import('@capacitor-community/media');
+            // Android 的 savePhoto 要求 albumIdentifier 是已存在的相册目录（绝对路径），fileName
+            // 不含扩展名（插件从源文件自动补）。相册统一放 external media dir 的 SullyOS/ 下；
+            // createAlbum 遇到已存在会 reject "Album already exists"，吞掉即可。
+            // 默认（非 androidGalleryMode）下这些操作不需要任何存储权限。
+            const { path: albumsPath } = await Media.getAlbumsPath();
+            const albumDir = `${String(albumsPath).replace(/\/+$/, '')}/SullyOS`;
+            await Media.createAlbum({ name: 'SullyOS' }).catch((error: any) => {
+                if (!/already exists/i.test(String(error?.message || error))) throw error;
+            });
+            await Media.savePhoto({ path: await blobToDataUrl(blob), albumIdentifier: albumDir, fileName: stem });
+            return 'gallery';
+        } catch (error) {
+            // 相册插件没装 / 保存被系统拒绝 → 落 Documents 降级，别让用户的照片丢掉。
+            console.warn('savePhotoToGallery: MediaStore 失败，降级写 Documents', error);
+        }
+        await Filesystem.writeFile({
+            path: `SullyOS/${stamped}`,
+            data: await blobToBase64(blob),
+            directory: Directory.Documents,
+            recursive: true,
+        });
+        return 'documents';
+    }
+
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = stamped;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     return 'downloaded';
 }
