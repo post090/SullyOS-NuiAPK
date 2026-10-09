@@ -768,13 +768,12 @@ var init_appVersion = __esm({
 });
 
 // utils/buildInfo.ts
-var BUILD_LABEL, BUILD_TIME_LABEL;
+var BUILD_LABEL;
 var init_buildInfo = __esm({
   "utils/buildInfo.ts"() {
     "use strict";
     init_appVersion();
-    BUILD_LABEL = `${__BUILD_BRANCH__}@${__BUILD_COMMIT__}`;
-    BUILD_TIME_LABEL = __BUILD_TIME__;
+    BUILD_LABEL = `${"main"}@${"92914a11"}`;
   }
 });
 
