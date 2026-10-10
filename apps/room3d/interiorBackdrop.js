@@ -1,15 +1,18 @@
 import * as THREE from 'three';
 import {ROOM_HALF} from './dimensions.js';
+import {applyToonEnvironment} from './furnitureStyle.js';
 
 // Scenery only: kept outside content, so it cannot become a walking surface,
 // furniture target, collision boundary, or part of the whole-house camera fit.
 export function createInteriorBackdrop(){
  const root=new THREE.Group();root.name='interior-backdrop';
  function clear(){root.traverse(o=>{if(o.isMesh){o.geometry.dispose();if(!o.userData.borrowedMaterial)o.material.dispose();}});root.clear();}
- function update(room,walls,floor){
+ function update(room,walls,floor,cel=null){
   clear();
   function plane(w,h,x,y,z,rx,ry,color){
-   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshStandardMaterial({color,roughness:1,side:THREE.DoubleSide}));
+   const material=new THREE.MeshStandardMaterial({color,roughness:1,side:THREE.DoubleSide});
+   if(cel)applyToonEnvironment(material,cel.lightUniforms);
+   const mesh=new THREE.Mesh(new THREE.PlaneGeometry(w,h),material);
    mesh.position.set(x,y,z);mesh.rotation.set(rx,ry,0);mesh.receiveShadow=true;mesh.raycast=()=>{};root.add(mesh);return mesh;
   }
   if(floor)root.add(floor);else plane(80,80,0,.149,0,-Math.PI/2,0,room.floor||'#dfc7ad');

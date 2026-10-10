@@ -8,14 +8,14 @@ export function createFurnitureHalo(renderer,scene,camera){
  const size=new T.Vector2(),cache=new Map(),bounds=new T.Box3(),point=new T.Vector3(),scissor=new T.Vector4();
  let coverage=1;
  const material=new T.ShaderMaterial({transparent:true,depthTest:false,depthWrite:false,
-  uniforms:{mask:{value:target.texture},pixel:{value:new T.Vector2()},ink:{value:new T.Color('#756478')}},
+  uniforms:{mask:{value:target.texture},pixel:{value:new T.Vector2()},ink:{value:new T.Color('#756478')},width:{value:.65}},
   vertexShader:'varying vec2 vUv; void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
-  fragmentShader:`uniform sampler2D mask;uniform vec2 pixel;uniform vec3 ink;varying vec2 vUv;
+  fragmentShader:`uniform sampler2D mask;uniform vec2 pixel;uniform vec3 ink;uniform float width;varying vec2 vUv;
    void main(){
     float center=texture2D(mask,vUv).r,edge=0.;
     for(int i=0;i<8;i++){
      float a=float(i)*6.2831853/8.;vec2 d=vec2(cos(a),sin(a))*pixel;
-     edge=max(edge,texture2D(mask,vUv+d*.65).r);
+     edge=max(edge,texture2D(mask,vUv+d*width).r);
     }
     float line=clamp(edge-center,0.,1.)*.48;
     gl_FragColor=vec4(ink,line);
@@ -48,6 +48,7 @@ export function createFurnitureHalo(renderer,scene,camera){
   return source.map(m=>maskMaterial(m,selected));
  }
  return {
+  setWidth(px){material.uniforms.width.value=Math.max(.2,Math.min(2.5,Number(px)||.65));},
   render(objects){
    renderer.render(scene,camera);
    if(!objects.length){coverage=0;return;}

@@ -35,3 +35,17 @@ export function applyRetroFurniture(material,lightUniforms) {
  };
  material.customProgramCacheKey = () => 'retro-furniture-time-v5-'+!!lightUniforms;
 }
+
+// Full-scene toon mode: reuse the cel shading above on walls/floors, and keep
+// chaining on top of an existing onBeforeCompile (finish patterns inject into
+// diffuseColor; cel shading replaces the outgoing light, so both coexist).
+export function applyToonEnvironment(material,lightUniforms) {
+  if (!material.isMeshStandardMaterial) return;
+  const previousCompile = material.onBeforeCompile;
+  const previousKey = material.customProgramCacheKey;
+  applyRetroFurniture(material, lightUniforms);
+  const celCompile = material.onBeforeCompile;
+  const celKey = material.customProgramCacheKey;
+  material.onBeforeCompile = shader => { if (previousCompile) previousCompile(shader); celCompile(shader); };
+  material.customProgramCacheKey = () => (previousKey ? previousKey() : '') + '/' + celKey();
+}
