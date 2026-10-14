@@ -9,7 +9,7 @@ export default function HomeQualityTip({editor,active}:{editor:HomeEditor;active
  const dismiss=()=>{try{localStorage.setItem(TIP_KEY,'seen');}catch{}setSeen(true);};
  return <dialog ref={dialog} className="home-quality-tip" aria-labelledby="home-quality-tip-title" onCancel={dismiss}>
   <h2 id="home-quality-tip-title">画质可以随时调整</h2>
-  <p>清晰画质优先看清小人的五官。想减少发热或耗电，可以试试均衡或省电。</p>
+  <p>清晰画质优先看清小人的五官，精致画质两倍超采样呈现全部细节。想减少发热或耗电，可以试试均衡或省电。</p>
   <p>点房间顶部的「画质」就能调整，选择会记在这台设备上。</p>
   <div><button type="button" onClick={dismiss}>知道了</button><button type="button" onClick={()=>{dismiss();editor.openPanel('quality');}}>调整画质</button></div>
  </dialog>;

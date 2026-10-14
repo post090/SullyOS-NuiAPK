@@ -39,6 +39,7 @@ export interface HomeEditor {
  setPhotoTogether(gap:number):void;setPhotoPose(id:string,motion:string,time:number):Promise<void>;setPhotoTurn(id:string,degrees:number):void;
  setPhotoFace(id:string,values:{expression?:'original'|'neutral'|'smile'|'happy'|'closed'|'surprised';lookCamera?:boolean}):void;
  setPhotoDof(values:{enabled?:boolean;aperture?:number;range?:number;strength?:number;bokeh?:number}):void;
+ setPhotoLampColor(color:string):void;
  setPhotoFocusAt(nx:number,ny:number):boolean;
  setPhotoFocusPart(id:string|null,part:'head'|'body'|null):void;
  renderPhoto(canvas:HTMLCanvasElement,look:import('./photoEffects').PhotoLook):void;
