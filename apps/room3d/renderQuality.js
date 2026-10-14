@@ -19,5 +19,8 @@ export function roomLightBudget(quality,coarse=false,overview=false){
  return {windows:overview?0:high&&!coarse?2:1,
   keyShadow:!overview&&quality!=='eco'&&(high||!coarse),
   shadowSize:high?2048:1024,
-  outline:!overview&&(high||!coarse&&quality!=='eco')};
+  outline:!overview&&(high||!coarse&&quality!=='eco'),
+  // 场景 AO：接触阴影后处理（半分辨率深度 + 人物蒙版 + 全屏合成），
+  // 只在清晰与精致档开；省电、均衡档跳过。
+  ao:!overview&&high};
 }
