@@ -134,42 +134,8 @@ export function buildBody(source: T.Group, sourceParts: Parts, appearance: 'skin
             }else ctx.drawImage(drawable!,0,0,472,472);
             ctx.restore();
         });
-        if(eyes==='sleep'||eyes==='squeeze'){
-            // 眼区重铺：装饰/面纹层不随表情变化，画进眼区的白色内容（眼白、
-            // 眼妆）会在闭眼贴图下透出。优先用眼罩 alpha 当模板——它是眼睛
-            // 部件的真实绘制范围（含眼距/大小微调、分层脸变换），软边稍扩
-            // 盖住眼妆、不碰眉毛；固定椭圆要么盖不全大眼素材的眼白、要么
-            // 误伤眉毛，只作眼罩缺失时的兜底。
-            ctx.save();
-            ctx.translate(facePlacement.eyes.x,-facePlacement.eyes.y);
-            ctx.transform(.97,0,0,.96,237*.03,268*.04-8);
-            const hasMask=eyeMaskValid||refreshEyeMask();
-            if(hasMask){
-                const patch=document.createElement('canvas');patch.width=patch.height=472;
-                const pctx=patch.getContext('2d')!;
-                pctx.drawImage(eyeMaskCanvas,0,0);
-                pctx.globalCompositeOperation='source-in';
-                pctx.fillStyle=fill??skin;
-                pctx.fillRect(0,0,472,472);
-                try{ctx.filter='blur(4px)';}catch{ /* 老引擎无 filter 时硬边也可接受 */ }
-                ctx.drawImage(patch,0,0);
-                ctx.filter='none';
-            }else{
-                ctx.beginPath();
-                ctx.ellipse(237,272,105,34,0,0,Math.PI*2);
-                try{ctx.filter='blur(5px)';}catch{ /* 老引擎无 filter 时硬边也可接受 */ }
-                ctx.fillStyle=fill??skin;
-                ctx.fill();
-                ctx.filter='none';
-            }
-            ctx.restore();
-            ctx.save();
-            ctx.translate(facePlacement.eyes.x,-facePlacement.eyes.y);
-            ctx.transform(.97,0,0,.96,237*.03,268*.04-8);
-            if(splitFace&&!faceSettings?.useBaseEyes)ctx.drawImage(splitFace.eyes,0,0,472,472);
-            else closedEyeStrokes(eyes==='squeeze'?'squeeze':'sleep');
-            ctx.restore();
-        }
+        // 注：闭眼/挤眼贴图不在眼区叠肤色补丁——历史上的「眼白」是着色器微光
+        // 闭眼时没关（见 illustration.ts eyeGlowOn），贴图层本身没有白色要盖。
         const texture=target??keep(new T.CanvasTexture(canvas));texture.colorSpace=T.SRGBColorSpace;texture.needsUpdate=true;
         if(facial){texture.anisotropy=4;texture.magFilter=T.LinearFilter;texture.minFilter=T.LinearMipmapLinearFilter;}
         return texture;
@@ -186,13 +152,13 @@ export function buildBody(source: T.Group, sourceParts: Parts, appearance: 'skin
     const faceKeys=appearance==='outfit'&&!blank?['facemark','eyes','mouth','outfit','faceDecor']:['facemark','eyes','mouth','faceDecor'];
     const front=keep(new T.MeshStandardMaterial({map:makeTexture(faceKeys,skin),roughness:1}));
     front.userData.illustrationFace=true;
-    // 眼底微光只在睁眼时挂载：闭眼/挤眼/眨眼帧摘掉遮罩。
+    // 眼底微光的开关在 illustration.ts 的 eyeGlowOn uniform（编译后摘不掉分支，只能调值）。
     if(refreshEyeMask()){front.userData.eyeMask=eyeMaskTexture;eyeMaskValid=true;}
     const applyEyeGlow=(eyes:'open'|'closed'|'happy')=>{
-        const want=eyes==='open'&&eyeMaskValid;
-        if(!!front.userData.eyeMask===want)return;
-        if(want)front.userData.eyeMask=eyeMaskTexture;else delete front.userData.eyeMask;
-        front.needsUpdate=true;
+        // 着色器在装饰时捕获 eyeMask 进闭包，删 userData 摘不掉已编译的发光分支；
+        // 开关只写 uniform 值（见 illustration.ts），不触发重编译。
+        const glow=front.userData.eyeGlowUniform as {value:number}|undefined;
+        if(glow)glow.value=eyes==='open'&&eyeMaskValid?1:0;
     };
     // 前发 SDF：卡通画风的脸部阴影贴图，随部件形状逐角色生成；无前发则留空回落屏幕落影。
     const faceSdf=makeFaceSdf(parts.fronthair as HTMLImageElement|HTMLCanvasElement|undefined,blank?16:0);
@@ -501,6 +467,7 @@ export function buildBody(source: T.Group, sourceParts: Parts, appearance: 'skin
             blankAnimate(time,motion,posture,activity);
             const sleeping=motion==='sleep'&&(activity?.kind!=='bed-change'||(activity.bedRecline??0)>.85);
             if(sleeping)front.map=asleepMap;else if(faceSettings?.enabled)updateFace(time);else front.map=motion==='wave-cute'?cuteMap:awakeMap;
+            applyEyeGlow(front.map===asleepMap?'closed':front.map===cuteMap?'happy':'open');
             return;
         }
         const cute=motion==='wave-cute',calm=motion==='wave-calm'||motion==='wave';
@@ -527,6 +494,7 @@ export function buildBody(source: T.Group, sourceParts: Parts, appearance: 'skin
         if(motion==='bath-shower'){hairPivot.rotation.x=.08;body.rotation.y=Math.sin(time*2)*.06;}
         if(mirror){body.rotation.y=mirror.yaw;hairPivot.rotation.z=mirror.tilt;hairPivot.rotation.x=mirror.nod;}
         if(sleeping)front.map=asleepMap;else if(faceSettings?.enabled)updateFace(time);else {const faceMap=sleeping?asleepMap:cute?cuteMap:awakeMap;if(front.map!==faceMap){front.map=faceMap;front.needsUpdate=true;}}
+        applyEyeGlow(front.map===asleepMap?'closed':front.map===cuteMap?'happy':'open');
         for(const {mesh,side} of hands){
             mesh.visible=!floatingLimbs;
             const waving=(cute||calm)&&side>0;
