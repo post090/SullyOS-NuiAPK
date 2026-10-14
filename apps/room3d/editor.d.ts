@@ -35,7 +35,7 @@ export interface HomeEditor {
  summonAll():void;setScheduleLabel(text:string):void;
  beginPhotoMode():Array<{id:string;label:string}>;endPhotoMode():void;
  setPhotoInteraction(id:string,a:string,b:string,time:number):Promise<void>;
- setPhotoCamera(values:{yaw?:number;pitch?:number;zoom?:number;height?:number;pan?:number}):void;
+ setPhotoCamera(values:{yaw?:number;pitch?:number;zoom?:number;height?:number;pan?:number;roll?:number}):void;
  setPhotoTogether(gap:number):void;setPhotoPose(id:string,motion:string,time:number):Promise<void>;setPhotoTurn(id:string,degrees:number):void;
  setPhotoFace(id:string,values:{expression?:'original'|'neutral'|'smile'|'happy'|'closed'|'surprised';lookCamera?:boolean}):void;
  setPhotoDof(values:{enabled?:boolean;aperture?:number;range?:number;strength?:number;bokeh?:number}):void;

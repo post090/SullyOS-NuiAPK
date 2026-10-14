@@ -207,12 +207,17 @@ export async function mountHomeEditor(host,{assetBase,initialState,onChange,onBa
   const shellsOn=furnitureStyle==='toon'&&furnitureOutlineEnabled&&lightBudget().outline;
   if(shellsOn!==shellVisibleState){shellVisibleState=shellsOn;scene.traverse(o=>{if(o.userData.outlineShell)o.visible=shellsOn;});}
   outlineShellWidth.value=outlineWidth*(camera.right-camera.left)/camera.zoom/Math.max(1,renderer.domElement.clientWidth);
-  if(shellsOn)for(const r of petSystem?.outlineRoots()||[])addOutlineShells(r);
+  // toon 模式下幂等补挂壳：时段过渡的 updateCharacterTints 会预占 syncResidentLight
+  // 的缓存 key，过渡期间新建的角色 root（换外观/捏脸/访客进场）就永远等不到
+  // addOutlineShells——发片拿不到 haloOutline 标记，头发描边凭空消失。改为每帧
+  // 幂等补挂（同宠物），已处理过的 root 只查一个标记位，开销可忽略。
+  if(shellsOn)for(const r of characterOutlineRoots().concat(petSystem?.outlineRoots()||[]))addOutlineShells(r);
 if(furnitureStyle==='retro'&&furnitureOutlineEnabled&&lightBudget().outline){furnitureHalo.render(outlinedObjects,false);}
   else if(shellsOn){let thin=[];for(const root of characterOutlineRoots().concat(petSystem?.outlineRoots()||[]))root.traverse(o=>{if(o.userData.haloOutline)thin.push(o);});
   // 家具里的双面薄片（盆栽叶子、薄纱等）挂不了背面外壳，也要走后处理描边，
-  // 否则整片叶子裸奔没轮廓线。
-  for(const o of outlinedObjects)if(o.userData.haloOutline)thin.push(o);
+  // 否则整片叶子裸奔没轮廓线。haloOutline 标记由 instance() 里的 addOutlineShells
+  // 打在叶子 mesh 上，outlinedObjects 装的是家具根节点，必须 traverse 才收得到。
+  for(const root of outlinedObjects)root.traverse(o=>{if(o.userData.haloOutline)thin.push(o);});
   if(thin.length)furnitureHalo.render(thin,true);else renderer.render(scene,camera);}
   else renderer.render(scene,camera);if(finishEnabled)roomFinish.render(lightPhase,finishBlend);
   if(photoSession&&photoDofEnabled){

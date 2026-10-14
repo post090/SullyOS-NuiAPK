@@ -15,7 +15,8 @@ export function createPhotoDof(renderer,scene,camera){
   uniforms:{image:{value:null},pixel:{value:new T.Vector2()},decode:{value:0}},
   vertexShader,
   fragmentShader:`varying vec2 vUv;uniform sampler2D image;uniform vec2 pixel;uniform float decode;
-   // sRGB→线性：ShaderMaterial 不注入 three 的 colorspace chunk，这里自带一份。
+   // sRGB→线性：three 的 sRGBTransferEOTF 签名是 vec4，手写 vec3 版更省事；
+   // 整条链只在第一级解码一次，之后保持线性域，避免逐级重复解码把画面压黑。
    vec3 srgbToLinear(vec3 c){return mix(c/12.92,pow((c+.055)/1.055,vec3(2.4)),step(.04045,c));}
    vec3 fetch(vec2 p){vec3 c=texture2D(image,p).rgb;return decode>.5?srgbToLinear(c):c;}
    void main(){vec3 c=fetch(vUv);for(int i=0;i<8;i++){float a=float(i)*6.2831853/8.;c+=fetch(vUv+vec2(cos(a),sin(a))*pixel*2.);}gl_FragColor=vec4(c/9.,1.);}`});
