@@ -6,6 +6,9 @@ import * as T from 'three';
 // 笔触：部件级宽度变体——头发线粗、脸线细、其余标准，对应手绘描边的粗细节奏。
 const shellWidth={value:.024};
 const shellInk={value:new T.Color('#3a3542')};
+// 新建壳的可见性跟随当前画风：编辑器只在 shellsOn 状态变化时全场景遍历一次，
+// 之后新建的壳（角色/家具重建）直接读这个标记，避免在原始画风里漏出描边。
+export const outlineShellsVisible={value:true};
 const materialCache=new Map();
 let hidden=null;
 
@@ -65,6 +68,7 @@ export function addOutlineShells(root){
   const shell=o.isSkinnedMesh?new T.SkinnedMesh(o.geometry,material):new T.Mesh(o.geometry,material);
   if(o.isSkinnedMesh){shell.skeleton=o.skeleton;shell.bindMatrix.copy(o.bindMatrix);shell.bindMatrixInverse.copy(o.bindMatrixInverse);}
   shell.userData.outlineShell=true;
+  shell.visible=outlineShellsVisible.value;
   shell.matrixAutoUpdate=false;
   o.add(shell);
  });

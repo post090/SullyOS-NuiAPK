@@ -30,6 +30,8 @@ export function createLampGlow(){
  return {root,
   // 调色：光晕与点光源同色。传入 sRGB 十六进制，three 的 Color 构造会转到工作色彩域。
   setColor(color){material.uniforms.glowColor.value.set(color);for(const light of lights)light.color.set(color);},
+  // 恢复出厂暖光：光晕常数与点光源初始色各归各位。
+  resetColor(){material.uniforms.glowColor.value.setRGB(1,.63,.28);for(const light of lights)light.color.set('#ffbe78');},
   sync(objects){
    sources=[];
    for(const object of objects)object.traverse(mesh=>{
