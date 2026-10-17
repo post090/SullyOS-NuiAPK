@@ -51,6 +51,73 @@ describe('private region matching', () => {
 });
 
 describe('device location privacy boundary', () => {
+    it.each(['key', 'quota', 'network', 'empty'] as const)('keeps the selected AMap API after a %s failure and exposes its reason', async reason => {
+        saveUserLocationConfig({ ...config, provider: 'amap', amapKey: 'test-amap-key' });
+        vi.mocked(getCurrentPositionSmart).mockResolvedValue(outside);
+        const failure = new AmapLocationError(reason);
+        vi.mocked(queryAmapLocation).mockRejectedValueOnce(failure);
+        const preview = await getUserLocationPreview('小雨');
+        expect(preview.failureHint).toBe(failure.message);
+        expect(preview.context).toContain('定位未知');
+        expect(queryAmapLocation).toHaveBeenCalledOnce();
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(JSON.parse(localStorage.getItem(USER_LOCATION_STORAGE_KEY)!)).toMatchObject({ provider: 'amap' });
+    });
+    it.each([401, 429, 503, 200])('keeps Geoapify selected when its API rejects or returns no address (HTTP %s)', async status => {
+        saveUserLocationConfig({ ...config, provider: 'geoapify', geoapifyKey: 'test-geo-key' });
+        vi.mocked(getCurrentPositionSmart).mockResolvedValue(outside);
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status }));
+        const preview = await getUserLocationPreview('小雨');
+        expect(preview.failureHint).toContain('Geoapify');
+        expect(preview.context).toContain('定位未知'); expect(preview.attribution).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledOnce(); expect(new URL(fetchMock.mock.calls[0][0]).hostname).toBe('api.geoapify.com');
+        expect(queryAmapLocation).not.toHaveBeenCalled();
+        expect(JSON.parse(localStorage.getItem(USER_LOCATION_STORAGE_KEY)!)).toMatchObject({ provider: 'geoapify' });
+    });
+    it('does not hide a current AMap API failure with a previously successful address', async () => {
+        saveUserLocationConfig({ ...config, provider: 'amap', amapKey: 'test-amap-key' });
+        vi.mocked(getCurrentPositionSmart).mockResolvedValue(outside);
+        vi.mocked(queryAmapLocation).mockResolvedValueOnce({ status: '1', regeocode: { formatted_address: 'PREVIOUS-ADDRESS' } });
+        expect((await getUserLocationPreview('小雨')).context).toContain('PREVIOUS-ADDRESS');
+        vi.mocked(getCurrentPositionSmart).mockResolvedValueOnce({ ...outside, latitude: outside.latitude + 0.01 });
+        vi.mocked(queryAmapLocation).mockRejectedValueOnce(new AmapLocationError('network'));
+        const failed = await getUserLocationPreview('小雨');
+        expect(failed.failureHint).toContain('高德地点查询失败');
+        expect(failed.context).toContain('定位未知'); expect(failed.context).not.toContain('PREVIOUS-ADDRESS');
+        expect(queryAmapLocation).toHaveBeenCalledTimes(2); expect(fetchMock).not.toHaveBeenCalled();
+    });
+    it('Geoapify makes zero requests inside hidden regions, including uncertain boundary fixes', async () => {
+        saveUserLocationConfig({...config,provider:'geoapify',geoapifyKey:'test-geo-key'});
+        expect(await getUserLocationContext('小雨')).toContain('在家附近');
+        vi.mocked(getCurrentPositionSmart).mockResolvedValueOnce({...fix,latitude:region.latitude+3.1/111.195,accuracy:200});
+        expect(await getUserLocationContext('小雨')).toContain('可能在家附近');
+        expect(fetchMock).not.toHaveBeenCalled();expect(queryAmapLocation).not.toHaveBeenCalled();
+    });
+    it('Geoapify delivers overseas street words with attribution, not coordinates, Key, postcode or raw diagnostics',async()=>{
+        saveUserLocationConfig({...config,provider:'geoapify',geoapifyKey:'test-geo-key'});
+        vi.mocked(getCurrentPositionSmart).mockResolvedValue({...outside,latitude:51.5,longitude:-.1});
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({results:[{country:'United Kingdom',city:'London',street:'Oxford Street',lat:51.5,lon:-.1,postcode:'SECRET-POSTCODE',datasource:{raw:{phone:'SECRET-PHONE'}}}]})));
+        const preview=await getUserLocationPreview('小雨');expect(preview.context).toContain('Oxford Street');expect(preview.attribution).toBe('geoapify');expect(preview.context).toContain('Geoapify / OpenStreetMap');
+        expect(preview.context).not.toMatch(/51\.5|test-geo-key|SECRET/);expect(queryAmapLocation).not.toHaveBeenCalled();
+        saveUserLocationConfig({...config,provider:'geoapify',geoapifyKey:'test-geo-key'});
+        fetchMock.mockResolvedValueOnce(new Response('SECRET',{status:403}));
+        const failed=await getUserLocationPreview('小雨');expect(failed.context).toContain('定位未知');expect(failed.failureHint).toContain('Key');expect(failed.failureHint).not.toContain('SECRET');expect(failed.attribution).toBeUndefined();
+        expect(fetchMock).toHaveBeenCalledTimes(2);expect(new URL(fetchMock.mock.calls[1][0]).hostname).toBe('api.geoapify.com');
+    });
+    it('does not reuse cached regions after switching to Geoapify, and rechecks privacy before reusing overseas addresses',async()=>{
+        vi.mocked(getCurrentPositionSmart).mockResolvedValue(outside);await getUserLocationContext('小雨');
+        saveUserLocationConfig({...config,provider:'geoapify',geoapifyKey:'test-geo-key'});
+        fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({results:[{country:'日本',city:'東京都',street:'神宮前'}]})));
+        expect(await getUserLocationContext('小雨')).toContain('神宮前');expect(fetchMock).toHaveBeenCalledTimes(2);
+        vi.mocked(getCurrentPositionSmart).mockResolvedValueOnce(fix);const hidden=await getUserLocationContext('小雨');expect(hidden).toContain('在家附近');expect(hidden).not.toContain('神宮前');expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+    it('aborts and discards a pending Geoapify response when a new hidden region covers the device',async()=>{
+        saveUserLocationConfig({...config,provider:'geoapify',geoapifyKey:'test-geo-key'});vi.mocked(getCurrentPositionSmart).mockResolvedValue(outside);
+        let resolve!:(response:Response)=>void;fetchMock.mockImplementationOnce(()=>new Promise(done=>{resolve=done;}));
+        const request=getUserLocationContext('小雨');await vi.waitFor(()=>expect(fetchMock).toHaveBeenCalledOnce());
+        saveUserLocationConfig({...config,provider:'geoapify',geoapifyKey:'test-geo-key',regions:[{...region,...outside}]});expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+        resolve(new Response(JSON.stringify({results:[{city:'SHOULD-NOT-APPEAR'}]})));expect(await request).toBe('');
+    });
     it.each([[1, '没有定位权限'], [2, '设备没有取得坐标'], [3, '设备定位超时']])('explains device failure %s without querying a provider or sending diagnostics to the role', async (code, hint) => {
         vi.mocked(getCurrentPositionSmart).mockRejectedValueOnce(Object.assign(new Error('SECRET-COORDINATES-AND-KEY'), { code }));
         const preview = await getUserLocationPreview('小雨');
@@ -59,7 +126,7 @@ describe('device location privacy boundary', () => {
         expect(preview.failureHint).not.toContain('SECRET');
         expect(preview.context).toContain('定位未知');
         expect(preview.context).not.toContain(hint); expect(preview.context).not.toContain('SECRET');
-        expect(getCurrentPositionSmart).toHaveBeenCalledWith({ quiet: true });
+        expect(getCurrentPositionSmart).toHaveBeenCalledWith({ quiet: true, retry: true });
         expect(fetchMock).not.toHaveBeenCalled(); expect(queryAmapLocation).not.toHaveBeenCalled();
     });
     it('shows AMap platform errors only in preview, and never switches provider after a rejection', async () => {

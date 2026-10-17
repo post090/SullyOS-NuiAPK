@@ -10,10 +10,12 @@ permissions:
 
 concurrency:
   group: cloudflare-worker-production
-  cancel-in-progress: true
+  # Do not interrupt a deployed release before its assets have been saved.
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -52,5 +54,27 @@ jobs:
       - name: Build site
         run: pnpm run build
 
+      - name: Verify build asset retention
+        run: node --test scripts/prepare-retained-build-assets.test.mjs
+
+      # Separate history from Pages: its relative-base build has different bytes.
+      # Merge only after the current SW manifest has been generated.
+      - name: Restore previous build assets
+        id: retained-assets
+        uses: actions/cache/restore@v4
+        with:
+          path: .cache/retained-build-assets
+          key: site-assets-cloudflare-v1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: site-assets-cloudflare-v1-${{ github.ref_name }}-
+
+      - name: Retain recent hashed build assets
+        run: node scripts/prepare-retained-build-assets.mjs --dist dist --history .cache/retained-build-assets
+
       - name: Deploy static assets
         run: npx --yes wrangler@4.122.0 deploy
+
+      - name: Save deployed build assets
+        uses: actions/cache/save@v4
+        with:
+          path: .cache/retained-build-assets
+          key: ${{ steps.retained-assets.outputs.cache-primary-key }}

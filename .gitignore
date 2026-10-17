@@ -76,6 +76,7 @@ AGENTS.md
 .claude/
 .codex/
 .pnpm-store/
+/.cache/retained-build-assets/
 
 # Local research downloads, QA builds/screenshots and temporary worktrees.
 /.tmp/

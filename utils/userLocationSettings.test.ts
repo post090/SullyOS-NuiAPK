@@ -26,6 +26,22 @@ beforeEach(() => {
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 const button = (label: string) => [...host.querySelectorAll('button')].find(item => item.textContent?.includes(label))!;
+it('provides global street setup, automatically selects a pasted Key and hides it again on return',()=>{
+    act(()=>button('设置与预览').click());expect(host.querySelector('[aria-label="定位方式"]')!.textContent).toContain('全球 · 街道地址');
+    act(()=>button('全球街道 · Geoapify').click());expect(host.textContent).toContain('不用绑信用卡');
+    const input=host.querySelector<HTMLInputElement>('[aria-label="Geoapify Key"]')!;
+    act(()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,'sample-global-key');input.dispatchEvent(new Event('input',{bubbles:true}));});
+    act(()=>button('显示').click());expect(input.type).toBe('text');act(()=>button('返回真实定位').click());
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="定位方式"]')!.value).toBe('geoapify');act(()=>button('全球街道 · Geoapify').click());expect(host.querySelector<HTMLInputElement>('[aria-label="Geoapify Key"]')!.type).toBe('password');
+    expect(getCurrentPositionSmart).not.toHaveBeenCalled();expect(getUserLocationPreview).not.toHaveBeenCalled();
+});
+it('keeps attribution next to an overseas preview and clears it when the provider changes',async()=>{
+    vi.mocked(getUserLocationPreview).mockResolvedValueOnce({context:'\n### 小雨当前的位置\n小雨现在的定位在 London · Oxford Street。\n',attribution:'geoapify'});
+    act(()=>host.querySelector<HTMLInputElement>('[aria-label="开启真实定位"]')!.click());act(()=>button('设置与预览').click());await act(async()=>button('定位并预览').click());
+    expect(host.textContent).toContain('Powered by');expect(host.querySelector('a[href="https://www.openstreetmap.org/copyright"]')).not.toBeNull();
+    const select=host.querySelector<HTMLSelectElement>('[aria-label="定位方式"]')!;act(()=>{select.value='geoapify';select.dispatchEvent(new Event('change',{bubbles:true}));});
+    expect(host.textContent).not.toContain('Oxford Street');expect(getUserLocationPreview).toHaveBeenCalledOnce();
+});
 it('can show a Key, switches to AMap when pasted, and hides it again after leaving the page', () => {
     act(() => button('设置与预览').click());
     act(() => button('高德 API').click());
@@ -82,6 +98,17 @@ it('validation failure does not perform external lookup', async () => {
     act(() => button('设置与预览').click());
     onSave.mockReturnValue(false);
     await act(async () => button('定位并预览').click());
+    expect(getUserLocationPreview).not.toHaveBeenCalled();
+});
+it('does not record a hidden-place center from an imprecise fallback position', async () => {
+    vi.mocked(getCurrentPositionSmart).mockResolvedValueOnce({ latitude: 31, longitude: 121, accuracy: 1500 });
+    act(() => button('设置与预览').click());
+    act(() => button('隐藏地点').click());
+    await act(async () => button('把当前位置设为隐藏地点').click());
+    expect(host.querySelector('[aria-label="隐私区域 1 名称"]')).toBeNull();
+    expect(host.querySelector('[role="status"]')!.textContent).toContain('精度不足');
+    expect(button('返回真实定位').disabled).toBe(false);
+    expect(getCurrentPositionSmart).toHaveBeenCalledWith({ quiet: true, retry: true });
     expect(getUserLocationPreview).not.toHaveBeenCalled();
 });
 it('offers optional AMap with the correct Key guide and plain-language hiding examples', async () => {
