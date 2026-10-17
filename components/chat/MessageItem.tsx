@@ -549,19 +549,15 @@ export const ThinkingChainBlock: React.FC<{
                 )}
                 {expanded && (
                     <div className="relative mt-1.5">
-                        {/* 上下软渐变盖掉系统滚动条; fadeColor 跟卡片背景一致 */}
-                        {spec.fadeColor && (
-                            <>
-                                <div aria-hidden className="absolute top-0 left-0 right-0 h-3 pointer-events-none z-10" style={{ background: `linear-gradient(to bottom, ${spec.fadeColor} 0%, transparent 100%)` }} />
-                                <div aria-hidden className="absolute bottom-0 left-0 right-0 h-3 pointer-events-none z-10" style={{ background: `linear-gradient(to top, ${spec.fadeColor} 0%, transparent 100%)` }} />
-                            </>
-                        )}
                         <div
                             className={`sully-psyche-body no-scrollbar relative pl-3 pr-1 py-2 text-[12.5px] leading-[1.85] whitespace-pre-wrap break-words max-h-72 overflow-auto ${spec.italic ? 'italic' : ''}`}
                             style={{
                                 color: spec.text,
                                 fontFamily: spec.fontFamily,
                                 borderLeft: `1px solid ${spec.border}`,
+                                // Fade the text itself so CSS outfits can freely change the card background.
+                                maskImage: spec.fadeColor ? 'linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)' : undefined,
+                                WebkitMaskImage: spec.fadeColor ? 'linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)' : undefined,
                                 textShadow: spec.glow ? '0 0 6px rgba(0, 0, 0, 0.4)' : undefined,
                             }}
                             onClick={(e) => e.stopPropagation()}

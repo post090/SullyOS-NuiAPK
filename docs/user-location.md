@@ -1,5 +1,21 @@
 # 真实定位与隐私区域
 
+## 海外街道地址 · Geoapify
+
+用户选用的地图 API 必须保持：成功时使用该服务返回的地址，失败时在位置预览显示服务名称与固定原因；不静默切换免费地区服务或另一家 API，不用旧地址掩盖当前失败。设备取坐标的普通精度重试不改变所选地图服务，取得新坐标后仍查询该 API。隐藏地点规则优先。此约定由 `userLocation.test.ts` 的 Key／额度／网络／空响应失败及旧地址不兜底案例验证。
+
+定位方式新增「全球 · 街道地址，Geoapify 免费 Key」，原有「免费 · 全球大概地区」与高德保留。海外用户无需开 Google 结算账户：在 [Geoapify MyProjects](https://myprojects.geoapify.com/) 注册、创建项目、复制 API Keys 中自动生成的 Key，再粘贴到「全球街道 · Geoapify」页并保存。免费计划无需信用卡，额度与价格以 [官方页面](https://www.geoapify.com/pricing/) 为准。Key 可按网站 Origin 限制，见 [Key 设置说明](https://myprojects.geoapify.com/help/api-keys/)；使用自己的账户额度，不内置共用 Key。
+
+街道详情取决于当地地图数据，不承诺识别所有商店或楼层。免 Key 的 BigDataCloud 仍适合只需国家、城市、区镇的用户。公共 Nominatim 不作为应用默认服务，其限额按全部用户流量合计，见 [使用政策](https://operations.osmfoundation.org/policies/nominatim/)。
+
+Geoapify 同样先检查设备定位与隐藏地点；命中隐私圈或边界精度不确定时零地图请求。圈外设备直连固定 `https://api.geoapify.com/v1/geocode/reverse`，使用 WGS84、CORS、`credentials: omit`、`cache: no-store` 与 AbortSignal，不用 Worker／代理、不加载第三方地图脚本。配置修改、切后台或超时取消；失败只输出固定错误，未授权／额度不足不回退其他服务。
+
+响应仅选国家、省市、区镇、街道、门牌及地点名称文字；不使用 `formatted` 兜底，不读取经纬度、邮编、Plus Code、电话、place_id 或完整原始数据。实际查到的 Geoapify 地址在位置提示词中标明来源，预览同一信息框显示 Geoapify 与 OpenStreetMap 链接；隐藏地点别名不标成地图查询结果。`geoapifyKey` 与隐私配置同存 `os_user_location_privacy_v1`，不进角色卡、备份、云端或 localStorage 镜像。
+
+`isUserLocationLookupUrl` 对 Geoapify 固定接口直接透传原 fetch，避免坐标及 Key 进入 API 抓取、请求比较缓存和失败诊断。短缓存仍只在内存保留五分钟，复用前必须重新取定位并检查隐藏地点。没有新增定位埋点、后台轮询或轨迹。
+
+验证：`geoapifyUserLocation.test.ts` 检查直连接口与响应过滤；`userLocation.test.ts` 覆盖海外地址、圈内及边界零请求、服务切换、新增隐私圈时取消旧响应、失败不回退；`userLocationSettings.test.ts` 检查 Key 自动选用、遮罩和预览来源。`test/fixtures/user-location.html` 的 5192 端口模拟 Geoapify 与旧服务，不发送真实坐标或真实 Key。实际服务连通性和地区覆盖仍须用用户自有 Key 在目标设备复测。
+
 实时感知主页面只放「真实定位」开关和「设置与预览」入口。进入真实定位子页后，才能选定位方式、打开「隐藏地点」「高德 API」「定位说明」以及查看位置预览；隐私说明和隐藏前后的例子都在「定位说明」中。预览按钮先保存当前定位设置，再取得本次位置；使用实际 user 名称和真实请求共用的位置提示词，默认只展示位置句，完整提示词折叠显示。修改定位设置或 user 名称后清除旧预览；进入页面本身不触发定位。
 
 子页面暂时隐藏其它实时感知设置；高德页提供直达官方控制台申请 Key 的按钮、图文说明链接和三步指引。「返回真实定位」保留草稿，「保存并返回」校验并保存本机定位配置。全局返回／浏览器和 Android 返回先从隐藏地点等子页退到真实定位，再退到实时感知；正在取得位置时暂时禁止返回，避免丢掉正在记录的地点。
@@ -9,6 +25,16 @@
 设置 → 实时感知 → 真实定位 → 设置与预览。默认关闭。「免费 · 大概地区」无需 API Key；「高德 · 街道和附近地点」需要用户自己的高德 Web 服务 Key（[申请步骤](https://lbs.amap.com/api/webservice/create-project-and-key)），不要用 Web 端 JS API Key。先设置隐藏地点，再开启并保存；「把当前位置设为隐藏地点」只读取设备坐标，不查询地图。首次定位需允许浏览器／系统定位权限，网页需 HTTPS（本机 localhost 可用于开发）。
 
 隐私区域可命名为「家」「公司」等别名，并指定 WGS84 中心点和 0.1–100 公里半径，最多 12 个。多圈重叠时按列表先后选第一圈；设备精度误差范围触及隐私圈时也按隐私区域处理。不要用真实门牌地址作别名。
+
+## 设备定位超时与 PWA 权限
+
+浏览器安装到桌面的 PWA 仍走浏览器 `navigator.geolocation`，不能套用 Capacitor APK 的权限／GMS 插件兜底。检查系统对浏览器的定位权限以及当前网站的位置信息权限，见 [Chrome 官方指引](https://support.google.com/chrome/answer/142065?hl=zh-Hans&co=GENIE.Platform%3DAndroid)。Android 定位精度服务可利用 Wi-Fi／蓝牙扫描改善室内结果，蓝牙不是糯米机的必需权限，见 [系统定位说明](https://support.google.com/accounts/answer/3467281?hl=zh-Hans)。未知机型不能直接判断是系统服务、网络还是权限问题。
+
+真实定位与记录隐藏地点使用 `getCurrentPositionSmart({ quiet: true, retry: true })`：首次高精度请求 15 秒，只有设备不可用／超时（错误 2／3）才重试一次普通精度 8 秒，两次均 `maximumAge: 0`。每次另设超时后一秒的应用等待上限，浏览器不回调时也释放等待并忽略迟到结果；约 25 秒内结束设备等待。权限拒绝、安全连接或页面策略禁止不重试。其它定位调用保留默认单次 8 秒。普通精度仍由浏览器／系统取得当前位置，应用不新增 IP 查询或接受旧坐标。
+
+预览区分别显示设备权限、设备定位、地图网络／Key 错误；设备超时尚未查询任何地图，换地图 Key 无法修复这一层。只展示固定说明，不写原始错误或坐标。普通精度结果仍先检查隐藏地点与误差范围，圈外精度超过 1 公里不查地图；记录隐藏地点也拒绝该低精度中心，避免把保护圈设错位置。安全连接要求及选项含义见 [Geolocation 接口文档](https://developer.mozilla.org/en-US/docs/Web/API/Geolocation/getCurrentPosition)。
+
+`geo.test.ts` 覆盖有界重试、拒绝权限不重试、浏览器不回调和迟到结果、安全连接／权限策略、无效坐标、原生静默兜底。实际手机的系统定位可用性仍需目标设备复测。
 
 ## 数据流与边界
 

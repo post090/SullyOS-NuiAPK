@@ -192,9 +192,16 @@ export function createStaticCache(deps: CacheDependencies) {
   const missing = (response: Response) => response.status === 404 || response.status === 410 ||
     (response.ok && /^text\/html\b/i.test(response.headers.get('Content-Type') || ''));
 
-  async function install() {
+  let installation: Promise<void> | undefined;
+  function install(): Promise<void> {
+    // Startup, settings and multiple tabs may ask together. Share the writers so a failed
+    // attempt cannot remove the completion marker of another attempt that just succeeded.
+    return installation ??= prepareShell().finally(() => { installation = undefined; });
+  }
+
+  async function prepareShell() {
+    const cache = await caches.open(shellName);
     try {
-      const cache = await caches.open(shellName);
       // Write HTML last: a shell is usable only after every synchronous dependency is verified.
       async function prepare(path: string) {
         const entry = entries.get(absolute(path));
@@ -222,7 +229,7 @@ export function createStaticCache(deps: CacheDependencies) {
         } finally { clearTimeout(timer); }
       }
       const paths = manifest.shell.filter(path => path !== 'index.html');
-      // Wait for every writer before removing a failed installation's partial cache.
+      // Wait for every writer before declaring failure; verified files stay for the next attempt.
       let failed = false;
       const jobs = await Promise.allSettled(Array.from({ length: Math.min(4, paths.length) }, async () => {
         while (paths.length && !failed) {
@@ -234,18 +241,30 @@ export function createStaticCache(deps: CacheDependencies) {
       if (failure) throw failure.reason;
       await prepare('index.html');
     } catch (error) {
-      await caches.delete(shellName).catch(() => {});
+      // The HTML is the completion marker. Keep verified dependencies across worker restarts
+      // and retries, but never advertise an incomplete shell as ready for offline startup.
+      const index = entries.get(absolute('index.html'));
+      if (index) await cache.delete(keyFor(index)).catch(() => {});
       throw error;
     }
   }
 
   async function activate(inUseBuilds: string[] | null = []) {
-    // Keep the previous shell AND any older release still open in a tab. A non-responsive
-    // legacy tab means its version is unknown; defer shell cleanup until a later activation.
+    // Keep the latest partial shell for resuming downloads AND the previous complete shell.
+    // A partial update must not displace the last offline-ready release. Older releases still
+    // open in tabs are protected; defer cleanup if a legacy tab cannot identify its build.
     const old = (await caches.keys()).filter(name => name.startsWith(`${prefix}shell-`) && name !== shellName);
     if (inUseBuilds) {
       const protectedNames = new Set(inUseBuilds.map(build => `${prefix}shell-${build}`));
-      for (const name of old.slice(0, -1)) if (!protectedNames.has(name)) await caches.delete(name);
+      if (old.length) protectedNames.add(old[old.length - 1]);
+      for (const name of [...old].reverse()) {
+        const keys = await (await caches.open(name)).keys();
+        if (keys.some(key => {
+          const url = new URL(key.url);
+          return `${url.origin}${url.pathname}` === absolute('index.html');
+        })) { protectedNames.add(name); break; }
+      }
+      for (const name of old) if (!protectedNames.has(name)) await caches.delete(name);
     }
     await serial(async () => prune(await caches.open(runtimeName)));
   }

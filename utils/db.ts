@@ -793,7 +793,10 @@ export const DB = {
       const cursorReq = index.openCursor(IDBKeyRange.only(charId), 'prev');
       cursorReq.onsuccess = () => {
           const cursor = cursorReq.result;
-          if (cursor && collected.length < limit) {
+          // Duplicate charId index keys are ordered by primary message ID. Once the reverse
+          // cursor reaches the archive boundary, every remaining row is archived too. Do not
+          // scan years of history just because the unarchived tail contains fewer than limit.
+          if (cursor && collected.length < limit && (includeProcessed || Number(cursor.primaryKey) > hwm)) {
               const m = cursor.value as Message;
               if (!m.groupId && (includeProcessed || m.id > hwm)) collected.push(m);
               cursor.continue();

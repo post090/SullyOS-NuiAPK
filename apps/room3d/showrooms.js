@@ -49,6 +49,7 @@ export function addShowroom(home,key,catalog,options={}){
  const direction=[['right',1,0],['front',0,1],['left',-1,0],['back',0,-1]].find(([,dx,dz])=>!next.rooms.some(r=>r.level===anchor.level&&r.x===anchor.x+dx&&r.z===anchor.z+dz)&&(anchor.level===0||next.rooms.some(r=>r.level===anchor.level-1&&r.x===anchor.x+dx&&r.z===anchor.z+dz)));
  if(!direction)throw Error('这间房四周没有可扩建位置，请换到边上的房间');
  const room=addRoom(next,direction[0]);furnishShowroom(room,key,catalog,options);
+ room.defaultTemplate={kind:key,compact:options.compact===true};
  // Give each room a clear front entry, without altering furnished neighbors.
  if(!next.rooms.some(r=>r.id!==room.id&&r.level===room.level&&r.x===room.x&&r.z===room.z+1))setBoundary(next,room.id,'front',{kind:'wall_high',door:{kind:SHOWROOMS[key].door,at:0,width:2.2}},catalog);
  Object.assign(home,next);return room;

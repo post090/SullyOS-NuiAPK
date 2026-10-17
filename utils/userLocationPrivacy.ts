@@ -9,13 +9,16 @@ export interface UserPrivacyRegion {
 export interface UserLocationConfig {
     enabled: boolean;
     regions: UserPrivacyRegion[];
-    provider?: 'basic' | 'amap';
+    provider?: 'basic' | 'amap' | 'geoapify';
     /** Device-only, sent solely to the selected AMap endpoint outside hidden areas. */
     amapKey?: string;
+    /** Device-only, sent solely to Geoapify outside hidden areas. */
+    geoapifyKey?: string;
 }
 export interface LocationFix { latitude: number; longitude: number; accuracy: number }
 export const USER_LOCATION_STORAGE_KEY = 'os_user_location_privacy_v1';
 export const USER_LOCATION_LOOKUP_URL = 'https://api.bigdatacloud.net/data/reverse-geocode-client';
+export const GEOAPIFY_LOCATION_ENDPOINT = 'https://api.geoapify.com/v1/geocode/reverse';
 export const MAX_PRIVACY_REGIONS = 12;
 
 export function isLocationFix(value: LocationFix): boolean {
@@ -28,11 +31,15 @@ export function isLocationFix(value: LocationFix): boolean {
 export function validateUserLocationConfig(value: unknown): UserLocationConfig {
     const input = value as UserLocationConfig | undefined;
     if (!input || typeof input.enabled !== 'boolean' || !Array.isArray(input.regions) || input.regions.length > MAX_PRIVACY_REGIONS) throw new Error('定位设置有问题，请重新保存隐藏地点');
-    if (input.provider !== undefined && input.provider !== 'basic' && input.provider !== 'amap') throw new Error('请选择定位方式');
+    if (input.provider !== undefined && !['basic', 'amap', 'geoapify'].includes(input.provider)) throw new Error('请选择定位方式');
     if (input.amapKey !== undefined && typeof input.amapKey !== 'string') throw new Error('高德 Key 格式不正确');
     const amapKey = input.amapKey?.trim();
     if (amapKey && !/^[a-zA-Z0-9_-]{1,128}$/.test(amapKey)) throw new Error('高德 Key 格式不正确，请只粘贴 Key');
     if (input.enabled && input.provider === 'amap' && !amapKey) throw new Error('使用高德定位前，请填写高德 Key');
+    if (input.geoapifyKey !== undefined && typeof input.geoapifyKey !== 'string') throw new Error('Geoapify Key 格式不正确');
+    const geoapifyKey = input.geoapifyKey?.trim();
+    if (geoapifyKey && !/^[a-zA-Z0-9_-]{1,128}$/.test(geoapifyKey)) throw new Error('Geoapify Key 格式不正确，请只粘贴 Key');
+    if (input.enabled && input.provider === 'geoapify' && !geoapifyKey) throw new Error('使用全球街道定位前，请填写 Geoapify Key');
     const ids = new Set<string>();
     const regions = input.regions.map(region => {
         if (!region || typeof region.id !== 'string' || !region.id || ids.has(region.id)
@@ -42,7 +49,7 @@ export function validateUserLocationConfig(value: unknown): UserLocationConfig {
         ids.add(region.id);
         return { id: region.id, name: region.name.trim(), latitude: region.latitude, longitude: region.longitude, radiusKm: region.radiusKm };
     });
-    return { enabled: input.enabled, regions, ...(input.provider ? { provider: input.provider } : {}), ...(amapKey ? { amapKey } : {}) };
+    return { enabled: input.enabled, regions, ...(input.provider ? { provider: input.provider } : {}), ...(amapKey ? { amapKey } : {}), ...(geoapifyKey ? { geoapifyKey } : {}) };
 }
 
 export function loadUserLocationConfig(): UserLocationConfig {
@@ -81,6 +88,7 @@ export function userLocationPlaceName(data: any): string {
 export function isUserLocationLookupUrl(value: string): boolean {
     try {
         const url = new URL(value);
-        return url.origin === 'https://api.bigdatacloud.net' && url.pathname === '/data/reverse-geocode-client';
+        return url.origin === 'https://api.bigdatacloud.net' && url.pathname === '/data/reverse-geocode-client'
+            || url.origin === 'https://api.geoapify.com' && url.pathname === '/v1/geocode/reverse';
     } catch { return false; }
 }
