@@ -236,17 +236,20 @@ export async function mountHomeEditor(host,{assetBase,initialState,onChange,onBa
   // 幂等补挂（同宠物），已处理过的 root 只查一个标记位，开销可忽略。
   if(shellsOn)for(const r of characterOutlineRoots().concat(petSystem?.outlineRoots()||[]))addOutlineShells(r);
   // 复古画风已下线，只有 toon 走后处理薄片描边；原始画风直接渲染。
-  if(shellsOn){let thin=[];for(const root of characterOutlineRoots().concat(petSystem?.outlineRoots()||[]))root.traverse(o=>{if(o.userData.haloOutline)thin.push(o);});
+  let thinOutlines=null;
+  if(shellsOn){const thin=[];for(const root of characterOutlineRoots().concat(petSystem?.outlineRoots()||[]))root.traverse(o=>{if(o.userData.haloOutline)thin.push(o);});
   // 家具里的双面薄片（盆栽叶子、薄纱等）挂不了背面外壳，也要走后处理描边，
   // 否则整片叶子裸奔没轮廓线。haloOutline 标记由 instance() 里的 addOutlineShells
   // 打在叶子 mesh 上，outlinedObjects 装的是家具根节点，必须 traverse 才收得到。
   for(const root of outlinedObjects)root.traverse(o=>{if(o.userData.haloOutline)thin.push(o);});
-  if(thin.length)furnitureHalo.render(thin,true);else renderer.render(scene,camera);}
-   else renderer.render(scene,camera);
-   // 场景 AO（接触阴影）在描边之后、柔光调色之前合成；人物接收遮蔽但不投射
-   // （深度遍临时隐藏角色根，见 roomAO.js）。
-   if(sceneAoEnabled&&lightBudget().ao)roomAO.render(characterOutlineRoots().concat(petSystem?.outlineRoots()||[]),{toon:furnitureStyle==='toon',strength:furnitureStyle==='toon'?1:.35});
-   if(finishEnabled&&quality!=='eco')roomFinish.render(lightPhase,finishBlend);
+  if(thin.length)thinOutlines=thin;}
+  if(thinOutlines)furnitureHalo.renderBase();else renderer.render(scene,camera);
+  // 场景 AO（接触阴影）在薄片描边之前合成——遮蔽只画在底色上，不把墨线染成
+  // 冷紫色（描边永远盖在阴影上）；人物接收遮蔽但不投射（深度遍临时隐藏角色
+  // 根，见 roomAO.js）。
+  if(sceneAoEnabled&&lightBudget().ao)roomAO.render(characterOutlineRoots().concat(petSystem?.outlineRoots()||[]),{toon:furnitureStyle==='toon',strength:furnitureStyle==='toon'?1:.35});
+  if(thinOutlines)furnitureHalo.renderOutlines(thinOutlines,true);
+  if(finishEnabled&&quality!=='eco')roomFinish.render(lightPhase,finishBlend);
   if(photoSession&&photoDofEnabled){
    // 部位对焦：绑定脸/身体时逐帧重取世界坐标，相机怎么动焦点都钉在角色身上。
    if(photoFocusPart){const t=photoSession.focusTarget(photoFocusPart.id);if(t)photoFocusDepth=camera.position.distanceTo(photoFocusPart.part==='body'?t.body:t.head);}
@@ -311,11 +314,10 @@ export async function mountHomeEditor(host,{assetBase,initialState,onChange,onBa
   if(heavy){scene.background=onMenu?skyTexture(p.skyTop,p.skyBottom,p.ground,.28):skyTexture(p.skyTop,p.skyBottom,p.ground);windowDaylight.setLighting(p.window,p.windowPower);configureWindowSun();}
  }
  function updateCharacterTints(p){
-  // 过渡中只给「已绑定」的 root 刷插值色，不占 syncResidentLight 的缓存 key：
-  // 抢先占 key 会让过渡期间进场的角色（社交进场/捏脸换装）永远等不到卡通着色与
-  // 时段绑定——描边壳靠每帧幂等补挂才没一起丢。未绑定的 root 留给 syncResidentLight
-  // 首绑（绑定帧取目标档色），下一帧起由这里接管插值。
-  for(const v of [visitor,...socialEntries.map(e=>e.visitor),...comparisonEntries.map(e=>e.visitor)])if(v?.root&&residentLightPhases.has(v.root))setCharacterRoomTint(v.root,p.character);
+  // 过渡中给「已绑定」的 root 刷插值色并继续占住 syncResidentLight 的缓存 key，
+  // 否则 key 失配会触发整档重绑、把染色瞬时跳到目标档（首帧闪跳）；未绑定的
+  // 进场 root 不占，留给 syncResidentLight 首绑（否则卡通着色永远装不上）。
+  for(const v of [visitor,...socialEntries.map(e=>e.visitor),...comparisonEntries.map(e=>e.visitor)])if(v?.root&&residentLightPhases.has(v.root)){setCharacterRoomTint(v.root,p.character);residentLightPhases.set(v.root,lightPhase+':'+furnitureStyle);}
  }
  function refreshRoomLighting(force=false,immediate=false){
   const next=resolveRoomLightPhase(lightMode,timeZone);if(next===lightPhase&&!phaseBlendFrom)return false;

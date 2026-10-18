@@ -54,8 +54,10 @@ export function createFurnitureHalo(renderer,scene,camera){
  return {
   setWidth(px){material.uniforms.width.value=Math.max(.2,Math.min(2.5,Number(px)||.65));},
   setInk(color){material.uniforms.ink.value.set(color);},
-  render(objects,perObject=false){
-   renderer.render(scene,camera);
+  // 底渲与描边拆成两步：编辑器在两步之间插场景 AO——遮蔽只落在底色上，
+  // 不把墨线染脏（描边永远盖在阴影上）。
+  renderBase(){renderer.render(scene,camera);},
+  renderOutlines(objects,perObject=false){
    if(!objects.length){coverage=0;return;}
    renderer.getDrawingBufferSize(size);
    if(target.width!==size.x||target.height!==size.y)target.setSize(size.x,size.y);

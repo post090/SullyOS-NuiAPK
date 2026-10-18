@@ -57,7 +57,9 @@ export function createRoomAO(renderer,scene,camera){
     image?.dispose();depthTarget?.dispose();
     image=new T.FramebufferTexture(w,h);image.colorSpace=T.NoColorSpace;image.minFilter=image.magFilter=T.LinearFilter;
     const hw=Math.max(8,Math.ceil(w/2)),hh=Math.max(8,Math.ceil(h/2));
-    const depthTexture=new T.DepthTexture(hw,hh);depthTexture.minFilter=depthTexture.magFilter=T.LinearFilter;
+   // 深度值不可插值：ES 3.0 对深度纹理做 LINEAR 过滤是未定义行为，部分移动
+   // GPU 会返回脏值——AO 沿轮廓边缘抹出脏带（正是「描边不干净」的来源），必须 Nearest。
+   const depthTexture=new T.DepthTexture(hw,hh);depthTexture.minFilter=depthTexture.magFilter=T.NearestFilter;
     depthTarget=new T.WebGLRenderTarget(hw,hh,{depthTexture});
     material.uniforms.image.value=image;
     material.uniforms.depth.value=depthTexture;
