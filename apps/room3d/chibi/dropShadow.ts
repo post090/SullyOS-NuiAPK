@@ -49,7 +49,10 @@ export function createDropShadow(renderer: T.WebGLRenderer) {
     const w = Math.max(2, Math.floor(size.x / 2)), h = Math.max(2, Math.floor(size.y / 2));
     if (target.width !== w || target.height !== h) target.setSize(w, h);
     dropShadowUniforms.mask.value = target.texture;
-    dropShadowUniforms.screen.value.set(w, h);
+    // screen 是「全屏像素 → 视口 UV」的分母（着色器用 gl_FragCoord/ 此值采样蒙版），
+    // 蒙版虽是半分辨率，但它的 UV 与全屏视口一一对应——设成蒙版自己的尺寸会把
+    // 采样坐标放大 2 倍，影子错位且右半屏采出界。
+    dropShadowUniforms.screen.value.set(size.x, size.y);
     // 采样方向与主光在视野平面上的传播方向相反（正对相机的光自然收紧），再朝上多取
     // 一点——影子整体下坠，符合动画前发影的画法惯例。
     travel.subVectors(light.target.getWorldPosition(targetPos), light.position).normalize().transformDirection(camera.matrixWorldInverse);
