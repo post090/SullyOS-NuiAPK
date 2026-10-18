@@ -10,6 +10,12 @@ const originals = new WeakMap<T.MeshStandardMaterial, {
   cache: T.MeshStandardMaterial['customProgramCacheKey'];
   toneMapped: boolean;
 }>();
+// 装饰代次：卸载→重装若沿用同一 cacheKey，three.js 会按 programs 缓存直接
+// 复用旧程序、跳过 onBeforeCompile 且不重接 uniforms——重装时新建的 uniform
+// 对象与贴图槽位全部悬空，脸部 SDF/落影采样器指向被其他材质复用过的纹理
+// 单元，脸上会出十字状的假阴影（贴图线稿被当成距离场）。每次重装递增代次，
+// 逼着走一次全新编译，uniform 重新接线。
+const installGenerations = new WeakMap<T.MeshStandardMaterial, number>();
 type RoomLightUniforms = {roomShadeTint:{value:T.Color};roomSunTint:{value:T.Color};roomBrightness:{value:number};roomSunContrast:{value:number}};
 const roomTints = new WeakMap<T.MeshStandardMaterial, {value:T.Color}>();
 const roomLights = new WeakMap<T.MeshStandardMaterial, {enabled:{value:number}; uniforms:RoomLightUniforms; cel:{value:number}}>();
@@ -85,7 +91,11 @@ export function setCharacterIllustration(root:T.Object3D, enabled=true) {
       } else {
         if (original) continue;
         const saved = {compile:material.onBeforeCompile, cache:material.customProgramCacheKey, toneMapped:material.toneMapped};
-        const cacheKey = material.customProgramCacheKey();
+        // 代次进 cacheKey：同一材质卸载再重装也拿到新 key，绕开 three.js 的
+        // programs 缓存复用（见 installGenerations 注释），uniform 重编译重接线。
+        const generation=(installGenerations.get(material)||0)+1;
+        installGenerations.set(material,generation);
+        const cacheKey = material.customProgramCacheKey()+'-g'+generation;
         originals.set(material,saved);
         const roomTint={value:new T.Color('#ffffff')};roomTints.set(material,roomTint);
         const room={enabled:{value:0},uniforms:{roomShadeTint:{value:new T.Color('#ffffff')},roomSunTint:{value:new T.Color('#ffffff')},roomBrightness:{value:1},roomSunContrast:{value:0},roomBounceUp:{value:new T.Color('#ffffff')},roomBounceDown:{value:new T.Color('#ffffff')}},cel:{value:0}};roomLights.set(material,room);
