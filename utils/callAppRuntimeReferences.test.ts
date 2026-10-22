@@ -213,7 +213,8 @@ describe('CallApp runtime references', () => {
     expect(exportSource).toContain('collectBlobRefs(s, referencedBlobTokens)');
     expect(exportSource).toContain('await writeBlobsToZip(');
     expect(exportSource).toContain("metadata.cameraSnapshotExpired = true");
-    expect(exportSource).toContain("|| !!m.metadata?.cameraSnapshotRef");
+    // #759 流式导出重写后过滤器形参从 m 改成 item，锚点跟随改名。
+    expect(exportSource).toContain("|| item.metadata?.cameraSnapshotRef || item.metadata?.cameraSnapshotExpired === true");
     expect(exportSource).toContain("companionAvatar: c.companionAvatar");
   });
 

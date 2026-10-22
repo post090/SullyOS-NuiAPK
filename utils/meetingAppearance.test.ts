@@ -9,7 +9,8 @@ import { makeWorkshopPreset, projectWorkshopPreset } from './decorationWorkshop'
 describe('meeting appearance presets', () => {
     it('two separate chat categories follow notification sounds', () => {
         const ids = BEAUTY_CATEGORIES.map(([id]) => id);
-        expect(ids.slice(ids.indexOf('sound') + 1, ids.indexOf('sound') + 3)).toEqual(['date', 'story']);
+        // 协同工作（app 范围）插在提示音之后：date/story 仍紧随其后作为两个独立聊天域分类。
+        expect(ids.slice(ids.indexOf('collaboration') + 1, ids.indexOf('collaboration') + 3)).toEqual(['date', 'story']);
         expect(belongsInBeautyLibrary(['date'], 'chat')).toBe(true);
         expect(belongsInBeautyLibrary(['story'], 'appearance')).toBe(false);
     });
