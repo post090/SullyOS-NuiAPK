@@ -37,7 +37,7 @@ it('opens the story category as chat decorations without requiring an entry char
   await act(async()=>root.render(React.createElement(BeautyShareChannel,{presets:[],onExport:vi.fn(),onImport:vi.fn(),onBusyChange:vi.fn(),initialCategory:'story'})));
   expect(host.querySelector('h2')?.textContent).toBe('聊天装扮');
   const tabs=host.querySelector('.wardrobe-categories')!.textContent!;
-  expect(tabs).toContain('提示音见面界面剧情界面');
+  expect(tabs).toContain('提示音协同工作见面界面剧情界面');
   expect(tabs).not.toContain('桌面主题');
   const entries=mocks.wardrobe.mock.calls.filter(call=>call[1]==='内置剧情美化').at(-1)![0];
   expect(entries.map((entry:any)=>entry.name)).toEqual(['纯小说','旧书纸页','静夜阅读']);
