@@ -49,7 +49,7 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
     isOpen, onClose, char, isProactiveActive, onSave, onStop
 }) => {
     const saved = char.proactiveConfig;
-    const [enabled, setEnabled] = useState(saved?.enabled ?? false);
+    const [enabled, setEnabled] = useState(saved?.enabled ?? isProactiveActive);
     const [interval, setInterval_] = useState(saved?.intervalMinutes ?? 60);
     const [useSecondaryApi, setUseSecondaryApi] = useState(saved?.useSecondaryApi ?? false);
     // 副 API 连接（站点+模型选择器，见 ApiConnectionPicker；旧手填值原样带入）
@@ -68,7 +68,7 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
     useEffect(() => {
         if (isOpen) {
             const s = char.proactiveConfig;
-            setEnabled(s?.enabled ?? false);
+            setEnabled(s?.enabled ?? isProactiveActive);
             setInterval_(s?.intervalMinutes ?? 60);
             setUseSecondaryApi(s?.useSecondaryApi ?? false);
             setSecApi(s?.secondaryApi ?? null);
@@ -78,7 +78,7 @@ const ProactiveSettingsModal: React.FC<ProactiveSettingsModalProps> = ({
             setHintCustom(s?.hintCustom ?? '');
             setShowHintEditor(false);
         }
-    }, [isOpen, char.id]);
+    }, [isOpen, char.id, char.proactiveConfig, isProactiveActive]);
 
     const handleSave = () => {
         onSave({
