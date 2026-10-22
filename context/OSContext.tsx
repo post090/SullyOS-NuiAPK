@@ -107,7 +107,8 @@ import { formatBytes, formatBackupTimestamp } from '../utils/format';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
 import { isBenignApplicationConsoleMessage } from '../utils/applicationConsole';
 
-import { initLocalStorageMirror } from '../utils/lsMirror';
+import { initLocalStorageMirror, snapshotLocalStorageMirror } from '../utils/lsMirror';
+import { setReliableMemoryPalaceHighWaterMark } from '../utils/memoryPalace/highWaterMark';
 import { cleanupInstantPushLegacyData } from '../utils/instantPushLegacyCleanup';
 // 备份用：把存在 localStorage 的本机配置随导出一起带走（键名须与 importFullData 对齐）
 import { exportPostOfficeLocal } from '../utils/vrWorld/postOffice';
@@ -2031,6 +2032,34 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             }
         }
 
+        // 回填后同步刷新最初在首帧 useState 惰性读取的 localStorage 配置：
+        // 首帧 useState 早于 useEffect 里的 initLocalStorageMirror()，若 localStorage 曾被系统清空，
+        // 首帧 state 会拿到默认空配置；这里在镜像回填完成后重新同步到 React state，防止后续保存或备份把回填值覆盖成空配置。
+        const savedMemoryPalaceConfig = localStorage.getItem('os_memory_palace_config');
+        if (savedMemoryPalaceConfig) {
+            try {
+                setMemoryPalaceConfig(normalizeMemoryPalaceConfig(JSON.parse(savedMemoryPalaceConfig)));
+            } catch (e) {
+                console.error('Failed to load memory palace config', e);
+            }
+        }
+        const savedRemoteVectorConfig = localStorage.getItem('os_remote_vector_config');
+        if (savedRemoteVectorConfig) {
+            try {
+                setRemoteVectorConfig({ ...defaultRemoteVectorConfig, ...JSON.parse(savedRemoteVectorConfig) });
+            } catch (e) {
+                console.error('Failed to load remote vector config', e);
+            }
+        }
+        const savedCloudBackupConfig = localStorage.getItem('os_cloud_backup_config');
+        if (savedCloudBackupConfig) {
+            try {
+                setCloudBackupConfig({ ...defaultCloudBackupConfig, ...JSON.parse(savedCloudBackupConfig) });
+            } catch (e) {
+                console.error('Failed to load cloud backup config', e);
+            }
+        }
+
         try {
             const assets = await DB.getAllAssets();
             const assetMap: Record<string, string> = {};
@@ -2146,6 +2175,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         const hadPriorFeedbackEvidence = hasPriorFeedbackInstallEvidence();
         if (healedKeys.length > 0) {
             console.warn('[lsMirror] localStorage 疑似被清除，已从 IndexedDB 镜像回填:', healedKeys);
+            if (healedKeys.includes('proactive_schedules')) {
+                ProactiveChat.resume();
+            }
+            if (healedKeys.includes('vr_schedules')) {
+                VRScheduler.resume();
+            }
             setTimeout(() => addToast(`检测到本地设置曾被浏览器清除，已自动恢复 ${healedKeys.length} 项（主题 / API 等）`, 'info'), 2500);
         }
 
@@ -2868,14 +2903,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const currentRealtimeConfig = realtimeConfigRef.current;
 
           const char = currentCharacters.find(c => c.id === charId);
-          if (!char) {
+          // 调度表里还排着队，但角色已删除或未开启主动消息（含 proactiveConfig 缺失）：
+          // 就地撤掉残留调度，避免后台一直空转或误调模型。
+          if (!char || !char.proactiveConfig?.enabled) {
+              ProactiveChat.stop?.(charId);
               drainQueuedProactive();
-              return;
-          }
-
-          if (char.proactiveConfig && !char.proactiveConfig.enabled) {
-              drainQueuedProactive();
-              console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: disabled`);
+              if (char) {
+                  console.log(`🔕 [Proactive/Global] Skipped for ${char.name}: disabled (residual schedule stopped)`);
+              }
               return;
           }
 
@@ -2983,6 +3018,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           setProactiveComposingChars(prev => prev[charId] ? prev : { ...prev, [charId]: true });
           console.log(`🔔 [Proactive/Global] Trigger fired for ${char.name}`);
 
+          let hintMsgId: number | null = null;
           try {
               // 1. Calculate time gap
               const recentMsgs = await DB.getRecentMessagesByCharId(charId, 200);
@@ -3029,7 +3065,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   })
                   : defaultHint;
 
-              await DB.saveMessage({
+              hintMsgId = await DB.saveMessage({
                   charId,
                   role: 'user',
                   type: 'text',
@@ -3329,6 +3365,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               }
 
               if (offset > 0) {
+                  ProactiveChat.report?.(charId, 'ok');
                   const previewSource = savedPreviewChunks.join(' ').trim();
                   const preview = previewSource.replace(/\s+/g, ' ').trim().slice(0, 120)
                       || `${char.name} sent a proactive message`;
@@ -3344,9 +3381,23 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   if (maxAttempts > 0) {
                       console.log(`📊 [Proactive/Global] 无回应计数 for ${char.name}: ${newNoResp}/${maxAttempts}`);
                   }
+              } else if (hintMsgId != null) {
+                  await DB.deleteMessage(hintMsgId).catch(() => {});
               }
           } catch (err) {
               console.error(`[Proactive/Global] Error for ${char.name}:`, err);
+              if (hintMsgId != null) {
+                  await DB.deleteMessage(hintMsgId).catch(() => {});
+              }
+              if (charactersRef.current.find(c => c.id === charId)?.proactiveConfig?.enabled) {
+                  const reportResult = ProactiveChat.report?.(charId, 'failed');
+                  if (reportResult?.tripped) {
+                      void updateCharacter(charId, prev => ({
+                          proactiveConfig: { ...(prev.proactiveConfig || { intervalMinutes: 60 }), enabled: false },
+                      }));
+                      addToast(`${char.name} 连续 ${reportResult.streak} 次主动消息调用模型失败，已自动暂停其主动消息`, 'error');
+                  }
+              }
           } finally {
               proactiveRunningRef.current = false;
               setProactiveComposingChars(prev => {
@@ -3366,6 +3417,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const w = getSleepWindow(scheduledChar);
           ProactiveChat.syncSleepWindow(scheduledChar.id, w.sleepStart, w.sleepEnd);
       }
+      // 开机对齐 1.0 排程与启用名单（新增的补上、停用的清掉）；reconcile 只动
+      // intervalMs，上面的睡眠窗口不会被覆盖。
+      ProactiveChat.reconcile?.(
+          charactersRef.current
+              .filter(c => !!c.proactiveConfig?.enabled)
+              .map(c => ({ charId: c.id, intervalMinutes: c.proactiveConfig?.intervalMinutes || 60 }))
+      );
 
       // 「彼方」自主登入 —— 独立调度，复用同一批 refs 拿最新状态
       const runVR = async (charId: string, room?: string, letterId?: string, manual?: boolean, sarActivity?: VRSARActivity) => {
@@ -4161,6 +4219,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       })();
     }
 
+    ProactiveChat.stop?.(id);
+    VRScheduler.stop?.(id);
     setCharacters(prev => { const remaining = prev.filter(c => c.id !== id); if (remaining.length > 0 && activeCharacterId === id) { setActiveCharacterId(remaining[0].id); } return remaining; });
     await DB.deleteCharacter(id);
     // 表情分类不随角色级联删除会留下「幽灵专属包」：单聊面板被可见性过滤掉（删不掉），
@@ -5805,11 +5865,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (data.pushVapid) localStorage.setItem('push_vapid_v1', JSON.stringify(data.pushVapid));
 
 
-          // Restore Memory Palace 水位线
+          // Restore Memory Palace 水位线（同时落盘 localStorage 与 IndexedDB 镜像）
           if (data.memoryPalaceHighWaterMarks) {
               for (const [charId, hwm] of Object.entries(data.memoryPalaceHighWaterMarks)) {
                   if (typeof hwm === 'number' && hwm > 0) {
-                      localStorage.setItem(`mp_lastMsgId_${charId}`, String(hwm));
+                      await setReliableMemoryPalaceHighWaterMark(charId, hwm);
                   }
               }
           }
@@ -6009,6 +6069,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               console.warn('[amsg2] 导入后云端对账失败（本地数据已恢复，不受影响）', e);
           }
 
+          await snapshotLocalStorageMirror().catch(() => {});
           setSysOperation({ status: 'idle', message: '', progress: 100 });
           clearImportInProgress();
           addToast('恢复成功，系统即将重启...', 'success');

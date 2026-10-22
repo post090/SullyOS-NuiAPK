@@ -2260,14 +2260,17 @@ function stopProactive(charId) {
   }
   proactiveSchedules.delete(charId);
 }
+var MIN_PROACTIVE_INTERVAL_MS = 30 * 60 * 1e3;
 function upsertProactive(config) {
-  const prev = proactiveSchedules.get(config.charId);
-  const unchanged = prev && prev.intervalMs === config.intervalMs;
-  if (unchanged && proactiveTimers.has(config.charId)) return;
-  stopProactive(config.charId);
-  proactiveSchedules.set(config.charId, config);
-  const timer = setInterval(() => fireProactiveTrigger(config.charId), config.intervalMs);
-  proactiveTimers.set(config.charId, timer);
+  const safeIntervalMs = Math.max(MIN_PROACTIVE_INTERVAL_MS, Math.round(config.intervalMs));
+  const safeConfig = { charId: config.charId, intervalMs: safeIntervalMs };
+  const prev = proactiveSchedules.get(safeConfig.charId);
+  const unchanged = prev && prev.intervalMs === safeConfig.intervalMs;
+  if (unchanged && proactiveTimers.has(safeConfig.charId)) return;
+  stopProactive(safeConfig.charId);
+  proactiveSchedules.set(safeConfig.charId, safeConfig);
+  const timer = setInterval(() => fireProactiveTrigger(safeConfig.charId), safeConfig.intervalMs);
+  proactiveTimers.set(safeConfig.charId, timer);
 }
 function syncProactive(configs) {
   const nextIds = new Set((configs || []).map((config) => config.charId));
