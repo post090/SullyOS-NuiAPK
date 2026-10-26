@@ -245,8 +245,8 @@ export async function mountHomeEditor(host,{assetBase,initialState,onChange,onBa
   if(thin.length)thinOutlines=thin;}
   if(thinOutlines)furnitureHalo.renderBase();else renderer.render(scene,camera);
   // 场景 AO（接触阴影）在薄片描边之前合成——遮蔽只画在底色上，不把墨线染成
-  // 冷紫色（描边永远盖在阴影上）；人物接收遮蔽但不投射（深度遍临时隐藏角色
-  // 根，见 roomAO.js）。
+  // 冷紫色（描边永远盖在阴影上）；人物不投射也不接收遮蔽（深度遍藏人 +
+  // 蒙版跳过合成，见 roomAO.js）。
   if(sceneAoEnabled&&lightBudget().ao)roomAO.render(characterOutlineRoots().concat(petSystem?.outlineRoots()||[]),{toon:furnitureStyle==='toon',strength:furnitureStyle==='toon'?1:.35});
   if(thinOutlines)furnitureHalo.renderOutlines(thinOutlines,true);
   if(finishEnabled&&quality!=='eco')roomFinish.render(lightPhase,finishBlend);

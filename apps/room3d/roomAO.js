@@ -4,20 +4,22 @@ import {FullScreenQuad} from 'three/addons/postprocessing/Pass.js';
 // 场景环境光遮蔽（SAO 式屏幕空间采样），给墙角、家具底部补接触阴影。
 // 正交相机深度线性：viewZ = near + depth*(far-near)，无需透视重建，稳定可靠。
 // 采样只认「邻域更近 + 高差适中」的几何——隔墙另一侧的房间不会污染本侧。
-// 人物：接收场景遮蔽（画面上站在暗角里的小人也会被遮蔽压暗），但不投射——
-// 深度遍临时隐藏角色/宠物根，遮蔽只由场景几何产生，人物身边不出接触暗晕
-// （人物自己的落影交给 dropShadow，不与 AO 打架）。
+// 人物：不投射遮蔽——深度遍临时隐藏角色/宠物根，遮蔽只由场景几何产生，
+// 人物身边不出接触暗晕（人物自己的落影交给 dropShadow，不与 AO 打架）。
+// 也不接收——深度遍里没有人物，角色像素算出的遮蔽其实是身后家具的纹路，
+// 会像「透过身体看到身后家具」一样印在角色身上；蒙版遍在同一深度缓冲上
+// 把人物补画成纯白，合成时蒙版像素跳过遮蔽。
 // 卡通画风：遮蔽二值化为硬边色带，乘冷调阴影色而非压黑；原始画风：平滑衰减。
 export function createRoomAO(renderer,scene,camera){
  let image=null,depthTarget=null,width=0,height=0;
  const size=new T.Vector2();
  const vertexShader='varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
  const material=new T.ShaderMaterial({depthTest:false,depthWrite:false,toneMapped:false,
-  uniforms:{image:{value:null},depth:{value:null},
+  uniforms:{image:{value:null},depth:{value:null},mask:{value:null},
    uNear:{value:.1},uFar:{value:200},uRadius:{value:.02},uStrength:{value:.5},
    uShade:{value:new T.Color('#b9b6dd')},uToon:{value:1}},
   vertexShader,
-  fragmentShader:`varying vec2 vUv;uniform sampler2D image;uniform sampler2D depth;
+  fragmentShader:`varying vec2 vUv;uniform sampler2D image;uniform sampler2D depth;uniform sampler2D mask;
    uniform float uNear,uFar,uRadius,uStrength,uToon;uniform vec3 uShade;
    vec3 srgbToLinear(vec3 c){return mix(c/12.92,pow((c+.055)/1.055,vec3(2.4)),step(.04045,c));}
    float zOf(vec2 uv){return uNear+texture2D(depth,uv).x*(uFar-uNear);}
@@ -38,6 +40,9 @@ export function createRoomAO(renderer,scene,camera){
      }
     }
     occ/=max(wsum,1.);
+    // 人物像素跳过遮蔽合成（蒙版由含人遍在同一深度上补画，见 render）——
+    // 深度遍藏了人物，角色像素算出的遮蔽其实是身后家具的纹路。
+    occ*=1.-step(.5,texture2D(mask,vUv).r);
     vec3 col;
     if(uToon>.5){
      // 卡渲：二值遮蔽带，smoothstep 出干净边缘；乘冷调阴影色（同色阶暗档思路）。
@@ -49,6 +54,10 @@ export function createRoomAO(renderer,scene,camera){
     #include <colorspace_fragment>
    }`});
  const quad=new FullScreenQuad(material);
+ // 人物蒙版：画在独立图层（30 避开 dropShadow 的 1 与 homelyForeground 的 31），
+ // 换纯白不透明材质——蒙版只认覆盖，不认角色贴图与明暗。
+ const MASK_LAYER=30,swap=[];
+ const maskMaterial=new T.MeshBasicMaterial({color:0xffffff,toneMapped:false,depthWrite:false});
  return {
   render(roots,{toon=true,strength=.5,radius=.14}={}){
    renderer.getDrawingBufferSize(size);
@@ -63,6 +72,7 @@ export function createRoomAO(renderer,scene,camera){
     depthTarget=new T.WebGLRenderTarget(hw,hh,{depthTexture});
     material.uniforms.image.value=image;
     material.uniforms.depth.value=depthTexture;
+    material.uniforms.mask.value=depthTarget.texture;
     width=w;height=h;
    }
    material.uniforms.uNear.value=camera.near;material.uniforms.uFar.value=camera.far;
@@ -76,15 +86,34 @@ export function createRoomAO(renderer,scene,camera){
    try{
     renderer.copyFramebufferToTexture(image);
     // 人物不投射遮蔽：深度遍临时藏起角色与宠物根（只藏可见的，其余本来就看不见）。
-    for(const root of roots){if(root?.visible){hidden.push(root);root.visible=false;}}
+    // 藏的同时把人物网格换成蒙版材质、挪到独立图层，深度遍后补画蒙版。
+    for(const root of roots){
+     if(!root?.visible)continue;
+     hidden.push(root);root.visible=false;
+     root.traverse(o=>{if(o.isMesh){swap.push([o,o.material]);o.material=maskMaterial;o.layers.enable(MASK_LAYER);}});
+    }
     scene.background=null;renderer.shadowMap.enabled=false;renderer.autoClear=true;
     // 半分辨率渲一遍场景取深度：AO 是低频信息，1/2 深度足够，省 3/4 像素成本。
     renderer.setRenderTarget(depthTarget);renderer.render(scene,camera);
     for(const root of hidden)root.visible=true;hidden.length=0;
+    // 人物蒙版：只清颜色不清深度——保住场景深度供 AO 采样与深度测试，人物
+    // 过深度测试的部分才进蒙版（被身前家具挡住的自动剔除），深度不写回。
+    renderer.setClearColor(0x000000,0);renderer.autoClear=false;
+    renderer.clear(true,false,false);
+    if(swap.length){
+     const layerMask=camera.layers.mask;
+     camera.layers.set(MASK_LAYER);
+     renderer.render(scene,camera);
+     camera.layers.mask=layerMask;
+    }
+    for(const [mesh,material] of swap){mesh.material=material;mesh.layers.disable(MASK_LAYER);}
+    swap.length=0;
     renderer.setRenderTarget(null);
     quad.render(renderer);
    }finally{
     for(const root of hidden)root.visible=true;
+    for(const [mesh,material] of swap){mesh.material=material;mesh.layers.disable(MASK_LAYER);}
+    swap.length=0;
     scene.background=background;renderer.shadowMap.enabled=shadows;renderer.autoClear=autoClear;
     renderer.setClearColor(clearColor,clearAlpha);renderer.setRenderTarget(target);
    }
