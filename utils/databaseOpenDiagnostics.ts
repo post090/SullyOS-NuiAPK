@@ -12,7 +12,13 @@ type CheckpointPhase = typeof checkpointPhases[number];
 type Details = { requestedVersion?: number; fromVersion?: number; actualVersion?: number; requestId?: number; persisted?: boolean };
 type Entry = Details & { phase: Phase; at: number; build: string; buildId?: string; session?: string; seq?: number; elapsedMs?: number; mode?: 'standalone' | 'browser'; errorCategory?: typeof categories[number] };
 const buildId = typeof __APP_BUILD_ID__ === 'undefined' ? 'development' : __APP_BUILD_ID__;
-const session = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+// 会话 ID 惰性生成：本文件会经 db.ts 的依赖链被拖进 amsg worker bundle（见
+// scripts/worker-bundle-options.mjs），而 Cloudflare 模块 Worker 上传的 10021
+// 预执行校验禁止在全局作用域生成随机值——顶层调用 crypto.randomUUID() 会让
+// worker 的 wrangler deploy / 自更新全部被拒（2026-10 实测，部署卡死在旧版）。
+// 首次取用时才计算并缓存，页面语义不变（一次会话一个 ID）。
+let sessionCache: string | undefined;
+const session = () => sessionCache ??= globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const connections = new WeakMap<IDBDatabase, Details>();
 let entries: Entry[] = [], checkpoints: Partial<Record<CheckpointPhase, Entry>> = {};
 let seq = 0, requestId = 0, started = false, held = false, scheduled = false, dirty = false, pruned = false;
@@ -74,7 +80,7 @@ export function flushDatabaseOpenDiagnostics(): void {
   dirty = false;
   try {
     // Each page owns its key: concurrent pages cannot overwrite each other's event ring.
-    localStorage.setItem(PREFIX + session, JSON.stringify(entries));
+    localStorage.setItem(PREFIX + session(), JSON.stringify(entries));
     for (const phase of checkpointPhases) {
       const entry = checkpoints[phase];
       if (!entry) continue;
@@ -84,7 +90,7 @@ export function flushDatabaseOpenDiagnostics(): void {
     }
     if (!pruned) {
       pruned = true;
-      const history = sessionKeys().filter(key => key !== PREFIX + session).map(key => ({ key, at: savedEntries(key).at(-1)?.at || 0 }))
+      const history = sessionKeys().filter(key => key !== PREFIX + session()).map(key => ({ key, at: savedEntries(key).at(-1)?.at || 0 }))
         .sort((a, b) => b.at - a.at);
       // Only diagnostics keys are eligible; no application data or caches are touched.
       for (const { key } of history.slice(SESSION_LIMIT - 1)) localStorage.removeItem(key);
@@ -102,7 +108,7 @@ function schedulePersistence() {
 
 /** Cheap in-memory breadcrumbs. No storage access on the open/upgrade critical path. */
 export function recordDatabaseOpen(phase: Phase, details: Details = {}, error?: unknown): void {
-  const entry: Entry = { phase, at: Date.now(), build: BUILD_LABEL, buildId, session, seq: ++seq,
+  const entry: Entry = { phase, at: Date.now(), build: BUILD_LABEL, buildId, session: session(), seq: ++seq,
     elapsedMs: Math.round(performance.now()), mode: mode() };
   for (const field of ['requestedVersion', 'fromVersion', 'actualVersion', 'requestId', 'persisted'] as const) {
     if (details[field] !== undefined) (entry as any)[field] = details[field];
@@ -182,7 +188,7 @@ export function databaseOpenDiagnostic(): string {
 }
 
 export function databaseDiagnosticReport(failure?: { name: string; message: string }): string {
-  return ['SullyOS 本地数据库诊断', `构建：${BUILD_LABEL}`, `构建 ID：${buildId}`, `本次页面：${session}（${mode()}）`,
+  return ['SullyOS 本地数据库诊断', `构建：${BUILD_LABEL}`, `构建 ID：${buildId}`, `本次页面：${session()}（${mode()}）`,
     typeof location !== 'undefined' && `页面：${location.origin}${location.pathname}`,
     typeof navigator !== 'undefined' && `浏览器：${navigator.userAgent}`,
     failure && `错误：${failure.name}: ${failure.message}`, databaseOpenDiagnostic()].filter(Boolean).join('\n');

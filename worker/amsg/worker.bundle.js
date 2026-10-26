@@ -765,7 +765,7 @@ var init_buildInfo = __esm({
   "utils/buildInfo.ts"() {
     "use strict";
     init_appVersion();
-    BUILD_LABEL = `${"main"}@${"0be487fb"}`;
+    BUILD_LABEL = `${"main"}@${"5ea062f0"}`;
   }
 });
 
@@ -824,7 +824,7 @@ function flushDatabaseOpenDiagnostics() {
   if (!dirty) return;
   dirty = false;
   try {
-    localStorage.setItem(PREFIX + session, JSON.stringify(entries));
+    localStorage.setItem(PREFIX + session(), JSON.stringify(entries));
     for (const phase of checkpointPhases) {
       const entry = checkpoints[phase];
       if (!entry) continue;
@@ -837,7 +837,7 @@ function flushDatabaseOpenDiagnostics() {
     }
     if (!pruned) {
       pruned = true;
-      const history = sessionKeys().filter((key) => key !== PREFIX + session).map((key) => ({ key, at: savedEntries(key).at(-1)?.at || 0 })).sort((a, b) => b.at - a.at);
+      const history = sessionKeys().filter((key) => key !== PREFIX + session()).map((key) => ({ key, at: savedEntries(key).at(-1)?.at || 0 })).sort((a, b) => b.at - a.at);
       for (const { key } of history.slice(SESSION_LIMIT - 1)) localStorage.removeItem(key);
     }
   } catch {
@@ -859,7 +859,7 @@ function recordDatabaseOpen(phase, details = {}, error) {
     at: Date.now(),
     build: BUILD_LABEL,
     buildId,
-    session,
+    session: session(),
     seq: ++seq,
     elapsedMs: Math.round(performance.now()),
     mode: mode()
@@ -884,7 +884,7 @@ function beginDatabaseOpen(requestedVersion) {
 function associateDatabaseOpen(db, id, requestedVersion) {
   connections.set(db, { requestId: id, requestedVersion, actualVersion: db.version });
 }
-var PREFIX, CHECKPOINT_PREFIX, LIMIT, SESSION_LIMIT, phases, categories, checkpointPhases, buildId, session, connections, entries, checkpoints, seq, requestId, held, scheduled, dirty, pruned;
+var PREFIX, CHECKPOINT_PREFIX, LIMIT, SESSION_LIMIT, phases, categories, checkpointPhases, buildId, sessionCache, session, connections, entries, checkpoints, seq, requestId, held, scheduled, dirty, pruned;
 var init_databaseOpenDiagnostics = __esm({
   "utils/databaseOpenDiagnostics.ts"() {
     "use strict";
@@ -897,7 +897,7 @@ var init_databaseOpenDiagnostics = __esm({
     categories = ["duplicate-index-id", "blocked", "timeout", "version", "abort", "invalid-state", "other"];
     checkpointPhases = ["open-ready", "read-ready", "upgrade-committed"];
     buildId = typeof __APP_BUILD_ID__ === "undefined" ? "development" : __APP_BUILD_ID__;
-    session = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    session = () => sessionCache ??= globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     connections = /* @__PURE__ */ new WeakMap();
     entries = [];
     checkpoints = {};
