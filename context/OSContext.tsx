@@ -1854,6 +1854,14 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           /^Directory exists$/i,
           /^File does not exist$/i,
           /^Share canceled$/i,
+          // @capacitor/geolocation 原生层的预期内 reject：FusedLocationProvider 拿不到
+          // 当前位置（室内/刚开机）、系统定位服务关着、无 GMS 机型。JS 侧 geo.ts 已
+          // 回退 navigator.geolocation 或降级为「定位未知」提示词，业务无影响——
+          // 但 native bridge 不论 JS 怎么 catch 都会把 reject 冒泡到 console.error，
+          // 开着真实定位的 APK 每轮聊天都会刷一条红字（见 user-location.md 的失败语义）。
+          /^location unavailable$/i,
+          /^location disabled$/i,
+          /^Google Play Services not available$/i,
       ];
       const isExpectedPluginNoise = (msg: string): boolean =>
           EXPECTED_PLUGIN_NOISE.some(re => re.test(msg.trim()));
@@ -4881,8 +4889,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               'life_records', 'med_plans', 'life_record_settings',
               // v69 资产系统（钱包/智能家居）——建表时漏登记，导致备份不含钱包数据，这里补齐
               'char_wallets', 'wallet_transactions', 'char_homes',
-              // v70 上岸计划（求职工作台）：会话/岗位卡/笔记/简历（已脱敏）
-              'job_sessions', 'job_positions', 'job_notes', 'job_resumes'
+              // v70 上岸计划（求职工作台）：会话/岗位卡/笔记/简历（已脱敏）；
+              // v71 竞争力档案（job_profile，单份 id='main'）。导入端 importFullData
+              // 均支持恢复，漏导则换机后求职进度全丢。
+              'job_sessions', 'job_positions', 'job_notes', 'job_resumes', 'job_profile',
+              // 角色小红书主页存档（xhs_owned_posts）——角色发过的帖子原文，
+              // 导入端有「角色小红书主页」恢复段，不在清单则备份不含
+              'xhs_owned_posts'
           ];
 
           if (mode === 'full') {
@@ -5259,6 +5272,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               life_records: 'lifeRecords',
               med_plans: 'medPlans',
               life_record_settings: 'lifeRecordSettings',
+              // v69 资产系统 + v70/v71 上岸计划 + 角色小红书主页。字段名与 db.ts
+              // 旧版整库导出 / importFullData 恢复段（runSection '钱包档案' 等）完全
+              // 一致；漏登记时流式导出撞「未配置备份字段」直接失败（Export Failed）。
+              char_wallets: 'charWallets',
+              wallet_transactions: 'walletTransactions',
+              char_homes: 'charHomes',
+              job_sessions: 'jobSessions',
+              job_positions: 'jobPositions',
+              job_notes: 'jobNotes',
+              job_resumes: 'jobResumes',
+              job_profile: 'jobProfiles',
+              xhs_owned_posts: 'xhsOwnedPosts',
           };
           const prewrittenStores: BackupManifest['stores'] = {};
           // Vectors retain the existing binary format, read one record at a time.
