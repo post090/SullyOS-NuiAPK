@@ -3,6 +3,8 @@
 // 见 docs/superpowers/specs/2026-08-09-pwa-custom-icon-design.md
 
 import React, { useState, useRef, useCallback } from 'react';
+import NativeAppIconEditor from './NativeAppIconEditor';
+import { isAndroidAppIcon } from '../../utils/nativeAppIcon';
 import { useOS } from '../../context/OSContext';
 import { processImageToBlob } from '../../utils/file';
 import { putImageBlob, useBlobRefUrl } from '../../utils/blobRef';
@@ -11,7 +13,7 @@ import { injectPwaIcon, clearPwaIcon, PWA_ICON_APP_ID, PWA_CLASSIC_ICON_VALUE, P
 
 type Mode = 'upload' | 'url';
 
-const AppIconEditor: React.FC = () => {
+const PwaAppIconEditor: React.FC = () => {
   const { customIcons, setCustomIcon, addToast } = useOS();
   const currentValue: string | undefined = customIcons[PWA_ICON_APP_ID];
 
@@ -267,4 +269,6 @@ const AppIconEditor: React.FC = () => {
   );
 };
 
-export default AppIconEditor;
+export default function AppIconEditor() {
+  return isAndroidAppIcon() ? <NativeAppIconEditor /> : <PwaAppIconEditor />;
+}

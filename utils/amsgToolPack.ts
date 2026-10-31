@@ -1,3 +1,4 @@
+import {cleanCharacterWeatherCities} from './characterWeather';
 /**
  * amsgToolPack — 满血 v2 服务端工具循环的云端状态数据形状（前端 / amsg worker 共用）
  *
@@ -55,6 +56,7 @@ export interface AmsgToolConfig extends AgenticToolRealtimeConfig {
    * key 留空走免费的 Open-Meteo，所以只要开关加城市就够。
    */
   weatherEnabled: boolean;
+  weatherCities?: Record<string, string>;
   weatherCity?: string;
   weatherApiKey?: string;
   /** 热榜要拉哪几个平台（继承来的 newsEnabled 管开关）。留空 worker 用内置默认。 */
@@ -134,6 +136,7 @@ export const buildToolConfig = (
     proxyWorkerUrl: getProxyWorkerUrl(),
     weatherEnabled: !!rc?.weatherEnabled,
     ...(rc?.userHolidays ? { userHolidays: { ...rc.userHolidays, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone } } : {}),
+    ...(rc?.weatherCities ? {weatherCities: cleanCharacterWeatherCities(rc.weatherCities)} : {}),
     ...(rc?.weatherCity ? { weatherCity: rc.weatherCity } : {}),
     ...(rc?.weatherApiKey ? { weatherApiKey: rc.weatherApiKey } : {}),
     newsEnabled: !!rc?.newsEnabled,
@@ -217,6 +220,7 @@ export const parseToolConfig = (value: string): AmsgToolConfig | null => {
       // 原生 tools 是整个模型请求的传输偏好，排程工具也需要它。
       delete parsed.mcpServers;
     }
+    if (parsed.weatherCities !== undefined) parsed.weatherCities = cleanCharacterWeatherCities(parsed.weatherCities);
     return parsed as AmsgToolConfig;
   } catch {
     return null;

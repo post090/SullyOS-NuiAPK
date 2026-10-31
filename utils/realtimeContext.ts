@@ -71,6 +71,7 @@ export interface RealtimeConfig {
     // 天气配置
     weatherEnabled: boolean;
     weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
+    weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
     weatherCity: string;    // 城市名 (如 "北京"、"Beijing"，Open-Meteo 支持中文)
 
     // 新闻配置
@@ -397,7 +398,9 @@ export const RealtimeContextManager = {
 
         const now = Date.now();
         const cacheMs = config.cacheMinutes * 60 * 1000;
-        const cacheKey = city.trim().toLowerCase();
+        // 缓存键带上 apiKey（上游不变量）：换了 key 等于换了数据源账号，旧缓存不能继续命中。
+        // 城市仍做归一化（trim + 小写），多角色多城市分桶不受影响。
+        const cacheKey = city.trim().toLowerCase() + '|' + (config.weatherApiKey || '');
 
         // 检查缓存
         const cached = weatherCacheMap.get(cacheKey);

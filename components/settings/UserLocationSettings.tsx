@@ -1,21 +1,23 @@
+import {CharacterLocationAudience} from './CharacterAwarenessSettings';
+import type {CharacterProfile} from '../../types';
 import React, { useEffect, useState } from 'react';
 import { useLocalBackHandler } from '../../hooks/useLocalBackHandler';
 import { describeDevicePositionError, getCurrentPositionSmart } from '../../utils/geo';
 import { getUserLocationPreview } from '../../utils/userLocation';
 import { MAX_PRIVACY_REGIONS, type UserLocationConfig, type UserPrivacyRegion } from '../../utils/userLocationPrivacy';
 
-export type UserLocationSettingsPage = 'main' | 'location' | 'regions' | 'amap' | 'geoapify' | 'about';
+export type UserLocationSettingsPage = 'characters' | 'main' | 'location' | 'regions' | 'amap' | 'geoapify' | 'about';
 export const USER_LOCATION_PAGE_TITLES: Record<UserLocationSettingsPage, string> = {
-    main: '实时感知配置', location: '真实定位', regions: '隐藏地点', amap: '高德 API', geoapify: '全球街道 · Geoapify', about: '定位说明',
+    characters: '定位可见角色', main: '实时感知配置', location: '真实定位', regions: '隐藏地点', amap: '高德 API', geoapify: '全球街道 · Geoapify', about: '定位说明',
 };
 export const getUserLocationParentPage = (page: UserLocationSettingsPage): UserLocationSettingsPage =>
     page === 'location' || page === 'main' ? 'main' : 'location';
 
-export default function UserLocationSettings({ value, onChange, onSave, page, onNavigate, onBusyChange, userName }: {
+export default function UserLocationSettings({ value, onChange, onSave, page, onNavigate, onBusyChange, userName, characters = [] }: {
     value: UserLocationConfig; onChange: (config: UserLocationConfig) => void; onSave: () => boolean;
     page: UserLocationSettingsPage; onNavigate: (page: UserLocationSettingsPage) => void;
     onBusyChange?: (busy: boolean) => void;
-    userName?: string;
+    userName?: string; characters?: Pick<CharacterProfile, 'id'|'name'|'avatar'>[];
 }) {
     const [busy, setBusy] = useState(false), [message, setMessage] = useState('');
     const [previewText, setPreviewText] = useState('');
@@ -64,6 +66,7 @@ export default function UserLocationSettings({ value, onChange, onSave, page, on
         {page === 'location' && <>
         <label className="block text-xs font-bold text-slate-700">定位方式<select aria-label="定位方式" value={value.provider || 'basic'} disabled={busy} onChange={event => { const provider = event.target.value as NonNullable<UserLocationConfig['provider']>; setMessage(''); onChange({ ...value, provider }); if (provider === 'amap' || provider === 'geoapify') onNavigate(provider); }} className="mt-2 w-full rounded-xl border border-sky-200 bg-white p-3 text-xs"><option value="basic">免费 · 全球大概地区，不用填 Key</option><option value="amap">高德 · 街道和附近地点，需要填 Key</option><option value="geoapify">全球 · 街道地址，Geoapify 免费 Key</option></select></label>
         <nav aria-label="真实定位设置">
+            {pageLink('characters', '可见角色', value.characterIds === undefined ? '所有角色可见 · 点击单独授权' : `仅选中的 ${characters.filter(c=>value.characterIds?.includes(c.id)).length} 位角色可见`)}
             {pageLink('regions', '隐藏地点', value.regions.length ? `已设置 ${value.regions.length} 个地点 · 点击修改` : '把家、公司等不想发送的地点隐藏')}
             {pageLink('amap', '高德 API', value.amapKey?.trim() ? (value.provider === 'amap' ? '已填写 Key · 当前使用高德' : '已填写 Key · 当前未选用') : '查街道和附近地点 · 申请并填写 Key')}
             {pageLink('geoapify', '全球街道 · Geoapify', value.geoapifyKey?.trim() ? (value.provider === 'geoapify' ? '已填写 Key · 当前使用全球街道' : '已填写 Key · 当前未选用') : '适合海外 · 注册复制免费 Key，不用绑信用卡')}
@@ -87,6 +90,7 @@ export default function UserLocationSettings({ value, onChange, onSave, page, on
             <p className="text-[11px] text-slate-500">预览会先保存当前设置。</p>
         </div>
         </>}
+        {page === 'characters' && <CharacterLocationAudience characters={characters} value={value.characterIds} onChange={characterIds=>onChange({...value,characterIds})}/>}
         {page === 'amap' && <div className="space-y-3">
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-6 text-amber-900">
                 添加 Key 时，服务平台请选择 <strong className="inline-block rounded-md bg-amber-200 px-2 text-sm font-bold">Web服务</strong>

@@ -16,6 +16,7 @@ export enum AppID {
   Schedule = 'schedule',
   Room = 'room',
   CheckPhone = 'check_phone',
+  FriendFeed = 'friend_feed',
   Social = 'social',
   Study = 'study',
   FAQ = 'faq',
@@ -298,6 +299,9 @@ export interface CallAutoStartConfig {
   };
 }
 
+// 语音转文字（STT）服务商。电话麦克风收音可选任意已配置 Key 的平台（与 TTS 独立），或浏览器自带免费识别。
+export type SttProvider = 'minimax' | 'fishaudio' | 'elevenlabs' | 'browser';
+
 export interface VisionApiConfig {
   /** 开启后，聊天图片先由独立视觉模型转成文字，再交给主对话模型。 */
   enabled: boolean;
@@ -319,9 +323,12 @@ export interface AudioApiConfig {
 }
 
 /** A complete dialogue endpoint, separate from TTS/vision configuration. */
-export type DialogueApiConfig = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature'>;
+export type DialogueApiConfig = Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'stream' | 'temperature' | 'maxTokens' | 'apiType'>;
 
 export interface APIConfig {
+  apiType?: 'openai' | 'anthropic';
+  /** 私聊单次生成上限；未设置沿用 8000，不改变历史范围。 */
+  maxTokens?: number;
   baseUrl: string;
   apiKey: string;
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
@@ -335,6 +342,8 @@ export interface APIConfig {
   minimaxRegion?: MinimaxRegion;
   // 语音服务商三选一。缺省 → 'minimax'。
   ttsProvider?: TtsProvider;
+  // 语音转文字（STT）服务商。可与 ttsProvider 不同（只允许选已填好 Key 的平台或 'browser'）。
+  sttProvider?: SttProvider;
   // 鱼声 Fish Audio API Key（https://fish.audio/）。仅 ttsProvider === 'fishaudio' 时使用。
   fishAudioApiKey?: string;
   // 鱼声默认模型（s2.1-pro / s2-pro / s1）。缺省 → 's2.1-pro'。
@@ -364,11 +373,14 @@ export interface APIConfig {
   };
   // Replicate token (r8_xxx) for ACE-Step song generation in 写歌 App.
   aceStepApiKey?: string;
-  // 语音输入（STT）方案：'system'（缺省）用系统 RecognitionService（国产 ROM 常被裁剪/很慢）；
+  // 语音输入（STT）方案（fork）：'system'（缺省）用系统 RecognitionService（国产 ROM 常被裁剪/很慢）；
   // 'cloud' 走 OpenAI 兼容 /v1/audio/transcriptions（录完一次性上传识别）。
+  // 注意与上游的 sttProvider（官方三厂商模型）是两回事——那个管通话的识别路由，
+  // 这个管 fork 面试语音练习等场景的通用云端识别。旧数据存的是 sttProvider:'cloud'，
+  // 读取处带 legacy 兜底。
   // 推荐免费方案：硅基流动 SiliconFlow 的 FunAudioLLM/SenseVoiceSmall（免费、中文效果好）。
-  sttProvider?: 'system' | 'cloud';
-  // 云端 STT 接口地址（如 https://api.siliconflow.cn），仅 sttProvider === 'cloud' 时使用。
+  sttCloudMode?: 'system' | 'cloud';
+  // 云端 STT 接口地址（如 https://api.siliconflow.cn），仅 sttCloudMode === 'cloud' 时使用。
   sttBaseUrl?: string;
   sttApiKey?: string;
   // 云端 STT 模型，缺省 'FunAudioLLM/SenseVoiceSmall'。
@@ -391,6 +403,9 @@ export interface ActiveMsg2ApiConfig {
 }
 
 export interface ActiveMsg2GlobalConfig {
+  /** Confirmed by /config-check, scoped to the Worker URL that was checked. */
+  anthropicMessagesSupported?: boolean;
+  anthropicMessagesWorkerUrl?: string;
   userId: string;
   /** 单用户 Cloudflare Worker 地址，例如 https://amsg.your-worker.dev */
   workerUrl: string;
@@ -648,7 +663,8 @@ export interface RealtimeConfig {
   // 天气配置
   weatherEnabled: boolean;
   weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
-  weatherCity: string;    // 城市名（如 "北京"、"Beijing"）
+  weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
+    weatherCity: string;    // 城市名（如 "北京"、"Beijing"）
 
   // 新闻配置
   newsEnabled: boolean;
@@ -2490,6 +2506,8 @@ export interface HomeFigureSlot extends ChibiStudioSlot {
 // --- BANK / SHOP GAME TYPES (NEW) ---
 export interface BankTransaction {
     id: string;
+    /** 旧流水未带类型时按支出读取。金额始终为正数。 */
+    type?: 'expense' | 'income';
     amount: number;
     category: string; 
     note: string;
@@ -4162,7 +4180,7 @@ export type LifeRecordModule = 'period' | 'med' | 'expense' | 'exercise';
 export interface LifeRecord {
     id: string;
     module: LifeRecordModule;
-    /** period: 'start' | 'end'；med: 'taken'；expense: 'expense'；exercise: 'session' */
+    /** period: 'start' | 'end'；med: 'taken'；expense: 'expense' | 'income'；exercise: 'session' */
     kind: string;
     date: string;              // YYYY-MM-DD（事件归属日）
     timestamp: number;
@@ -4488,7 +4506,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'secret_note' | 'text' | 'image' | 'emoji' | 'voice' | 'audio' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
+export type MessageType = 'friend_feed_share_card' | 'friend_feed_card' | 'secret_note' | 'text' | 'image' | 'emoji' | 'voice' | 'audio' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
 
 export interface Message {
     id: number;
@@ -4520,6 +4538,12 @@ export interface Emoji {
 }
 
 export interface FullBackupData {
+    /** 好友圈正文；文字备份单列，完整备份随 assets 保存。 */
+    friendFeed?: import('./utils/friendFeed').FriendFeedState;
+    /** Media-only patches never replace feed text or settings. */
+    friendFeedMedia?: import('./utils/activityBackup').FriendFeedMediaBackup;
+    /** Text records stored in assets; restore only this allowlisted subset. */
+    activityTextAssets?: import('./utils/activityBackup').ActivityTextAsset[];
     /** 纯文字备份单独携带收藏索引，不覆盖整个资源库。 */
     contentFavoritesIndex?: unknown;
     timestamp: number;

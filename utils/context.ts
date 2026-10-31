@@ -623,7 +623,7 @@ const renderCoreContext = async (
             context += `- 名字: ${user.name}\n`;
             context += `- 设定/备注: ${user.bio || '无'}\n\n`;
             if (timeOptions?.includeUserLocation && !timeOptions.skipTimeAwareness) {
-                context += await getUserLocationContext(user.name);
+                context += await getUserLocationContext(user.name, char.id);
             }
             if (char.timeAwarenessEnabled !== false && !timeOptions?.skipTimeAwareness && !timeOptions?.skipUserHoliday) {
                 const holiday = getCachedUserHolidayReminder(user.name, timeOptions?.userHolidays);

@@ -725,6 +725,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
               <Star className="w-6 h-6" weight="fill" />
           </span>
           <span className="text-xs font-bold">收藏</span>
+        </button>,
+        <button key="export-chat" onClick={() => onPanelAction('export-chat')} className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}>
+          <span className={`w-14 h-14 rounded-2xl grid place-items-center shadow-sm border ${acnh ? 'bg-white/70 border-[#e6dab4]' : isDiscordStyle ? 'bg-slate-800 border-slate-600' : 'bg-slate-50 border-slate-200'}`}><BookOpenText className="w-6 h-6" weight="bold" /></span>
+          <span className="text-xs font-bold">导出记录</span>
         </button>
     ].filter(tile=>!compactHome||['transfer','poke','image','reroll','memory-link','favorites'].includes(String(tile.key)));
     const actionPageCount = Math.max(1, Math.ceil(actionTiles.length / ACTION_PAGE_SIZE));

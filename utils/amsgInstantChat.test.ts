@@ -1333,15 +1333,15 @@ describe('探测顺手记下 bundle 版本（workerBundleVersion）', () => {
   beforeEach(() => { (ActiveMsgStore.saveGlobalConfig as any).mockClear(); });
 
   it('probeInstantChatSupportDetailed：问到答案就记版本', async () => {
-    configCheck(200, { instantTick: true, workerVersion: '2099-01-01' });
+    configCheck(200, { instantTick: true, workerVersion: '2099-01-01', anthropicMessages: true });
     await ActiveMsgClient.probeInstantChatSupportDetailed();
-    expect(versionWrites()).toContainEqual({ workerBundleVersion: '2099-01-01' });
+    expect(versionWrites()).toContainEqual({ workerBundleVersion: '2099-01-01', anthropicMessagesSupported: true, anthropicMessagesWorkerUrl: (await ActiveMsgStore.getGlobalConfig()).workerUrl });
   });
 
   it('probeWorkerVersion：老 bundle 不报版本 → 记 null（问到了，确实旧）', async () => {
     configCheck(200, { instantTick: true });
     await ActiveMsgClient.probeWorkerVersion();
-    expect(versionWrites()).toContainEqual({ workerBundleVersion: null });
+    expect(versionWrites()).toContainEqual({ workerBundleVersion: null, anthropicMessagesSupported: false, anthropicMessagesWorkerUrl: (await ActiveMsgStore.getGlobalConfig()).workerUrl });
   });
 
   it('没问到答案（5xx）→ 一个字都不写，存量保持原样', async () => {

@@ -2199,7 +2199,7 @@ export async function processNewMessages(
         //       消息不会被重复处理，去重在这条路径上收益小、误伤大。
         const core = await extractAndStoreMemories(
             toProcess, charId, charName, embeddingConfig, llmConfig, userName, onProgress, true,
-            options.requireAllBatches === true,
+            true, // A failed batch must never be hidden by another batch's successful waterline advance.
         );
 
         if (core.memories.length === 0) {

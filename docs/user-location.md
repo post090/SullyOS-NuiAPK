@@ -81,3 +81,13 @@ Umami 只在 `当前功能启用` 冷启动快照中报告「真实定位」开�
 `utils/userLocation.test.ts` 验证两种服务圈内零网络、边界误差保护、默认关闭、后台禁止、无 IP 回退、原始字段不进提示词、配置损坏、缓存与并发修改；`userLocationContext.test.ts` 对照真实载荷的本地／即时对话、天气旁单次注入、通话／见面共用管线及 fire-pack；`userLocationSettings.test.ts` 验证本机添加、保存后预览和直白示例。`amapUserLocation.test.ts` 验证坐标转换、字段过滤、隔离查询、伪造回程拒绝、取消与清理。所有坐标及服务响应为模拟数据，不定位开发者或用户。
 
 `test/fixtures/user-location.html` 是独立 5192 端口的实际设置组件 + 模拟设备与地图服务验收页。真实设备定位精度、国内网络连通性和各平台权限行为仍需在目标设备验收。
+
+## 按角色授权与天气城市（2026-10-31）
+
+真实定位 → 可见角色：可选「所有角色」或「仅选中的角色」，支持头像列表、搜索、全选和清空。旧配置不带 characterIds 时保持所有角色可见；切到仅选中时初始为空，空列表表示无人可见，新角色不会自动得到授权。列表按角色 ID 保存，损坏的范围配置按未授权处理。范围与隐私圈一起只保存在本机 `os_user_location_privacy_v1`，不进备份、云端或角色卡。
+
+聊天本地／即时对话、电话和见面在发起设备定位前检查目标角色，并在结果返回后再检查一次。未授权时不定位、不查询地图、不注入“位置未知”。后台模板也按角色控制“位置未知”，始终不包含真实位置；本机预览仍由用户主动发起，可独立于授权范围查看。所有原有隐私圈、直连地图与失败不回退规则保留。
+
+天气感知保留默认城市，并提供按角色设置城市的可折叠列表。空白或「恢复默认」沿用默认城市；配置 `RealtimeConfig.weatherCities` 按角色 ID 保存，与真实定位授权和角色时区互不关联。天气缓存按城市与 API Key 隔离；城市失败时不借用别的城市天气。前台聊天选取目标角色的有效城市；后台主动／即时消息通过 tool_config 的城市映射与任务 charId 取城，同样禁止复用其他城市快照。用户自建的主动消息 Worker 需要更新为包含此逻辑的新 bundle，旧 Worker 不识别城市映射。
+
+验收：`test/fixtures/character-awareness.html` 使用模拟角色与本地组件；`characterWeather.test.ts`、`characterAwarenessSettings.test.ts`、`userLocationContext.test.ts` 与 Worker realtimeWorld 测试覆盖选择、恢复默认、未授权零查询、在途撤权和多城市隔离。

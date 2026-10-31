@@ -15,9 +15,12 @@ const isNativePlatform = (): boolean => {
  * 限制：CapacitorHttp 不支持流式，整包响应一次拿回。对 API 测试/模型列表这种小响应无所谓；
  * 别拿它做 SSE 长连接聊天（那是 safeApi 的事，且聊天能跑就别动）。
  */
-export async function nativeFetch(url: string, init: RequestInit = {}): Promise<Response> {
+// 签名对齐 fetch（首个参数收 RequestInfo | URL），这样能直接当 fetchLlm 的传输层用；
+// CapacitorHttp 只需要字符串 URL——Request/URL 对象在入口处归一化。
+export async function nativeFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+    const url = input instanceof Request ? input.url : String(input);
     if (!isNativePlatform()) {
-        return fetch(url, init);
+        return fetch(input, init);
     }
     const headersObj: Record<string, string> = {};
     const h = init.headers;

@@ -885,6 +885,7 @@ export const failInstantChatPending = async (
   // 这一轮随 chat 段上云的作废回执跟着作废：没销账 = 还是「未告知」，下一轮会重新
   // 注入。销掉的话角色永远不知道那条任务被作废过，聊天里许下的承诺就这么没了。
   discardInstantChatExpiredNotices(charId, uuid);
+  void import('./friendFeedEmotion').then(m=>m.settleFriendFeedCloudTask(charId,uuid,false)).catch(()=>{});
   // 「情绪更新中」那盏灯也在这里熄。
   //
   // 平时它的熄灭信号搭在最后一条回复的推送上（metadata.amsgEmotionDone，见
@@ -923,6 +924,7 @@ export const stopInstantChat = async (charId: string): Promise<void> => {
   markReplyStopped(pending.uuid);
   clearInstantChatPending(charId);
   discardInstantChatExpiredNotices(charId, pending.uuid);
+  void import('./friendFeedEmotion').then(m=>m.settleFriendFeedCloudTask(charId,pending.uuid,false)).catch(()=>{});
   announceEmotionDone(charId);
   settleCloudApiCall({ id: cloudApiCallLogId(pending.uuid), ok: false });
   // Issue cancellation immediately; history reconciliation must not delay the remote abort.

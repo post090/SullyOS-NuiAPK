@@ -5,6 +5,7 @@ import { isDevDebugAvailable, subscribeDevDebugAvailability, unlockDevDebug } fr
 import { trackEvent } from '../../utils/analytics';
 import AndroidUpdateControl from './AndroidUpdateControl';
 import DatabaseDiagnosticDetails from '../DatabaseDiagnosticDetails';
+import StartupDiagnosticDetails from '../StartupDiagnosticDetails';
 
 /**
  * Settings 底部的版本信息脚注。
@@ -116,6 +117,7 @@ const VersionInfo: React.FC = () => {
             <AndroidUpdateControl />
             <div className="mt-3 w-full max-w-md text-xs text-slate-500">
                 <DatabaseDiagnosticDetails />
+                <StartupDiagnosticDetails />
             </div>
         </div>
     );

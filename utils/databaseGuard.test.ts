@@ -30,10 +30,13 @@ it('does not mount default-seeding/sync providers until storage is readable, inc
   function Child() { React.useEffect(() => { mounted(); }, []); return React.createElement('p', null, '桌面'); }
   await mount(React.createElement(Child));
   expect(mounted).not.toHaveBeenCalled();
-  expect(host.textContent).toContain('正在读取本地数据');
+  expect(host.textContent).toBe('');
+  expect(host.querySelector('.database-guard')).toBeNull();
+  expect(host.querySelector<HTMLElement>('[data-database-pending]')?.hidden).toBe(true);
   await act(async () => ready());
   expect(mounted).toHaveBeenCalledOnce();
   expect(host.textContent).toBe('桌面');
+  expect(host.querySelector('[data-database-pending]')).toBeNull();
 });
 
 it('shares the entry check through StrictMode and mounts the desktop without waiting for the SW', async () => {

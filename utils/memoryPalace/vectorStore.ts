@@ -8,7 +8,8 @@
 
 import type { EmbeddingConfig, MemoryNode, MemoryVector, RemoteVectorConfig } from './types';
 import { MemoryNodeDB, MemoryVectorDB, ensureFloat32 } from './db';
-import { getEmbeddings, cosineSimilarity } from './embedding';
+import { cosineSimilarity } from './embedding';
+import { getMemoryEmbeddings } from './memoryEmbeddings';
 import { upsertVector as remoteUpsert } from './supabaseVector';
 
 const DEDUP_THRESHOLD = 0.9;
@@ -39,8 +40,7 @@ export async function vectorizeAndStore(
     if (nodes.length === 0) return { stored: 0, skipped: 0 };
 
     // 1. 批量向量化
-    const texts = nodes.map(n => n.content);
-    const vectors = await getEmbeddings(texts, embeddingConfig);
+    const vectors = await getMemoryEmbeddings(nodes, embeddingConfig);
     if (vectors.length !== nodes.length || vectors.some(vector => !vector.length || !Array.from(vector).every(Number.isFinite))) {
         throw new Error('Embedding 返回的向量不完整或无效，本次没有写入记忆');
     }
@@ -213,18 +213,18 @@ export async function rebuildAllVectors(
     console.log(`🔄 [VectorStore] 开始重建 ${total} 条向量（${embeddingConfig.model}）...`);
     onProgress?.(0, total);
 
-    // 分窗批量 embedding，避免一次性把所有 text 塞进 getEmbeddings 导致内存峰值过高
-    // （一两千条 × 1024 维 Float32Array ≈ 数 MB，且 getEmbeddings 内部还要并行多批）
+    // 分窗批量 embedding，避免一次性把所有 text 塞进 getMemoryEmbeddings 导致内存峰值过高
+    // （一两千条 × 1024 维 Float32Array ≈ 数 MB，且内部还要并行多批）。
+    // 窗内用 getMemoryEmbeddings：长的事件盒摘要会分段 embedding 后合并为单位向量。
     const WINDOW_SIZE = 50; // 每窗 50 条，内部 getEmbeddings 再按 BATCH_SIZE=10 分批
     let rebuilt = 0;
 
     for (let start = 0; start < total; start += WINDOW_SIZE) {
         const end = Math.min(start + WINDOW_SIZE, total);
         const windowNodes = embeddedNodes.slice(start, end);
-        const windowTexts = windowNodes.map(n => n.content);
 
         // 这一窗的向量
-        const vectors = await getEmbeddings(windowTexts, embeddingConfig);
+        const vectors = await getMemoryEmbeddings(windowNodes, embeddingConfig);
 
         // 逐条落库 + 同步远程
         for (let i = 0; i < windowNodes.length; i++) {
@@ -285,7 +285,7 @@ export async function embedMissingVectors(
     for (let start = 0; start < total; start += WINDOW_SIZE) {
         const end = Math.min(start + WINDOW_SIZE, total);
         const windowNodes = missing.slice(start, end);
-        const vectors = await getEmbeddings(windowNodes.map(n => n.content), embeddingConfig);
+        const vectors = await getMemoryEmbeddings(windowNodes, embeddingConfig);
 
         for (let i = 0; i < windowNodes.length; i++) {
             const node = windowNodes[i];

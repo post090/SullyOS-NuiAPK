@@ -1,4 +1,5 @@
 import { withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
+import { dialogueMaxTokens } from './characterApi';
 /**
  * applyAssistantPostProcessing — 抽自 hooks/useChatAI.ts 的 sendMessage 后处理管线
  *
@@ -59,6 +60,8 @@ import { announceScheduleChanges, applyAssistantScheduleChanges } from './schedu
 import { isBlobRef } from './blobRef';
 import { consumeSARChatSurfaceChunk, type SARModuleSurfaceMeta } from './vrWorld/sarModuleRuntime';
 import { stripLeakedSourceTags } from './sanitize';
+import {consumeFriendFeedMainReply} from './friendFeedMain';
+import {consumeHomeVisitReply} from './homeVisitReply';
 
 // ─── 模块内辅助 ──────────────────────────────────────────────────────────────
 
@@ -325,6 +328,8 @@ async function xhsReplyComment(conf: { mcpUrl: string }, feedId: string, xsecTok
  * discriminator, 其他字段是 flat 而不是 nested payload (减少 push body 嵌套).
  */
 export type PostProcessDirective =
+    | { type: 'friend_feed_reply'; action: unknown }
+    | { type: 'home_visit_reply'; action: unknown }
     | { type: 'poke' }
     | { type: 'transfer'; amount: number }
     | { type: 'transfer_accept' }
@@ -364,6 +369,10 @@ function reconstructDirectiveTags(directives: PostProcessDirective[] | undefined
     const parts: string[] = [];
     for (const d of directives) {
         switch (d.type) {
+            case 'friend_feed_reply':
+            case 'home_visit_reply':
+                // Consumed through the structured side-action path, never reconstructed into a bubble.
+                break;
             case 'poke':
                 parts.push('[[ACTION:POKE]]');
                 break;
@@ -457,7 +466,7 @@ export interface PostProcessApiCall {
     /** Authorization 头等 */
     headers: Record<string, string>;
     /** 当前生效的 API (拿 model / 兜底其他配置用) */
-    effectiveApi: { baseUrl: string; apiKey: string; model: string };
+    effectiveApi: { baseUrl: string; apiKey: string; model: string; maxTokens?: number };
 }
 
 export interface PostProcessMusicHooks {
@@ -770,6 +779,10 @@ export async function applyAssistantPostProcessing(
     };
 
     // ─── Step 1: 初次粗洗 ───
+    rawAiContent = await replyStep(() => consumeHomeVisitReply(char.id, rawAiContent,
+        (directives || []).flatMap(d=>d.type==='home_visit_reply'?[d.action]:[])));
+    rawAiContent = await replyStep(() => consumeFriendFeedMainReply(char.id, rawAiContent,
+        (directives || []).flatMap(d => d.type === 'friend_feed_reply' ? [d.action] : [])));
     let aiContent = replayedTagPrefix ? `${replayedTagPrefix}${rawAiContent}` : rawAiContent;
     aiContent = normalizeAiContent(aiContent);
     // 先于 lead-in / 二轮渲染消费：否则控制标签会作为普通气泡短暂闪给用户看。
@@ -1070,11 +1083,11 @@ export async function applyAssistantPostProcessing(
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: recallMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: recallMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '调阅记忆' }));
                 updateTokenUsage(data, historyMsgCount, 'recall');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 addToast(`已调用 ${year}-${month} 详细记忆`, 'info');
             } catch (recallErr: any) {
                 ctx.replyRun?.check();
@@ -1111,12 +1124,12 @@ export async function applyAssistantPostProcessing(
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: searchMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: searchMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '联网搜索' }));
                 updateTokenUsage(data, historyMsgCount, 'search');
                 aiContent = data.choices?.[0]?.message?.content || '';
                 console.log('🔍 [Search] AI基于搜索结果生成的新回复:', aiContent.slice(0, 100) + '...');
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 addToast(`🔍 搜索完成: ${searchQuery}`, 'success');
             } else if (sr.reason === 'no_api_key') {
                 console.log('🔍 [Search] 检测到搜索意图但未配置API Key');
@@ -1393,11 +1406,11 @@ ${lines.join(String.fromCharCode(10))}
             data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                 method: 'POST', headers,
-                body: JSON.stringify({ model: effectiveApi.model, messages: msgs, temperature: 0.8, max_tokens: 8000, stream: false })
+                body: JSON.stringify({ model: effectiveApi.model, messages: msgs, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
             }, 2, 0, { ...apiLogMeta, purpose: '写日记' }));
             updateTokenUsage(data, historyMsgCount, 'diary-fallback');
             aiContent = data.choices?.[0]?.message?.content || '';
-            aiContent = normalizeAiContent(aiContent);
+            aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
         } catch (fallbackErr) {
             ctx.replyRun?.check();
             console.error('📖 [Diary Fallback] 也失败了:', fallbackErr);
@@ -1448,11 +1461,11 @@ ${lines.join(String.fromCharCode(10))}
                         data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                             method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                         }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' }));
                         updateTokenUsage(data, historyMsgCount, 'read-diary-notion');
                         aiContent = data.choices?.[0]?.message?.content || '';
-                        aiContent = normalizeAiContent(aiContent);
+                        aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                         addToast(`📖 ${char.name}翻阅了${targetDate}的日记`, 'info');
                     } else if (rdr.reason === 'empty_content') {
                         console.log('📖 [ReadDiary] 日记内容为空');
@@ -1481,11 +1494,11 @@ ${lines.join(String.fromCharCode(10))}
                         data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                             method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                         }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' }));
                         updateTokenUsage(data, historyMsgCount, 'no-diary-notion');
                         aiContent = data.choices?.[0]?.message?.content || '';
-                        aiContent = normalizeAiContent(aiContent);
+                        aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                     }
                 } catch (e) {
                     ctx.replyRun?.check();
@@ -1626,11 +1639,11 @@ ${lines.join(String.fromCharCode(10))}
                         data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                             method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                            body: JSON.stringify({ model: effectiveApi.model, messages: diaryMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                         }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' }));
                         updateTokenUsage(data, historyMsgCount, 'read-diary-feishu');
                         aiContent = data.choices?.[0]?.message?.content || '';
-                        aiContent = normalizeAiContent(aiContent);
+                        aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                         addToast(`📖 ${char.name}翻阅了${targetDate}的飞书日记`, 'info');
                     } else if (fsrdr.reason === 'unreachable') {
                         // 同 Notion：没查成不等于那天没写，别把没跑成说成没写。
@@ -1653,11 +1666,11 @@ ${lines.join(String.fromCharCode(10))}
                         data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                             method: 'POST', headers,
-                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                            body: JSON.stringify({ model: effectiveApi.model, messages: nodiaryMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                         }, 2, 0, { ...apiLogMeta, purpose: '翻阅日记' }));
                         updateTokenUsage(data, historyMsgCount, 'no-diary-feishu');
                         aiContent = data.choices?.[0]?.message?.content || '';
-                        aiContent = normalizeAiContent(aiContent);
+                        aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                     }
                 } catch (e) {
                     ctx.replyRun?.check();
@@ -1705,11 +1718,11 @@ ${lines.join(String.fromCharCode(10))}
                     data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                         method: 'POST', headers,
-                        body: JSON.stringify({ model: effectiveApi.model, messages: noteMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                        body: JSON.stringify({ model: effectiveApi.model, messages: noteMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                     }, 2, 0, { ...apiLogMeta, purpose: '翻阅笔记' }));
                     updateTokenUsage(data, historyMsgCount, 'read-note');
                     aiContent = data.choices?.[0]?.message?.content || '';
-                    aiContent = normalizeAiContent(aiContent);
+                    aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                     addToast(`📝 ${char.name}翻阅了关于"${keyword}"的笔记`, 'info');
                 } else if (rnr.reason === 'empty_content') {
                     console.log('📝 [ReadNote] 笔记内容为空');
@@ -1736,11 +1749,11 @@ ${lines.join(String.fromCharCode(10))}
                     data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                         method: 'POST', headers,
-                        body: JSON.stringify({ model: effectiveApi.model, messages: nonoteMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                        body: JSON.stringify({ model: effectiveApi.model, messages: nonoteMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                     }, 2, 0, { ...apiLogMeta, purpose: '翻阅笔记' }));
                     updateTokenUsage(data, historyMsgCount, 'read-note-empty');
                     aiContent = data.choices?.[0]?.message?.content || '';
-                    aiContent = normalizeAiContent(aiContent);
+                    aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 }
             } catch (e) {
                 ctx.replyRun?.check();
@@ -1934,11 +1947,11 @@ ${lines.join(String.fromCharCode(10))}
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '小红书搜索' }));
                 updateTokenUsage(data, historyMsgCount, 'xhs-search');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 await replyStep(async () => persistMessage({
                     charId: char.id,
                     role: 'system',
@@ -1982,11 +1995,11 @@ ${lines.join(String.fromCharCode(10))}
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '小红书浏览' }));
                 updateTokenUsage(data, historyMsgCount, 'xhs-browse');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 addToast(`📕 ${char.name}刷了会儿小红书`, 'info');
             } else {
                 // xbr.reason === 'no_results' (not_enabled 已被外层 if 排除)
@@ -2319,11 +2332,11 @@ ${lines.join(String.fromCharCode(10))}
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '小红书主页' }));
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 addToast(`📕 ${char.name}看了看自己的小红书`, 'info');
             } else if (xmpr.reason === 'no_identity') {
                 console.warn('📕 [XHS] 无昵称也无userId，无法查看主页。请在设置中填写。');
@@ -2338,11 +2351,11 @@ ${lines.join(String.fromCharCode(10))}
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '小红书主页' }));
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
                 addToast(`📕 ${char.name}看了看自己的小红书`, 'info');
             } else if (xmpr.reason === 'unreachable') {
                 // 主页没打开、降级搜昵称也没跑通 = 小红书那头连不上, 一条笔记都没拿到。
@@ -2358,11 +2371,11 @@ ${lines.join(String.fromCharCode(10))}
                 data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                     method: 'POST', headers,
-                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                    body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
                 }, 2, 0, { ...apiLogMeta, purpose: '小红书主页' }));
                 updateTokenUsage(data, historyMsgCount, 'xhs-profile-unreachable');
                 aiContent = data.choices?.[0]?.message?.content || '';
-                aiContent = normalizeAiContent(aiContent);
+                aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
             }
         } catch (e) {
             ctx.replyRun?.check();
@@ -2411,11 +2424,11 @@ ${lines.join(String.fromCharCode(10))}
             data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: ctx.replyRun?.signal,
                 method: 'POST', headers,
-                body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                body: JSON.stringify({ model: effectiveApi.model, messages: xhsMessages, temperature: 0.8, max_tokens: dialogueMaxTokens(effectiveApi), stream: false })
             }, 2, 0, { ...apiLogMeta, purpose: '小红书详情' }));
             updateTokenUsage(data, historyMsgCount, 'xhs-detail');
             aiContent = data.choices?.[0]?.message?.content || '';
-            aiContent = normalizeAiContent(aiContent);
+            aiContent = normalizeAiContent(await replyStep(async () => consumeHomeVisitReply(char.id, await consumeFriendFeedMainReply(char.id, aiContent))));
             addToast(`📕 ${char.name}${detailFailed ? '尝试查看一条笔记（加载失败）' : '看了一条笔记的详情'}`, 'info');
             }  // end of else (xdr.ok)
         } catch (e) {

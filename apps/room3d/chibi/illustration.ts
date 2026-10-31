@@ -1,5 +1,6 @@
 import * as T from 'three';
 import { dropShadowUniforms } from './dropShadow';
+import {getCharacterStyle,type CharacterStyle} from './characterStyle';
 
 // A single material pass: retain painted features, cutout hair, skinning and
 // garment colours, but replace physical highlights with two painted tones.
@@ -9,6 +10,7 @@ const originals = new WeakMap<T.MeshStandardMaterial, {
   compile: T.MeshStandardMaterial['onBeforeCompile'];
   cache: T.MeshStandardMaterial['customProgramCacheKey'];
   toneMapped: boolean;
+  style: CharacterStyle;
 }>();
 // 装饰代次：卸载→重装若沿用同一 cacheKey，three.js 会按 programs 缓存直接
 // 复用旧程序、跳过 onBeforeCompile 且不重接 uniforms——重装时新建的 uniform
@@ -16,7 +18,7 @@ const originals = new WeakMap<T.MeshStandardMaterial, {
 // 单元，脸上会出十字状的假阴影（贴图线稿被当成距离场）。每次重装递增代次，
 // 逼着走一次全新编译，uniform 重新接线。
 const installGenerations = new WeakMap<T.MeshStandardMaterial, number>();
-type RoomLightUniforms = {roomShadeTint:{value:T.Color};roomSunTint:{value:T.Color};roomBrightness:{value:number};roomSunContrast:{value:number}};
+type RoomLightUniforms = {roomShadeTint:{value:T.Color};roomSunTint:{value:T.Color};roomBrightness:{value:number};roomSunContrast:{value:number};roomShadeSoftness?:{value:number}};
 const roomTints = new WeakMap<T.MeshStandardMaterial, {value:T.Color}>();
 const roomLights = new WeakMap<T.MeshStandardMaterial, {enabled:{value:number}; uniforms:RoomLightUniforms; cel:{value:number}}>();
 // 主光方向（视野空间，表面→光），脸部 SDF 阴影的横向扫动阈值用；由家园编辑器每帧刷新。
@@ -72,7 +74,7 @@ export function setCharacterRoomTint(root:T.Object3D,color:string){
  });
 }
 
-export function setCharacterIllustration(root:T.Object3D, enabled=true) {
+export function setCharacterIllustration(root:T.Object3D, enabled=true, style=getCharacterStyle()) {
   const seen = new Set<T.Material>();
   root.traverse(object => {
     if (!(object instanceof T.Mesh)) return;
@@ -89,16 +91,28 @@ export function setCharacterIllustration(root:T.Object3D, enabled=true) {
         roomTints.delete(material);
         roomLights.delete(material);
       } else {
-        if (original) continue;
-        const saved = {compile:material.onBeforeCompile, cache:material.customProgramCacheKey, toneMapped:material.toneMapped};
+        // 上游：画风没变且已装过就跳过；变了走下面的重装（fresh uniforms + 代次兜底）。
+        if (original?.style===style) continue;
+        // 防闭包堆叠（上游模式）：saved 必须存「最初基底」——重装时 original 已有
+        // 就先还原基底再重新包装；若把当前包装闭包（material.onBeforeCompile）直接
+        // 存进去，每次换画风都会在旧包装外再叠一层，uniform 前缀和 shader 替换
+        // 逐次翻倍，旧闭包里捕获的 uniform 对象还会劫持新接线。
+        const saved = original ?? {compile:material.onBeforeCompile, cache:material.customProgramCacheKey, toneMapped:material.toneMapped, style};
+        if(original){
+          material.onBeforeCompile=saved.compile;
+          material.customProgramCacheKey=saved.cache;
+        }
         // 代次进 cacheKey：同一材质卸载再重装也拿到新 key，绕开 three.js 的
         // programs 缓存复用（见 installGenerations 注释），uniform 重编译重接线。
         const generation=(installGenerations.get(material)||0)+1;
         installGenerations.set(material,generation);
         const cacheKey = material.customProgramCacheKey()+'-g'+generation;
-        originals.set(material,saved);
-        const roomTint={value:new T.Color('#ffffff')};roomTints.set(material,roomTint);
-        const room={enabled:{value:0},uniforms:{roomShadeTint:{value:new T.Color('#ffffff')},roomSunTint:{value:new T.Color('#ffffff')},roomBrightness:{value:1},roomSunContrast:{value:0},roomBounceUp:{value:new T.Color('#ffffff')},roomBounceDown:{value:new T.Color('#ffffff')}},cel:{value:0}};roomLights.set(material,room);
+        originals.set(material,{...saved,style});
+        // 重装复用已有的 room/tint 对象：换画风不能弄断 setCharacterRoomLighting
+        // 绑定的 uniforms 接线（roomBrightness 等共享对象保持身份不变）；首次
+        // 安装才新建。
+        const roomTint=roomTints.get(material)??{value:new T.Color('#ffffff')};roomTints.set(material,roomTint);
+        const room=roomLights.get(material)??{enabled:{value:0},uniforms:{roomShadeTint:{value:new T.Color('#ffffff')},roomSunTint:{value:new T.Color('#ffffff')},roomBrightness:{value:1},roomSunContrast:{value:0},roomShadeSoftness:{value:0},roomBounceUp:{value:new T.Color('#ffffff')},roomBounceDown:{value:new T.Color('#ffffff')}},cel:{value:0}};roomLights.set(material,room);
         const faceSdf = material.userData.faceSdf as T.Texture | undefined;
         const eyeMask = material.userData.eyeMask as T.Texture | undefined;
         // 色带行：脸/皮肤/头发/身体各占一行（采样 v 取行中心）。
@@ -106,6 +120,39 @@ export function setCharacterIllustration(root:T.Object3D, enabled=true) {
         material.toneMapped = false;
         material.onBeforeCompile = (shader,renderer) => {
           saved.compile.call(material,shader,renderer);
+          if(style==='legacy'){
+            // legacy = fork 原版简单双档 shader（art/toon-style-2026/illustration-before
+            // 的逐字节复刻，上游同款）：最小 6 个 uniform 前缀，不注入
+            // cel/SDF/落影/ramp/反弹色——「切回旧画风」要与旧版渲染完全一致。
+            shader.uniforms.characterRoomTint=roomTint;
+            shader.uniforms.characterRoomEnabled=room.enabled;
+            Object.assign(shader.uniforms,room.uniforms);
+            shader.fragmentShader='uniform vec3 characterRoomTint;\nuniform float characterRoomEnabled;\nuniform vec3 roomShadeTint;\nuniform vec3 roomSunTint;\nuniform float roomBrightness;\nuniform float roomSunContrast;\n'+shader.fragmentShader;
+            shader.fragmentShader = shader.fragmentShader.replace(
+              'vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;',
+              `
+            vec3 inkLight = normalize(mat3(viewMatrix) * vec3(-0.45, 0.8, 0.65));
+            float inkFacing = dot(normal, inkLight);
+            float inkEdge = max(fwidth(inkFacing) * 1.5, 0.012);
+            float inkLit = smoothstep(0.12 - inkEdge, 0.12 + inkEdge, inkFacing);
+            float inkShade = mix(${material.userData.illustrationFace ? '0.90' : '0.70'}, 1.0, inkLit);
+            vec3 inkTint = mix(vec3(0.96, 0.97, 1.0), vec3(1.0), inkLit);
+            vec3 inkPreview = diffuseColor.rgb * inkShade * inkTint * characterRoomTint;
+            vec3 inkWeights = vec3(.2126,.7152,.0722);
+            float inkBase = max(dot(diffuseColor.rgb,inkWeights),.001);
+            float inkEnergy = dot(totalDiffuse,inkWeights)/inkBase;
+            // directDiffuse includes window occlusion and the actual light direction.
+            float inkDirect = dot(reflectedLight.directDiffuse,inkWeights)/inkBase;
+            float inkSun = smoothstep(.18,.85,inkDirect);
+            float inkRoomShade = mix(${material.userData.illustrationFace ? '.84' : '.68'},1.0,smoothstep(.18,.82,inkEnergy));
+            inkRoomShade += inkSun * mix(.12,.38,roomSunContrast);
+            vec3 inkRoomTint = mix(roomShadeTint,roomSunTint,inkSun);
+            vec3 inkRoom = diffuseColor.rgb * inkRoomShade * inkRoomTint * roomBrightness;
+            vec3 outgoingLight = mix(inkPreview,inkRoom,characterRoomEnabled);
+            `,
+            );
+            return;
+          }
           shader.uniforms.characterRoomTint=roomTint;
           shader.uniforms.characterRoomEnabled=room.enabled;
           shader.uniforms.characterCel=room.cel;
@@ -125,7 +172,8 @@ export function setCharacterIllustration(root:T.Object3D, enabled=true) {
           shader.uniforms.rampMap={value:getCharacterRamp()};
           shader.uniforms.characterLightDirection=characterLightDirection;
           Object.assign(shader.uniforms,room.uniforms);
-          shader.fragmentShader='uniform vec3 characterRoomTint;\nuniform float characterRoomEnabled;\nuniform float characterCel;\nuniform sampler2D dropShadowMask;\nuniform vec2 dropShadowScreen;\nuniform vec2 dropShadowDrop;\nuniform float dropShadowEnabled;\n'+(faceSdf?'uniform sampler2D faceSdfMap;\n':'')+(eyeMask?'uniform sampler2D eyeMaskMap;\nuniform float eyeGlowOn;\n':'')+'uniform sampler2D rampMap;\nuniform vec3 characterLightDirection;\nuniform vec3 roomShadeTint;\nuniform vec3 roomSunTint;\nuniform float roomBrightness;\nuniform float roomSunContrast;\nuniform vec3 roomBounceUp;\nuniform vec3 roomBounceDown;\n'+shader.fragmentShader;
+          shader.fragmentShader='uniform vec3 characterRoomTint;\nuniform float characterRoomEnabled;\nuniform float characterCel;\nuniform sampler2D dropShadowMask;\nuniform vec2 dropShadowScreen;\nuniform vec2 dropShadowDrop;\nuniform float dropShadowEnabled;\n'+(faceSdf?'uniform sampler2D faceSdfMap;\n':'')+(eyeMask?'uniform sampler2D eyeMaskMap;\nuniform float eyeGlowOn;\n':'')+'uniform sampler2D rampMap;\nuniform vec3 characterLightDirection;\nuniform vec3 roomShadeTint;\nuniform vec3 roomSunTint;\nuniform float roomBrightness;\nuniform float roomSunContrast;\nuniform float roomShadeSoftness;\nuniform vec3 roomBounceUp;\nuniform vec3 roomBounceDown;\n'+shader.fragmentShader;
+          if(style==='modern')shader.fragmentShader = shader.fragmentShader.replace('#include <shadowmap_pars_fragment>', '#include <shadowmap_pars_fragment>\n#include <shadowmask_pars_fragment>');
           shader.fragmentShader = shader.fragmentShader.replace(
             'vec3 outgoingLight = totalDiffuse + totalSpecular + totalEmissiveRadiance;',
             `
@@ -236,7 +284,7 @@ export function setCharacterIllustration(root:T.Object3D, enabled=true) {
             `,
           );
         };
-        material.customProgramCacheKey = () => cacheKey + '-character-illustration-v18-' + (material.userData.illustrationFace ? (material.userData.eyeMask ? (material.userData.faceSdf ? 'face-sdf-glow' : 'face-glow') : (material.userData.faceSdf ? 'face-sdf' : 'face')) : material.userData.illustrationSkin ? 'skin' : material.userData.illustrationHair ? 'hair' : 'body');
+        material.customProgramCacheKey = () => cacheKey + '-character-illustration-v18-' + style + '-' + (material.userData.illustrationFace ? (material.userData.eyeMask ? (material.userData.faceSdf ? 'face-sdf-glow' : 'face-glow') : (material.userData.faceSdf ? 'face-sdf' : 'face')) : material.userData.illustrationSkin ? 'skin' : (material.userData.illustrationHair || /hair/.test(object.name)) ? 'hair' : 'body');
       }
       material.userData.characterIllustration = enabled;
       material.needsUpdate = true;

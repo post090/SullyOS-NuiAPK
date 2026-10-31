@@ -59,7 +59,7 @@ export interface BuildChatPayloadInput {
     /** Local phase timings only; no request content or telemetry. */
     onPreparationStage?: (event:ChatPreparationEvent)=>void;
     /** Replace ChatApp output/tool rules, retaining the same context pipeline and ordering. */
-    appPrompt?: { rules: string; scene: string };
+    appPrompt?: { rules: string; scene: string; messages?: Array<{role: 'user' | 'assistant'; content: string}> };
     /** Present only while ChatApp is embedded in the home phone; never persisted. */
     homePhoneContext?: string;
     char: CharacterProfile;
@@ -377,6 +377,8 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
 
     // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──
     const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
+    // Scene materials participate in keyword/depth handling, without fake private-message IDs.
+    if (input.appPrompt?.messages) cleanedApiMessages.push(...input.appPrompt.messages);
 
     const parts = await prepare('prompt',()=>ChatPrompts.buildSystemPromptParts(
         char, userProfile, groups, emojis, categories, recentMsgsHint,
@@ -562,6 +564,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     }
     input.signal?.throwIfAborted();
 
+    if (!input.appPrompt || input.recallEntryPoint === 'home_3d') {
+        const {homeVisitPrompt}=await import('./homeVisits');
+        const visits=await homeVisitPrompt(char);
+        if(visits)fullMessages.push({role:'system',content:visits});
+        input.signal?.throwIfAborted();
+    }
     // Dev 开关：多条 system 合并成开头一条，A/B 对照中转适配层对多 system 的计量行为。
     let finalMessages = fullMessages;
     if (isSystemMessageMergeEnabled()) {

@@ -14,7 +14,17 @@ import { resolveElevenLabsApiKey, getElevenLabsVoiceActingGuide, stripElevenLabs
 import { resolveTtsProvider, getElevenLabsModel, getTtsProvider, getVoicePromptOverride } from '../utils/ttsProvider';
 import { canSynthesizeSpeech, stripTtsMarkupForDisplay, synthesizeSpeechDetailed as synthesizeSpeechRoutedDetailed } from '../utils/ttsRouter';
 import { CANTONESE_VOICE_SUPPORT_NOTE, VOICE_LANGUAGE_OPTIONS, voiceLanguageAnalyticsValue, voiceLanguagePromptLabel } from '../utils/voiceLanguage';
-import { startStt, isSttSupported, type SttSession, type SttProviderConfig } from '../utils/speechToText';
+import { startStt,
+  startCloudStt,
+  isSttSupported,
+  resolveSttProvider,
+  isSttProviderConfigured,
+  getSttProviderLabel,
+  STT_PROVIDER_OPTIONS,
+  type SttSession,
+  type SttProviderConfig,
+} from '../utils/speechToText';
+import { resolveDialogueApi } from '../utils/characterApi';
 // 原生通话通知（APK）：通话开始/挂断时同步 Android 前台服务状态，fork 通话自启链路依赖。
 import { startNativeCallNotification, updateNativeCallNotification, stopNativeCallNotification, getNativeCallState } from '../utils/runtime/nativeRuntime';
 import { ContextBuilder } from '../utils/context';
@@ -522,7 +532,7 @@ ${currentVoiceActingGuide()}
   return [coreContext, timeContext, callPrompt, voiceLangPrompt].filter(Boolean).join('\n\n');
 };
 const CallApp: React.FC = () => {
-  const { closeApp, openApp, characters, activeCharacterId, addToast, logSystemError, apiConfig, userProfile, customThemes, suspendCall, suspendedCall, clearSuspendedCall, updateCharacter, characterGroups, groups, realtimeConfig, callAutoStart, consumeCallAutoStart, memoryPalaceConfig } = useOS();
+  const { closeApp, openApp, characters, activeCharacterId, addToast, logSystemError, apiConfig, updateApiConfig, userProfile, customThemes, suspendCall, suspendedCall, clearSuspendedCall, updateCharacter, characterGroups, groups, realtimeConfig, callAutoStart, consumeCallAutoStart, memoryPalaceConfig } = useOS();
 
   const [viewMode, setViewMode] = useState<ViewMode>('role-select');
   // 进正式通话（in-call）：把正在放的音乐淡出暂停；离开通话（挂断/返回）时之前在放就淡入恢复。
@@ -601,6 +611,7 @@ const CallApp: React.FC = () => {
   const [isListening, setIsListening] = useState(false);
   // 云端 STT：录完上传识别中的状态（UI 显示转圈而不是瞎等）
   const [sttRecognizing, setSttRecognizing] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   // 录音波形：最近的音量采样（云端=真实音量，系统=伪随机律动，因为麦被 RecognitionService 占用拿不到音频流）
   const [sttLevels, setSttLevels] = useState<number[]>([]);
   const sttSessionRef = useRef<SttSession | null>(null);
@@ -610,21 +621,26 @@ const CallApp: React.FC = () => {
   const patchCallSettings = (p: Partial<CallSettings>) => {
     setCallSettings(prev => { const next = { ...prev, ...p }; saveCallSettings(next); return next; });
   };
+  // 上游 provider 模型（MiniMax/鱼声/ElevenLabs/浏览器）：非面试场景的默认识别路由。
+  const activeSttProvider = resolveSttProvider(apiConfig);
+  // Fork 通用云端链（OpenAI 兼容端点）：面试场景覆盖 > 通话独立设置 > 全局云端配置。
+  // 命中（provider='cloud'）时走 startCloudStt，否则走上游的 startStt（provider 模型）。
   const sttCfg = useMemo<SttProviderConfig>(() => {
     // 取值链：面试场景 sttOverride > 通话独立设置 > 全局配置
     const ov = activeScene?.sttOverride;
     if (ov && ov.apiKey) return { provider: 'cloud', baseUrl: ov.baseUrl, apiKey: ov.apiKey, model: ov.model };
     const cs = callSettings.stt;
     if (cs?.apiKey) return { provider: 'cloud', baseUrl: cs.baseUrl, apiKey: cs.apiKey, model: cs.model };
+    const globalCloud = apiConfig?.sttCloudMode === 'cloud' || (apiConfig as { sttProvider?: string })?.sttProvider === 'cloud';
     return {
-      // 没填 Key 时 startStt 会回退系统识别，这里也按 system 处理，伪波形才会正常补上
-      provider: apiConfig?.sttProvider === 'cloud' && apiConfig?.sttApiKey ? 'cloud' : 'system',
+      // 没填 Key 时按 system 处理，走上游 provider 路由，伪波形才会正常补上
+      provider: globalCloud && apiConfig?.sttApiKey ? 'cloud' : 'system',
       baseUrl: apiConfig?.sttBaseUrl,
       apiKey: apiConfig?.sttApiKey,
       model: apiConfig?.sttModel,
     };
-  }, [activeScene?.sttOverride, callSettings.stt, apiConfig?.sttProvider, apiConfig?.sttBaseUrl, apiConfig?.sttApiKey, apiConfig?.sttModel]);
-  const sttSupported = useMemo(() => isSttSupported(sttCfg), [sttCfg]);
+  }, [activeScene?.sttOverride, callSettings.stt, apiConfig?.sttCloudMode, (apiConfig as { sttProvider?: string })?.sttProvider, apiConfig?.sttBaseUrl, apiConfig?.sttApiKey, apiConfig?.sttModel]);
+  const sttSupported = useMemo(() => sttCfg.provider === 'cloud' ? true : isSttSupported(apiConfig), [sttCfg, apiConfig]);
   const [audioUrl, setAudioUrl] = useState<string>('');
   const [traceId, setTraceId] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -1576,8 +1592,11 @@ const CallApp: React.FC = () => {
   }, [isListening, sttCfg.provider]);
 
   const toggleStt = async () => {
-    // 识别中（云端上传阶段）忽略点击，避免重入
-    if (sttRecognizing) return;
+    // 识别中（云端上传 / provider 转写阶段）忽略点击，避免重入
+    if (sttRecognizing || isTranscribing) {
+      addToast('正在转写刚才的语音，请稍候…', 'info');
+      return;
+    }
     // If we are currently listening (sync ref), stop immediately
     if (isListeningRef.current) {
       isListeningRef.current = false;
@@ -1590,10 +1609,13 @@ const CallApp: React.FC = () => {
       } catch { /* ignore */ }
       return;
     }
-    if (!sttSupported) { addToast('当前环境不支持语音输入', 'info'); return; }
+    if (!sttSupported) {
+      addToast('当前环境不支持语音输入，可在「设置 → 其他 API」配置 STT Key 或云端识别', 'info');
+      return;
+    }
     // Prevent concurrent starts
     if (sttSessionRef.current) {
-      try { await sttSessionRef.current.stop(); } catch {}
+      try { await sttSessionRef.current.stop(); } catch { /* ignore */ }
       sttSessionRef.current = null;
     }
     try {
@@ -1635,19 +1657,24 @@ const CallApp: React.FC = () => {
         const note = (p.mode !== 'followAudio' && p.analysis) ? buildStatusNote(p.analysis) : undefined;
         void handleTurn(text, note, p.mode === 'followAudio' ? (p.blob || undefined) : undefined);
       };
-      sttSessionRef.current = await startStt('zh-CN', {
-        onPartial: () => { /* 语音走自动发送，不再往输入框灌字 */ },
-        onFinal: (t) => {
+      // 统一回调：托管流程（面试）走自动发送；普通通话把转写落输入框手动发。
+      const sttCallbacks = {
+        onPartial: (t: string) => {
           const p = utterRef.current;
-          if (!p || !p.active) { setDraftInput(t); return; } // 兵底：非托管流程（普通通话）仍回落输入框
+          if (!p || !p.active) setDraftInput(t); // 语音走自动发送的场景不往输入框灌字
+        },
+        onFinal: (t: string) => {
+          const p = utterRef.current;
+          if (!p || !p.active) { setDraftInput(t); return; } // 兜底：非托管流程（普通通话）仍回落输入框
           p.sttText = t || '';
           if (p.mode === 'twoTrack' && !p.audioSettled) setSttPhase('analyzing');
           maybeAutoSend();
         },
-        onError: (m) => { if (m) addToast(m, 'info'); },
-        onLevel: (lv) => setSttLevels(prev => [...prev.slice(-27), lv]),
+        onError: (m: string) => { if (m) addToast(m, 'info'); },
+        onLevel: (lv: number) => setSttLevels(prev => [...prev.slice(-27), lv]),
         onRecognizing: () => { setSttRecognizing(true); setSttPhase(prev => (prev === 'listening' ? 'transcribing' : prev)); },
-        onAudioBlob: (blob) => {
+        onTranscribing: (busy: boolean) => { setIsTranscribing(busy); if (busy) setSttPhase(prev => (prev === 'listening' ? 'transcribing' : prev)); },
+        onAudioBlob: (blob: Blob) => {
           const p = utterRef.current;
           // 跟随全局·一次调用：不另调分析模型，存下音频，等转写就绪一起塞进主模型回复请求
           if (p && p.active && p.mode === 'followAudio') {
@@ -1691,17 +1718,26 @@ const CallApp: React.FC = () => {
           isListeningRef.current = false;
           setIsListening(false);
           setSttRecognizing(false);
+          setIsTranscribing(false);
           setSttLevels([]);
           sttSessionRef.current = null;
           // mic 关了：若还没发出，进入转写/分析等待态
           const p = utterRef.current;
           if (p && p.active && !p.sent) setSttPhase(p.mode === 'oneShot' ? 'analyzing' : 'transcribing');
         },
-      }, sttCfg);
+      };
+      // 路由：命中 fork 通用云端链（面试覆盖/通话设置/全局云端，有 Key）→ startCloudStt
+      //（要 onAudioBlob/onLevel，上游 provider 模型给不出音频流）；否则走上游 provider 模型。
+      if (sttCfg.provider === 'cloud' && sttCfg.apiKey) {
+        sttSessionRef.current = await startCloudStt('zh-CN', sttCallbacks, sttCfg);
+      } else {
+        sttSessionRef.current = await startStt(voiceLang === 'yue' ? 'yue' : 'zh-CN', sttCallbacks, apiConfig);
+      }
     } catch (e: any) {
       isListeningRef.current = false;
       setIsListening(false);
       setSttRecognizing(false);
+      setIsTranscribing(false);
       sttSessionRef.current = null;
       // native 端的异常 e.message 可能是对象（Capacitor 原生 Error），String 兜底防渲染成 [object Object]。
       const raw = (e && (e.message || String(e))) || '无法启动语音输入';
@@ -3543,6 +3579,16 @@ ${sentencePlan}`;
             incrementalVoice={activeTtsProvider === 'elevenlabs' ? incrementalVoice : undefined}
             onIncrementalChange={activeTtsProvider === 'elevenlabs' ? setIncrementalVoice : undefined}
             preferences={callPreferences}
+            apiConfig={apiConfig}
+            onSttProviderChange={provider => {
+              if (!isSttProviderConfigured(provider, apiConfig)) {
+                const opt = STT_PROVIDER_OPTIONS.find(o => o.id === provider);
+                addToast(`${opt?.keyHint || '请先填写对应 Key'}（可在「设置 → 其他 API」配置）`, 'info');
+                return;
+              }
+              updateApiConfig({ sttProvider: provider });
+              addToast(`语音转文字已切到 ${getSttProviderLabel(provider)}`, 'success');
+            }}
             accentColor={accentColor}
             lightTheme={lightTheme}
             onChange={next => {
@@ -4463,12 +4509,18 @@ ${sentencePlan}`;
             {sttSupported && (
               <button
                 onClick={toggleStt}
-                disabled={sendingBusy || sttRecognizing}
-                title={sttRecognizing ? '识别中…' : isListening ? '结束语音输入' : '按一下开始说话'}
+                disabled={sendingBusy || sttRecognizing || isTranscribing}
+                title={sttRecognizing || isTranscribing ? '正在转写语音…' : isListening ? '结束语音输入' : `按一下开始说话（${sttCfg.provider === 'cloud' ? '云端识别' : getSttProviderLabel(activeSttProvider)}）`}
                 className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 disabled:opacity-60"
-                style={isListening || sttRecognizing ? { background: '#f0569f', boxShadow: '0 0 14px #f0569f99' } : { background: isProLight ? 'rgba(37,99,235,0.1)' : 'rgba(255,255,255,0.08)' }}
+                style={
+                  isListening || sttRecognizing
+                    ? { background: '#f0569f', boxShadow: '0 0 14px #f0569f99' }
+                    : isTranscribing
+                      ? { background: `${accentColor}55`, boxShadow: `0 0 12px ${accentColor}66` }
+                      : { background: isProLight ? 'rgba(37,99,235,0.1)' : 'rgba(255,255,255,0.08)' }
+                }
               >
-                {sttRecognizing
+                {sttRecognizing || isTranscribing
                   ? <span className="w-4 h-4 rounded-full border-2 border-white/30 animate-spin" style={{ borderTopColor: '#fff' }} />
                   : <Microphone size={18} weight="fill" className={isListening ? 'text-white animate-pulse' : 'text-white/70'} />}
               </button>
@@ -4478,9 +4530,9 @@ ${sentencePlan}`;
               value={draftInput}
               onChange={(e) => setDraftInput(e.target.value)}
               className="flex-1 min-w-0 bg-transparent px-2 text-sm outline-none placeholder:text-white/35"
-              placeholder={isListening ? '在听你说……' : sendingBusy ? `${selectedChar?.name || '对方'}正在想……` : pendingCallRetryText ? '上次回复中断，可直接重试' : `想对${selectedChar?.name || '对方'}说什么？`}
+              placeholder={isTranscribing ? `正在转写语音（${getSttProviderLabel(activeSttProvider)}）……` : isListening ? '在听你说，说完再点一下麦克风……' : sendingBusy ? `${selectedChar?.name || '对方'}正在想……` : pendingCallRetryText ? '上次回复中断，可直接重试' : `想对${selectedChar?.name || '对方'}说什么？`}
             />
-            <button onClick={() => handleTurn()} disabled={sendingBusy} className="keep-white shrink-0 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition active:scale-95" style={{ backgroundColor: accentColor, boxShadow: `0 0 16px ${accentColor}66` }}>{sendingBusy ? '…' : '说'}</button>
+            <button onClick={() => handleTurn()} disabled={sendingBusy || sttRecognizing || isTranscribing} className="keep-white shrink-0 px-4 py-2 rounded-xl text-sm font-medium text-white disabled:opacity-40 transition active:scale-95" style={{ backgroundColor: accentColor, boxShadow: `0 0 16px ${accentColor}66` }}>{sendingBusy ? '…' : '说'}</button>
           </div>
           {!sendingBusy && pendingCallRetryText && !draftInput.trim() && <div className="text-[10px] text-amber-200/70 mt-1 px-1">上一句话还没得到回复，点击重试即可继续</div>}
           {isListening && (
@@ -4500,13 +4552,17 @@ ${sentencePlan}`;
                   />
                 ))}
               </div>
-              <span className="text-[10px] text-white/40 shrink-0">在听了，点麦克风结束</span>
+              <span className="text-[10px] text-white/40 shrink-0">
+                {sttCfg.provider === 'cloud' || activeSttProvider === 'browser' ? '在听了，点麦克风结束' : `正在录音（${getSttProviderLabel(activeSttProvider)}），说完再点一下麦克风转成文字`}
+              </span>
             </div>
           )}
-          {sttRecognizing && (
+          {(sttRecognizing || (!isListening && isTranscribing)) && (
             <div className="flex items-center gap-2 mt-1.5 px-1">
               <span className="w-3 h-3 rounded-full border-2 border-white/20 shrink-0 animate-spin" style={{ borderTopColor: '#f0569f' }} />
-              <span className="text-[10px] text-white/50 animate-pulse">正在识别语音…</span>
+              <span className="text-[10px] text-white/50 animate-pulse">
+                {sttCfg.provider === 'cloud' ? '正在识别语音…' : `正在通过 ${getSttProviderLabel(activeSttProvider)} 识别刚才那句话……`}
+              </span>
             </div>
           )}
         </div>

@@ -1,4 +1,5 @@
 import {validateCollaborationCss} from '../features/collaboration/appearance';
+import {MEETING_CSS_SCOPE, MEETING_CSS_HINT, MEETING_CSS_PROMPT} from './meetingAppearance';
 import {JOURNAL_AI_CSS_PROMPT,JOURNAL_CSS_SCOPE_REGEX,JOURNAL_CSS_SCOPE_HINT} from './journalAppearance';
 import {SCHEDULE_BEAUTY_PROMPT,SCHEDULE_CSS_SCOPE_REGEX,SCHEDULE_CSS_SCOPE_HINT} from './scheduleAppearance';
 import type {DecorationPreset} from './chatDecoration';
@@ -10,6 +11,7 @@ export const DECORATION_WORKSHOPS=[['whitebox','白框'],['bubbles','气泡'],['
 export type DecorationWorkshop=typeof DECORATION_WORKSHOPS[number][0];
 export const workshopBlock=(category:'avatar'|'background')=>new RegExp(`/\\* sully-composer:${category} \\*/\\n?([\\s\\S]*?)/\\* end-sully-composer:${category} \\*/`,'g');
 export function workshopCss(preset:DecorationPreset,category:DecorationWorkshop){
+ if(category==='date'||category==='story')return preset.parts[category]?.customCss||'';
  if(category==='collaboration')return preset.parts.collaboration?.customCss||'';
  if(category==='journal')return preset.parts.journal?.customCss||'';
  if(category==='schedule')return preset.parts.schedule?.customCss||'';
@@ -34,6 +36,8 @@ export function projectWorkshopPreset(preset:DecorationPreset,category:Decoratio
  return out;
 }
 const scopes={
+ date:[MEETING_CSS_SCOPE,MEETING_CSS_HINT],
+ story:[MEETING_CSS_SCOPE,MEETING_CSS_HINT],
  collaboration:[/^\.collab-ui-root\b/,'.collab-ui-root 及其子元素'],
  journal:[JOURNAL_CSS_SCOPE_REGEX,JOURNAL_CSS_SCOPE_HINT],
  schedule:[SCHEDULE_CSS_SCOPE_REGEX,SCHEDULE_CSS_SCOPE_HINT],
@@ -45,7 +49,7 @@ const scopes={
 } as const;
 export function checkWorkshopCss(category:DecorationWorkshop,css:string){
  if(category==='collaboration'){const check=validateCollaborationCss(css);if(!check.isValid)throw Error(check.errors.slice(0,3).join('；'));return css;}
- if(category==='sound'||category==='date'||category==='story')return;
+ if(category==='sound')return;
  // The old whitebox editor accepts arbitrary CSS. Stable hooks are authoring
  // guidance, not a new hard restriction on existing work. Other makers stay scoped.
  const [scope,hint]=scopes[category];const check=validateScopedCss(css,category==='whitebox'?/^[\s\S]*$/:scope,hint);
@@ -59,6 +63,7 @@ export function workshopPrompt(category:DecorationWorkshop){
  if(category==='journal')return JOURNAL_AI_CSS_PROMPT;
  if(category==='schedule')return SCHEDULE_BEAUTY_PROMPT;
  if(category==='whitebox')return WHITEBOX_AI_PROMPT;
- if(category==='sound'||category==='date'||category==='story')return '';
+ if(category==='date'||category==='story')return MEETING_CSS_PROMPT;
+ if(category==='sound')return '';
  return `为 SullyOS 制作${DECORATION_WORKSHOPS.find(([id])=>id===category)![1]} CSS。仅修改当前类别，保留其他聊天内容的默认样式。可用选择器：${scopes[category][1]}。返回纯 CSS，不要 HTML、脚本或整套页面。不要隐藏正文、操作按钮或破坏滚动。`;
 }

@@ -761,6 +761,10 @@ const processInboxMessageWithPostProcessing = async (
     sarModuleSurface,
   }));
 
+  if(isLastChunk(message) && message.taskUuid) {
+    const {settleFriendFeedCloudTask}=await import('./friendFeedEmotion');
+    await settleFriendFeedCloudTask(char.id,message.taskUuid,true);
+  }
   // ─── 即时对话（amsg2）的情绪评估结果 ───
   // 云端跟主回复并行跑完的那份，挂在最后一条 push 的 metadata 上（装不下时挪进
   // client_state、只留 amsgEmotionRef，见 worker 的 offloadOversizedPush）。

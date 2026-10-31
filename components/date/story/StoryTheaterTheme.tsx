@@ -1,5 +1,5 @@
 import MeetingAppearanceControl from '../MeetingAppearanceControl';
-import {meetingAppearance, MEETING_READING_CSS} from '../../../utils/meetingAppearance';
+import {meetingAppearance, MEETING_READING_CSS, meetingCustomCss} from '../../../utils/meetingAppearance';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Moon, Palette, Sparkle, SquaresFour, Sun, X } from '@phosphor-icons/react';
@@ -188,7 +188,7 @@ export const StoryTheaterThemeProvider: React.FC<React.PropsWithChildren> = ({ c
 
     return <StoryThemeContext.Provider value={value}>
         <div className={`story-theme story-theme-${color} story-decor-${appearance.decor} h-full w-full min-h-0 ${reading.id!=='none'?'meeting-reading':''}`} data-reading-preset={reading.id}>
-            <style>{STORY_THEME_CSS + MEETING_READING_CSS}</style>
+            <style>{STORY_THEME_CSS + MEETING_READING_CSS + '\n' + meetingCustomCss(theme.storyAppearance)}</style>
             {children}
         </div>
     </StoryThemeContext.Provider>;

@@ -1,9 +1,16 @@
 import { handleLocalBack } from '../utils/localBackHandlers';
 import {isHomeAssetDisposal,isHomeLeaveCancellation} from '../utils/homeAssetCancellation';
 import { processHomeMemoryAfterSave } from '../utils/homeMemoryPostHook';
+import { homeSharedRecipients } from '../utils/homeSharedEvents';
+import { homeRecords } from '../utils/homeRecords';
+import { readFriendFeed } from '../utils/friendFeed';
+import { collectFriendFeedMedia, exportActivityTextAsset, isActivityTextAsset } from '../utils/activityBackup';
+import { prepareFriendFeedMainTask, consumeFriendFeedMainReply } from '../utils/friendFeedMain';
+import { releaseFriendFeedEmotionTask } from '../utils/friendFeedEmotion';
 import { retireCloudCharacter } from '../utils/amsgCloudRetirement';
 import { resolveDialogueApi } from '../utils/characterApi';
 import {isBuiltinAppearance, readBuiltinAppearance} from '../utils/builtinAppearance';
+import { sameSullyIconSnapshot, SULLY_BIBI_UPGRADE_KEY, upgradeBuiltinSullyBibiIcon } from '../utils/builtinAppearanceUpgrade';
 import { browserHolidayCache, deviceTimeZone, getUserHolidayReminder } from '../utils/userHolidays';
 import {exportDecorationMedia} from '../utils/decorationMediaBackup';
 import {migrateLegacyWhiteboxPresets} from '../utils/legacyWhiteboxPresets';
@@ -61,6 +68,7 @@ import { isAnalyticsRequestUrl, trackEvent, shouldReportSnapshot, trackDataScale
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import { collectAppearance, collectCharSettings, collectDataScale, collectFeatureFlagsAsync, collectSARFeatureFlags } from '../utils/analyticsSnapshot';
 import { normalizeApiConfig, normalizeApiPreset } from '../utils/apiConfigNormalize';
+import { fetchLlm } from '../utils/anthropicApi';
 import { getCheckPhoneApi, setCheckPhoneApi } from '../utils/checkPhoneApi';
 import { markBackupDone } from '../utils/backupReminder';
 import { collectSARLocalBackup, restoreSARLocalBackup } from '../utils/vrWorld/sarBackup';
@@ -1578,7 +1586,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
 
           try {
-              let response = await originalFetch(...sendArgs);
+              let response = await fetchLlm(sendArgs[0], sendArgs[1], originalFetch, true);
 
               // 兜底：模型没被上面清单覆盖但仍拒收采样参数时，读 400 报文自愈——摘掉后重试一次。
               if (!response.ok && response.status === 400 && urlStr.includes('/chat/completions')) {
@@ -1806,6 +1814,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
       };
 
+      Object.assign(patchedFetch, { __sullyAnthropic: true });
       try {
           window.fetch = patchedFetch;
       } catch (e) {
@@ -2123,6 +2132,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                 }
                 setCustomIcons(loadedIcons);
                 initPwaIcon(loadedIcons); // 启动时恢复自定义 PWA 图标（见 utils/appIcon.ts）
+                void upgradeBuiltinSullyBibiIcon(loadedIcons).then(icon => {
+                    if (icon) setCustomIcons(current => sameSullyIconSnapshot(current, loadedIcons) ? { ...current, friend_feed: icon } : current);
+                }).catch(() => { /* Optional artwork upgrade: retry next startup after offline/storage failures. */ });
                 // Strip deprecated slots that may have been imported via beautification packs.
                 if (loadedTheme.launcherWidgets) {
                     for (const slot of DEPRECATED_WIDGET_SLOTS) {
@@ -2808,6 +2820,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (char) markAmsgStateDirty({char, userProfile: userProfileRef.current, groups: groupsRef.current, realtimeConfig: realtimeConfigRef.current});
       };
       window.addEventListener(HOME_SECRETS_UPDATED, secretSyncHandler);
+      window.addEventListener('friend-feed-history-updated', secretSyncHandler);
       window.addEventListener('emotion-updated', buffSyncHandler);
       window.addEventListener(CHAT_GEN_EVENTS.replyArrived, chatReplyArrivedHandler);
       window.addEventListener(CHAT_GEN_EVENTS.replyEnd, chatReplyEndHandler);
@@ -2822,6 +2835,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           window.removeEventListener('active-msg-progress', progressHandler);
           window.removeEventListener('active-msg-open', openHandler);
           window.removeEventListener(HOME_SECRETS_UPDATED, secretSyncHandler);
+          window.removeEventListener('friend-feed-history-updated', secretSyncHandler);
           window.removeEventListener('emotion-updated', buffSyncHandler);
           window.removeEventListener(CHAT_GEN_EVENTS.replyArrived, chatReplyArrivedHandler);
           window.removeEventListener(CHAT_GEN_EVENTS.replyEnd, chatReplyEndHandler);
@@ -3026,6 +3040,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           setProactiveComposingChars(prev => prev[charId] ? prev : { ...prev, [charId]: true });
           console.log(`🔔 [Proactive/Global] Trigger fired for ${char.name}`);
 
+          let friendFeedTask: Awaited<ReturnType<typeof prepareFriendFeedMainTask>>;
           let hintMsgId: number | null = null;
           try {
               // 1. Calculate time gap
@@ -3122,6 +3137,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               const systemPrompt = payload.systemPrompt;
               const apiMessages = payload.cleanedApiMessages;
               const fullMessages = payload.fullMessages;
+              if (!payload.flags.promptBuildSkipped) {
+                  try {
+                      friendFeedTask = await prepareFriendFeedMainTask(charId);
+                      if (friendFeedTask) fullMessages.splice(Math.max(1, payload.volatileTailIndex), 0,
+                          {role: 'system', content: friendFeedTask.prompt});
+                  } catch (error) { console.warn('[Friend feed] Proactive reply preparation failed', error); }
+              }
 
               // 3c. 情绪评估 fire-and-forget — 与主 API 并行，沿用 useChatAI 的 API 选择逻辑：
               //     角色专属情绪 API > 主 apiConfig（与记忆宫殿副 API 完全独立）
@@ -3166,6 +3188,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               // 5. Process & save response
               let aiContent = data.choices?.[0]?.message?.content || '';
+              aiContent = await consumeFriendFeedMainReply(charId, aiContent, [], friendFeedTask?.id);
               // 思考链抽取 — 与 useChatAI 保持一致:reasoning_content 字段 + 主 content 里的 <think>/<thinking>/<thought> 块,
               // 拼接后挂到本回合首条 assistant 消息的 metadata.thinkingChain
               let pendingThinkingChain: string | null = null;
@@ -3407,6 +3430,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   }
               }
           } finally {
+              if (friendFeedTask) await releaseFriendFeedEmotionTask(charId, friendFeedTask.id)
+                  .catch(error => console.warn('[Friend feed] Proactive reply release failed', error));
               proactiveRunningRef.current = false;
               setProactiveComposingChars(prev => {
                   if (!prev[charId]) return prev;
@@ -4127,6 +4152,23 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
             addToast('家园记忆整理失败', 'error');
           });
           markAmsgStateDirty({ char: target, userProfile, groups, realtimeConfig });
+          const oldHomeEvents=new Map(homeRecords(before?.home3D).map(record=>[record.id,record]));
+          const nextHomeEvents=homeRecords(target.home3D);
+          const nextHomeIds=new Set(nextHomeEvents.map(record=>record.id));
+          const changedHomeEvents=[
+            ...nextHomeEvents.filter(record=>JSON.stringify(record)!==JSON.stringify(oldHomeEvents.get(record.id))),
+            ...[...oldHomeEvents.values()].filter(record=>!nextHomeIds.has(record.id)),
+          ];
+          for(const participantId of homeSharedRecipients(changedHomeEvents)){
+            if(participantId===target.id)continue;
+            void DB.getCharacter(participantId).then(participant=>{
+              if(participant)markAmsgStateDirty({char:participant,userProfile,groups,realtimeConfig});
+            }).catch(error=>console.warn('[Home3D] 共享经历快照刷新失败',error));
+          }
+          if (JSON.stringify(before?.dialogueApi) !== JSON.stringify(target.dialogueApi)) {
+            // Fresh snapshot also distinguishes consecutive role-only changes during an upload.
+            syncAmsgLlmCredentials({ ...apiConfig });
+          }
           // 时区和名字是另一条路：它们冻在远端任务行里，fire_pack 刷新盖不到。
           // 上游按任务行的 tzId 推进循环任务的下次触发时刻；fixed 模式的推送标题也直接
           // 读任务行的 contactName。只刷真的变了的那几项，别搭别的操作的便车。
@@ -4414,6 +4456,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const removeCustomTheme = async (id: string) => { setCustomThemes(prev => prev.filter(t => t.id !== id)); await DB.deleteTheme(id); };
   const setCustomIcon = async (appId: string, iconUrl: string | undefined) => {
       stopBeautyUsage('appearance');
+      // Explicit edits (including removing the icon) opt out of this one-time backfill.
+      if (appId === AppID.FriendFeed) await DB.saveAsset(SULLY_BIBI_UPGRADE_KEY, '1');
       const stored = iconUrl?.startsWith('data:') ? await migrateDataUrlToRef(iconUrl) : iconUrl;
       setCustomIcons(prev => {
           // 替换/删除图标时清掉旧令牌的 objectURL 缓存，避免下次渲染还命中旧图。
@@ -4901,7 +4945,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           if (mode === 'full') {
               storesToProcess = allStores; // Include everything
           } else if (mode === 'text_only') {
-              storesToProcess = allStores.filter(s => s !== 'assets'); // Exclude raw assets store
+              storesToProcess = allStores; // assets is filtered to activity text records below
           } else if (mode === 'media_only') {
               // media_only now includes themes/assets for complete media backup
               storesToProcess = ['gallery', 'emojis', 'emoji_categories', 'journal_stickers', 'user_profile', 'characters', 'messages', 'themes', 'assets', 'bank_data',
@@ -4920,6 +4964,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const cloneForInPlace = <T,>(v: T): T => (mode === 'text_only' ? v : deepCloneForExport(v));
 
           const backupData: Partial<FullBackupData> = {
+              friendFeed: mode === 'text_only' ? stripBackupImages(await readFriendFeed()) : undefined,
+              friendFeedMedia: mode === 'media_only' ? collectFriendFeedMedia(await readFriendFeed()) : undefined,
               contentFavoritesIndex: mode === 'text_only'
                   ? stripBackupImages(await DB.getAssetRaw('content_favorites_index_v1')) : undefined,
               timestamp: Date.now(),
@@ -5310,7 +5356,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
               const arrayField = backupArrayFieldByStore[storeName];
               if (arrayField) {
-                  const field = storeName === 'characters' && mode === 'media_only' ? 'mediaAssets' : arrayField;
+                  const field = storeName === 'characters' && mode === 'media_only' ? 'mediaAssets'
+                      : storeName === 'assets' && mode === 'text_only' ? 'activityTextAssets' : arrayField;
                   prewrittenStores[field] = await streamBackupArrayStore(zip, storeName, field, {
                       onSerialized: collectSerialized,
                       transform: (item, index) => {
@@ -5323,10 +5370,12 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                           }
                           if (storeName === 'assets') {
                               const id = item?.id;
+                              if (mode === 'text_only') return exportActivityTextAsset(item);
+                              if (mode === 'media_only' && typeof id === 'string' && isActivityTextAsset(id)) return undefined;
                               if (typeof id === 'string' && (
                                   isRedundantManagedAssetId(id)
                                   || (isCompanionVoiceAssetId(id) && !companionVoiceAssetIdsForBackup.has(id))
-                                  || !shouldIncludeVoiceRelatedAssetInBackup(item, mode !== 'text_only')
+                                  || !shouldIncludeVoiceRelatedAssetInBackup(item, true)
                               )) return undefined;
                               externalizeVoiceMessageBlob(item, index, (path, blob) => {
                                   zip.fileBlob(path, blob, { compression: 'STORE' });
@@ -6323,3 +6372,6 @@ export const useOS = () => {
   }
   return context;
 };
+
+/** 无 Provider 也能渲染的组件（如拍照模式在静态测试里裸挂载）用这个可选读取；没挂 Provider 时返回 undefined，不抛错。 */
+export const useOSOptional = (): OSContextType | undefined => useContext(OSContext);

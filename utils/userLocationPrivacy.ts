@@ -7,6 +7,8 @@ export interface UserPrivacyRegion {
     radiusKm: number;
 }
 export interface UserLocationConfig {
+    /** Absent: all characters (legacy); empty: nobody. Device-only. */
+    characterIds?: string[];
     enabled: boolean;
     regions: UserPrivacyRegion[];
     provider?: 'basic' | 'amap' | 'geoapify';
@@ -40,6 +42,7 @@ export function validateUserLocationConfig(value: unknown): UserLocationConfig {
     const geoapifyKey = input.geoapifyKey?.trim();
     if (geoapifyKey && !/^[a-zA-Z0-9_-]{1,128}$/.test(geoapifyKey)) throw new Error('Geoapify Key 格式不正确，请只粘贴 Key');
     if (input.enabled && input.provider === 'geoapify' && !geoapifyKey) throw new Error('使用全球街道定位前，请填写 Geoapify Key');
+    if (input.characterIds !== undefined && (!Array.isArray(input.characterIds) || !input.characterIds.every(id => typeof id === 'string' && !!id.trim()))) throw new Error('定位可见角色设置有问题，请重新选择');
     const ids = new Set<string>();
     const regions = input.regions.map(region => {
         if (!region || typeof region.id !== 'string' || !region.id || ids.has(region.id)
@@ -49,7 +52,7 @@ export function validateUserLocationConfig(value: unknown): UserLocationConfig {
         ids.add(region.id);
         return { id: region.id, name: region.name.trim(), latitude: region.latitude, longitude: region.longitude, radiusKm: region.radiusKm };
     });
-    return { enabled: input.enabled, regions, ...(input.provider ? { provider: input.provider } : {}), ...(amapKey ? { amapKey } : {}), ...(geoapifyKey ? { geoapifyKey } : {}) };
+    return { enabled: input.enabled, regions, ...(input.characterIds !== undefined ? {characterIds: [...new Set(input.characterIds)]} : {}), ...(input.provider ? { provider: input.provider } : {}), ...(amapKey ? { amapKey } : {}), ...(geoapifyKey ? { geoapifyKey } : {}) };
 }
 
 export function loadUserLocationConfig(): UserLocationConfig {
@@ -91,4 +94,9 @@ export function isUserLocationLookupUrl(value: string): boolean {
         return url.origin === 'https://api.bigdatacloud.net' && url.pathname === '/data/reverse-geocode-client'
             || url.origin === 'https://api.geoapify.com' && url.pathname === '/v1/geocode/reverse';
     } catch { return false; }
+}
+
+/** Missing/invalid recipients never broaden an explicit allowlist. */
+export function canCharacterSeeUserLocation(config: UserLocationConfig, charId?: string): boolean {
+    return config.enabled && (config.characterIds === undefined || !!charId && config.characterIds.includes(charId));
 }

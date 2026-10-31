@@ -1,6 +1,7 @@
 type Speaker = { role: string; id?: number; metadata?: any };
 
-const isSpeaker = (message: Speaker): boolean => message.role === 'user' || message.role === 'assistant';
+const isSpeaker = (message: Speaker): boolean =>
+    !message.metadata?.homeSceneRecord && (message.role === 'user' || message.role === 'assistant');
 
 const lastSpeakerRole = (messages: Speaker[]): string | undefined =>
     [...messages].reverse().find(isSpeaker)?.role;

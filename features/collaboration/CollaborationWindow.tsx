@@ -460,6 +460,7 @@ const ModePicker: React.FC<{
 
 const ApiSettingsPanel: React.FC<{
   settings: CollaborationSettings;
+  initialMode: CollaborationMode;
   character: CharacterProfile;
   user: UserProfile;
   chatCollaborationEnabled: boolean;
@@ -471,14 +472,14 @@ const ApiSettingsPanel: React.FC<{
   onAppearanceApplied: (appearance: CollaborationAppearance) => void;
   onSave: (settings: CollaborationSettings) => Promise<void>;
   onClose: () => void;
-}> = ({ settings, character, user, chatCollaborationEnabled, chatApi, apiPresets, availableModels, onToggleChatCollaboration, onPreviewTheme, onAppearanceApplied, onSave, onClose }) => {
+}> = ({ settings, initialMode, character, user, chatCollaborationEnabled, chatApi, apiPresets, availableModels, onToggleChatCollaboration, onPreviewTheme, onAppearanceApplied, onSave, onClose }) => {
   const [draft, setDraft] = useState<CollaborationSettings>(() => ({
     ...settings,
     immersive: { ...settings.immersive },
     focused: { ...settings.focused },
   }));
   const [beautyOpen,setBeautyOpen]=useState(false);
-  const [mode, setMode] = useState<CollaborationMode>('immersive');
+  const [mode, setMode] = useState<CollaborationMode>(initialMode);
   const [saving, setSaving] = useState(false);
   const [modelOptions, setModelOptions] = useState<Record<CollaborationMode, string[]>>(() => ({
     immersive: collaborationProfileMatches(settings.immersive, chatApi) ? availableModels : [],
@@ -1507,7 +1508,14 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
 }) => {
   const [sessions, setSessions] = useState<CollaborationSession[]>([]);
   const [categories, setCategories] = useState<CollaborationCategory[]>([]);
-  const [settings, setSettings] = useState<CollaborationSettings>(() => cloneDefaultSettings());
+  const [savedSettings, setSettings] = useState<CollaborationSettings>(() => cloneDefaultSettings());
+  // The sidecar stays mounted while closed. Resolve linked sources from current
+  // props so changing the shared API also updates the next collaboration turn.
+  // Explicit mode overrides are detached (`custom`) and remain untouched.
+  const settings = useMemo(
+    () => hydrateCollaborationApiSettings(savedSettings, chatApi, apiPresets),
+    [savedSettings, chatApi, apiPresets],
+  );
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<CollaborationMessage[]>([]);
   const [transferOpen, setTransferOpen] = useState(false);
@@ -1767,8 +1775,8 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
       setShowModePicker(true);
     });
     return () => { cancelled = true; };
-    // The shared API sources are captured when this character's sidecar opens.
-    // The settings picker always receives the latest props for explicit changes.
+    // Load stored data once per character; linked API sources are resolved above
+    // on every prop change without resetting the active session or its messages.
   }, [character.id]);
 
   useEffect(() => {
@@ -2748,6 +2756,7 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
       {settingsOpen && (
         <ApiSettingsPanel
           settings={settings}
+          initialMode={activeSession?.mode || 'immersive'}
           character={character}
           user={user}
           chatCollaborationEnabled={chatCollaborationEnabled}

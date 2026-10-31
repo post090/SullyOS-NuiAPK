@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCurrentPositionSmart } from './geo';
 import { queryAmapLocation } from './amapUserLocation';
-import { getUserLocationContext, getUserLocationPreview, refreshUserLocation, saveUserLocationConfig } from './userLocation';
+import { getBackgroundUserLocationContext, getUserLocationContext, getUserLocationPreview, refreshUserLocation, saveUserLocationConfig } from './userLocation';
 import { AmapLocationError } from './amapUserLocation';
 import {
     isUserLocationLookupUrl, locationDistanceMeters, matchUserPrivacyRegion, userLocationPlaceName,
@@ -252,4 +252,22 @@ describe('device location privacy boundary', () => {
         expect(failed).toContain('定位未知'); expect(failed).not.toContain('test-amap-key');
         expect(fetchMock).not.toHaveBeenCalled();
     });
+});
+
+it('requires a selected recipient and refuses malformed scopes without looking up location',async()=>{
+    saveUserLocationConfig({...config,characterIds:[]});
+    expect(await getUserLocationContext('小雨','a')).toBe('');expect(await getUserLocationContext('小雨')).toBe('');
+    expect(getBackgroundUserLocationContext('小雨','a')).toBe('');
+    expect(getCurrentPositionSmart).not.toHaveBeenCalled();
+    expect(()=>validateUserLocationConfig({...config,characterIds:null})).toThrow();
+    saveUserLocationConfig({...config,characterIds:['a']});
+    expect(getBackgroundUserLocationContext('小雨','a')).toContain('未知');expect(getBackgroundUserLocationContext('小雨','b')).toBe('');
+});
+it('rechecks audience while a device lookup is in flight',async()=>{
+    saveUserLocationConfig({...config,characterIds:['a']});
+    let resolve!:(value:any)=>void;
+    vi.mocked(getCurrentPositionSmart).mockImplementationOnce(()=>new Promise(done=>{resolve=done;}));
+    const request=getUserLocationContext('小雨','a');
+    saveUserLocationConfig({...config,characterIds:[]});resolve(fix);
+    expect(await request).toBe('');expect(fetchMock).not.toHaveBeenCalled();
 });

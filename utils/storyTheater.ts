@@ -17,6 +17,10 @@ import {
 import { shareOrDownloadFile } from './shareExport';
 
 export type StoryApiRole = 'system' | 'user' | 'assistant';
+export function hasStoryTheaterParticipant(entry: StoryTheaterEntry, characters: CharacterProfile[]): boolean {
+    return characters.some(char => entry.characterIds.includes(char.id)
+        || (!entry.writesToCharacterMemory && entry.mask?.type === 'character' && entry.mask.id === char.id));
+}
 export interface StoryApiMessage { role: StoryApiRole; content: string; }
 
 export interface StoryPromptSlots {

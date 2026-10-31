@@ -171,6 +171,8 @@ import {SERIF, resolveThinkingChainStyle, type ThinkingChainStyleId, type Thinki
 export {THINKING_CHAIN_PRESETS,resolveThinkingChainStyle} from '../../utils/psycheAppearance';
 export type {ThinkingChainStyleId,ThinkingChainStyleSpec} from '../../utils/psycheAppearance';
 import {ChatCardSurface} from './ChatCardSurface';
+import {FriendFeedNote} from './FriendFeedNote';
+import FriendFeedShareCard from './FriendFeedShareCard';
 // 心象卡片的「破格」装饰：溢出卡片边框的风格化元素。
 // 必须渲染在卡片（overflow-hidden）的兄弟层、且父容器 relative + 不裁剪，才能真的探出边框。
 // 被 ThinkingChainBlock 与设置弹窗的 StylePreview 共用；compact 用于迷你预览缩小尺寸。
@@ -1513,6 +1515,15 @@ const MessageItem = React.memo(({
 
     // Secrets are revealed on entering the home, or inspected in history management.
     if (m.type === 'secret_note') return null;
+    if (m.type === 'friend_feed_card' && m.metadata?.friendFeedComment) {
+        return <div className={`w-full relative ${selectionMode ? 'pl-8' : ''}`} {...interactionProps}>
+            {selectionMode && <button type="button" aria-label="选择好友圈记录" aria-pressed={isSelected}
+                className="absolute left-1 top-2 text-xs" onClick={event => {event.stopPropagation(); onToggleSelect(m.id);}}>
+                {isSelected ? '☑' : '□'}
+            </button>}
+            <FriendFeedNote note={m.metadata.friendFeedComment}/>
+        </div>;
+    }
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {
@@ -3320,6 +3331,9 @@ const MessageItem = React.memo(({
         return commonLayout(<HtmlCard html={html} />);
     }
 
+    if (m.type === 'friend_feed_share_card' && m.metadata?.friendFeedShare) {
+        return commonLayout(<FriendFeedShareCard share={m.metadata.friendFeedShare}/>);
+    }
     if (m.type === 'social_card' && m.metadata?.post) {
         const post = m.metadata.post;
         // If the saved image is a raw twemoji codepoint (eg "2728"), convert it to the actual emoji character;

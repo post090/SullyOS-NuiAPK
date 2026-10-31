@@ -79,3 +79,20 @@ it('local live location sits immediately after weather and before news, exactly 
         expect(text.match(/小雨现在的定位在家附近/g)).toHaveLength(1);
     } finally { weather.mockRestore(); news.mockRestore(); }
 });
+
+it.each([false,true])('blocks non-selected characters before device access in local/instant chat (%s)',async timelyByWorker=>{
+    saveUserLocationConfig({...config,characterIds:['someone-else']});
+    const payload=await buildChatRequestPayload({char,userProfile:user,groups:[],emojis:[],categories:[],recallEntryPoint:'chat_app',timelyByWorker,contextLimit:10,historyMsgs:[]});
+    expect(JSON.stringify(payload.fullMessages)).not.toContain('小雨当前的位置');
+    const context=await ContextBuilder.buildCharacterRequest({char,user,timeOptions:{conversational:true,includeUserLocation:true}},[{role:'user',content:'在吗'}]);
+    expect(JSON.stringify(context)).not.toContain('小雨当前的位置');
+    expect(getCurrentPositionSmart).not.toHaveBeenCalled();
+});
+it('uses the selected city in local chat without changing the global default',async()=>{
+    const weather=vi.spyOn(RealtimeContextManager,'fetchWeather').mockResolvedValue(null);
+    try {
+        const realtimeConfig={...defaultRealtimeConfig,weatherEnabled:true,weatherCity:'北京',weatherCities:{[char.id]:'London'}};
+        await buildChatRequestPayload({char,userProfile:user,groups:[],emojis:[],categories:[],realtimeConfig,recallEntryPoint:'chat_app',contextLimit:10,historyMsgs:[]});
+        expect(weather).toHaveBeenCalledWith(expect.objectContaining({weatherCity:'London'}));expect(realtimeConfig.weatherCity).toBe('北京');
+    } finally {weather.mockRestore();}
+});

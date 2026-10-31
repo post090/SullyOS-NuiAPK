@@ -20,7 +20,7 @@ import { exportSingleNote, exportAllNotes, exportTextEntries } from '../utils/jo
 import { redactPrivacy, codifyCompanies, genCompanyCode, RedactResult, NameRedactMode } from '../utils/privacyRedact';
 import { synthesizeSpeech, characterHasVoice } from '../utils/ttsRouter';
 import { hashTtsParams, getCachedTts, saveCachedTts } from '../utils/ttsCache';
-import { startStt, isSttSupported, SttSession, SttProviderConfig } from '../utils/speechToText';
+import { startStt, startCloudStt, isSttSupported, SttSession, SttProviderConfig } from '../utils/speechToText';
 import {
     ReadCvLogo, PaperPlaneTilt, Microphone, Plus, CaretLeft, Notebook, Briefcase,
     ChatsCircle, FileText, Trash, SpeakerHigh, StopCircle, X, CircleNotch, UploadSimple,
@@ -496,14 +496,16 @@ const JobHuntApp: React.FC = () => {
         if (activeSession?.topic === 'interview' && ov?.apiKey) {
             return { provider: 'cloud', baseUrl: ov.baseUrl, apiKey: ov.apiKey, model: ov.model };
         }
+        // 全局云端开关（fork 通用云端链；旧数据存 sttProvider:'cloud'，带 legacy 兜底）
+        const globalCloud = apiConfig?.sttCloudMode === 'cloud' || (apiConfig as { sttProvider?: string })?.sttProvider === 'cloud';
         return {
-            provider: apiConfig?.sttProvider === 'cloud' && apiConfig?.sttApiKey ? 'cloud' : 'system',
+            provider: globalCloud && apiConfig?.sttApiKey ? 'cloud' : 'system',
             baseUrl: apiConfig?.sttBaseUrl,
             apiKey: apiConfig?.sttApiKey,
             model: apiConfig?.sttModel,
         };
-    }, [activeSession?.topic, jhSettings.api.stt, apiConfig?.sttProvider, apiConfig?.sttBaseUrl, apiConfig?.sttApiKey, apiConfig?.sttModel]);
-    const sttSupported = useMemo(() => isSttSupported(sttCfg), [sttCfg]);
+    }, [activeSession?.topic, jhSettings.api.stt, apiConfig?.sttCloudMode, (apiConfig as { sttProvider?: string })?.sttProvider, apiConfig?.sttBaseUrl, apiConfig?.sttApiKey, apiConfig?.sttModel]);
+    const sttSupported = useMemo(() => sttCfg.provider === 'cloud' ? true : isSttSupported(apiConfig), [sttCfg, apiConfig]);
 
     // 返回键：弹窗 → 聊天视图 → 关 App
     useBackGuard([
@@ -1052,20 +1054,35 @@ const JobHuntApp: React.FC = () => {
         setSttHint('正在请求麦克风权限…');
         sttBaseTextRef.current = input;
         try {
-            const session = await startStt('zh-CN', {
-                onPartial: (text) => {
-                    setSttPhase('listening');
-                    setSttHint('在听，说完点停止');
-                    setInput((sttBaseTextRef.current ? sttBaseTextRef.current + ' ' : '') + text);
-                },
-                onFinal: (text) => {
-                    if (text) setInput((sttBaseTextRef.current ? sttBaseTextRef.current + ' ' : '') + text);
-                },
-                onLevel: (level) => { setSttPhase('listening'); setSttLevel(level); setSttHint('在听，说完点停止'); },
-                onRecognizing: () => { setSttPhase('recognizing'); setSttHint('识别中…'); },
-                onError: (message) => { if (message) { addToast(`语音输入失败：${message}`, 'error'); setSttHint(message); } },
-                onEnd: () => { setSttPhase('idle'); setSttLevel(0); setSttHint(''); sttSessionRef.current = null; },
-            }, sttCfg);
+            const session = sttCfg.provider === 'cloud' && sttCfg.apiKey
+                ? await startCloudStt('zh-CN', {
+                    onPartial: (text) => {
+                        setSttPhase('listening');
+                        setSttHint('在听，说完点停止');
+                        setInput((sttBaseTextRef.current ? sttBaseTextRef.current + ' ' : '') + text);
+                    },
+                    onFinal: (text) => {
+                        if (text) setInput((sttBaseTextRef.current ? sttBaseTextRef.current + ' ' : '') + text);
+                    },
+                    onLevel: (level) => { setSttPhase('listening'); setSttLevel(level); setSttHint('在听，说完点停止'); },
+                    onRecognizing: () => { setSttPhase('recognizing'); setSttHint('识别中…'); },
+                    onError: (message) => { if (message) { addToast(`语音输入失败：${message}`, 'error'); setSttHint(message); } },
+                    onEnd: () => { setSttPhase('idle'); setSttLevel(0); setSttHint(''); sttSessionRef.current = null; },
+                }, sttCfg)
+                : await startStt('zh-CN', {
+                    onPartial: (text) => {
+                        setSttPhase('listening');
+                        setSttHint('在听，说完点停止');
+                        setInput((sttBaseTextRef.current ? sttBaseTextRef.current + ' ' : '') + text);
+                    },
+                    onFinal: (text) => {
+                        if (text) setInput((sttBaseTextRef.current ? sttBaseTextRef.current + ' ' : '') + text);
+                    },
+                    onLevel: (level) => { setSttPhase('listening'); setSttLevel(level); setSttHint('在听，说完点停止'); },
+                    onRecognizing: () => { setSttPhase('recognizing'); setSttHint('识别中…'); },
+                    onError: (message) => { if (message) { addToast(`语音输入失败：${message}`, 'error'); setSttHint(message); } },
+                    onEnd: () => { setSttPhase('idle'); setSttLevel(0); setSttHint(''); sttSessionRef.current = null; },
+                }, apiConfig);
             sttSessionRef.current = session;
             setSttPhase(prev => prev === 'starting' ? 'listening' : prev);
             setSttHint('在听，说完点停止');

@@ -1,22 +1,31 @@
 /**
  * Unified speech-to-text (STT) — used by the Call app for voice input.
  *
- * Hybrid strategy (A+B):
- *   - Web platform  → native `webkitSpeechRecognition` / `SpeechRecognition`
- *                     (zero dependency, streams interim results).
- *   - Capacitor app → `@capacitor-community/speech-recognition` (on-device capable),
- *                     loaded via dynamic import so it never enters the web bundle.
+ * Supports four user-selectable STT routes:
+ *   - 'minimax'    → MiniMax official ASR (`POST /v1/speech_to_text`, model `asr-1.0`)
+ *   - 'fishaudio'  → Fish Audio official ASR (`POST /v1/asr`, model `transcribe-1-pro`)
+ *   - 'elevenlabs' → ElevenLabs official Scribe (`POST /v1/speech-to-text`, model `scribe_v2`)
+ *   - 'browser'    → Browser `SpeechRecognition` / Capacitor native speech recognition (free)
  *
- * The user speaks Chinese to the character by default, so the default recognition
- * language is zh-CN regardless of the character's TTS output language.
+ * Strict policy:
+ *   - Paid STT providers are only selectable/usable when the corresponding official platform
+ *     API Key is configured.
+ *   - Never fall back to unrelated third-party dialogue LLM endpoints or non-MiniMax keys.
  */
 import { Capacitor } from '@capacitor/core';
+import type { APIConfig, SttProvider } from '../types';
+import { normalizeApiKey } from './minimaxApiKey';
+import { getMinimaxRegion, normalizeMinimaxRegion } from './minimaxEndpoint';
+import { getProxyWorkerUrl } from './proxyWorker';
+import { isStaticWebDeployment } from './staticWebDeployment';
 
 export interface SttCallbacks {
-  /** Fired repeatedly with the best-so-far transcript (interim + final). */
+  /** Fired repeatedly with the best-so-far transcript (interim + final, browser mode). */
   onPartial?: (text: string) => void;
   /** Fired once with the final transcript when recognition settles. */
   onFinal?: (text: string) => void;
+  /** Fired when an API provider starts/finishes uploading & transcribing recorded audio. */
+  onTranscribing?: (transcribing: boolean) => void;
   /** Fired on any recognition error (already turned into a friendly message). */
   onError?: (message: string) => void;
   /** Fired when the session ends for any reason (success, error, or stop). */
@@ -29,7 +38,16 @@ export interface SttCallbacks {
   onAudioBlob?: (blob: Blob) => void;
 }
 
-/** Cloud STT settings (OpenAI-compatible /v1/audio/transcriptions). */
+export interface SttSession {
+  /** Stop listening (and trigger transcription for API providers). Safe to call multiple times. */
+  stop: () => void;
+}
+
+/**
+ * Fork 保留的通用云端 STT 配置（OpenAI 兼容 /v1/audio/transcriptions，如 SiliconFlow
+ * SenseVoice / Groq Whisper）。上游改成了官方三厂商模型（SttProvider），但 fork 的
+ * 面试语音练习（JobHuntApp / CallApp 的 sttOverride）需要任意兼容端点，走 startCloudStt。
+ */
 export interface SttProviderConfig {
   provider?: 'system' | 'cloud';
   baseUrl?: string;
@@ -37,13 +55,44 @@ export interface SttProviderConfig {
   model?: string;
 }
 
-export interface SttSession {
-  /** Stop listening. Safe to call multiple times. Returns a Promise on native
-   *  (cleanup is async — awaits RecognitionService.stop()); void on web.
-   *  Callers may ignore the return value: callbacks (onFinal/onEnd) fire
-   *  after cleanup completes either way. */
-  stop: () => void | Promise<void>;
+export interface SttProviderOption {
+  id: SttProvider;
+  label: string;
+  shortLabel: string;
+  desc: string;
+  keyHint: string;
 }
+
+export const STT_PROVIDER_OPTIONS: SttProviderOption[] = [
+  {
+    id: 'minimax',
+    label: 'MiniMax ASR',
+    shortLabel: 'MiniMax',
+    desc: '海螺官方 asr-1.0 · 支持中/粤/英/日等多语种与中英混说',
+    keyHint: '需先填写 MiniMax API Key',
+  },
+  {
+    id: 'fishaudio',
+    label: '鱼声 Fish ASR',
+    shortLabel: '鱼声 Fish',
+    desc: '官方 transcribe-1-pro · 口语与多语种转写准确',
+    keyHint: '需先填写鱼声 Fish Audio Key',
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs Scribe',
+    shortLabel: 'ElevenLabs',
+    desc: '官方 Scribe v2 · 90+ 语种高精度语音转写',
+    keyHint: '需先填写 ElevenLabs API Key',
+  },
+  {
+    id: 'browser',
+    label: '浏览器 / 系统自带（免费）',
+    shortLabel: '浏览器自带',
+    desc: '不消耗 API 额度，依赖当前浏览器或系统语音服务（部分浏览器不支持）',
+    keyHint: '',
+  },
+];
 
 const isNative = (): boolean => {
   try { return Capacitor.isNativePlatform(); } catch { return false; }
@@ -52,304 +101,414 @@ const isNative = (): boolean => {
 const getWebCtor = (): any =>
   (typeof window !== 'undefined' && ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)) || null;
 
-/** Whether voice input is usable in the current environment. */
-export const isSttSupported = (cfg?: SttProviderConfig): boolean => {
-  if (cfg?.provider === 'cloud' && cfg.apiKey) {
-    return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia
-      && typeof MediaRecorder !== 'undefined';
-  }
-  if (isNative()) return true; // plugin present; actual availability resolved at start()
-  return !!getWebCtor();
-};
-
-const friendlyError = (raw: string): string => {
-  if (/not-allowed|denied|permission/i.test(raw)) return '麦克风权限被拒绝，去系统设置里允许一下';
-  if (/no-speech/i.test(raw)) return '没听清，再说一次？';
-  if (/network/i.test(raw)) return '语音识别服务连不上，检查下网络';
-  if (/aborted/i.test(raw)) return '';
-  // Native 端常见：插件 reject 但 message 是 "native-error" / "null" / 空 —— 给可操作文案。
-  if (/native-error|null|^\s*$/i.test(raw)) {
-    return '系统语音识别不可用（国产 ROM 常裁剪 RecognitionService）。可以试试装个带 GMS 的设备、或者用文字输入。';
-  }
-  return raw || '语音识别出错了';
-};
-
-// 看门狗时长：开麦后这么久还没有任何音频/语音/结果信号，就判定这个浏览器的
-// 在线识别后端不可用（国内套壳浏览器常见：有 webkitSpeechRecognition 对象、
-// 麦克风也亮，但永远不返回结果、也不报错）。
-const STT_WATCHDOG_MS = 7000;
-
-// 系统（native）识别看门狗：开麦后这么久还没收到任何识别信号，多半是这台设备的
-// RecognitionService 根本不返回结果（国产 ROM 缺谷歌语音服务的典型症状：start()
-// 正常 resolve、麦克风也开着，但永远不推 partialResults、也不报错）。给一次可操作
-// 提示，但不打断会话——用户可能只是还没开口。比 web 略长，进一步降低误报。
-const STT_NATIVE_WATCHDOG_MS = 9000;
-
-const startWeb = (lang: string, cb: SttCallbacks): SttSession => {
-  const Ctor = getWebCtor();
-  if (!Ctor) throw new Error('当前浏览器不支持语音识别');
-  const rec = new Ctor();
-  rec.lang = lang;
-  rec.interimResults = true;
-  // 持续聆听到用户手动停（贴合 UI 的「点麦克风结束」），别一遇停顿就自己断。
-  rec.continuous = true;
-  rec.maxAlternatives = 1;
-  let finalText = '';
-  let ended = false;
-  // 是否收到过识别器「活着」的信号（音频开始 / 检测到说话 / 出结果）。
-  let gotSignal = false;
-  let watchdog: ReturnType<typeof setTimeout> | null = null;
-  const clearWatchdog = () => { if (watchdog) { clearTimeout(watchdog); watchdog = null; } };
-  const markAlive = () => { gotSignal = true; clearWatchdog(); };
-
-  rec.onaudiostart = markAlive;
-  rec.onspeechstart = markAlive;
-  rec.onresult = (e: any) => {
-    markAlive();
-    let interim = '';
-    for (let i = e.resultIndex; i < e.results.length; i += 1) {
-      const r = e.results[i];
-      if (r.isFinal) finalText += r[0].transcript;
-      else interim += r[0].transcript;
-    }
-    cb.onPartial?.((finalText + interim).trim());
-  };
-  rec.onerror = (e: any) => {
-    const msg = friendlyError(String(e?.error || ''));
-    if (msg) cb.onError?.(msg);
-  };
-  rec.onend = () => {
-    if (ended) return;
-    ended = true;
-    clearWatchdog();
-    const f = finalText.trim();
-    if (f) cb.onFinal?.(f);
-    cb.onEnd?.();
-  };
-  rec.start();
-  // 若在看门狗时限内识别器毫无生命迹象，多半是这个浏览器没有可用的在线识别
-  // 服务（套壳浏览器/缺 Google 服务的 WebView）。明确告诉用户，别让麦克风空亮。
-  watchdog = setTimeout(() => {
-    if (gotSignal || ended) return;
-    cb.onError?.('这个浏览器识别不到语音，多半不支持在线语音识别（国内套壳浏览器常见）。换 Chrome / Edge，或者直接打字吧。');
-    try { rec.stop(); } catch { /* ignore */ }
-  }, STT_WATCHDOG_MS);
-  return { stop: () => { clearWatchdog(); try { rec.stop(); } catch { /* ignore */ } } };
-};
-
-const startNative = async (lang: string, cb: SttCallbacks): Promise<SttSession> => {
-  const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
-
-  // ── 1. 实际可用性探测：available() 检查系统有没有 RecognitionService ──
-  try {
-    const avail = await SpeechRecognition.available();
-    if (!avail.available) {
-      throw new Error('系统语音识别不可用（国产 ROM 常裁剪 RecognitionService）。可以试试装个带 GMS 的设备、或者用文字输入。');
-    }
-  } catch (e: any) {
-    const raw = (e && (e.message || String(e))) || '';
-    const msg = typeof raw === 'string' ? raw : String(raw);
-    if (/不可用|RecognitionService|available/i.test(msg)) throw new Error(msg);
-    throw new Error('系统语音识别不可用（available() 探测失败）。可能是 ROM 裁剪了 RecognitionService，可以试试装个带 GMS 的设备、或者用文字输入。');
-  }
-
-  // ── 2. 权限检查（容错）──
-  // 关键教训：部分 ROM 的 requestPermissions() 会返回非标准状态（明明 RECORD_AUDIO
-  // 早已授权，却回 'prompt' / 'denied' / 空），若在这里"非 granted 即抛拒绝"就会
-  // 误报"没麦克风权限"，把已授权的用户直接挡在门外。策略改为：只在"明确 denied
-  // 且请求后仍 denied"时才拦；其余一律放行，让 start() 去实测——真没权限时 Android
-  // 的 SpeechRecognizer 会以错误回来，由识别循环兜底给可操作提示，不会静默。
-  try {
-    let st: string | undefined;
-    try { st = (await SpeechRecognition.checkPermissions())?.speechRecognition; } catch { st = undefined; }
-    if (st !== 'granted') {
-      try { st = (await SpeechRecognition.requestPermissions())?.speechRecognition; } catch { /* 请求本身失败也不拦，交给 start() 实测 */ }
-    }
-    if (st === 'denied') {
-      throw new Error('麦克风权限被拒绝，去系统设置里允许一下');
-    }
-  } catch (e: any) {
-    // 只把"明确拒绝"往上抛；其它探测异常吞掉、继续尝试 start()
-    if (e instanceof Error && /拒绝/.test(e.message)) throw e;
-  }
-
-  // ── 3. 状态变量 ──
-  // 关键设计：@capacitor-community/speech-recognition 在 partialResults:true 模式下，
-  // start() 应当 *立刻 resolve*（不带结果），通过 partialResults 事件持续推送部分识别
-  // 结果，直到调用 stop() 才结束。这是 plugin 文档明确写的契约：
-  //   "if partialResults is true, the function respond directly without result
-  //    and event partialResults will be emit for each partial result, until stopped."
-  //
-  // 但在部分 ROM 上（尤其是裁剪过的国产 ROM），start() 会异常 reject：
-  //   - "Didn't understand, please try again." (ERROR_NO_MATCH，用户没立刻说话)
-  //   - "RecognitionService busy" / "Client side error" (上一轮资源未释放)
-  // 这时需要重启 start() 让麦克风保持开启。但重启有讲究：
-  //   1. 重启前必须 await stop() 让 RecognitionService 完整释放，否则下一轮必报 busy
-  //   2. 重启间隔要够长（≥600ms），50ms/100ms 远不够 Android 释放原生资源
-  //   3. busy / Client side error 也是可恢复的，等久一点再试，不要直接 finish
-  //   4. 总重启次数要有上限，避免无限循环把日志刷爆
-  let ended = false;                  // 用户主动停止
-  let accumulatedText = '';           // 累计识别到的文字（覆盖式，跟 web 端一致）
-  let restartTimer: ReturnType<typeof setTimeout> | null = null;
-  let popupTried = false;             // 是否已经 fallback 过 popup:true
-  let totalRestarts = 0;              // 累计重启次数（任何原因）
-  let gotSignal = false;              // 是否收到过任何识别信号（partialResults）
-  let watchdog: ReturnType<typeof setTimeout> | null = null;
-  const clearWatchdog = () => { if (watchdog) { clearTimeout(watchdog); watchdog = null; } };
-
-  const MAX_TOTAL_RESTARTS = 8;       // 总重启上限，超过就停（避免日志爆炸）
-  const RESTART_DELAY_MS = 600;       // no-match 重启间隔
-  const BUSY_DELAY_MS = 1200;         // busy / Client side error 重启间隔（更长）
-
-  // partialResults listener 只注册一次（整个会话共用），不在循环里重复注册
-  let handle: { remove: () => Promise<void> } | null = null;
-  try {
-    handle = await SpeechRecognition.addListener('partialResults', (data: any) => {
-      const m = data?.matches?.[0];
-      if (m) {
-        gotSignal = true;
-        clearWatchdog();
-        accumulatedText = m;
-        cb.onPartial?.(accumulatedText);
-      }
-    });
-  } catch (e: any) {
-    console.warn('[stt:native] addListener(partialResults) failed, will rely on start() result only:', e);
-  }
-
-  const normalizeErr = (e: any): string => {
-    if (!e) return 'native-error';
-    if (typeof e === 'string') return e;
-    if (e instanceof Error) return e.message || e.toString();
-    if (typeof e.message === 'string') return e.message;
-    if (typeof e.message === 'object' && e.message) {
-      try { return JSON.stringify(e.message); } catch { /* fallthrough */ }
-    }
-    try { return JSON.stringify(e); } catch { /* fallthrough */ }
-    try { return String(e); } catch { return 'native-error'; }
-  };
-
-  const cleanup = async () => {
-    ended = true;
-    clearWatchdog();
-    if (restartTimer) { clearTimeout(restartTimer); restartTimer = null; }
-    if (handle) { await handle.remove().catch(() => {}); handle = null; }
-    // stop() 必须 await，否则下一轮 start() 会撞上未释放的 RecognitionService 报 busy
-    await SpeechRecognition.stop().catch(() => {});
-  };
-
-  const finish = async (finalText: string, errMsg?: unknown) => {
-    if (ended) return;
-    await cleanup();
-    if (errMsg) {
-      const raw = (errMsg instanceof Error && errMsg.message) || (typeof errMsg === 'string' && errMsg) || String(errMsg);
-      const text = typeof raw === 'string' ? raw : String(raw);
-      console.error('[stt:native] error:', text, errMsg);
-      cb.onError?.(friendlyError(text));
-    } else if (finalText) {
-      cb.onFinal?.(finalText);
-    }
-    cb.onEnd?.();
-  };
-
-  // ── 4. 识别循环 ──
-  // 正常路径：start() resolve → plugin 进入"持续聆听"状态 → partialResults 事件推送
-  //         → 用户点 stop → 结束。resolve 后 *不要* 立刻重启，否则会撞 busy。
-  // 异常路径：start() reject → 按 600ms/1200ms 间隔重启 → 累计 8 次还没好就停。
-  const runOneCycle = async (): Promise<void> => {
-    if (ended) return;
-
-    // 重启前先确保上一轮已停止，避免 RecognitionService busy。
-    // 这一步对"start() reject 后立刻重启"的场景尤其关键。
-    await SpeechRecognition.stop().catch(() => {});
-    if (ended) return;
-
-    const options = {
-      language: lang,
-      partialResults: true,
-      popup: popupTried,  // 先 popup:false（无 UI 干扰），失败 fallback popup:true
-      maxResults: 1,
-    };
-
-    try {
-      await SpeechRecognition.start(options);
-      // partialResults:true 模式下 start() 应当立刻 resolve —— 识别进入"持续聆听"
-      // 状态，由 partialResults listener 推送结果。这里 *不要* 重启下一轮，等
-      // listener 推送或用户 stop。某些 ROM 不遵守契约时，会走下面的 catch。
-      return;
-    } catch (e: any) {
-      if (ended) return;
-      const msg = normalizeErr(e);
-
-      // popup:false 不支持 → 立刻用 popup:true 重试一次（不计入 totalRestarts）
-      if (!popupTried && /popup|not.?supported|invalid/i.test(msg)) {
-        popupTried = true;
-        return runOneCycle();
-      }
-
-      // 用户没说话 / 没听清 —— 可恢复，等 600ms 重启
-      if (/no.?match|didn.?t understand|please try again/i.test(msg)) {
-        totalRestarts++;
-        if (totalRestarts >= MAX_TOTAL_RESTARTS) {
-          await finish('', '系统识别器一直没听到声音，可能麦克风有问题或者环境太吵。点麦克风重新开始。');
-          return;
-        }
-        restartTimer = setTimeout(() => { runOneCycle(); }, RESTART_DELAY_MS);
-        return;
-      }
-
-      // RecognitionService busy / Client side error —— 上一轮资源没释放完，
-      // 等更久（1200ms）再试。这两种错误绝对不能直接 finish，否则用户看到
-      // "麦克风闪一下就没了"——这是修复前最严重的体验问题。
-      if (/busy|client side|service busy/i.test(msg)) {
-        totalRestarts++;
-        if (totalRestarts >= MAX_TOTAL_RESTARTS) {
-          await finish('', '识别器响应不过来，稍后再试一次。');
-          return;
-        }
-        restartTimer = setTimeout(() => { runOneCycle(); }, BUSY_DELAY_MS);
-        return;
-      }
-
-      // 其它真错误（权限被撤销 / 网络断 / ROM 不支持） → 结束
-      await finish('', msg);
-    }
-  };
-
-  // 启动第一轮
-  runOneCycle();
-
-  // 看门狗：开麦后一直没有任何识别信号就给可操作提示（不打断会话，见常量注释）
-  watchdog = setTimeout(() => {
-    if (gotSignal || ended) return;
-    cb.onError?.('还没识别到声音。如果点了没反应，多半是这台设备的系统语音识别不可用（常见于缺谷歌语音服务的 ROM）——去「设置 → 其他 API」里填一个云端语音识别（STT）的 Key 就能稳定用。');
-  }, STT_NATIVE_WATCHDOG_MS);
-
-  return {
-    stop: async () => {
-      // 用户主动停止：把累计的文本作为 final 给出去
-      if (ended) return;
-      await cleanup();
-      cb.onFinal?.(accumulatedText);
-      cb.onEnd?.();
-    },
-  };
+const useStaticWorker = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  return isStaticWebDeployment(window.location.protocol, window.location.hostname);
 };
 
 /**
- * Cloud STT: record with MediaRecorder, then POST to an OpenAI-compatible
- * /v1/audio/transcriptions endpoint (SiliconFlow SenseVoice / Groq Whisper / OpenAI).
- * We own the mic here, so a real AnalyserNode level feed drives the waveform UI.
+ * Check whether a baseUrl explicitly points to an official MiniMax API domain.
+ * Prevents accidentally treating a third-party OpenAI/DeepSeek dialogue key as a MiniMax key.
  */
-const resolveTranscriptionUrl = (baseUrl: string): string => {
-  const b = (baseUrl || '').trim().replace(/\/+$/, '');
-  if (!b) return '';
-  if (/\/audio\/transcriptions$/i.test(b)) return b;
-  if (/\/v\d+$/i.test(b)) return `${b}/audio/transcriptions`;
-  return `${b}/v1/audio/transcriptions`;
+export const isOfficialMiniMaxBaseUrl = (baseUrl?: string | null): boolean => {
+  const raw = (baseUrl || '').trim();
+  if (!raw) return false;
+  try {
+    const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+    return /(^|\.)(minimaxi\.com|minimax\.io|minimax\.cn|minimax\.chat)$/i.test(parsed.hostname);
+  } catch {
+    return /(minimaxi\.com|minimax\.io|minimax\.cn|minimax\.chat)/i.test(raw);
+  }
 };
 
-const DEFAULT_CLOUD_STT_BASE = 'https://api.siliconflow.cn/v1';
+/**
+ * Strictly resolve MiniMax API Key for STT:
+ * Only accepts dedicated `minimaxApiKey`, or main `apiKey` when `baseUrl` is an official MiniMax domain.
+ */
+export const resolveMiniMaxSttApiKey = (apiConfig?: Partial<APIConfig> | null): string => {
+  if (!apiConfig) return '';
+  const dedicated = normalizeApiKey(apiConfig.minimaxApiKey || '');
+  if (dedicated) return dedicated;
+  if (isOfficialMiniMaxBaseUrl(apiConfig.baseUrl)) {
+    return normalizeApiKey(apiConfig.apiKey || '');
+  }
+  return '';
+};
+
+export const resolveFishAudioSttApiKey = (apiConfig?: Partial<APIConfig> | null): string =>
+  normalizeApiKey(apiConfig?.fishAudioApiKey || '');
+
+export const resolveElevenLabsSttApiKey = (apiConfig?: Partial<APIConfig> | null): string =>
+  normalizeApiKey(apiConfig?.elevenLabsApiKey || '');
+
+export const isSttProviderConfigured = (
+  provider: SttProvider,
+  apiConfig?: Partial<APIConfig> | null,
+): boolean => {
+  if (provider === 'browser') return true;
+  if (provider === 'minimax') return Boolean(resolveMiniMaxSttApiKey(apiConfig));
+  if (provider === 'fishaudio') return Boolean(resolveFishAudioSttApiKey(apiConfig));
+  if (provider === 'elevenlabs') return Boolean(resolveElevenLabsSttApiKey(apiConfig));
+  return false;
+};
+
+export const getConfiguredApiSttProviders = (
+  apiConfig?: Partial<APIConfig> | null,
+): Array<'minimax' | 'fishaudio' | 'elevenlabs'> => {
+  const providers: Array<'minimax' | 'fishaudio' | 'elevenlabs'> = ['elevenlabs', 'fishaudio', 'minimax'];
+  return providers.filter((p) => isSttProviderConfigured(p, apiConfig));
+};
+
+export const hasAnyApiSttConfigured = (apiConfig?: Partial<APIConfig> | null): boolean =>
+  getConfiguredApiSttProviders(apiConfig).length > 0;
+
+/**
+ * Resolve the active STT provider:
+ * 1. If user explicitly chose `apiConfig.sttProvider` and its Key is configured (or 'browser'), use it.
+ * 2. Otherwise, if the current `ttsProvider` has its STT Key configured, follow `ttsProvider`.
+ * 3. Otherwise, pick the first configured API STT provider (`elevenlabs` -> `fishaudio` -> `minimax`).
+ * 4. Otherwise, fall back to `'browser'`.
+ */
+export const resolveSttProvider = (apiConfig?: Partial<APIConfig> | null): SttProvider => {
+  const explicit = apiConfig?.sttProvider;
+  if (explicit === 'browser') return 'browser';
+  if (explicit && isSttProviderConfigured(explicit, apiConfig)) {
+    return explicit;
+  }
+
+  const tts = apiConfig?.ttsProvider;
+  if (tts === 'elevenlabs' || tts === 'fishaudio' || tts === 'minimax') {
+    if (isSttProviderConfigured(tts, apiConfig)) {
+      return tts;
+    }
+  }
+
+  const configured = getConfiguredApiSttProviders(apiConfig);
+  if (configured.length > 0) return configured[0];
+
+  return 'browser';
+};
+
+export const getSttProviderLabel = (provider: SttProvider): string =>
+  STT_PROVIDER_OPTIONS.find((o) => o.id === provider)?.shortLabel || provider;
+
+/** Whether browser/system native SpeechRecognition is available. */
+export const isBrowserSttSupported = (): boolean => {
+  if (isNative()) return true;
+  return !!getWebCtor();
+};
+
+/** Whether microphone audio capture (`getUserMedia`) is available for API STT. */
+export const isAudioRecordingSupported = (): boolean =>
+  typeof navigator !== 'undefined' &&
+  !!navigator.mediaDevices &&
+  typeof navigator.mediaDevices.getUserMedia === 'function';
+
+/** Whether voice input is usable in the current environment. */
+export const isSttSupported = (apiConfig?: Partial<APIConfig> | null): boolean => {
+  if (hasAnyApiSttConfigured(apiConfig) && isAudioRecordingSupported()) return true;
+  return isBrowserSttSupported() || isAudioRecordingSupported();
+};
+
+const friendlyBrowserError = (raw: string, hasPaidConfigured: boolean): string => {
+  const suffix = hasPaidConfigured
+    ? '可在「通话偏好」或「设置 → 其他 API」切换为已配置的付费语音识别'
+    : '可在「设置 → 其他 API」配置 ElevenLabs、鱼声 Fish 或 MiniMax Key 开启高精度语音转文字';
+  if (/not-allowed|permission|denied/i.test(raw)) return '麦克风权限被拒绝，请在浏览器或系统设置里放行';
+  if (/no-speech/i.test(raw)) return '没听清，再试一次？';
+  if (/audio-capture/i.test(raw)) return '找不到可用麦克风';
+  if (/network|service-not-allowed/i.test(raw)) return `当前浏览器语音服务不可用，${suffix}`;
+  return `语音识别不可用（${raw || 'unknown'}），${suffix}`;
+};
+
+/**
+ * Downsample mono Float32 PCM samples to targetSampleRate (default 16kHz)
+ * and encode as a 16-bit PCM WAV Blob (`audio/wav`).
+ */
+export const encodeWavFromFloat32 = (
+  samples: Float32Array,
+  sourceSampleRate: number,
+  targetSampleRate = 16000,
+): Blob => {
+  const srcRate = Math.max(1, Math.floor(sourceSampleRate || targetSampleRate));
+  const dstRate = Math.max(1, Math.floor(targetSampleRate));
+
+  let resampled: Float32Array;
+  if (srcRate === dstRate || samples.length === 0) {
+    resampled = samples;
+  } else {
+    const ratio = srcRate / dstRate;
+    const newLength = Math.max(1, Math.round(samples.length / ratio));
+    resampled = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i += 1) {
+      const start = Math.floor(i * ratio);
+      const end = Math.min(samples.length, Math.max(start + 1, Math.floor((i + 1) * ratio)));
+      let sum = 0;
+      for (let j = start; j < end; j += 1) {
+        sum += samples[j];
+      }
+      resampled[i] = sum / (end - start);
+    }
+  }
+
+  const numSamples = resampled.length;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i += 1) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true); // PCM chunk size
+  view.setUint16(20, 1, true);  // PCM format = 1
+  view.setUint16(22, 1, true);  // Mono = 1 channel
+  view.setUint32(24, dstRate, true);
+  view.setUint32(28, dstRate * 2, true); // byte rate (sampleRate * blockAlign)
+  view.setUint16(32, 2, true);  // block align (1 channel * 2 bytes)
+  view.setUint16(34, 16, true); // bits per sample = 16
+  writeString(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < numSamples; i += 1) {
+    const clamped = Math.max(-1, Math.min(1, resampled[i]));
+    view.setInt16(offset, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+    offset += 2;
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
+const shouldRetryWithWorker = (res: Response): boolean => {
+  if (res.status === 404 || res.status === 405) return true;
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  return contentType.includes('text/html') || contentType.includes('application/xhtml+xml');
+};
+
+const postSttMultipart = async (
+  localProxyPath: string,
+  workerPath: string,
+  buildFormData: () => FormData,
+  headers: Record<string, string>,
+): Promise<Response> => {
+  const workerUrl = `${getProxyWorkerUrl()}${workerPath}`;
+  if (isNative() || useStaticWorker()) {
+    return fetch(workerUrl, {
+      method: 'POST',
+      headers,
+      body: buildFormData(),
+    });
+  }
+
+  try {
+    const res = await fetch(localProxyPath, {
+      method: 'POST',
+      headers,
+      body: buildFormData(),
+    });
+    if (shouldRetryWithWorker(res)) {
+      return fetch(workerUrl, {
+        method: 'POST',
+        headers,
+        body: buildFormData(),
+      });
+    }
+    return res;
+  } catch {
+    return fetch(workerUrl, {
+      method: 'POST',
+      headers,
+      body: buildFormData(),
+    });
+  }
+};
+
+const extractApiErrorDetail = (rawText: string): string => {
+  const trimmed = (rawText || '').trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = JSON.parse(trimmed);
+    const msg =
+      parsed?.error?.message ||
+      parsed?.base_resp?.status_msg ||
+      parsed?.detail?.message ||
+      (typeof parsed?.detail === 'string' ? parsed.detail : '') ||
+      parsed?.message ||
+      parsed?.error;
+    if (typeof msg === 'string' && msg.trim()) return msg.trim();
+  } catch {
+    // plain text
+  }
+  return trimmed.slice(0, 180);
+};
+
+const formatSttHttpError = (providerLabel: string, status: number, rawText: string): string => {
+  const detail = extractApiErrorDetail(rawText);
+  const lower = detail.toLowerCase();
+  if (status === 401 || lower.includes('invalid api key') || lower.includes('unauthorized') || lower.includes('authorized_error')) {
+    return `${providerLabel} API Key 无效或未开通语音识别权限，请前往「设置 → 其他 API」检查`;
+  }
+  if (status === 402 || lower.includes('insufficient_balance') || lower.includes('quota') || lower.includes('credits') || lower.includes('payment')) {
+    return `${providerLabel} 账户余额或配额不足`;
+  }
+  if (status === 403) {
+    return `${providerLabel} 拒绝访问，请检查 Key 权限`;
+  }
+  if (status === 429 || lower.includes('rate_limit') || lower.includes('too many requests')) {
+    return `${providerLabel} 请求过于频繁，请稍后再试`;
+  }
+  return `${providerLabel} 语音转写失败 (HTTP ${status})${detail ? `：${detail}` : ''}`;
+};
+
+/**
+ * Strip Fish Audio `transcribe-1-pro` speaker turn prefixes such as `<|speaker:0|>`.
+ */
+export const cleanFishAsrText = (raw: string): string =>
+  (raw || '').replace(/<\|speaker:\d+\|>/gi, '').replace(/\s+/g, ' ').trim();
+
+/**
+ * Send a recorded WAV blob to the specified paid STT provider and return the transcript.
+ */
+export async function transcribeAudioWithProvider(
+  wavBlob: Blob,
+  provider: 'minimax' | 'fishaudio' | 'elevenlabs',
+  lang: string,
+  apiConfig?: Partial<APIConfig> | null,
+): Promise<string> {
+  const normalizedLang = (lang || '').trim().toLowerCase();
+
+  if (provider === 'minimax') {
+    const apiKey = resolveMiniMaxSttApiKey(apiConfig);
+    if (!apiKey) {
+      throw new Error('未配置官方 MiniMax API Key，请在「设置 → 其他 API」填写，或切换至 ElevenLabs / 鱼声 Fish');
+    }
+    const region = normalizeMinimaxRegion(apiConfig?.minimaxRegion || getMinimaxRegion());
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+      'X-MiniMax-Region': region,
+    };
+    if (normalizedLang === 'yue') {
+      headers['language'] = 'yue';
+    }
+
+    const res = await postSttMultipart(
+      '/api/minimax/stt',
+      `/minimax/stt?region=${encodeURIComponent(region)}`,
+      () => {
+        const form = new FormData();
+        form.append('model', 'asr-1.0');
+        form.append('response_format', 'json');
+        form.append('file', wavBlob, 'speech.wav');
+        return form;
+      },
+      headers,
+    );
+
+    const rawText = await res.text();
+    if (!res.ok) {
+      throw new Error(formatSttHttpError('MiniMax ASR', res.status, rawText));
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error('MiniMax ASR 返回格式异常');
+    }
+    if (data?.type === 'error' || data?.error) {
+      throw new Error(formatSttHttpError('MiniMax ASR', Number(data?.error?.http_code) || 400, rawText));
+    }
+    if (data?.base_resp?.status_code && data.base_resp.status_code !== 0) {
+      throw new Error(formatSttHttpError('MiniMax ASR', 400, rawText));
+    }
+    return String(data?.text || '').trim();
+  }
+
+  if (provider === 'fishaudio') {
+    const apiKey = resolveFishAudioSttApiKey(apiConfig);
+    if (!apiKey) {
+      throw new Error('未配置鱼声 Fish Audio API Key，请在「设置 → 其他 API」填写');
+    }
+    const model = 'transcribe-1-pro';
+    const res = await postSttMultipart(
+      '/api/fishaudio/stt',
+      `/fishaudio/stt?model=${encodeURIComponent(model)}`,
+      () => {
+        const form = new FormData();
+        form.append('audio', wavBlob, 'speech.wav');
+        form.append('ignore_timestamps', 'true');
+        form.append('tag_audio_events', 'false');
+        if (normalizedLang === 'yue') {
+          form.append('language', 'yue');
+        }
+        return form;
+      },
+      {
+        Authorization: `Bearer ${apiKey}`,
+        model,
+      },
+    );
+
+    const rawText = await res.text();
+    if (!res.ok) {
+      throw new Error(formatSttHttpError('鱼声 Fish ASR', res.status, rawText));
+    }
+
+    let data: any;
+    try {
+      data = JSON.parse(rawText);
+    } catch {
+      throw new Error('鱼声 Fish ASR 返回格式异常');
+    }
+    return cleanFishAsrText(String(data?.text || ''));
+  }
+
+  // provider === 'elevenlabs'
+  const apiKey = resolveElevenLabsSttApiKey(apiConfig);
+  if (!apiKey) {
+    throw new Error('未配置 ElevenLabs API Key，请在「设置 → 其他 API」填写');
+  }
+
+  const res = await postSttMultipart(
+    '/api/elevenlabs/stt',
+    '/elevenlabs/stt',
+    () => {
+      const form = new FormData();
+      form.append('model_id', 'scribe_v2');
+      form.append('tag_audio_events', 'false');
+      if (normalizedLang === 'yue') {
+        form.append('language_code', 'yue');
+      }
+      form.append('file', wavBlob, 'speech.wav');
+      return form;
+    },
+    {
+      'xi-api-key': apiKey,
+    },
+  );
+
+  const rawText = await res.text();
+  if (!res.ok) {
+    throw new Error(formatSttHttpError('ElevenLabs Scribe', res.status, rawText));
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    throw new Error('ElevenLabs Scribe 返回格式异常');
+  }
+  return String(data?.text || '').trim();
+}
+
+const MAX_RECORDING_MS = 60_000;
+const MIN_RECORDING_SAMPLES_AT_16K = 3200; // ~0.2s
 
 /**
  * 云端 STT 走 WebView 的 getUserMedia。排查记录：RECORD_AUDIO 已由 speech-recognition 插件
@@ -372,7 +531,283 @@ const ensureNativeMicPermission = async (): Promise<void> => {
   } catch { /* 插件缺失/加载失败都不拦，让 getUserMedia 去实测 */ }
 };
 
-const startCloud = async (lang: string, cb: SttCallbacks, cfg: SttProviderConfig): Promise<SttSession> => {
+const startApiStt = async (
+  provider: 'minimax' | 'fishaudio' | 'elevenlabs',
+  lang: string,
+  apiConfig: Partial<APIConfig> | null | undefined,
+  cb: SttCallbacks,
+): Promise<SttSession> => {
+  if (!isAudioRecordingSupported()) {
+    cb.onError?.('当前环境不支持麦克风录音，请检查浏览器权限或改用 HTTPS 访问');
+    cb.onEnd?.();
+    return { stop: () => {} };
+  }
+
+  // 原生 App：录音前先把 RECORD_AUDIO 真正落到进程上（见 ensureNativeMicPermission 注释）
+  await ensureNativeMicPermission();
+
+  let stream: MediaStream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+  } catch (e: any) {
+    cb.onError?.(friendlyBrowserError(e?.name || e?.message || 'permission-denied', true));
+    cb.onEnd?.();
+    return { stop: () => {} };
+  }
+
+  const AudioCtx = (window as any).AudioContext || (window as any).webkitAudioContext;
+  if (!AudioCtx) {
+    stream.getTracks().forEach((t) => t.stop());
+    cb.onError?.('当前浏览器不支持 WebAudio 录音');
+    cb.onEnd?.();
+    return { stop: () => {} };
+  }
+
+  const audioCtx: AudioContext = new AudioCtx();
+  if (audioCtx.state === 'suspended') {
+    await audioCtx.resume().catch(() => {});
+  }
+
+  const source = audioCtx.createMediaStreamSource(stream);
+  const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  const recordedChunks: Float32Array[] = [];
+  let totalSamples = 0;
+  let stopped = false;
+
+  processor.onaudioprocess = (event: AudioProcessingEvent) => {
+    if (stopped) return;
+    const input = event.inputBuffer.getChannelData(0);
+    const copy = new Float32Array(input.length);
+    copy.set(input);
+    recordedChunks.push(copy);
+    totalSamples += copy.length;
+  };
+
+  source.connect(processor);
+  processor.connect(audioCtx.destination);
+
+  const stopRecordingAndTranscribe = async () => {
+    if (stopped) return;
+    stopped = true;
+    window.clearTimeout(autoStopTimer);
+
+    try {
+      processor.disconnect();
+      source.disconnect();
+    } catch { /* ignore */ }
+    stream.getTracks().forEach((t) => t.stop());
+    const sampleRate = audioCtx.sampleRate || 48000;
+    audioCtx.close().catch(() => {});
+
+    const merged = new Float32Array(totalSamples);
+    let offset = 0;
+    for (const chunk of recordedChunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+
+    const estimated16kSamples = Math.round((totalSamples / sampleRate) * 16000);
+    if (estimated16kSamples < MIN_RECORDING_SAMPLES_AT_16K) {
+      cb.onError?.('录音时间太短啦，点一下麦克风开始说话，说完再点一下结束识别');
+      cb.onEnd?.();
+      return;
+    }
+
+    cb.onTranscribing?.(true);
+    try {
+      const wavBlob = encodeWavFromFloat32(merged, sampleRate, 16000);
+      const transcript = await transcribeAudioWithProvider(wavBlob, provider, lang, apiConfig);
+      if (transcript) {
+        cb.onFinal?.(transcript);
+      } else {
+        cb.onError?.('没听清刚才那句话，请靠近麦克风再试一次');
+      }
+    } catch (err: any) {
+      cb.onError?.(err?.message || '语音转写失败');
+    } finally {
+      cb.onTranscribing?.(false);
+      cb.onEnd?.();
+    }
+  };
+
+  const autoStopTimer = window.setTimeout(() => {
+    void stopRecordingAndTranscribe();
+  }, MAX_RECORDING_MS);
+
+  return {
+    stop: () => {
+      void stopRecordingAndTranscribe();
+    },
+  };
+};
+
+// No-response watchdog: domestic Android browsers (Via / Quark / UC / Baidu / WeChat X5)
+// expose `webkitSpeechRecognition` on window, but the underlying Google speech service is
+// unreachable or stripped from the WebView — `start()` silently hangs with zero events.
+const SILENT_HANG_WATCHDOG_MS = 7000;
+
+const startWeb = (lang: string, cb: SttCallbacks, hasPaidConfigured: boolean): SttSession => {
+  const Ctor = getWebCtor();
+  if (!Ctor) {
+    const hint = hasPaidConfigured
+      ? '当前浏览器不支持自带语音识别，请在「通话偏好」或「设置 → 其他 API」切换为已配置的付费语音转文字'
+      : '当前浏览器不支持自带语音识别，可在「设置 → 其他 API」配置 ElevenLabs、鱼声 Fish 或 MiniMax Key 开启高精度语音转文字';
+    cb.onError?.(hint);
+    cb.onEnd?.();
+    return { stop: () => {} };
+  }
+
+  const rec = new Ctor();
+  rec.lang = lang;
+  rec.continuous = true;
+  rec.interimResults = true;
+
+  let finalBuf = '';
+  let lastEmitted = '';
+  let gotAnyResult = false;
+  let watchdog: number | null = null;
+  const clearWatchdog = () => {
+    if (watchdog !== null) { window.clearTimeout(watchdog); watchdog = null; }
+  };
+
+  rec.onresult = (e: any) => {
+    gotAnyResult = true;
+    clearWatchdog();
+    let interim = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      const t = r?.[0]?.transcript || '';
+      if (r.isFinal) finalBuf += t;
+      else interim += t;
+    }
+    const combined = (finalBuf + interim).trim();
+    if (combined) {
+      lastEmitted = combined;
+      cb.onPartial?.(combined);
+    }
+  };
+
+  rec.onerror = (e: any) => {
+    clearWatchdog();
+    if (e?.error === 'aborted') return;
+    cb.onError?.(friendlyBrowserError(e?.error || e?.message || '', hasPaidConfigured));
+  };
+
+  rec.onend = () => {
+    clearWatchdog();
+    if (lastEmitted) cb.onFinal?.(lastEmitted);
+    cb.onEnd?.();
+  };
+
+  try {
+    rec.start();
+  } catch (e: any) {
+    cb.onError?.(friendlyBrowserError(e?.message || 'start-failed', hasPaidConfigured));
+    cb.onEnd?.();
+    return { stop: () => {} };
+  }
+
+  watchdog = window.setTimeout(() => {
+    watchdog = null;
+    if (gotAnyResult) return;
+    try { rec.stop(); } catch { /* ignore */ }
+    cb.onError?.(
+      hasPaidConfigured
+        ? '浏览器自带语音识别无响应，可在「通话偏好」切换为 ElevenLabs / 鱼声 Fish / MiniMax 语音识别'
+        : '浏览器自带语音服务无响应，建议在「设置 → 其他 API」配置 ElevenLabs、鱼声 Fish 或 MiniMax Key 使用付费语音转文字'
+    );
+  }, SILENT_HANG_WATCHDOG_MS);
+
+  return { stop: () => { clearWatchdog(); try { rec.stop(); } catch { /* ignore */ } } };
+};
+
+// 系统（native）识别看门狗：开麦后这么久还没收到任何识别信号，多半是这台设备的
+// RecognitionService 根本不返回结果（国产 ROM 缺谷歌语音服务的典型症状：start()
+// 正常 resolve、麦克风也开着，但永远不推 partialResults、也不报错）。给一次可操作
+// 提示，但不打断会话——用户可能只是还没开口。
+const STT_NATIVE_WATCHDOG_MS = 9000;
+
+const startNative = async (lang: string, cb: SttCallbacks, hasPaidConfigured: boolean): Promise<SttSession> => {
+  const { SpeechRecognition } = await import('@capacitor-community/speech-recognition');
+
+  const perm = await SpeechRecognition.checkPermissions().catch(() => ({ speechRecognition: 'prompt' as const }));
+  if (perm.speechRecognition !== 'granted') {
+    const req = await SpeechRecognition.requestPermissions();
+    if (req.speechRecognition !== 'granted') throw new Error('麦克风权限被拒绝');
+  }
+
+  let lastPartial = '';
+  let ended = false;
+  let gotSignal = false;
+  const handle = await SpeechRecognition.addListener('partialResults', (data: any) => {
+    const m = data?.matches?.[0];
+    if (m) { gotSignal = true; lastPartial = m; cb.onPartial?.(m); }
+  });
+
+  const finish = (finalText: string, errMsg?: string) => {
+    if (ended) return;
+    ended = true;
+    handle.remove();
+    if (errMsg) cb.onError?.(friendlyBrowserError(errMsg, hasPaidConfigured));
+    else if (finalText) cb.onFinal?.(finalText);
+    cb.onEnd?.();
+  };
+
+  SpeechRecognition.start({ language: lang, partialResults: true, popup: false, maxResults: 1 })
+    .then((res: any) => finish((res?.matches?.[0] || lastPartial || '').trim()))
+    .catch((e: any) => finish('', e?.message || 'native-error'));
+
+  // 看门狗：一直没收到识别信号就给可操作提示（不打断会话，见常量注释）
+  setTimeout(() => {
+    if (gotSignal || ended) return;
+    cb.onError?.('还没识别到声音。如果点了没反应，多半是这台设备的系统语音识别不可用（常见于缺谷歌语音服务的 ROM）——可在「通话偏好」或「设置 → 其他 API」切换为已配置的付费语音识别。');
+  }, STT_NATIVE_WATCHDOG_MS);
+
+  return { stop: () => { SpeechRecognition.stop().catch(() => { /* ignore */ }); } };
+};
+
+/**
+ * Start a speech-to-text session using the resolved provider (`minimax`, `fishaudio`, `elevenlabs`, or `browser`).
+ */
+export const startStt = async (
+  lang: string,
+  cb: SttCallbacks,
+  apiConfig?: Partial<APIConfig> | null,
+): Promise<SttSession> => {
+  const language = lang || 'zh-CN';
+  const provider = resolveSttProvider(apiConfig);
+  if (provider === 'minimax' || provider === 'fishaudio' || provider === 'elevenlabs') {
+    return startApiStt(provider, language, apiConfig, cb);
+  }
+  const hasPaid = hasAnyApiSttConfigured(apiConfig);
+  if (isNative()) return startNative(language, cb, hasPaid);
+  return startWeb(language, cb, hasPaid);
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Fork：通用云端 STT（OpenAI 兼容 /v1/audio/transcriptions）
+// 上游走官方三厂商模型；这条是 fork 面试语音练习（JobHuntApp / CallApp sttOverride）的
+// 通道——任意兼容端点（SiliconFlow SenseVoice / Groq Whisper / OpenAI Whisper）都行，
+// 并额外提供 onLevel（波形）与 onAudioBlob（完整音频给说话状态分析）两个回调。
+// ─────────────────────────────────────────────────────────────────────────────
+
+const resolveTranscriptionUrl = (baseUrl: string): string => {
+  const b = (baseUrl || '').trim().replace(/\/+$/, '');
+  if (!b) return '';
+  if (/\/audio\/transcriptions$/i.test(b)) return b;
+  if (/\/v\d+$/i.test(b)) return `${b}/audio/transcriptions`;
+  return `${b}/v1/audio/transcriptions`;
+};
+
+const DEFAULT_CLOUD_STT_BASE = 'https://api.siliconflow.cn/v1';
+
+export const startCloudStt = async (lang: string, cb: SttCallbacks, cfg: SttProviderConfig): Promise<SttSession> => {
   // Base URL 留空 → 默认 SiliconFlow（与设置页文案一致）
   const url = resolveTranscriptionUrl(cfg.baseUrl?.trim() || DEFAULT_CLOUD_STT_BASE);
   if (!cfg.apiKey) throw new Error('先在设置→其他 API 里填云端 STT 的 API Key');
@@ -381,15 +816,13 @@ const startCloud = async (lang: string, cb: SttCallbacks, cfg: SttProviderConfig
   }
 
   // 关键修复：录音前先确保原生 RECORD_AUDIO 真正落到进程上，规避“设置里已允许、
-  // getUserMedia 仍秒拒 NotAllowed”的机型坑。
+  // getUserMedia 仍秒拒 NotAllowed”的机型坑（见 ensureNativeMicPermission 注释）。
   await ensureNativeMicPermission();
 
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch((err: any) => {
-    // 不能把所有失败都说成"权限被拒绝"（以前的 bug：用户明明授了权，却因
-    // 设备无麦/被占用等报"权限被拒绝"）。按错误名区分，给准确可操作文案。
+    // 不能把所有失败都说成"权限被拒绝"。按错误名区分，给准确可操作文案；
+    // 附 [错误名/平台/安全上下文] 诊断尾巴，别再掩盖真因。
     const name = err?.name || '';
-    // 探针：把真实错误名 + 运行环境带出来。历史上这里统一说成“权限被拒绝”掩盖了真因，
-    // 导致反复改都定位不到；保留可读文案的同时把 [名字/平台/是否安全上下文] 附在末尾。
     const secure = typeof window !== 'undefined' && (window as any).isSecureContext === false ? '/insecure' : '';
     const diag = ` [${name || 'Unknown'}${isNative() ? '/native' : '/web'}${secure}]`;
     if (/NotAllowed|Security/i.test(name)) throw new Error('麦克风权限被拒绝，去系统设置里允许一下' + diag);
@@ -485,17 +918,4 @@ const startCloud = async (lang: string, cb: SttCallbacks, cfg: SttProviderConfig
       try { recorder.stop(); } catch { releaseMic(); cb.onEnd?.(); }
     },
   };
-};
-
-/**
- * Start a speech-to-text session. Resolves to a handle you can `stop()`.
- * All transcripts arrive via the callbacks.
- * Pass `cfg`（来自 APIConfig 的 stt* 字段）选择云端识别；缺省走系统/浏览器识别。
- */
-export const startStt = async (lang: string, cb: SttCallbacks, cfg?: SttProviderConfig): Promise<SttSession> => {
-  const language = lang || 'zh-CN';
-  // 选了云端但没填 Key → 自动回退系统/浏览器识别（与设置页文案一致）
-  if (cfg?.provider === 'cloud' && cfg.apiKey) return startCloud(language, cb, cfg);
-  if (isNative()) return startNative(language, cb);
-  return startWeb(language, cb);
 };

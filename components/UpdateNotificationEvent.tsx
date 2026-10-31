@@ -7,6 +7,8 @@ import { SARUpdatePopup } from './os/SARUpdatePopup';
 import { SAR_UPDATE_KEY, SAR_CHANGELOG, sarLaunch } from '../utils/sarUpdate';
 import HomeUpdatePopup from './os/HomeUpdatePopup';
 import { HOME_UPDATE_KEY, HOME_CHANGELOG } from '../utils/homeUpdate';
+import OctoberUpdatePopup from './os/OctoberUpdatePopup';
+import { OCTOBER_UPDATE_KEY } from '../utils/octoberUpdate';
 import { roomLaunch } from '../utils/roomLaunch';
 import NavigationBallNotice, { NAVIGATION_BALL_NOTICE_KEY } from './os/NavigationBallNotice';
 import UserLocationNotice, { USER_LOCATION_NOTICE_KEY } from './os/UserLocationNotice';
@@ -617,7 +619,10 @@ const UserLocationAnnouncement: React.FC<UpdatePopupProps> = ({ onDone, onExit }
     }} />;
 };
 
+const OctoberUpdateAnnouncement: React.FC<UpdatePopupProps> = ({ onDone }) => <OctoberUpdatePopup onDone={onDone}/>;
+
 const UPDATE_QUEUE: { key: string; render: (props: UpdatePopupProps) => React.ReactNode }[] = [
+    { key: OCTOBER_UPDATE_KEY, render: props => <OctoberUpdateAnnouncement {...props} /> },
     { key: USER_LOCATION_NOTICE_KEY, render: props => <UserLocationAnnouncement {...props} /> },
     { key: NAVIGATION_BALL_NOTICE_KEY, render: props => <NavigationBallAnnouncement {...props} /> },
     { key: HOME_UPDATE_KEY, render: props => <HomeUpdateAnnouncement {...props} /> },

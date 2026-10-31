@@ -2103,7 +2103,7 @@ ${isInitialGeneration ? `
                                    {([
                                        ['lifeRecordPeriodEnabled', 'period', '生理期', '经期状态 / 周期预测 + 代记「来了 / 结束了」'],
                                        ['lifeRecordMedEnabled', 'med', '药盒', '今日用药计划与打卡情况 + 代记「吃了 xx 药」'],
-                                       ['lifeRecordExpenseEnabled', 'expense', '记账', '今日支出（与银行 App 打通）+ 代记「花了 xx 钱」'],
+                                       ['lifeRecordExpenseEnabled', 'expense', '记账', '今日收支（与银行 App 打通）+ 代记花费与到账收入'],
                                        ['lifeRecordExerciseEnabled', 'exercise', '锻炼', '今日 / 本周锻炼情况 + 代记「做了 xx 运动」'],
                                    ] as const).filter(([, moduleKey]) => !hiddenLifeModules.includes(moduleKey)).map(([field, , label, desc]) => (
                                        <div key={field} className="flex items-center justify-between gap-3">

@@ -4771,6 +4771,7 @@ describe('即时对话的接线', () => {
     const response = await call('https://w.example/config-check');
     const body = await response.json();
     expect(body.data.instantChat).toBe(true);
+    expect(body.data.anthropicMessages).toBe(true);
   });
 
   /**

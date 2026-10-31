@@ -2,7 +2,7 @@ import { describeDevicePositionError, getCurrentPositionSmart } from './geo';
 import { AmapLocationError, parseAmapLocation, queryAmapLocation } from './amapUserLocation';
 import { GeoapifyLocationError, parseGeoapifyLocation, queryGeoapifyLocation } from './geoapifyUserLocation';
 import {
-    isLocationFix, loadUserLocationConfig, locationDistanceMeters, matchUserPrivacyRegion,
+    isLocationFix, loadUserLocationConfig, canCharacterSeeUserLocation, locationDistanceMeters, matchUserPrivacyRegion,
     userLocationPlaceName, validateUserLocationConfig, USER_LOCATION_LOOKUP_URL, USER_LOCATION_STORAGE_KEY,
     type LocationFix, type UserLocationConfig,
 } from './userLocationPrivacy';
@@ -125,14 +125,19 @@ function renderUserLocationContext(snapshot: UserLocationSnapshot | null, userNa
     return `\n### ${name}当前的位置\n${name}现在的定位${location}，作为辅助参考背景信息，具体以${name}的说明为准。${attribution}\n`;
 }
 
-export async function getUserLocationContext(userName?: string): Promise<string> {
-    return renderUserLocationContext(await refreshUserLocation(), userName);
+export async function getUserLocationContext(userName?: string, charId?: string): Promise<string> {
+    try {
+        if (!canCharacterSeeUserLocation(loadUserLocationConfig(), charId)) return '';
+        const snapshot = await refreshUserLocation();
+        // Selection may have changed while the device/provider was answering.
+        return canCharacterSeeUserLocation(loadUserLocationConfig(), charId) ? renderUserLocationContext(snapshot, userName) : '';
+    } catch { return ''; }
 }
 
 /** Scheduled cloud messages cannot read the device. Never freeze a current fix in a template. */
-export function getBackgroundUserLocationContext(userName?: string): string {
+export function getBackgroundUserLocationContext(userName?: string, charId?: string): string {
     try {
-        return loadUserLocationConfig().enabled
+        return canCharacterSeeUserLocation(loadUserLocationConfig(), charId)
             ? renderUserLocationContext({ kind: 'unavailable', description: '' }, userName) : '';
     } catch { return ''; }
 }

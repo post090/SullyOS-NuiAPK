@@ -11,6 +11,7 @@
     "cap:sync": "cap sync",
     "cap:android": "cap open android",
     "build:workers": "node scripts/build-workers.mjs",
+    "build:proxy": "node scripts/build-proxy-worker.mjs",
     "test": "vitest",
     "test:run": "vitest run",
     "wardrobe:check": "node art/chibi/check-wardrobe.mjs",
