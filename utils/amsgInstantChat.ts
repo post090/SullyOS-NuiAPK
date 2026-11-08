@@ -1,4 +1,5 @@
 import { stageStoppedReplyReceipt } from './amsgStoppedReplyClient';
+import { listUserSpaces } from './userSpaces';
 import { amsgStateNamespace } from './amsgFirePack';
 import { stoppedReplyKey } from './amsgStoppedReply';
 import { getReplyDisplayIds, isReplyStopped, markReplyStopped, replyAbortError } from './chatReplyCancellation';
@@ -515,6 +516,8 @@ export const sendInstantChatTurn = async (params: {
   signal?: AbortSignal;
   char: CharacterProfile;
   chatMessages: Array<{ role: string; content: unknown }>;
+  /** 本地「实时状态」段在 chatMessages 里的下标；-1 / 不传时 worker 把时效块追加到末尾。 */
+  timelyInsertAt?: number;
   /** 本地生成这一轮会用的凭据（effectiveApi），云端必须用同一份。 */
   api: { baseUrl: string; apiKey: string; model: string };
   /** 本地这一轮会发的采样温度；开思考时本地不发温度，这里也就不传。 */
@@ -572,6 +575,7 @@ export const sendInstantChatTurn = async (params: {
       signal: params.signal,
       char: params.char,
       chatMessages: params.chatMessages,
+      ...(params.timelyInsertAt !== undefined ? { timelyInsertAt: params.timelyInsertAt } : {}),
       api: params.api,
       ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
       ...(params.maxTokens ? { maxTokens: params.maxTokens } : {}),
@@ -751,6 +755,7 @@ const backfillOutboxEntries = async (
   entries: AmsgOutboxEntry[],
 ): Promise<Omit<OutboxDrainResult, 'entries'>> => {
   const now = Date.now();
+  const localCharIds = listUserSpaces().length > 1 ? new Set((await DB.getAllCharacters()).map(c => c.id)) : null;
   const ackNow: string[] = [];
   const writtenIds: string[] = [];
   let written = 0;
@@ -768,6 +773,9 @@ const backfillOutboxEntries = async (
   }
   const persistedIdsByChar = new Map<string, Set<string>>();
   for (const [charId, ids] of candidatesByChar) {
+    // Other users' messages still enter the shared durable inbox. Their own page
+    // will deduplicate and run the unchanged chat pipeline when that space opens.
+    if (localCharIds && !localCharIds.has(charId)) continue;
     persistedIdsByChar.set(charId, await DB.findPersistedActiveMessageIds(charId, ids));
   }
   // 收件箱里已经躺着的那些，各自是什么时候到这台设备的。

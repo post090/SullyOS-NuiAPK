@@ -29,7 +29,8 @@
 
 import type { CharacterProfile } from '../types';
 import { ActiveMsgClient } from './activeMsgClient';
-import { AMSG_INSTANT_CHAT_SUBTYPE, AMSG_STATE_NAMESPACE_PREFIX } from './amsgFirePack';
+import { AMSG_STATE_NAMESPACE_PREFIX } from './amsgFirePack';
+import { classifyTaskRow } from './amsgTaskKinds';
 import { parseCharCredId, type LlmCredentialPurpose } from './amsgLlmCredentials';
 
 /** 云端某个角色名下的占用。 */
@@ -95,6 +96,8 @@ const describeError = (error: unknown): string =>
 export const collectCloudInventory = async (
   localChars: CharacterProfile[],
 ): Promise<CloudInventory> => {
+  const { listUserSpaces } = await import('./userSpaces');
+  if (listUserSpaces().length > 1) localChars = await (await import('./userSpaceCloudSettings')).allSpaceCharacters();
   const byId = new Map<string, CloudCharEntry>();
   const gaps: CloudInventoryGap[] = [];
 
@@ -114,7 +117,7 @@ export const collectCloudInventory = async (
       const charId = typeof task?.charId === 'string' ? task.charId : '';
       if (!charId) continue;
       const entry = entryFor(charId);
-      if (task?.messageSubtype === AMSG_INSTANT_CHAT_SUBTYPE) entry.instantCount += 1;
+      if (classifyTaskRow(task) === 'instant-chat') entry.instantCount += 1;
       else entry.taskCount += 1;
     }
   } catch (error) {

@@ -9,7 +9,7 @@
 > | `kind → handler` 注册表 | `worker/amsg/src/fireKinds.ts`。分派点在聊天那四道门**之前**，所以后台任务不用传 fire_pack / tool_pack |
 > | 后台任务的通用约定 | `utils/amsgTaskKinds.ts`：`metadata.amsgKind` 标种类、`amsg:job` 命名空间放一次性输入、`messageSubtype: 'job'` 让它们不出现在用户的任务清单里 |
 > | 结果回程 | `ctx.emitResult` → 服务端收件箱 → 客户端上线补收 → `utils/amsgResults.ts` 按 `resultKind` 派活。门牌的结果带 `notification: { show: false }`，只落账本不发推送；定时主动消息到点没发时回的 `fire-skipped` 也走这条路 |
-> | `clientStateTtl` | `amsg:job` 保留 3 天，独立即时输入 `amsg:instant-input` 与不可变附件 `amsg:attachments` 保留 30 天，诊断记录按自身期限清理。角色状态命名空间不配 TTL |
+> | `clientStateTtl` | `amsg:job` 保留 3 天，独立即时输入 `amsg:instant-input` 保留 7 天，不可变附件 `amsg:attachments` 保留 30 天，诊断记录按自身期限清理。角色状态命名空间不配 TTL |
 > | 门牌整理 | 提示词/解析/合并抽进零依赖叶子 `utils/memoryPalace/roomPlateCore.ts`，浏览器和 worker 共用；云端那条路在 `roomPlateCloud.ts`，worker 侧在 `worker/amsg/src/plateFire.ts` |
 > | 凭据 | credRefs 加了 `memory` 一档（记忆宫殿副 API）。没配副 API 就不上云，不回落到主 API |
 >

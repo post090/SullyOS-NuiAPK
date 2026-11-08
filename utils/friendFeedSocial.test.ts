@@ -89,7 +89,7 @@ it('rejects NPC impersonation, disabling NPCs while in flight, and publication a
     }
     const task = (await prepareFriendFeedEmotionTask(a.id, () => 0))!;
     await saveFriendFeedSettings({...defaultFriendFeedSettings(), npcEnabled: false});
-    expect(await landFriendFeedEmotionAction(a.id, {requestId: task.id, kind: 'none', npcActions: [{kind: 'post', name: '路人', text: '不应发出'}]})).toBe(false);
+    expect(await landFriendFeedEmotionAction(a.id, {requestId: task.id, kind: 'none', npcActions: [{kind: 'post', name: '路人', text: '不应发出'}]})).toBe(true);
     const next = (await prepareFriendFeedEmotionTask(a.id, () => 0))!;
     await saveFriendCircle({id: circleId, name: '客厅', description: '', memberIds: [b.id]});
     expect(await landFriendFeedEmotionAction(a.id, {requestId: next.id, kind: 'post', text: '迟到'})).toBe(false);
@@ -105,7 +105,9 @@ it('reports failure once, closes the attempt and never silently retries or falls
     expect((await readFriendFeed()).replyJobs!.every(j => j.done && !j.lease)).toBe(true);
     expect(safeFetchJson).toHaveBeenCalledTimes(1);
     expect(vi.mocked(safeFetchJson).mock.calls[0][0]).toBe('https://bibi.invalid/v1/chat/completions');
-    expect(JSON.parse(String(vi.mocked(safeFetchJson).mock.calls[0][1]!.body))).toMatchObject({model:'bibi',stream:false});
+    const body=JSON.parse(String(vi.mocked(safeFetchJson).mock.calls[0][1]!.body));
+    expect(body).toMatchObject({model:'bibi',stream:false,max_tokens:8000});
+    expect(JSON.stringify(body.messages)).toContain(`整份 JSON 的请求上限为 ${body.max_tokens} tokens`);
     vi.mocked(safeFetchJson).mockResolvedValue({choices: [{message: {content: '{"friendFeedAction":null}'}}]});
     await expect(runImmediateFriendReplies(id, user, api)).rejects.toThrow('没有可参与接话');
     expect(safeFetchJson).toHaveBeenCalledTimes(1);

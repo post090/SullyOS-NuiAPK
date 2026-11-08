@@ -15,7 +15,7 @@ function cleanCharacterWeatherCities(value) {
   return Object.fromEntries(Object.entries(value).filter(([id, city]) => id && typeof city === "string" && city.trim()).map(([id, city]) => [id, city.trim().slice(0, 100)]));
 }
 function weatherForCharacter(config, charId) {
-  const city = charId && Object.hasOwn(config.weatherCities || {}, charId) ? config.weatherCities?.[charId] : void 0;
+  const city = charId && Object.prototype.hasOwnProperty.call(config.weatherCities || {}, charId) ? config.weatherCities?.[charId] : void 0;
   return typeof city === "string" && city.trim() ? { ...config, weatherCity: city.trim().slice(0, 100) } : config;
 }
 var init_characterWeather = __esm({
@@ -48,9 +48,9 @@ var init_proxyWorker = __esm({
     getProxyWorkerUrl = () => {
       if (runtimeOverrideUrl) return runtimeOverrideUrl;
       try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return DEFAULT_PROXY_WORKER;
-        const url = normalize(raw);
+        const raw2 = localStorage.getItem(LS_KEY);
+        if (!raw2) return DEFAULT_PROXY_WORKER;
+        const url = normalize(raw2);
         if (!/^https?:\/\//i.test(url)) return DEFAULT_PROXY_WORKER;
         if (isLegacyProxyWorkerUrl(url)) return DEFAULT_PROXY_WORKER;
         return url;
@@ -123,7 +123,7 @@ var init_localDate = __esm({
 });
 
 // utils/mcpFireCore.ts
-var DEFAULT_MAX_TOOL_NAME_LEN, MCP_FIRE_NAME_PREFIX, MCP_FIRE_NAME_BUDGET, sanitizeMcpToolName, withMcpDedupeSuffix, serverSlug, buildMcpNameMap, MCP_RESULT_MAX_CHARS, formatMcpToolResult, stripTextFakedMcpCalls, escapeRegExp2, stripQuotes, positionalKeys, coerceBySchema, splitTopLevel, parseFakedArgs, extractTextFakedMcpCalls, MCP_LATEST_HANDSHAKE_PROTOCOL_VERSION, MCP_SUPPORTED_HANDSHAKE_PROTOCOL_VERSIONS, MCP_REQUEST_TIMEOUT_MS, createMcpSessionState, buildRpcRequest, parseSse, parseResp, readSseResponse, postCore, formatMcpRpcError, initializeCore, ensureInitializedCore, isRecord, resolveLocalSchemaRef, schemaAccepts, normalizeMcpValueBySchema, normalizeMcpToolArguments, targetHost, callMcpToolCore, buildMcpDirectHeaders, filterMcpServersForChar, buildMcpFireTools, buildMcpFireBlock;
+var DEFAULT_MAX_TOOL_NAME_LEN, MCP_FIRE_NAME_PREFIX, MCP_FIRE_NAME_BUDGET, sanitizeMcpToolName, withMcpDedupeSuffix, serverSlug, buildMcpNameMap, MCP_RESULT_MAX_CHARS, formatMcpToolResult, stripTextFakedMcpCalls, escapeRegExp, stripQuotes2, positionalKeys, coerceBySchema, splitTopLevel, parseFakedArgs, extractTextFakedMcpCalls, MCP_LATEST_HANDSHAKE_PROTOCOL_VERSION, MCP_SUPPORTED_HANDSHAKE_PROTOCOL_VERSIONS, MCP_REQUEST_TIMEOUT_MS, createMcpSessionState, buildRpcRequest, parseSse, parseResp, readSseResponse, postCore, formatMcpRpcError, initializeCore, ensureInitializedCore, isRecord, resolveLocalSchemaRef, schemaAccepts, normalizeMcpValueBySchema, normalizeMcpToolArguments, targetHost, callMcpToolCore, buildMcpDirectHeaders, filterMcpServersForChar, buildMcpFireTools, buildMcpFireBlock;
 var init_mcpFireCore = __esm({
   "utils/mcpFireCore.ts"() {
     "use strict";
@@ -171,8 +171,8 @@ var init_mcpFireCore = __esm({
       for (const call of calls) cleaned = cleaned.split(call.matched).join("");
       return cleaned.replace(/\n{3,}/g, "\n\n").trim();
     };
-    escapeRegExp2 = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
-    stripQuotes = (s) => {
+    escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+    stripQuotes2 = (s) => {
       const t = s.trim();
       const m = t.match(/^(['"`「『])([\s\S]*)(['"`」』])$/);
       return m ? m[2] : t;
@@ -184,7 +184,7 @@ var init_mcpFireCore = __esm({
     };
     coerceBySchema = (value, schema, key) => {
       const type = schema?.properties?.[key]?.type;
-      const v = stripQuotes(value);
+      const v = stripQuotes2(value);
       if (type === "number" || type === "integer") {
         const n = Number(v);
         if (Number.isFinite(n)) return type === "integer" ? Math.trunc(n) : n;
@@ -263,7 +263,7 @@ var init_mcpFireCore = __esm({
       const seen = /* @__PURE__ */ new Set();
       for (const [name, { exposed, hit }] of lookup) {
         const schema = hit.tool.inputSchema;
-        const esc = escapeRegExp2(name);
+        const esc = escapeRegExp(name);
         const parenRe = new RegExp(`(^|[^\\w./])${esc}\\s*\\(([^)]*)\\)`, "g");
         for (const m of content.matchAll(parenRe)) {
           const matched = m[0].slice(m[1].length);
@@ -286,7 +286,7 @@ var init_mcpFireCore = __esm({
           if (seen.has(key)) continue;
           seen.add(key);
           const keys = positionalKeys(schema);
-          const value = stripQuotes(m[2].replace(/[。！？!?…\s]+$/, ""));
+          const value = stripQuotes2(m[2].replace(/[。！？!?…\s]+$/, ""));
           found.push({
             exposedName: exposed,
             server: hit.server,
@@ -709,12 +709,210 @@ var init_mcpFireCore = __esm({
         howTo,
         "\u7EAA\u5F8B\uFF1A\u4E0D\u9700\u8981\u5C31\u522B\u786C\u8C03\uFF1B\u6CA1\u6536\u5230\u7CFB\u7EDF\u8FD4\u56DE\u524D\u4E0D\u8981\u58F0\u79F0\u5DE5\u5177\u6210\u529F\uFF0C\u4E5F\u4E0D\u8981\u7F16\u9020\u7ED3\u679C\uFF1B\u5DE5\u5177\u5931\u8D25\u5C31\u6362\u4E2A\u65B9\u5F0F\u6216\u5982\u5B9E\u5E26\u8FC7\uFF1B\u7ED3\u679C\u53EA\u6311\u76F8\u5173\u90E8\u5206\u7528\u89D2\u8272\u8BED\u6C14\u8F6C\u8FF0\uFF0C\u522B\u590D\u8BFB JSON\u3002",
         "\u591A\u6B65\u4EFB\u52A1\uFF1A\u5148\u505A\u5FC5\u8981\u68C0\u67E5\uFF0C\u968F\u540E\u7ACB\u523B\u8C03\u7528\u80FD\u63A8\u8FDB\u76EE\u6807\u7684\u52A8\u4F5C\u5DE5\u5177\uFF1B\u4E0D\u8981\u53CD\u590D\u8BFB\u53D6\u540C\u4E00\u4EFD\u8BF4\u660E\u6216\u72B6\u6001\u3002\u6267\u884C\u52A8\u4F5C\u540E\u53EF\u4EE5\u518D\u6B21\u68C0\u67E5\u65B0\u72B6\u6001\uFF0C\u5E76\u7EE7\u7EED\u5230\u76EE\u6807\u5B8C\u6210\u6216\u5DE5\u5177\u660E\u786E\u5931\u8D25\u3002",
-        `\u526F\u4F5C\u7528\u64CD\u4F5C\uFF1A${userName} \u672C\u8F6E\u5DF2\u7ECF\u660E\u786E\u8981\u6C42\u6267\u884C\u7684\u89C6\u4E3A\u5DF2\u786E\u8BA4\uFF1B\u6CA1\u6709\u660E\u786E\u8981\u6C42\u65F6\u624D\u5148\u786E\u8BA4\u3002`,
+        `\u526F\u4F5C\u7528\u64CD\u4F5C\uFF1A${userName} \u5728\u6700\u65B0\u6D88\u606F\u91CC\u5DF2\u7ECF\u660E\u786E\u8981\u6C42\u6267\u884C\u7684\u89C6\u4E3A\u5DF2\u786E\u8BA4\uFF1B\u6CA1\u6709\u660E\u786E\u8981\u6C42\u65F6\u624D\u5148\u786E\u8BA4\u3002`,
         "\u53EF\u7528\u5DE5\u5177\uFF1A",
         ...lines,
         "---"
       ].join("\n");
     };
+  }
+});
+
+// utils/userSpaces.ts
+function assertUserSpaceAvailable(id) {
+  if (isUserSpaceDeleting(id)) throw new Error("\u8FD9\u4E2A\u7528\u6237\u6B63\u5728\u5220\u9664\uFF0C\u8BF7\u5728\u7528\u6237\u7A7A\u95F4\u4E2D\u7EE7\u7EED\u5B8C\u6210\u5220\u9664");
+}
+function listUserSpaces() {
+  const text3 = raw?.getItem(CATALOG_KEY);
+  if (!text3) return [{ id: DEFAULT_SPACE_ID, name: "\u9ED8\u8BA4\u7528\u6237" }];
+  const entries2 = JSON.parse(text3);
+  if (!Array.isArray(entries2) || !entries2.length || entries2.some((s) => !validId(s?.id) || typeof s.name !== "string") || new Set(entries2.map((s) => s.id)).size !== entries2.length) throw new Error("\u7528\u6237\u7A7A\u95F4\u76EE\u5F55\u635F\u574F\uFF0C\u8BF7\u4ECE\u5907\u4EFD\u6062\u590D\uFF1B\u539F\u6570\u636E\u672A\u6539\u52A8");
+  return entries2;
+}
+function spaceDatabaseName(base, id = SESSION_SPACE_ID) {
+  if (!validId(id)) throw new Error("\u65E0\u6548\u7684\u7528\u6237\u7A7A\u95F4\u7F16\u53F7");
+  return id === DEFAULT_SPACE_ID ? base : `${base}__${id}`;
+}
+function splitSettings(key, input) {
+  if (key === "os_user_location_privacy_v1") {
+    const { characterIds, ...shared } = input;
+    return { shared, private: { characterIds: characterIds ?? null } };
+  }
+  if (key === "os_realtime_config") {
+    const { weatherCities, ...shared } = input;
+    return { shared, private: { weatherCities: weatherCities || {} } };
+  }
+  if (key === "aetheros.mcp.servers" && Array.isArray(input)) {
+    return { shared: input.map(({ charIds, ...s }) => s), private: Object.fromEntries(input.map((s) => [s.id, s.charIds])) };
+  }
+  return null;
+}
+function createSpaceStorage(storage, id) {
+  const changed = (key) => {
+    if (id === SESSION_SPACE_ID) for (const listener of changeListeners) listener(key);
+  };
+  const keys = () => {
+    const result = [];
+    const prefix = `${PREFIX}${id}:`;
+    for (let i = 0; i < storage.length; i++) {
+      const k = storage.key(i);
+      if (isSharedSpaceKey(k)) result.push(k);
+      else if (id === DEFAULT_SPACE_ID && !isInternalKey(k)) result.push(k);
+      else if (id !== DEFAULT_SPACE_ID && k.startsWith(prefix)) result.push(k.slice(prefix.length));
+    }
+    return [...new Set(result)];
+  };
+  const view = {
+    get length() {
+      return keys().length;
+    },
+    key(index) {
+      return keys()[index] ?? null;
+    },
+    getItem(key) {
+      key = String(key);
+      const value = storage.getItem(isSharedSpaceKey(key) ? key : privateKey(id, key));
+      if (!value) return value;
+      if (key === "os_realtime_config" || key === "aetheros.mcp.servers" || key === "os_user_location_privacy_v1") {
+        const parsed = JSON.parse(value);
+        const own = storage.getItem(privateKey(id, `space_selection:${key}`));
+        if (key === "os_user_location_privacy_v1") {
+          const ids = own ? JSON.parse(own).characterIds : id === DEFAULT_SPACE_ID ? parsed.characterIds : [];
+          return JSON.stringify({ ...parsed, characterIds: ids === null ? void 0 : ids });
+        }
+        if (key === "os_realtime_config") return JSON.stringify({ ...parsed, weatherCities: own ? JSON.parse(own).weatherCities : id === DEFAULT_SPACE_ID ? parsed.weatherCities : {} });
+        const selections = own ? JSON.parse(own) : null;
+        return JSON.stringify(parsed.map((s) => ({ ...s, charIds: selections && Object.prototype.hasOwnProperty.call(selections, s.id) ? selections[s.id] : id === DEFAULT_SPACE_ID ? s.charIds : ["__space_unselected__"] })));
+      }
+      return value;
+    },
+    setItem(key, value) {
+      assertUserSpaceAvailable(id);
+      key = String(key);
+      value = String(value);
+      if (key === "os_realtime_config" || key === "aetheros.mcp.servers" || key === "os_user_location_privacy_v1") {
+        const parsed = JSON.parse(value), split = splitSettings(key, parsed);
+        if (split) {
+          if (id !== DEFAULT_SPACE_ID && !storage.getItem(`space_selection:${key}`)) {
+            const old = storage.getItem(key);
+            if (old) {
+              const legacy = splitSettings(key, JSON.parse(old));
+              if (legacy) storage.setItem(`space_selection:${key}`, JSON.stringify(legacy.private));
+            }
+          }
+          storage.setItem(privateKey(id, `space_selection:${key}`), JSON.stringify(split.private));
+          storage.setItem(key, JSON.stringify(split.shared));
+          changed(key);
+          return;
+        }
+      }
+      storage.setItem(isSharedSpaceKey(key) ? key : privateKey(id, key), value);
+      changed(key);
+    },
+    removeItem(key) {
+      storage.removeItem(isSharedSpaceKey(key) ? key : privateKey(id, key));
+      changed(key);
+    },
+    clear() {
+      for (const key of keys()) if (!isSharedSpaceKey(key)) storage.removeItem(privateKey(id, key));
+      changed("*");
+    }
+  };
+  return view;
+}
+var DEFAULT_SPACE_ID, CATALOG_KEY, ACTIVE_KEY, PREFIX, SPACE_DELETIONS_KEY, raw, rawSpaceStorage, isUserSpaceDeleting, changeListeners, validId, SESSION_SPACE_ID, sharedKeys, isSharedSpaceKey, privateKey, isInternalKey;
+var init_userSpaces = __esm({
+  "utils/userSpaces.ts"() {
+    "use strict";
+    DEFAULT_SPACE_ID = "default";
+    CATALOG_KEY = "sully_user_spaces_v1";
+    ACTIVE_KEY = "sully_active_user_space_v1";
+    PREFIX = "sully_space:";
+    SPACE_DELETIONS_KEY = "sully_space_deletions_v1";
+    raw = typeof localStorage !== "undefined" ? localStorage : void 0;
+    rawSpaceStorage = raw;
+    isUserSpaceDeleting = (id) => !!JSON.parse(raw?.getItem(SPACE_DELETIONS_KEY) || "{}")[id];
+    changeListeners = /* @__PURE__ */ new Set();
+    validId = (id) => typeof id === "string" && /^(default|u_[a-zA-Z0-9_-]+)$/.test(id);
+    SESSION_SPACE_ID = (() => {
+      const id = raw?.getItem(ACTIVE_KEY) || DEFAULT_SPACE_ID;
+      const spaces = listUserSpaces().filter((s) => !isUserSpaceDeleting(s.id));
+      return spaces.some((s) => s.id === id) ? id : spaces[0]?.id || DEFAULT_SPACE_ID;
+    })();
+    sharedKeys = /* @__PURE__ */ new Set([
+      "amsg2_pending_llm_creds",
+      "amsg2_llm_cred_fingerprints",
+      "amsg2_pending_tool_config",
+      "amsg2_pending_tool_config_version",
+      "amsg2_state_clock_watermark",
+      "os_api_config",
+      "os_api_presets",
+      "os_available_models",
+      "os_vision_available_models",
+      "os_analytics",
+      "os_memory_palace_config",
+      "os_user_location_privacy_v1",
+      "os_remote_vector_config",
+      "os_cloud_backup_config",
+      "os_realtime_config",
+      "sully_proxy_worker_url",
+      "sully_proxy_worker_url_v1",
+      "push_vapid_v1",
+      "study_api_config",
+      "check_phone_api",
+      "sully_music_cfg_v1",
+      "os_first_use_memory_guide_v1",
+      "os_first_use_skip_vector_v1",
+      "sullyos_backup_reminder",
+      "world_home_api",
+      "browser_brave_key",
+      "browser_use_real_search",
+      "sully_firecrawl_api_key",
+      "aetheros.mcp.servers",
+      "aetheros.mcp.useNativeTools",
+      "aetheros.luckin.mcpToken",
+      "aetheros.luckin.mcpEnabled",
+      "aetheros.mcd.mcpToken",
+      "aetheros.mcd.mcpEnabled",
+      "sullyos_disclaimer_accepted",
+      "sullyos_chat_input_preferences_v1",
+      "sullyos_deployment_notice_v1_accepted",
+      "sullyos_user_holidays_intro_v1",
+      "sullyos_real_location_intro_v1_seen",
+      "sullyos_navigation_ball_intro_v1_seen",
+      "sullyos_chat_wardrobe_update_v2_seen",
+      "sullyos_chat_wardrobe_guide_v2_done",
+      "sully_navigation_ball_enabled_v1",
+      "sully_navigation_ball_position_v1",
+      "chat_archive_prompts",
+      "chat_active_archive_prompt_id",
+      "character_refine_prompts",
+      "character_active_refine_prompt_id",
+      "study_tutor_presets",
+      "bm25_mode",
+      "chat_translate_source_lang",
+      "chat_translate_lang"
+    ]);
+    isSharedSpaceKey = (key) => sharedKeys.has(key) || /(?:^|_)(?:api_config|api_key|proxy_url)$/.test(key) || /^(?:amsg2_(?:fcm|native|unified|cloud_generations:)|sullyos_(?:update_|notice_)|sully-beauty-author)/.test(key);
+    privateKey = (id, key) => id === DEFAULT_SPACE_ID ? key : `${PREFIX}${id}:${key}`;
+    isInternalKey = (key) => key.startsWith(PREFIX) || key === CATALOG_KEY || key === ACTIVE_KEY || key === SPACE_DELETIONS_KEY;
+  }
+});
+
+// utils/sharedAssetLock.ts
+async function withSharedAssetLock(mode2, action) {
+  if (typeof navigator !== "undefined" && navigator.locks?.request) return navigator.locks.request(LOCK, { mode: mode2 }, action);
+  const run = tail.then(action, action);
+  tail = run.catch(() => void 0);
+  return run;
+}
+var LOCK, tail, canCoordinateAssetDeletion;
+var init_sharedAssetLock = __esm({
+  "utils/sharedAssetLock.ts"() {
+    "use strict";
+    LOCK = "sully-shared-asset-references-v1";
+    tail = Promise.resolve();
+    canCoordinateAssetDeletion = () => typeof window === "undefined" || typeof navigator !== "undefined" && !!navigator.locks?.request;
   }
 });
 
@@ -841,6 +1039,90 @@ var init_backupExport = __esm({
   }
 });
 
+// utils/friendFeedSettings.ts
+function resolveFriendIdentities(value) {
+  if (!record2(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([, v]) => record2(v)).map(([id, raw2]) => {
+    const v = raw2, seen = /* @__PURE__ */ new Set();
+    const accounts = [];
+    if (Array.isArray(v.accounts)) for (const a of v.accounts) {
+      if (!record2(a) || typeof a.id !== "string" || !a.id || a.id === "main" || seen.has(a.id) || typeof a.name !== "string" || !a.name.trim()) continue;
+      seen.add(a.id);
+      accounts.push({ id: a.id.slice(0, 100), name: a.name.trim().slice(0, 40), purpose: typeof a.purpose === "string" ? a.purpose.slice(0, 300) : "", tags: tags(a.tags) });
+      if (accounts.length === 3) break;
+    }
+    return [id, { nickname: typeof v.nickname === "string" ? v.nickname.trim().slice(0, 40) : void 0, tags: tags(v.tags), accounts }];
+  }));
+}
+function friendAccounts(settings, char) {
+  const identity = settings.identities[char.id];
+  return [{ id: "main", name: identity?.nickname || char.name, purpose: "\u4E3B\u53F7", tags: identity?.tags || [] }, ...identity?.accounts || []];
+}
+function resolveFriendFeedSettings(value) {
+  const defaults = defaultFriendFeedSettings();
+  return {
+    userNickname: typeof value?.userNickname === "string" ? value.userNickname.trim().slice(0, 40) : "",
+    weiboHomeMode: value?.weiboHomeMode === "latest" ? "latest" : "default",
+    weiboProfile: value?.weiboProfile && /^\d{4,25}$/.test(value.weiboProfile.uid) && typeof value.weiboProfile.name === "string" && value.weiboProfile.name.trim() ? {
+      uid: value.weiboProfile.uid,
+      name: value.weiboProfile.name.trim().slice(0, 150),
+      avatar: typeof value.weiboProfile.avatar === "string" && /^https:\/\/[a-z\d.-]+\.sinaimg\.cn\/[^\s]{1,1900}$/i.test(value.weiboProfile.avatar) ? value.weiboProfile.avatar : void 0
+    } : void 0,
+    coverImages: record2(value?.coverImages) ? Object.fromEntries(Object.entries(value.coverImages).filter((entry) => typeof entry[1] === "string" && /^blobref:[a-zA-Z0-9_-]+$/.test(entry[1]))) : {},
+    interactionPrompt: typeof value?.interactionPrompt === "string" ? value.interactionPrompt.slice(0, 3e3) : defaults.interactionPrompt,
+    npcPrompt: typeof value?.npcPrompt === "string" ? value.npcPrompt.slice(0, 3e3) : defaults.npcPrompt,
+    theme: ["island", "moments", "insta", "journal", "weibo", "twitter"].includes(value?.theme || "") ? value.theme : defaults.theme,
+    layout: ["paper", "timeline", "compact"].includes(value?.layout || "") ? value.layout : defaults.layout,
+    fontSize: [14, 16, 18].includes(value?.fontSize || 0) ? value.fontSize : defaults.fontSize,
+    showCover: typeof value?.showCover === "boolean" ? value.showCover : defaults.showCover,
+    // Legacy backups may contain piggyback; user comments now always reply immediately.
+    replyMode: "immediate",
+    realContentEnabled: value?.realContentEnabled === true,
+    hideRealPosts: value?.hideRealPosts === true,
+    shareImagesEnabled: value?.shareImagesEnabled === true,
+    characterWeights: record2(value?.characterWeights) ? Object.fromEntries(Object.entries(value.characterWeights).map(([id, v]) => [id, weight(v, 10)])) : {},
+    contentWeights: { self: weight(value?.contentWeights?.self, 60), related: weight(value?.contentWeights?.related, 30), stranger: weight(value?.contentWeights?.stranger, 10) },
+    identities: resolveFriendIdentities(value?.identities),
+    npcEnabled: typeof value?.npcEnabled === "boolean" ? value.npcEnabled : true
+  };
+}
+var DEFAULT_FRIEND_FEED_PROMPT, DEFAULT_FRIEND_NPC_PROMPT, defaultFriendFeedSettings, weight, record2, tags;
+var init_friendFeedSettings = __esm({
+  "utils/friendFeedSettings.ts"() {
+    "use strict";
+    DEFAULT_FRIEND_FEED_PROMPT = "\u6709\u60F3\u5206\u4EAB\u7684\u65E5\u5E38\u5C31\u53D1\u52A8\u6001\uFF0C\u786E\u5B9E\u60F3\u56DE\u5E94\u65F6\u518D\u5199\u77ED\u8BC4\u3002\u53EF\u4EE5\u63A5\u6897\u3001\u5410\u69FD\u3001\u5173\u5FC3\u3001\u8868\u8FBE\u4E0D\u540C\u610F\u89C1\uFF0C\u4E0D\u5FC5\u8D5E\u7F8E\u6216\u5BF9\u6BCF\u6761\u4E92\u52A8\u3002\u8FD9\u662F\u5F00\u653E\u5E7F\u573A\uFF0C\u4E0D\u540C\u4E16\u754C\u7684\u4EBA\u90FD\u80FD\u5237\u5230\u3002\u8BA4\u8BC6\u7684\u4EBA\u6309\u5DF2\u6709\u5173\u7CFB\u4E92\u52A8\uFF0C\u4E0D\u8BA4\u8BC6\u7684\u5C31\u662F\u964C\u751F\u7F51\u53CB\uFF0C\u4E0D\u51ED\u5237\u5230\u5E16\u5B50\u865A\u6784\u4EA4\u60C5\u3002\u4FDD\u7559\u5404\u81EA\u7684\u6027\u683C\u4E0E\u5173\u7CFB\u5206\u5BF8\u3002";
+    DEFAULT_FRIEND_NPC_PROMPT = `\u4F60\u5199\u7684\u662F\u5404\u81EA\u5237\u624B\u673A\u7684\u7F51\u53CB\uFF0C\u4E0D\u662F\u6765\u670D\u52A1\u5E16\u4E3B\u7684\u6367\u573A\u56E2\u3002\u6BCF\u4E2A\u4EBA\u53EA\u6CE8\u610F\u5230\u81EA\u5DF1\u611F\u5174\u8DA3\u7684\u4E00\u5C0F\u70B9\uFF0C\u4E0D\u5FC5\u7406\u89E3\u5168\u6587\uFF0C\u4E5F\u4E0D\u5FC5\u7ED9\u5EFA\u8BAE\u3001\u63D0\u4F9B\u60C5\u7EEA\u4EF7\u503C\u6216\u628A\u8BDD\u8BF4\u5706\u3002
+\u7F51\u53CB\u4E0D\u662F\u627F\u8F7D\u89D2\u8272\u7684\u5206\u8EAB\uFF0C\u4E0D\u628A\u89D2\u8272\u7684\u53E3\u5934\u7985\u3001\u957F\u6BD4\u55BB\u3001\u804C\u4E1A\u672F\u8BED\u4F20\u67D3\u7ED9\u6240\u6709\u4EBA\u3002\u6635\u79F0\u50CF\u666E\u901A\u8D26\u53F7\uFF0C\u4E0D\u8981\u4EBA\u4EBA\u90FD\u8D77\u4E00\u4E2A\u7CBE\u51C6\u8D34\u5408\u672C\u5E16\u8BDD\u9898\u7684\u804C\u4E1A\u540D\u6216\u62DF\u4EBA\u6897\u540D\u3002
+\u4E00\u6B21\u6709\u4E09\u4F4D\u4EE5\u4E0A\u8DEF\u4EBA\u65F6\uFF0C\u957F\u77ED\u5FC5\u987B\u6709\u660E\u663E\u843D\u5DEE\uFF1A\u81F3\u5C11\u4E00\u6761\u53EA\u6709\u8868\u60C5\u3001\u6807\u70B9\u6216 1\u20138 \u4E2A\u5B57\uFF0C\u6700\u591A\u4E00\u4EBA\u957F\u7BC7\u89E3\u91CA\u3002\u7528\u6237\u95EE\u95EE\u9898\u4E5F\u4E0D\u662F\u5168\u4F53\u7F51\u53CB\u7684\u4F5C\u4E1A\uFF1B\u88AB\u70B9\u540D\u7684\u4EBA\u53EF\u4EE5\u8BA4\u771F\u7B54\uFF0C\u5176\u4ED6\u4EBA\u4E0D\u5FC5\u56DE\u7B54\u3001\u66F4\u4E0D\u8981\u6362\u4E2A\u8BF4\u6CD5\u91CD\u590D\u7B54\u6848\u6216\u8F6E\u6D41\u9644\u548C\u201C\u786E\u5B9E\u201D\u3002\u6709\u4E9B\u4EBA\u53EA\u770B\u70ED\u95F9\u3001\u53EA\u5173\u5FC3\u65C1\u8FB9\u4E00\u4E2A\u7EC6\u8282\uFF0C\u6216\u8005\u5B8C\u5168\u6CA1\u8DDF\u4E0A\u3002
+\u53E3\u543B\u3001\u957F\u5EA6\u3001\u61C2\u884C\u7A0B\u5EA6\u3001\u7ACB\u573A\u8981\u53C2\u5DEE\uFF1A\u6709\u4EBA\u53EA\u4E22\u4E00\u4E2A\u8868\u60C5\u3001\u95EE\u53F7\u6216\u51E0\u4E2A\u5B57\uFF1B\u6709\u4EBA\u63A5\u6897\u3001\u6B6A\u697C\u3001\u8BA4\u9519\u91CD\u70B9\uFF1B\u6709\u4EBA\u6CA1\u770B\u61C2\u53EA\u56F4\u89C2\u6216\u95EE\u4E00\u53E5\uFF1B\u6709\u4EBA\u534A\u4FE1\u534A\u7591\u3001\u7EA0\u6B63\u7EC6\u8282\u6216\u4E0D\u4E70\u8D26\uFF1B\u771F\u4E0E\u8BDD\u9898\u6709\u5173\u7684\u4EBA\u624D\u4ECE\u7ECF\u9A8C\u6216\u4E13\u4E1A\u89D2\u5EA6\u5C55\u5F00\u51E0\u53E5\u3002\u4E13\u4E1A\u610F\u89C1\u8981\u6709\u5177\u4F53\u5185\u5BB9\uFF0C\u4E0D\u51ED\u7A7A\u634F\u9020\u6743\u5A01\u8EAB\u4EFD\u3001\u7ECF\u5386\u6216\u6570\u636E\uFF0C\u4E0D\u61C2\u5C31\u4E0D\u61C2\u3002
+\u77ED\u8BC4\u53EF\u4EE5\u53EA\u6709 1\u20138 \u5B57\u6216\u7EAF\u8868\u60C5\uFF0C\u666E\u901A\u8BC4\u8BBA\u968F\u610F\u4E00\u4E24\u53E5\uFF0C\u5076\u5C14\u6709 100\u2013500 \u5B57\u7684\u8F83\u957F\u8BA8\u8BBA\u3002\u957F\u77ED\u7531\u60F3\u8BF4\u7684\u4E8B\u51B3\u5B9A\uFF1B\u4E0D\u662F\u6BCF\u4E2A\u4EBA\u90FD\u5199\u540C\u6837\u957F\u5EA6\u3002\u4E0D\u8981\u6BCF\u6279\u56FA\u5B9A\u51D1\u9F50\u8FD9\u4E9B\u7C7B\u578B\uFF0C\u4E0D\u7ED9\u7F51\u53CB\u6807\u6CE8\u201C\u56F4\u89C2\u578B/\u4E13\u4E1A\u578B\u201D\uFF0C\u4E0D\u8981\u7167\u6284\u793A\u4F8B\u3002\u65E0\u9700\u6BCF\u4EBA\u90FD\u8D5E\u7F8E\uFF0C\u4E5F\u65E0\u9700\u4EBA\u4EBA\u523B\u8584\uFF0C\u5141\u8BB8\u65E0\u804A\u3001\u56F0\u60D1\u3001\u6577\u884D\u548C\u8BDD\u6CA1\u8BF4\u5B8C\u3002
+\u5C11\u5199\u201C\u592A\u6709\u5171\u9E23\u4E86\u201D\u201C\u88AB\u6CBB\u6108\u4E86\u201D\u201C\u72E0\u72E0\u671F\u5F85\u201D\u201C\u4F60\u771F\u7684\u597D\u68D2\u201D\u5F0F\u4E07\u80FD\u6367\u573A\uFF1B\u4E0D\u8981\u628A\u539F\u6587\u6362\u4E2A\u8BF4\u6CD5\u518D\u5938\u4E00\u904D\uFF0C\u4E0D\u8981\u6574\u9F50\u6392\u961F\u201C\u8D5E\u7F8E\uFF0B\u5206\u6790\uFF0B\u5EFA\u8BAE\u201D\uFF0C\u4E0D\u7528\u603B\u7ED3\u9648\u8BCD\u6216\u56FA\u5B9A\u7ED3\u5C3E\u53CD\u95EE\u3002emoji \u53EF\u4EE5\u72EC\u5360\u4E00\u6761\uFF0C\u522B\u6BCF\u4EBA\u90FD\u914D\u4E00\u4E2A\u3002
+\u7F51\u53CB\u4E5F\u4F1A\u63A5\u5176\u4ED6\u8BC4\u8BBA\u7684\u8BDD\uFF0C\u800C\u4E0D\u53EA\u56F4\u7740\u5E16\u4E3B\uFF1A\u6309\u5DF2\u6709\u8BC4\u8BBA ID \u6307\u5B9A\u56DE\u590D\u5BF9\u8C61\uFF0C\u5EF6\u7EED\u5177\u4F53\u5206\u6B67\u3001\u95EE\u9898\u6216\u6897\uFF1B\u666E\u901A\u9876\u5C42\u8BC4\u8BBA\u4E0D\u586B\u56DE\u590D ID\u3002\u53EA\u77E5\u9053\u516C\u5F00\u5E16\u5B50\u548C\u8BC4\u8BBA\uFF0C\u4E0D\u77E5\u9053\u79C1\u804A\u4E0E\u5185\u5FC3\uFF0C\u4E0D\u5F3A\u884C\u88C5\u719F\u3002`;
+    defaultFriendFeedSettings = () => ({
+      userNickname: "",
+      weiboHomeMode: "default",
+      coverImages: {},
+      interactionPrompt: DEFAULT_FRIEND_FEED_PROMPT,
+      npcPrompt: DEFAULT_FRIEND_NPC_PROMPT,
+      theme: "moments",
+      layout: "paper",
+      fontSize: 14,
+      showCover: true,
+      replyMode: "immediate",
+      npcEnabled: true,
+      realContentEnabled: false,
+      hideRealPosts: false,
+      shareImagesEnabled: false,
+      characterWeights: {},
+      contentWeights: { self: 60, related: 30, stranger: 10 },
+      identities: {}
+    });
+    weight = (value, fallback) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : fallback;
+    record2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+    tags = (v) => Array.isArray(v) ? [...new Set(v.filter((s) => typeof s === "string").map((s) => s.trim().slice(0, 30)).filter(Boolean))].slice(0, 8) : [];
+  }
+});
+
 // utils/activityBackup.ts
 function collectFriendFeedMedia(feed) {
   const coverImages = Object.fromEntries(Object.entries(feed.settings?.coverImages || {}).filter(([, image]) => isLocalFriendImage(image)));
@@ -855,7 +1137,8 @@ function applyFriendFeedMedia(feed, media) {
   }
   if (media.coverImages !== void 0 && (!media.coverImages || typeof media.coverImages !== "object" || Array.isArray(media.coverImages) || Object.values(media.coverImages).some((image) => !isLocalFriendImage(image)))) throw new Error("\u54D4\u54D4\u5C01\u9762\u5907\u4EFD\u683C\u5F0F\u4E0D\u6B63\u786E");
   const pictures = new Map(media.posts.map((p) => [p.id, p.images]));
-  return { ...feed, ...media.coverImages ? { settings: { ...feed.settings, coverImages: { ...feed.settings?.coverImages, ...media.coverImages } } } : {}, posts: feed.posts.map((p) => pictures.has(p.id) ? { ...p, images: pictures.get(p.id).map((i) => ({ ...i })) } : p) };
+  const settings = media.coverImages ? { ...feed.settings ?? defaultFriendFeedSettings(), coverImages: { ...feed.settings?.coverImages, ...media.coverImages } } : feed.settings;
+  return { ...feed, settings, posts: feed.posts.map((p) => pictures.has(p.id) ? { ...p, images: pictures.get(p.id).map((i) => ({ ...i })) } : p) };
 }
 var isActivityTextAsset;
 var init_activityBackup = __esm({
@@ -863,6 +1146,7 @@ var init_activityBackup = __esm({
     "use strict";
     init_friendFeedImages();
     init_backupExport();
+    init_friendFeedSettings();
     isActivityTextAsset = (id) => ["friend_feed_v1", "friend_feed_api", "home_visits_v1"].includes(id) || id.startsWith("friend_feed_eval_v1_") || id.startsWith("home_secrets_v1_");
   }
 });
@@ -884,7 +1168,7 @@ var APP_VERSION, APP_VERSION_TAG;
 var init_appVersion = __esm({
   "utils/appVersion.ts"() {
     "use strict";
-    APP_VERSION = "v3.15 (Neighbors)";
+    APP_VERSION = "v3.16 (User Spaces)";
     APP_VERSION_TAG = APP_VERSION.split(" ")[0];
   }
 });
@@ -895,7 +1179,7 @@ var init_buildInfo = __esm({
   "utils/buildInfo.ts"() {
     "use strict";
     init_appVersion();
-    BUILD_LABEL = `${"main"}@${"301cb83c"}`;
+    BUILD_LABEL = `${"main"}@${"92a84265"}`;
   }
 });
 
@@ -931,8 +1215,8 @@ function decode(item) {
   return entry;
 }
 function stored(key) {
-  const raw = localStorage.getItem(key);
-  return raw && raw.length <= 65536 ? JSON.parse(raw) : void 0;
+  const raw2 = localStorage.getItem(key);
+  return raw2 && raw2.length <= 65536 ? JSON.parse(raw2) : void 0;
 }
 function savedEntries(key) {
   try {
@@ -946,7 +1230,7 @@ function sessionKeys() {
   const keys = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key?.startsWith(PREFIX)) keys.push(key);
+    if (key?.startsWith(PREFIX2)) keys.push(key);
   }
   return keys;
 }
@@ -954,7 +1238,7 @@ function flushDatabaseOpenDiagnostics() {
   if (!dirty) return;
   dirty = false;
   try {
-    localStorage.setItem(PREFIX + session(), JSON.stringify(entries));
+    localStorage.setItem(PREFIX2 + session(), JSON.stringify(entries));
     for (const phase of checkpointPhases) {
       const entry = checkpoints[phase];
       if (!entry) continue;
@@ -967,7 +1251,7 @@ function flushDatabaseOpenDiagnostics() {
     }
     if (!pruned) {
       pruned = true;
-      const history = sessionKeys().filter((key) => key !== PREFIX + session()).map((key) => ({ key, at: savedEntries(key).at(-1)?.at || 0 })).sort((a, b) => b.at - a.at);
+      const history = sessionKeys().filter((key) => key !== PREFIX2 + session()).map((key) => ({ key, at: savedEntries(key).at(-1)?.at || 0 })).sort((a, b) => b.at - a.at);
       for (const { key } of history.slice(SESSION_LIMIT - 1)) localStorage.removeItem(key);
     }
   } catch {
@@ -1014,12 +1298,12 @@ function beginDatabaseOpen(requestedVersion) {
 function associateDatabaseOpen(db, id, requestedVersion) {
   connections.set(db, { requestId: id, requestedVersion, actualVersion: db.version });
 }
-var PREFIX, CHECKPOINT_PREFIX, LIMIT, SESSION_LIMIT, phases, categories, checkpointPhases, buildId, sessionCache, session, connections, entries, checkpoints, seq, requestId, held, scheduled, dirty, pruned;
+var PREFIX2, CHECKPOINT_PREFIX, LIMIT, SESSION_LIMIT, phases, categories, checkpointPhases, buildId, sessionCache, session, connections, entries, checkpoints, seq, requestId, held, scheduled, dirty, pruned;
 var init_databaseOpenDiagnostics = __esm({
   "utils/databaseOpenDiagnostics.ts"() {
     "use strict";
     init_buildInfo();
-    PREFIX = "sully_db_open_diagnostics_v2_";
+    PREFIX2 = "sully_db_open_diagnostics_v2_";
     CHECKPOINT_PREFIX = "sully_db_open_checkpoint_v2_";
     LIMIT = 16;
     SESSION_LIMIT = 8;
@@ -1064,9 +1348,9 @@ var init_databaseHealth = __esm({
 async function migrateLegacyWhiteboxPresets(store) {
   const existing = await store.getAssetRaw("chrome_css_presets");
   if (Array.isArray(existing)) return existing;
-  const raw = localStorage.getItem("sully_chrome_css_presets_v1");
-  if (!raw) return [];
-  const values = JSON.parse(raw);
+  const raw2 = localStorage.getItem("sully_chrome_css_presets_v1");
+  if (!raw2) return [];
+  const values = JSON.parse(raw2);
   if (!Array.isArray(values) || values.some((item) => !item || typeof item.name !== "string" || typeof item.code !== "string")) throw Error("\u65E7\u7248\u767D\u6846\u6536\u85CF\u683C\u5F0F\u65E0\u6548\uFF0C\u8BF7\u5148\u68C0\u67E5\u539F\u59CB\u6570\u636E");
   if (values.length) await store.saveAssetRaw("chrome_css_presets", values);
   return values;
@@ -1082,7 +1366,7 @@ function restoreDecorationMedia(value) {
   if (value === void 0) return {};
   const backup = value;
   if (!backup || backup.version !== 1 || !backup.values || typeof backup.values !== "object" || Array.isArray(backup.values)) throw Error("\u89D2\u8272\u88C5\u626E\u5907\u4EFD\u683C\u5F0F\u65E0\u6548");
-  return Object.fromEntries(FIELDS.filter((key) => Object.hasOwn(backup.values, key)).map((key) => [key, backup.values[key] === null ? void 0 : structuredClone(backup.values[key])]));
+  return Object.fromEntries(FIELDS.filter((key) => Object.prototype.hasOwnProperty.call(backup.values, key)).map((key) => [key, backup.values[key] === null ? void 0 : structuredClone(backup.values[key])]));
 }
 var FIELDS;
 var init_decorationMediaBackup = __esm({
@@ -1180,7 +1464,7 @@ function clean(key, value) {
     if (typeof value !== "string") throw Error("\u7F8E\u5316\u5F15\u5BFC\u8BB0\u5F55\u65E0\u6548");
     return value.slice(0, 40);
   }
-  if (!record2(value)) throw Error("\u7F8E\u5316\u504F\u597D\u683C\u5F0F\u65E0\u6548");
+  if (!record3(value)) throw Error("\u7F8E\u5316\u504F\u597D\u683C\u5F0F\u65E0\u6548");
   if (key === REPO) return Object.fromEntries(Object.entries(value).filter(([id, status]) => code(id) && (status === "manual" || status === "submitted")));
   if (key === DEFAULTS) {
     const metadata = validateBeautyMetadata({ ...value, name: "\u5907\u4EFD\u9ED8\u8BA4\u4FE1\u606F" });
@@ -1190,9 +1474,9 @@ function clean(key, value) {
     if (!Array.isArray(value.uses) || !Array.isArray(value.reminded)) throw Error("\u7F8E\u5316\u4F7F\u7528\u8BB0\u5F55\u65E0\u6548");
     const uses = value.uses.flatMap((item) => {
       try {
-        if (!record2(item) || typeof item.target !== "string" || item.target.length > 200 || !Number.isFinite(item.startedAt) || item.startedAt < 0) throw Error();
+        if (!record3(item) || typeof item.target !== "string" || item.target.length > 200 || !Number.isFinite(item.startedAt) || item.startedAt < 0) throw Error();
         const s = item.share;
-        if (!record2(s) || !code(s.code) || !["appearance", "chat-decoration"].includes(s.kind) || typeof s.revision !== "string" || s.revision.length > 200 || typeof s.sha256 !== "string" || !Number.isFinite(s.bytes)) throw Error();
+        if (!record3(s) || !code(s.code) || !["appearance", "chat-decoration"].includes(s.kind) || typeof s.revision !== "string" || s.revision.length > 200 || typeof s.sha256 !== "string" || !Number.isFinite(s.bytes)) throw Error();
         const share = { code: s.code, kind: s.kind, revision: s.revision, metadata: validateBeautyMetadata(s.metadata), bytes: s.bytes, sha256: s.sha256 };
         return [{ target: item.target, startedAt: item.startedAt, share }];
       } catch {
@@ -1206,20 +1490,20 @@ function clean(key, value) {
 function exportBeautyPreferences() {
   const values = {};
   for (const key of [USAGE, REPO, DEFAULTS, ...FLAGS]) try {
-    const raw = localStorage.getItem(key);
-    if (raw !== null) values[key] = clean(key, FLAGS.includes(key) ? raw : JSON.parse(raw));
+    const raw2 = localStorage.getItem(key);
+    if (raw2 !== null) values[key] = clean(key, FLAGS.includes(key) ? raw2 : JSON.parse(raw2));
   } catch {
   }
   return { version: 1, values };
 }
 function importBeautyPreferences(value) {
   if (value === void 0) return;
-  if (!record2(value) || value.version !== 1 || !record2(value.values)) throw Error("\u7F8E\u5316\u504F\u597D\u5907\u4EFD\u7248\u672C\u65E0\u6548");
-  const entries2 = [USAGE, REPO, DEFAULTS, ...FLAGS].filter((key) => Object.hasOwn(value.values, key)).map((key) => [key, clean(key, value.values[key])]);
+  if (!record3(value) || value.version !== 1 || !record3(value.values)) throw Error("\u7F8E\u5316\u504F\u597D\u5907\u4EFD\u7248\u672C\u65E0\u6548");
+  const entries2 = [USAGE, REPO, DEFAULTS, ...FLAGS].filter((key) => Object.prototype.hasOwnProperty.call(value.values, key)).map((key) => [key, clean(key, value.values[key])]);
   for (const [key, data] of entries2) localStorage.setItem(key, FLAGS.includes(key) ? data : JSON.stringify(data));
   if (typeof window !== "undefined") for (const name of ["sully-beauty-usage-change", "sully-beauty-repo-status-change"]) window.dispatchEvent(new Event(name));
 }
-var USAGE, REPO, DEFAULTS, FLAGS, record2, code;
+var USAGE, REPO, DEFAULTS, FLAGS, record3, code;
 var init_beautyPreferencesBackup = __esm({
   "utils/beautyPreferencesBackup.ts"() {
     "use strict";
@@ -1228,7 +1512,7 @@ var init_beautyPreferencesBackup = __esm({
     REPO = "sully-beauty-repo-status-v1";
     DEFAULTS = "sully-beauty-author-defaults-v1";
     FLAGS = ["sullyos_chat_wardrobe_update_v2_seen", "sullyos_chat_wardrobe_guide_v2_done", "sully-beauty-catalog-notice-v1", "sully-beauty-author-notice-v1"];
-    record2 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+    record3 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
     code = (value) => typeof value === "string" && /^S-[A-F0-9]{12}$/.test(value);
   }
 });
@@ -1250,8 +1534,8 @@ function checked(value) {
 }
 function readRememberedBeautyAuthor() {
   try {
-    const raw = localStorage.getItem(KEY);
-    return raw ? checked(JSON.parse(raw)) : null;
+    const raw2 = localStorage.getItem(KEY);
+    return raw2 ? checked(JSON.parse(raw2)) : null;
   } catch {
     return null;
   }
@@ -1716,6 +2000,107 @@ var init_homeMessageBridge = __esm({
   }
 });
 
+// utils/phoneEvidence.ts
+function phoneFieldToText(input, fallback = "") {
+  const text3 = renderPhoneField(input, /* @__PURE__ */ new Set()).trim();
+  return text3 || fallback;
+}
+function normalizePhoneEvidence(record4) {
+  const raw2 = record4;
+  const value = phoneFieldToText(raw2.value);
+  return {
+    ...record4,
+    title: phoneFieldToText(raw2.title, "Unknown"),
+    detail: phoneFieldToText(raw2.detail, "..."),
+    value: value || void 0
+  };
+}
+function buildPhoneEvidenceChatCard(record4, appName) {
+  const normalized = normalizePhoneEvidence(record4);
+  const app = phoneFieldToText(appName, "\u624B\u673A");
+  const content = normalized.type === "chat" ? `[\u4F60\u624B\u673A\u7684\u804A\u5929\u8F6F\u4EF6] \u4F60\u548C\u300C${normalized.title}\u300D\u7684\u5BF9\u8BDD\uFF1A${normalized.detail.replace(/\n/g, " ")}` : `[\u4F60\u624B\u673A\u7684${app}] ${normalized.title}${normalized.value ? ` \xB7 ${normalized.value}` : ""} \u2014 ${normalized.detail}`;
+  return {
+    content,
+    metadata: {
+      phoneCard: {
+        app,
+        kind: normalized.type,
+        title: normalized.title,
+        detail: normalized.detail,
+        value: normalized.value || void 0
+      }
+    }
+  };
+}
+var renderPhoneField;
+var init_phoneEvidence = __esm({
+  "utils/phoneEvidence.ts"() {
+    "use strict";
+    renderPhoneField = (input, seen) => {
+      if (input == null) return "";
+      const valueType = typeof input;
+      if (valueType === "string") return input;
+      if (valueType === "number" || valueType === "boolean" || valueType === "bigint") return String(input);
+      if (valueType === "symbol" || valueType === "function") return String(input);
+      if (valueType === "object") {
+        const objectValue = input;
+        if (seen.has(objectValue)) return "[\u5FAA\u73AF\u5F15\u7528]";
+        seen.add(objectValue);
+        let text3;
+        if (Array.isArray(input)) {
+          text3 = input.map((item) => renderPhoneField(item, seen)).filter(Boolean).join("\n");
+        } else {
+          const entries2 = Object.entries(input);
+          text3 = entries2.length ? entries2.map(([key, value]) => `${key}: ${renderPhoneField(value, seen)}`).join("\n") : "";
+        }
+        seen.delete(objectValue);
+        return text3;
+      }
+      return String(input);
+    };
+  }
+});
+
+// utils/phoneGeneration.ts
+function mergePhoneGeneration(current, generation) {
+  let contacts = [...current?.contacts || []];
+  const aliases = /* @__PURE__ */ new Map();
+  for (const incoming of generation.contacts || []) {
+    const base = generation.baseContacts?.find((contact) => contact.id === incoming.id);
+    if (base && JSON.stringify(base) === JSON.stringify(incoming)) continue;
+    const index = contacts.findIndex((contact) => contact.id === incoming.id || (incoming.linkedCharId ? contact.linkedCharId === incoming.linkedCharId : contact.name.trim().toLowerCase() === incoming.name.trim().toLowerCase()));
+    if (index < 0) {
+      if (base) {
+        aliases.set(incoming.id, void 0);
+        continue;
+      }
+      contacts.push(incoming);
+      continue;
+    }
+    const latest = contacts[index];
+    aliases.set(incoming.id, latest.id);
+    const merged = { ...latest };
+    for (const key of Object.keys(incoming)) {
+      if (key === "id") continue;
+      if (base ? JSON.stringify(latest[key]) === JSON.stringify(base[key]) : latest[key] === void 0) {
+        merged[key] = incoming[key];
+      }
+    }
+    if (latest.note) merged.note = latest.note;
+    contacts[index] = merged;
+  }
+  const ids = new Set((current?.records || []).map((record4) => record4.id));
+  const records = generation.records.filter((record4) => !ids.has(record4.id)).map((record4) => record4.contactId && aliases.has(record4.contactId) ? { ...record4, contactId: aliases.get(record4.contactId) } : record4);
+  return { ...current, records: [...current?.records || [], ...records], ...generation.contacts ? { contacts } : {} };
+}
+var PHONE_GENERATION_COMMITTED;
+var init_phoneGeneration = __esm({
+  "utils/phoneGeneration.ts"() {
+    "use strict";
+    PHONE_GENERATION_COMMITTED = "phone-generation-committed";
+  }
+});
+
 // utils/chatMessageVisibility.ts
 var init_chatMessageVisibility = __esm({
   "utils/chatMessageVisibility.ts"() {
@@ -1739,14 +2124,17 @@ var init_storyTheaterTimeline = __esm({
     ensureStoryTimelineRepair = (db) => {
       const cached = repairs.get(db);
       if (cached) return cached;
-      const repair = new Promise((resolve, reject) => {
+      let indexReadFailed = false;
+      const attempt = (useIndexes) => new Promise((resolve, reject) => {
         const transaction = db.transaction("messages", "readwrite");
         const store = transaction.objectStore("messages");
         const repaired = /* @__PURE__ */ new Set();
         let unresolvedCount = 0;
         let failure;
         transaction.oncomplete = () => resolve({ repairedCharacterIds: [...repaired], unresolvedCount });
-        transaction.onerror = () => reject(failure || transaction.error || new Error("\u5267\u60C5\u65F6\u95F4\u6821\u6B63\u5931\u8D25"));
+        transaction.onerror = (event) => {
+          failure ??= event.target?.error || transaction.error;
+        };
         transaction.onabort = () => reject(failure || transaction.error || new Error("\u5267\u60C5\u65F6\u95F4\u6821\u6B63\u4E8B\u52A1\u5DF2\u56DE\u6EDA"));
         const guarded = (action) => {
           try {
@@ -1757,6 +2145,18 @@ var init_storyTheaterTimeline = __esm({
               transaction.abort();
             } catch {
             }
+          }
+        };
+        const indexRequest = (open) => {
+          try {
+            const request = open();
+            request.onerror = () => {
+              if (request.error?.name !== "AbortError") indexReadFailed = true;
+            };
+            return request;
+          } catch (error) {
+            indexReadFailed = true;
+            throw error;
           }
         };
         const scanMirrors = (request, done) => {
@@ -1803,17 +2203,23 @@ var init_storyTheaterTimeline = __esm({
             });
           });
         };
-        if (store.indexNames.contains("charId_source") && store.indexNames.contains("charId")) {
-          const characters = store.index("charId").openKeyCursor(void 0, "nextunique");
-          characters.onsuccess = () => guarded(() => {
-            const cursor = characters.result;
-            if (!cursor) return;
-            scanMirrors(store.index("charId_source").openCursor(IDBKeyRange.only([cursor.key, "story_theater_memory"])), () => cursor.continue());
-          });
-        } else {
-          scanMirrors(store.openCursor(), () => {
-          });
-        }
+        guarded(() => {
+          if (useIndexes && store.indexNames.contains("charId_source") && store.indexNames.contains("charId")) {
+            const characters = indexRequest(() => store.index("charId").openKeyCursor(void 0, "nextunique"));
+            characters.onsuccess = () => guarded(() => {
+              const cursor = characters.result;
+              if (!cursor) return;
+              scanMirrors(indexRequest(() => store.index("charId_source").openCursor(IDBKeyRange.only([cursor.key, "story_theater_memory"]))), () => cursor.continue());
+            });
+          } else {
+            scanMirrors(store.openCursor(), () => {
+            });
+          }
+        });
+      });
+      const repair = attempt(true).catch((error) => {
+        if (!indexReadFailed) throw error;
+        return attempt(false);
       });
       repairs.set(db, repair);
       void repair.catch(() => {
@@ -2039,12 +2445,12 @@ function importHome3DLocal(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("3D \u5BB6\u56ED\u504F\u597D\u683C\u5F0F\u4E0D\u6B63\u786E");
   const next = input;
   for (const key of HOME3D_LOCAL_KEYS) {
-    if (Object.hasOwn(next, key) && !valid(key, next[key])) throw new Error("3D \u5BB6\u56ED\u504F\u597D\u5305\u542B\u65E0\u6548\u914D\u7F6E");
+    if (Object.prototype.hasOwnProperty.call(next, key) && !valid(key, next[key])) throw new Error("3D \u5BB6\u56ED\u504F\u597D\u5305\u542B\u65E0\u6548\u914D\u7F6E");
   }
   const previous = HOME3D_LOCAL_KEYS.map((key) => localStorage.getItem(key));
   try {
     for (const key of HOME3D_LOCAL_KEYS) {
-      if (Object.hasOwn(next, key)) localStorage.setItem(key, next[key]);
+      if (Object.prototype.hasOwnProperty.call(next, key)) localStorage.setItem(key, next[key]);
       else localStorage.removeItem(key);
     }
   } catch (error) {
@@ -2301,6 +2707,35 @@ var init_activeMsgStore = __esm({
         if (!charId) return;
         await pruneStaleActionResultReceipts(charId);
       },
+      /** Targeted account deletion: never clear the shared connection or another character's inbox. */
+      async clearCharacters(characterIds) {
+        const ids = new Set(characterIds), db = await openDB();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction([STORE_INBOX, STORE_KV], "readwrite");
+          for (const name of [STORE_INBOX, STORE_KV]) {
+            const cursor = tx.objectStore(name).openCursor();
+            cursor.onsuccess = () => {
+              const row = cursor.result;
+              if (!row) return;
+              const value = row.value;
+              let remove = name === STORE_INBOX && ids.has(value.charId);
+              if (name === STORE_KV && typeof value.id === "string") {
+                if (value.id.startsWith(EXPIRED_NOTICES_PREFIX)) remove = ids.has(value.id.slice(EXPIRED_NOTICES_PREFIX.length));
+                if (value.id.startsWith(ACTION_RESULT_APPLIED_PREFIX)) {
+                  try {
+                    remove = ids.has(JSON.parse(value.id.slice(ACTION_RESULT_APPLIED_PREFIX.length))[0]);
+                  } catch {
+                  }
+                }
+              }
+              if (remove) row.delete();
+              row.continue();
+            };
+          }
+          tx.oncomplete = () => resolve();
+          tx.onerror = tx.onabort = () => reject(tx.error || new Error("\u89D2\u8272\u6536\u4EF6\u7BB1\u6E05\u7406\u5931\u8D25"));
+        });
+      },
       /**
        * 删掉整个 ActiveMsg 库。只给「重置全部数据」用。
        *
@@ -2501,7 +2936,7 @@ var init_activeMsgStore = __esm({
         await setKv(`${EXPIRED_NOTICES_PREFIX}${charId}`, next);
       }
     };
-    BACKEND_CONNECTION_KEYS = ["workerUrl", "serverToken", "masterKey", "userId"];
+    BACKEND_CONNECTION_KEYS = ["workerUrl", "serverToken", "masterKey", "userId", "pushMode", "thirdPartyPush"];
   }
 });
 
@@ -2535,7 +2970,7 @@ var init_localBackup = __esm({
   }
 });
 
-// node_modules/.pnpm/@rei-standard+blob-store@0.1.0-next.3_react@18.3.1/node_modules/@rei-standard/blob-store/dist/index.mjs
+// node_modules/.pnpm/@rei-standard+blob-store@0.1.0_react@18.3.1/node_modules/@rei-standard/blob-store/dist/index.mjs
 function genId() {
   return `b_${Date.now().toString(36)}_${(seq2++).toString(36)}_${Math.random().toString(36).slice(2, 8).padEnd(6, "0")}`;
 }
@@ -2936,7 +3371,7 @@ async function resolveDeep(store, root) {
 }
 var DEFAULT_PREFIX, ID_CHAR, ID_CHARSET, seq2, DEFAULT_MIN_AGE_MS;
 var init_dist = __esm({
-  "node_modules/.pnpm/@rei-standard+blob-store@0.1.0-next.3_react@18.3.1/node_modules/@rei-standard/blob-store/dist/index.mjs"() {
+  "node_modules/.pnpm/@rei-standard+blob-store@0.1.0_react@18.3.1/node_modules/@rei-standard/blob-store/dist/index.mjs"() {
     DEFAULT_PREFIX = "blobref:";
     ID_CHAR = /[A-Za-z0-9_]/;
     ID_CHARSET = new RegExp(`^${ID_CHAR.source}+$`);
@@ -2946,6 +3381,10 @@ var init_dist = __esm({
 });
 
 // utils/blobStore.ts
+var blobStore_exports = {};
+__export(blobStore_exports, {
+  blobStore: () => blobStore
+});
 var blobStore;
 var init_blobStore = __esm({
   "utils/blobStore.ts"() {
@@ -2988,10 +3427,168 @@ var init_roomTemplateAssets = __esm({
   }
 });
 
-// utils/blobRef.ts
-async function putImageBlob(blob) {
-  return blobStore.put(blob);
+// features/collaboration/types.ts
+var EMPTY_COLLABORATION_API_PROFILE, DEFAULT_COLLABORATION_SETTINGS;
+var init_types = __esm({
+  "features/collaboration/types.ts"() {
+    "use strict";
+    EMPTY_COLLABORATION_API_PROFILE = {
+      baseUrl: "",
+      apiKey: "",
+      model: "",
+      stream: true,
+      temperature: 0.7
+    };
+    DEFAULT_COLLABORATION_SETTINGS = {
+      id: "main",
+      uiTheme: "sully",
+      customCss: "",
+      avatarMode: "theme",
+      avatarStyle: "circle",
+      recentChatContextCount: "configured",
+      immersive: { ...EMPTY_COLLABORATION_API_PROFILE },
+      focused: { ...EMPTY_COLLABORATION_API_PROFILE },
+      updatedAt: 0
+    };
+  }
+});
+
+// features/collaboration/store.ts
+var DB_VERSION2, STORE_SESSIONS, STORE_MESSAGES, STORE_CATEGORIES, STORE_SETTINGS, STORE_ASSETS, collaborationConnections, openCollaborationSpace;
+var init_store = __esm({
+  "features/collaboration/store.ts"() {
+    "use strict";
+    init_userSpaces();
+    init_types();
+    init_appearance();
+    DB_VERSION2 = 1;
+    STORE_SESSIONS = "sessions";
+    STORE_MESSAGES = "messages";
+    STORE_CATEGORIES = "categories";
+    STORE_SETTINGS = "settings";
+    STORE_ASSETS = "assets";
+    collaborationConnections = /* @__PURE__ */ new Map();
+    openCollaborationSpace = (spaceId = SESSION_SPACE_ID) => {
+      const DB_NAME3 = spaceDatabaseName("SullyOS_Collaboration", spaceId);
+      let databasePromise = collaborationConnections.get(spaceId) || null;
+      if (databasePromise) return databasePromise;
+      const pending = new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME3, DB_VERSION2);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
+            const store = db.createObjectStore(STORE_SESSIONS, { keyPath: "id" });
+            store.createIndex("charId", "charId", { unique: false });
+          }
+          if (!db.objectStoreNames.contains(STORE_MESSAGES)) {
+            const store = db.createObjectStore(STORE_MESSAGES, { keyPath: "id" });
+            store.createIndex("sessionId", "sessionId", { unique: false });
+          }
+          if (!db.objectStoreNames.contains(STORE_CATEGORIES)) {
+            db.createObjectStore(STORE_CATEGORIES, { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+            db.createObjectStore(STORE_SETTINGS, { keyPath: "id" });
+          }
+          if (!db.objectStoreNames.contains(STORE_ASSETS)) {
+            db.createObjectStore(STORE_ASSETS, { keyPath: "id" });
+          }
+        };
+        request.onsuccess = () => {
+          const db = request.result;
+          db.onversionchange = () => {
+            db.close();
+            if (collaborationConnections.get(spaceId) === pending) collaborationConnections.delete(spaceId);
+          };
+          db.onclose = () => {
+            if (collaborationConnections.get(spaceId) === pending) collaborationConnections.delete(spaceId);
+          };
+          resolve(db);
+        };
+        request.onerror = () => {
+          if (collaborationConnections.get(spaceId) === pending) collaborationConnections.delete(spaceId);
+          reject(request.error);
+        };
+        request.onblocked = () => {
+          if (collaborationConnections.get(spaceId) === pending) collaborationConnections.delete(spaceId);
+          reject(new Error("\u534F\u540C\u5DE5\u4F5C\u6570\u636E\u5E93\u88AB\u5176\u5B83\u6807\u7B7E\u9875\u5360\u7528\uFF0C\u8BF7\u5173\u95ED\u5176\u5B83\u9875\u9762\u540E\u91CD\u8BD5"));
+        };
+      });
+      databasePromise = pending;
+      collaborationConnections.set(spaceId, pending);
+      return pending;
+    };
+  }
+});
+
+// utils/spaceAssets.ts
+var spaceAssets_exports = {};
+__export(spaceAssets_exports, {
+  allSpaceReferenceSources: () => allSpaceReferenceSources,
+  isSharedAssetReferenced: () => isSharedAssetReferenced,
+  putSharedImage: () => putSharedImage
+});
+async function* allSpaceReferenceSources() {
+  const ids = /* @__PURE__ */ new Set([...listUserSpaces().map((s) => s.id), SESSION_SPACE_ID]);
+  if (indexedDB.databases) for (const db of await indexedDB.databases()) {
+    const match = /^(?:AetherOS_Data|SullyOS_Collaboration)__(u_[a-zA-Z0-9_-]+)$/.exec(db.name || "");
+    if (match) ids.add(match[1]);
+  }
+  for (const spaceId of ids) {
+    for (const db of [await openSpaceDB(spaceId), await openCollaborationSpace(spaceId)]) {
+      for (const store of Array.from(db.objectStoreNames).filter((n) => n !== "blob_assets")) {
+        let after;
+        for (; ; ) {
+          const page = await new Promise((resolve, reject) => {
+            const tx = db.transaction(store), table = tx.objectStore(store);
+            const range = after === void 0 ? void 0 : IDBKeyRange.lowerBound(after, true);
+            const rows = table.getAll(range, 100), keys = table.getAllKeys(range, 100);
+            tx.oncomplete = () => resolve({ rows: rows.result, keys: keys.result });
+            tx.onerror = tx.onabort = () => reject(tx.error);
+          });
+          for (const row of page.rows) yield JSON.stringify(row);
+          if (page.rows.length < 100) break;
+          after = page.keys.at(-1);
+        }
+      }
+    }
+  }
+  const storage = rawSpaceStorage;
+  if (storage) {
+    const values = Array.from({ length: storage.length }, (_, i) => storage.key(i)).filter((key) => key !== SPACE_DELETIONS_KEY).map((key) => storage.getItem(key));
+    for (const value of values) if (value) yield value;
+  }
 }
+async function isSharedAssetReferenced(id) {
+  for await (const text3 of allSpaceReferenceSources()) if (text3.includes(id)) return true;
+  return false;
+}
+async function putSharedImage(blob) {
+  const hash = await hashBlob(blob);
+  const canonical = `pool_${hash.replace(/[^a-zA-Z0-9_]/g, "")}`;
+  const db = await openSpaceDB("default");
+  const entry = await new Promise((resolve, reject) => {
+    const req = db.transaction("blob_assets").objectStore("blob_assets").get(canonical);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  if (entry?.preferredId) {
+    const preferred = await DB.getBlobAsset(entry.preferredId);
+    if (preferred?.type === blob.type && await hashBlob(preferred) === hash) return `blobref:${entry.preferredId}`;
+  }
+  return (await Promise.resolve().then(() => (init_blobStore(), blobStore_exports))).blobStore.put(blob);
+}
+var init_spaceAssets = __esm({
+  "utils/spaceAssets.ts"() {
+    "use strict";
+    init_dist();
+    init_db();
+    init_userSpaces();
+    init_store();
+  }
+});
+
+// utils/blobRef.ts
 async function getBlobForRef(ref) {
   return blobStore.get(ref);
 }
@@ -3009,7 +3606,8 @@ async function putImageBlobDeduped(blob) {
       contentMemo.delete(hash);
     }
   }
-  const token = await putImageBlob(blob);
+  const { putSharedImage: putSharedImage2 } = await Promise.resolve().then(() => (init_spaceAssets(), spaceAssets_exports));
+  const token = await putSharedImage2(blob);
   if (hash) contentMemo.set(hash, token);
   return { token, reused: false };
 }
@@ -3242,8 +3840,8 @@ var init_contentFavorites = __esm({
       return null;
     };
     loadIndex = async () => {
-      const raw = await DB.getAssetRaw(CONTENT_FAVORITES_INDEX_ASSET_ID).catch(() => null);
-      const items = Array.isArray(raw) ? raw : raw?.items;
+      const raw2 = await DB.getAssetRaw(CONTENT_FAVORITES_INDEX_ASSET_ID).catch(() => null);
+      const items = Array.isArray(raw2) ? raw2 : raw2?.items;
       if (!Array.isArray(items)) return [];
       return items.map(sanitizeFavorite).filter((item) => !!item);
     };
@@ -3388,9 +3986,9 @@ var init_contentFavorites = __esm({
     });
     resolveImageReference = async (reference) => {
       if (reference.source === "favorite_asset") {
-        const raw = await DB.getAssetRaw(reference.assetId).catch(() => null);
-        if (typeof raw === "string") return raw;
-        return typeof raw?.imageUrl === "string" && raw.imageUrl ? raw.imageUrl : null;
+        const raw2 = await DB.getAssetRaw(reference.assetId).catch(() => null);
+        if (typeof raw2 === "string") return raw2;
+        return typeof raw2?.imageUrl === "string" && raw2.imageUrl ? raw2.imageUrl : null;
       }
       if (reference.source === "gallery") {
         const image = await DB.getGalleryImageById(reference.galleryImageId).catch(() => null);
@@ -3481,6 +4079,86 @@ var init_contentFavorites = __esm({
   }
 });
 
+// utils/sharedBlobPool.ts
+var sharedBlobPool_exports = {};
+__export(sharedBlobPool_exports, {
+  readSharedBlob: () => readSharedBlob,
+  removeSharedBlob: () => removeSharedBlob,
+  storeSharedBlob: () => storeSharedBlob
+});
+async function storeSharedBlob(id, blob) {
+  const hash = await hashBlob(blob), canonical = `pool_${hash.replace(/[^a-zA-Z0-9_]/g, "")}`;
+  const db = await openSpaceDB("default");
+  const old = await readSharedBlob(id);
+  if (old && await hashBlob(old) !== hash) {
+    throw new Error("\u7D20\u6750\u7F16\u53F7\u5DF2\u5BF9\u5E94\u53E6\u4E00\u4EFD\u6587\u4EF6\uFF0C\u8BF7\u4FDD\u5B58\u4E3A\u65B0\u7D20\u6750\uFF0C\u4E0D\u80FD\u8986\u76D6\u5171\u4EAB\u6587\u4EF6");
+  }
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("blob_assets", "readwrite"), table = tx.objectStore("blob_assets");
+    const req = table.get(canonical);
+    req.onsuccess = () => {
+      const alias = table.get(id);
+      alias.onsuccess = () => {
+        if (alias.result?.sharedBlobId && alias.result.sharedBlobId !== canonical) {
+          tx.abort();
+          return;
+        }
+        if (!req.result) table.put({ id: canonical, blob, preferredId: id });
+        if (id !== canonical) table.put({ id, sharedBlobId: canonical, type: blob.type });
+      };
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error || new Error("\u5171\u4EAB\u7D20\u6750\u7F16\u53F7\u51B2\u7A81\uFF0C\u6587\u4EF6\u672A\u8986\u76D6"));
+  });
+}
+async function removeSharedBlob(id) {
+  const db = await openSpaceDB("default");
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction("blob_assets", "readwrite"), table = tx.objectStore("blob_assets"), req = table.get(id);
+    req.onsuccess = () => {
+      const canonical = req.result?.sharedBlobId;
+      table.delete(id);
+      if (!canonical) return;
+      let referenced = false;
+      const cursor = table.openCursor();
+      cursor.onsuccess = () => {
+        const row = cursor.result;
+        if (row) {
+          if (row.value?.sharedBlobId === canonical) referenced = true;
+          row.continue();
+        } else if (!referenced) table.delete(canonical);
+      };
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = tx.onabort = () => reject(tx.error);
+  });
+}
+async function readSharedBlob(id) {
+  const db = await openSpaceDB("default");
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("blob_assets"), table = tx.objectStore("blob_assets");
+    const req = table.get(id);
+    req.onsuccess = () => {
+      if (req.result?.sharedBlobId) {
+        const shared = table.get(req.result.sharedBlobId);
+        shared.onsuccess = () => {
+          const blob = shared.result?.blob;
+          resolve(blob && typeof req.result.type === "string" && blob.type !== req.result.type ? blob.slice(0, blob.size, req.result.type) : blob || null);
+        };
+        shared.onerror = () => reject(shared.error);
+      } else resolve(req.result?.blob || null);
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+var init_sharedBlobPool = __esm({
+  "utils/sharedBlobPool.ts"() {
+    "use strict";
+    init_dist();
+    init_db();
+  }
+});
+
 // utils/friendFeedLimits.ts
 var FRIEND_POST_TEXT_LIMIT, FRIEND_COMMENT_TEXT_LIMIT;
 var init_friendFeedLimits = __esm({
@@ -3488,90 +4166,6 @@ var init_friendFeedLimits = __esm({
     "use strict";
     FRIEND_POST_TEXT_LIMIT = 4e3;
     FRIEND_COMMENT_TEXT_LIMIT = 2e3;
-  }
-});
-
-// utils/friendFeedSettings.ts
-function resolveFriendIdentities(value) {
-  if (!record3(value)) return {};
-  return Object.fromEntries(Object.entries(value).filter(([, v]) => record3(v)).map(([id, raw]) => {
-    const v = raw, seen = /* @__PURE__ */ new Set();
-    const accounts = [];
-    if (Array.isArray(v.accounts)) for (const a of v.accounts) {
-      if (!record3(a) || typeof a.id !== "string" || !a.id || a.id === "main" || seen.has(a.id) || typeof a.name !== "string" || !a.name.trim()) continue;
-      seen.add(a.id);
-      accounts.push({ id: a.id.slice(0, 100), name: a.name.trim().slice(0, 40), purpose: typeof a.purpose === "string" ? a.purpose.slice(0, 300) : "", tags: tags(a.tags) });
-      if (accounts.length === 3) break;
-    }
-    return [id, { nickname: typeof v.nickname === "string" ? v.nickname.trim().slice(0, 40) : void 0, tags: tags(v.tags), accounts }];
-  }));
-}
-function friendAccounts(settings, char) {
-  const identity = settings.identities[char.id];
-  return [{ id: "main", name: identity?.nickname || char.name, purpose: "\u4E3B\u53F7", tags: identity?.tags || [] }, ...identity?.accounts || []];
-}
-function resolveFriendFeedSettings(value) {
-  const defaults = defaultFriendFeedSettings();
-  return {
-    userNickname: typeof value?.userNickname === "string" ? value.userNickname.trim().slice(0, 40) : "",
-    weiboHomeMode: value?.weiboHomeMode === "latest" ? "latest" : "default",
-    weiboProfile: value?.weiboProfile && /^\d{4,25}$/.test(value.weiboProfile.uid) && typeof value.weiboProfile.name === "string" && value.weiboProfile.name.trim() ? {
-      uid: value.weiboProfile.uid,
-      name: value.weiboProfile.name.trim().slice(0, 150),
-      avatar: typeof value.weiboProfile.avatar === "string" && /^https:\/\/[a-z\d.-]+\.sinaimg\.cn\/[^\s]{1,1900}$/i.test(value.weiboProfile.avatar) ? value.weiboProfile.avatar : void 0
-    } : void 0,
-    coverImages: record3(value?.coverImages) ? Object.fromEntries(Object.entries(value.coverImages).filter((entry) => typeof entry[1] === "string" && /^blobref:[a-zA-Z0-9_-]+$/.test(entry[1]))) : {},
-    interactionPrompt: typeof value?.interactionPrompt === "string" ? value.interactionPrompt.slice(0, 3e3) : defaults.interactionPrompt,
-    npcPrompt: typeof value?.npcPrompt === "string" ? value.npcPrompt.slice(0, 3e3) : defaults.npcPrompt,
-    theme: ["island", "moments", "insta", "journal", "weibo", "twitter"].includes(value?.theme || "") ? value.theme : defaults.theme,
-    layout: ["paper", "timeline", "compact"].includes(value?.layout || "") ? value.layout : defaults.layout,
-    fontSize: [14, 16, 18].includes(value?.fontSize || 0) ? value.fontSize : defaults.fontSize,
-    showCover: typeof value?.showCover === "boolean" ? value.showCover : defaults.showCover,
-    // Legacy backups may contain piggyback; user comments now always reply immediately.
-    replyMode: "immediate",
-    realContentEnabled: value?.realContentEnabled === true,
-    hideRealPosts: value?.hideRealPosts === true,
-    shareImagesEnabled: value?.shareImagesEnabled === true,
-    characterWeights: record3(value?.characterWeights) ? Object.fromEntries(Object.entries(value.characterWeights).map(([id, v]) => [id, weight(v, 10)])) : {},
-    contentWeights: { self: weight(value?.contentWeights?.self, 60), related: weight(value?.contentWeights?.related, 30), stranger: weight(value?.contentWeights?.stranger, 10) },
-    identities: resolveFriendIdentities(value?.identities),
-    npcEnabled: typeof value?.npcEnabled === "boolean" ? value.npcEnabled : true
-  };
-}
-var DEFAULT_FRIEND_FEED_PROMPT, DEFAULT_FRIEND_NPC_PROMPT, defaultFriendFeedSettings, weight, record3, tags;
-var init_friendFeedSettings = __esm({
-  "utils/friendFeedSettings.ts"() {
-    "use strict";
-    DEFAULT_FRIEND_FEED_PROMPT = "\u6709\u60F3\u5206\u4EAB\u7684\u65E5\u5E38\u5C31\u53D1\u52A8\u6001\uFF0C\u786E\u5B9E\u60F3\u56DE\u5E94\u65F6\u518D\u5199\u77ED\u8BC4\u3002\u53EF\u4EE5\u63A5\u6897\u3001\u5410\u69FD\u3001\u5173\u5FC3\u3001\u8868\u8FBE\u4E0D\u540C\u610F\u89C1\uFF0C\u4E0D\u5FC5\u8D5E\u7F8E\u6216\u5BF9\u6BCF\u6761\u4E92\u52A8\u3002\u8FD9\u662F\u5F00\u653E\u5E7F\u573A\uFF0C\u4E0D\u540C\u4E16\u754C\u7684\u4EBA\u90FD\u80FD\u5237\u5230\u3002\u8BA4\u8BC6\u7684\u4EBA\u6309\u5DF2\u6709\u5173\u7CFB\u4E92\u52A8\uFF0C\u4E0D\u8BA4\u8BC6\u7684\u5C31\u662F\u964C\u751F\u7F51\u53CB\uFF0C\u4E0D\u51ED\u5237\u5230\u5E16\u5B50\u865A\u6784\u4EA4\u60C5\u3002\u4FDD\u7559\u5404\u81EA\u7684\u6027\u683C\u4E0E\u5173\u7CFB\u5206\u5BF8\u3002";
-    DEFAULT_FRIEND_NPC_PROMPT = `\u4F60\u5199\u7684\u662F\u5404\u81EA\u5237\u624B\u673A\u7684\u7F51\u53CB\uFF0C\u4E0D\u662F\u6765\u670D\u52A1\u5E16\u4E3B\u7684\u6367\u573A\u56E2\u3002\u6BCF\u4E2A\u4EBA\u53EA\u6CE8\u610F\u5230\u81EA\u5DF1\u611F\u5174\u8DA3\u7684\u4E00\u5C0F\u70B9\uFF0C\u4E0D\u5FC5\u7406\u89E3\u5168\u6587\uFF0C\u4E5F\u4E0D\u5FC5\u7ED9\u5EFA\u8BAE\u3001\u63D0\u4F9B\u60C5\u7EEA\u4EF7\u503C\u6216\u628A\u8BDD\u8BF4\u5706\u3002
-\u7F51\u53CB\u4E0D\u662F\u627F\u8F7D\u89D2\u8272\u7684\u5206\u8EAB\uFF0C\u4E0D\u628A\u89D2\u8272\u7684\u53E3\u5934\u7985\u3001\u957F\u6BD4\u55BB\u3001\u804C\u4E1A\u672F\u8BED\u4F20\u67D3\u7ED9\u6240\u6709\u4EBA\u3002\u6635\u79F0\u50CF\u666E\u901A\u8D26\u53F7\uFF0C\u4E0D\u8981\u4EBA\u4EBA\u90FD\u8D77\u4E00\u4E2A\u7CBE\u51C6\u8D34\u5408\u672C\u5E16\u8BDD\u9898\u7684\u804C\u4E1A\u540D\u6216\u62DF\u4EBA\u6897\u540D\u3002
-\u4E00\u6B21\u6709\u4E09\u4F4D\u4EE5\u4E0A\u8DEF\u4EBA\u65F6\uFF0C\u957F\u77ED\u5FC5\u987B\u6709\u660E\u663E\u843D\u5DEE\uFF1A\u81F3\u5C11\u4E00\u6761\u53EA\u6709\u8868\u60C5\u3001\u6807\u70B9\u6216 1\u20138 \u4E2A\u5B57\uFF0C\u6700\u591A\u4E00\u4EBA\u957F\u7BC7\u89E3\u91CA\u3002\u7528\u6237\u95EE\u95EE\u9898\u4E5F\u4E0D\u662F\u5168\u4F53\u7F51\u53CB\u7684\u4F5C\u4E1A\uFF1B\u88AB\u70B9\u540D\u7684\u4EBA\u53EF\u4EE5\u8BA4\u771F\u7B54\uFF0C\u5176\u4ED6\u4EBA\u4E0D\u5FC5\u56DE\u7B54\u3001\u66F4\u4E0D\u8981\u6362\u4E2A\u8BF4\u6CD5\u91CD\u590D\u7B54\u6848\u6216\u8F6E\u6D41\u9644\u548C\u201C\u786E\u5B9E\u201D\u3002\u6709\u4E9B\u4EBA\u53EA\u770B\u70ED\u95F9\u3001\u53EA\u5173\u5FC3\u65C1\u8FB9\u4E00\u4E2A\u7EC6\u8282\uFF0C\u6216\u8005\u5B8C\u5168\u6CA1\u8DDF\u4E0A\u3002
-\u53E3\u543B\u3001\u957F\u5EA6\u3001\u61C2\u884C\u7A0B\u5EA6\u3001\u7ACB\u573A\u8981\u53C2\u5DEE\uFF1A\u6709\u4EBA\u53EA\u4E22\u4E00\u4E2A\u8868\u60C5\u3001\u95EE\u53F7\u6216\u51E0\u4E2A\u5B57\uFF1B\u6709\u4EBA\u63A5\u6897\u3001\u6B6A\u697C\u3001\u8BA4\u9519\u91CD\u70B9\uFF1B\u6709\u4EBA\u6CA1\u770B\u61C2\u53EA\u56F4\u89C2\u6216\u95EE\u4E00\u53E5\uFF1B\u6709\u4EBA\u534A\u4FE1\u534A\u7591\u3001\u7EA0\u6B63\u7EC6\u8282\u6216\u4E0D\u4E70\u8D26\uFF1B\u771F\u4E0E\u8BDD\u9898\u6709\u5173\u7684\u4EBA\u624D\u4ECE\u7ECF\u9A8C\u6216\u4E13\u4E1A\u89D2\u5EA6\u5C55\u5F00\u51E0\u53E5\u3002\u4E13\u4E1A\u610F\u89C1\u8981\u6709\u5177\u4F53\u5185\u5BB9\uFF0C\u4E0D\u51ED\u7A7A\u634F\u9020\u6743\u5A01\u8EAB\u4EFD\u3001\u7ECF\u5386\u6216\u6570\u636E\uFF0C\u4E0D\u61C2\u5C31\u4E0D\u61C2\u3002
-\u77ED\u8BC4\u53EF\u4EE5\u53EA\u6709 1\u20138 \u5B57\u6216\u7EAF\u8868\u60C5\uFF0C\u666E\u901A\u8BC4\u8BBA\u968F\u610F\u4E00\u4E24\u53E5\uFF0C\u5076\u5C14\u6709 100\u2013500 \u5B57\u7684\u8F83\u957F\u8BA8\u8BBA\u3002\u957F\u77ED\u7531\u60F3\u8BF4\u7684\u4E8B\u51B3\u5B9A\uFF1B\u4E0D\u662F\u6BCF\u4E2A\u4EBA\u90FD\u5199\u540C\u6837\u957F\u5EA6\u3002\u4E0D\u8981\u6BCF\u6279\u56FA\u5B9A\u51D1\u9F50\u8FD9\u4E9B\u7C7B\u578B\uFF0C\u4E0D\u7ED9\u7F51\u53CB\u6807\u6CE8\u201C\u56F4\u89C2\u578B/\u4E13\u4E1A\u578B\u201D\uFF0C\u4E0D\u8981\u7167\u6284\u793A\u4F8B\u3002\u65E0\u9700\u6BCF\u4EBA\u90FD\u8D5E\u7F8E\uFF0C\u4E5F\u65E0\u9700\u4EBA\u4EBA\u523B\u8584\uFF0C\u5141\u8BB8\u65E0\u804A\u3001\u56F0\u60D1\u3001\u6577\u884D\u548C\u8BDD\u6CA1\u8BF4\u5B8C\u3002
-\u5C11\u5199\u201C\u592A\u6709\u5171\u9E23\u4E86\u201D\u201C\u88AB\u6CBB\u6108\u4E86\u201D\u201C\u72E0\u72E0\u671F\u5F85\u201D\u201C\u4F60\u771F\u7684\u597D\u68D2\u201D\u5F0F\u4E07\u80FD\u6367\u573A\uFF1B\u4E0D\u8981\u628A\u539F\u6587\u6362\u4E2A\u8BF4\u6CD5\u518D\u5938\u4E00\u904D\uFF0C\u4E0D\u8981\u6574\u9F50\u6392\u961F\u201C\u8D5E\u7F8E\uFF0B\u5206\u6790\uFF0B\u5EFA\u8BAE\u201D\uFF0C\u4E0D\u7528\u603B\u7ED3\u9648\u8BCD\u6216\u56FA\u5B9A\u7ED3\u5C3E\u53CD\u95EE\u3002emoji \u53EF\u4EE5\u72EC\u5360\u4E00\u6761\uFF0C\u522B\u6BCF\u4EBA\u90FD\u914D\u4E00\u4E2A\u3002
-\u7F51\u53CB\u4E5F\u4F1A\u63A5\u5176\u4ED6\u8BC4\u8BBA\u7684\u8BDD\uFF0C\u800C\u4E0D\u53EA\u56F4\u7740\u5E16\u4E3B\uFF1A\u6309\u5DF2\u6709\u8BC4\u8BBA ID \u6307\u5B9A\u56DE\u590D\u5BF9\u8C61\uFF0C\u5EF6\u7EED\u5177\u4F53\u5206\u6B67\u3001\u95EE\u9898\u6216\u6897\uFF1B\u666E\u901A\u9876\u5C42\u8BC4\u8BBA\u4E0D\u586B\u56DE\u590D ID\u3002\u53EA\u77E5\u9053\u516C\u5F00\u5E16\u5B50\u548C\u8BC4\u8BBA\uFF0C\u4E0D\u77E5\u9053\u79C1\u804A\u4E0E\u5185\u5FC3\uFF0C\u4E0D\u5F3A\u884C\u88C5\u719F\u3002`;
-    defaultFriendFeedSettings = () => ({
-      userNickname: "",
-      weiboHomeMode: "default",
-      coverImages: {},
-      interactionPrompt: DEFAULT_FRIEND_FEED_PROMPT,
-      npcPrompt: DEFAULT_FRIEND_NPC_PROMPT,
-      theme: "moments",
-      layout: "paper",
-      fontSize: 14,
-      showCover: true,
-      replyMode: "immediate",
-      npcEnabled: true,
-      realContentEnabled: false,
-      hideRealPosts: false,
-      shareImagesEnabled: false,
-      characterWeights: {},
-      contentWeights: { self: 60, related: 30, stranger: 10 },
-      identities: {}
-    });
-    weight = (value, fallback) => typeof value === "number" && Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : fallback;
-    record3 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-    tags = (v) => Array.isArray(v) ? [...new Set(v.filter((s) => typeof s === "string").map((s) => s.trim().slice(0, 30)).filter(Boolean))].slice(0, 8) : [];
   }
 });
 
@@ -3889,9 +4483,9 @@ async function ensurePublicFriendFeed() {
     normalizePublicFriendFeed(state, chars);
   });
 }
-function parseFriendFeed(raw) {
-  if (!raw) return emptyFriendFeed();
-  const data = JSON.parse(raw);
+function parseFriendFeed(raw2) {
+  if (!raw2) return emptyFriendFeed();
+  const data = JSON.parse(raw2);
   if (data.accountGraph !== void 0 && !validFriendGraph(data.accountGraph)) throw new Error("\u54D4\u54D4\u8D26\u53F7\u5173\u7CFB\u65E0\u6CD5\u8BFB\u53D6\uFF0C\u8BF7\u4FDD\u7559\u5907\u4EFD");
   const text3 = (s) => typeof s === "string";
   const time = (n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 864e13;
@@ -4233,7 +4827,7 @@ var init_friendFeed = __esm({
 
 // utils/db.ts
 function clearStaleMemoryMirror(transaction, charId, newId) {
-  const assets = transaction.objectStore(STORE_ASSETS);
+  const assets = transaction.objectStore(STORE_ASSETS2);
   const key = `mp_hwm_v1_${charId}`;
   const request = assets.get(key);
   request.onsuccess = () => {
@@ -4242,10 +4836,390 @@ function clearStaleMemoryMirror(transaction, charId, newId) {
     if (Number.isFinite(hwm) && hwm >= newId) assets.delete(key);
   };
 }
-var DB_NAME2, DB_VERSION2, STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES, STORE_THEMES, STORE_ASSETS, STORE_BLOB_ASSETS, STORE_SCHEDULED, STORE_GALLERY, STORE_USER, STORE_DIARIES, STORE_TASKS, STORE_TASKS_V2, STORE_CHAR_WALLETS, STORE_WALLET_TX, STORE_CHAR_HOMES, STORE_JOB_SESSIONS, STORE_JOB_POSITIONS, STORE_JOB_NOTES, STORE_JOB_RESUMES, STORE_JOB_PROFILE, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES, STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_NOVELS, STORE_BANK_TX, STORE_BANK_DATA, STORE_XHS_STOCK, STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_SONGS, STORE_QUIZZES, STORE_GUIDEBOOK, STORE_LIFE_SIM, STORE_DAILY_SCHEDULE, STORE_HANDBOOK, STORE_TRACKERS, STORE_TRACKER_ENTRIES, STORE_HOTNEWS, STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS, STORE_API_CALL_LOG, STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIFE_RECORDS, STORE_MED_PLANS, STORE_LIFE_SETTINGS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, API_CALL_LOG_MAX_AGE_MS, API_CALL_LOG_MAX_ENTRIES, SULLY_CATEGORY_ID, SULLY_PRESET_EMOJIS, dbPromise2, openDB2, normalizeWorldRelationships, DB;
+function makeSpaceOpener(DB_NAME3) {
+  let dbPromise2 = null;
+  const open = () => {
+    if (dbPromise2) return dbPromise2;
+    const promise = new Promise((resolve, reject) => {
+      const diagnosticRequest = beginDatabaseOpen(DB_VERSION3);
+      const openVersions = { requestedVersion: DB_VERSION3, requestId: diagnosticRequest };
+      const request = indexedDB.open(DB_NAME3, DB_VERSION3);
+      let settled = false;
+      const openTimer = setTimeout(() => {
+        recordDatabaseOpen("open-timeout", openVersions);
+        settled = true;
+        if (dbPromise2 === promise) dbPromise2 = null;
+        reject(new Error("\u672C\u5730\u6570\u636E\u5E93\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u5173\u95ED\u5176\u4ED6\u7CEF\u7C73\u673A\u9875\u9762\u540E\u91CD\u8BD5\uFF1B\u65E0\u9700\u6E05\u7406\u6570\u636E"));
+      }, 2e4);
+      request.onerror = () => {
+        if (settled) return;
+        const err6 = request.error;
+        if (err6?.name === "VersionError") {
+          recordDatabaseOpen("versionless-fallback", openVersions, err6);
+          console.warn("[DB] open VersionError \u2014\u2014 \u73B0\u6709\u7248\u672C\u9AD8\u4E8E\u5F53\u524D build, \u56DE\u9000\u5230\u4E0D\u5E26\u7248\u672C\u53F7\u6253\u5F00");
+          const fb = indexedDB.open(DB_NAME3);
+          fb.onsuccess = () => {
+            const db = fb.result;
+            if (settled) {
+              db.close();
+              return;
+            }
+            clearTimeout(openTimer);
+            associateDatabaseOpen(db, diagnosticRequest, DB_VERSION3);
+            recordDatabaseOpen("open-ready", { ...openVersions, actualVersion: db.version });
+            db.onversionchange = () => {
+              recordDatabaseOpen("version-change", { ...openVersions, actualVersion: db.version });
+              db.close();
+              if (dbPromise2 === promise) dbPromise2 = null;
+            };
+            db.onclose = () => {
+              recordDatabaseOpen("connection-closed", { ...openVersions, actualVersion: db.version });
+              if (dbPromise2 === promise) dbPromise2 = null;
+            };
+            resolve(db);
+          };
+          fb.onerror = () => {
+            if (settled) return;
+            clearTimeout(openTimer);
+            recordDatabaseOpen("open-error", openVersions, fb.error);
+            settled = true;
+            console.error("DB Open Error (versionless fallback):", fb.error);
+            if (dbPromise2 === promise) dbPromise2 = null;
+            reject(fb.error);
+          };
+          return;
+        }
+        clearTimeout(openTimer);
+        recordDatabaseOpen("open-error", openVersions, err6);
+        console.error("DB Open Error:", err6);
+        if (dbPromise2 === promise) dbPromise2 = null;
+        settled = true;
+        reject(err6);
+      };
+      request.onsuccess = () => {
+        clearTimeout(openTimer);
+        const db = request.result;
+        if (settled) {
+          try {
+            db.close();
+          } catch {
+          }
+          return;
+        }
+        associateDatabaseOpen(db, diagnosticRequest, DB_VERSION3);
+        recordDatabaseOpen("open-ready", { ...openVersions, actualVersion: db.version });
+        db.onversionchange = () => {
+          recordDatabaseOpen("version-change", { ...openVersions, actualVersion: db.version });
+          db.close();
+          if (dbPromise2 === promise) dbPromise2 = null;
+        };
+        db.onclose = () => {
+          recordDatabaseOpen("connection-closed", { ...openVersions, actualVersion: db.version });
+          if (dbPromise2 === promise) dbPromise2 = null;
+        };
+        resolve(db);
+      };
+      request.onblocked = () => {
+        clearTimeout(openTimer);
+        recordDatabaseOpen("open-blocked", openVersions);
+        console.warn("[DB] open blocked \u2014\u2014 \u53E6\u4E00\u4E2A tab \u4ECD\u6301\u6709\u65E7\u7248\u672C\u8FDE\u63A5\u672A\u5173\u95ED");
+        if (dbPromise2 === promise) dbPromise2 = null;
+        settled = true;
+        reject(new Error("IndexedDB open blocked \u2014\u2014 \u5173\u95ED\u5176\u5B83\u6807\u7B7E\u9875\u540E\u91CD\u8BD5"));
+      };
+      request.onupgradeneeded = (event) => {
+        clearTimeout(openTimer);
+        const db = event.target.result;
+        const upgradeVersions = { ...openVersions, fromVersion: event.oldVersion, actualVersion: db.version };
+        recordDatabaseOpen("upgrade-started", upgradeVersions);
+        const upgradeTransaction = request.transaction;
+        upgradeTransaction.addEventListener("complete", () => recordDatabaseOpen("upgrade-committed", upgradeVersions));
+        upgradeTransaction.addEventListener("abort", () => recordDatabaseOpen("upgrade-aborted", upgradeVersions, upgradeTransaction.error));
+        const createStore = (name, options2) => {
+          if (!db.objectStoreNames.contains(name)) {
+            db.createObjectStore(name, options2);
+          }
+        };
+        createStore(STORE_CHARACTERS, { keyPath: "id" });
+        createStore(STORE_CHAR_GROUPS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_MESSAGES2)) {
+          const msgStore = db.createObjectStore(STORE_MESSAGES2, { keyPath: "id", autoIncrement: true });
+          msgStore.createIndex("charId", "charId", { unique: false });
+          msgStore.createIndex("groupId", "groupId", { unique: false });
+        } else {
+          const msgStore = event.target.transaction?.objectStore(STORE_MESSAGES2);
+          if (msgStore && !msgStore.indexNames.contains(STORE_MESSAGES2) && !msgStore.indexNames.contains("groupId")) {
+            try {
+              msgStore.createIndex("groupId", "groupId", { unique: false });
+            } catch (e) {
+              console.log("Index already exists");
+            }
+          }
+        }
+        try {
+          const msgStore = event.target.transaction?.objectStore(STORE_MESSAGES2);
+          if (msgStore && !msgStore.indexNames.contains("charId_type")) {
+            msgStore.createIndex("charId_type", ["charId", "type"], { unique: false });
+          }
+        } catch (e) {
+          console.log("charId_type index migration skipped", e);
+        }
+        const messageStore = event.target.transaction.objectStore(STORE_MESSAGES2);
+        if (!messageStore.indexNames.contains("charId_source")) {
+          messageStore.createIndex("charId_source", ["charId", "metadata.source"], { unique: false });
+        }
+        if (!messageStore.indexNames.contains("charId_homeTurn")) {
+          messageStore.createIndex("charId_homeTurn", ["charId", "metadata.homeTurnId"], { unique: false });
+        }
+        const deliveryStore = event.target.transaction.objectStore(STORE_MESSAGES2);
+        if (!deliveryStore.indexNames.contains("charId_deliveryId")) {
+          deliveryStore.createIndex("charId_deliveryId", ["charId", "metadata.deliveryId"], { unique: false });
+        }
+        createStore(STORE_EMOJIS, { keyPath: "name" });
+        createStore(STORE_EMOJI_CATEGORIES, { keyPath: "id" });
+        createStore(STORE_THEMES, { keyPath: "id" });
+        createStore(STORE_ASSETS2, { keyPath: "id" });
+        createStore(STORE_BLOB_ASSETS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_SCHEDULED)) {
+          const schedStore = db.createObjectStore(STORE_SCHEDULED, { keyPath: "id" });
+          schedStore.createIndex("charId", "charId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_GALLERY)) {
+          const galleryStore = db.createObjectStore(STORE_GALLERY, { keyPath: "id" });
+          galleryStore.createIndex("charId", "charId", { unique: false });
+        }
+        createStore(STORE_USER, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_DIARIES)) {
+          const diaryStore = db.createObjectStore(STORE_DIARIES, { keyPath: "id" });
+          diaryStore.createIndex("charId", "charId", { unique: false });
+        }
+        createStore(STORE_TASKS, { keyPath: "id" });
+        createStore(STORE_TASKS_V2, { keyPath: "id" });
+        createStore(STORE_ANNIVERSARIES, { keyPath: "id" });
+        createStore(STORE_CHAR_WALLETS, { keyPath: "charId" });
+        createStore(STORE_CHAR_HOMES, { keyPath: "charId" });
+        if (!db.objectStoreNames.contains(STORE_WALLET_TX)) {
+          const wtxStore = db.createObjectStore(STORE_WALLET_TX, { keyPath: "id" });
+          wtxStore.createIndex("charId", "charId", { unique: false });
+        }
+        createStore(STORE_JOB_SESSIONS, { keyPath: "id" });
+        createStore(STORE_JOB_POSITIONS, { keyPath: "id" });
+        createStore(STORE_JOB_NOTES, { keyPath: "id" });
+        createStore(STORE_JOB_RESUMES, { keyPath: "id" });
+        createStore(STORE_JOB_PROFILE, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_ROOM_TODOS)) {
+          db.createObjectStore(STORE_ROOM_TODOS, { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains(STORE_ROOM_NOTES)) {
+          const notesStore = db.createObjectStore(STORE_ROOM_NOTES, { keyPath: "id" });
+          notesStore.createIndex("charId", "charId", { unique: false });
+        }
+        createStore(STORE_GROUPS, { keyPath: "id" });
+        createStore(STORE_JOURNAL_STICKERS, { keyPath: "name" });
+        createStore(STORE_SOCIAL_POSTS, { keyPath: "id" });
+        createStore(STORE_COURSES, { keyPath: "id" });
+        createStore(STORE_GAMES, { keyPath: "id" });
+        createStore(STORE_WORLDBOOKS, { keyPath: "id" });
+        createStore(STORE_NOVELS, { keyPath: "id" });
+        createStore(STORE_VR_NOVELS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_VR_ANNOTATIONS)) {
+          const vrAnnStore = db.createObjectStore(STORE_VR_ANNOTATIONS, { keyPath: "id" });
+          vrAnnStore.createIndex("novelId", "novelId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_CC_PARTS)) {
+          const ccStore = db.createObjectStore(STORE_CC_PARTS, { keyPath: "id" });
+          ccStore.createIndex("categoryKey", "categoryKey", { unique: false });
+        }
+        createStore(STORE_VR_MUSIC, { keyPath: "id" });
+        createStore(STORE_VR_GUESTBOOK, { keyPath: "id" });
+        createStore(STORE_VR_SCRIPTS, { keyPath: "id" });
+        createStore(STORE_VR_PLAYS, { keyPath: "id" });
+        createStore(STORE_VR_PRESETS, { keyPath: "key" });
+        if (!db.objectStoreNames.contains(STORE_VR_LETTERS)) {
+          const ltStore = db.createObjectStore(STORE_VR_LETTERS, { keyPath: "id" });
+          ltStore.createIndex("box", "box", { unique: false });
+        }
+        createStore(STORE_VR_SETTINGS, { keyPath: "id" });
+        createStore(STORE_API_CALL_LOG, { keyPath: "id" });
+        createStore(STORE_WORLDS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_WORLD_EPISODES)) {
+          const weStore = db.createObjectStore(STORE_WORLD_EPISODES, { keyPath: "id" });
+          weStore.createIndex("worldId", "worldId", { unique: false });
+        }
+        createStore(STORE_BANK_TX, { keyPath: "id" });
+        createStore(STORE_BANK_DATA, { keyPath: "id" });
+        createStore(STORE_XHS_STOCK, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_XHS_ACTIVITIES)) {
+          const xhsActStore = db.createObjectStore(STORE_XHS_ACTIVITIES, { keyPath: "id" });
+          xhsActStore.createIndex("characterId", "characterId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) {
+          const ownedPostStore = db.createObjectStore(STORE_XHS_OWNED_POSTS, { keyPath: "id" });
+          ownedPostStore.createIndex("characterId", "characterId", { unique: false });
+          ownedPostStore.createIndex("noteId", "noteId", { unique: false });
+        }
+        createStore(STORE_SONGS, { keyPath: "id" });
+        createStore(STORE_QUIZZES, { keyPath: "id" });
+        createStore(STORE_GUIDEBOOK, { keyPath: "id" });
+        createStore(STORE_LIFE_SIM, { keyPath: "id" });
+        createStore(STORE_DAILY_SCHEDULE, { keyPath: "id" });
+        createStore(STORE_HANDBOOK, { keyPath: "id" });
+        createStore(STORE_TRACKERS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(STORE_TRACKER_ENTRIES)) {
+          const teStore = db.createObjectStore(STORE_TRACKER_ENTRIES, { keyPath: "id" });
+          teStore.createIndex("trackerId", "trackerId", { unique: false });
+          teStore.createIndex("date", "date", { unique: false });
+        }
+        if (!db.objectStoreNames.contains(STORE_LIFE_RECORDS)) {
+          const lrStore = db.createObjectStore(STORE_LIFE_RECORDS, { keyPath: "id" });
+          lrStore.createIndex("date", "date", { unique: false });
+          lrStore.createIndex("module", "module", { unique: false });
+        }
+        createStore(STORE_MED_PLANS, { keyPath: "id" });
+        createStore(STORE_LIFE_SETTINGS, { keyPath: "id" });
+        createStore(STORE_STORY_THEATERS, { keyPath: "id" });
+        createStore(STORE_STORY_THEATER_PRESETS, { keyPath: "id" });
+        createStore(STORE_STORY_THEATER_MASKS, { keyPath: "id" });
+        createStore(STORE_HOTNEWS, { keyPath: "id" });
+        if (!db.objectStoreNames.contains("memory_nodes")) {
+          const mnStore = db.createObjectStore("memory_nodes", { keyPath: "id" });
+          mnStore.createIndex("charId", "charId", { unique: false });
+          mnStore.createIndex("room", "room", { unique: false });
+          mnStore.createIndex("embedded", "embedded", { unique: false });
+          mnStore.createIndex("boxId", "boxId", { unique: false });
+          mnStore.createIndex("eventBoxId", "eventBoxId", { unique: false });
+        } else {
+          const mnStore = event.target.transaction?.objectStore("memory_nodes");
+          if (mnStore && !mnStore.indexNames.contains("eventBoxId")) {
+            try {
+              mnStore.createIndex("eventBoxId", "eventBoxId", { unique: false });
+            } catch (e) {
+              console.log("memory_nodes eventBoxId index migration skipped");
+            }
+          }
+        }
+        if (!db.objectStoreNames.contains("memory_vectors")) {
+          const mvStore = db.createObjectStore("memory_vectors", { keyPath: "memoryId" });
+          mvStore.createIndex("charId", "charId", { unique: false });
+        } else {
+          const mvStore = event.target.transaction?.objectStore("memory_vectors");
+          if (mvStore && !mvStore.indexNames.contains("charId")) {
+            try {
+              mvStore.createIndex("charId", "charId", { unique: false });
+            } catch (e) {
+              console.log("memory_vectors charId index migration skipped");
+            }
+          }
+        }
+        if (!db.objectStoreNames.contains("memory_links")) {
+          const mlStore = db.createObjectStore("memory_links", { keyPath: "id" });
+          mlStore.createIndex("sourceId", "sourceId", { unique: false });
+          mlStore.createIndex("targetId", "targetId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("memory_batches")) {
+          const mbStore = db.createObjectStore("memory_batches", { keyPath: "id" });
+          mbStore.createIndex("charId", "charId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("topic_boxes")) {
+          const tbStore = db.createObjectStore("topic_boxes", { keyPath: "id" });
+          tbStore.createIndex("charId", "charId", { unique: false });
+          tbStore.createIndex("status", "status", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("anticipations")) {
+          const antStore = db.createObjectStore("anticipations", { keyPath: "id" });
+          antStore.createIndex("charId", "charId", { unique: false });
+          antStore.createIndex("status", "status", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("event_boxes")) {
+          const ebStore = db.createObjectStore("event_boxes", { keyPath: "id" });
+          ebStore.createIndex("charId", "charId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("room_plates")) {
+          const rpStore = db.createObjectStore("room_plates", { keyPath: "id" });
+          rpStore.createIndex("charId", "charId", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("digest_reports")) {
+          const drStore = db.createObjectStore("digest_reports", { keyPath: "id" });
+          drStore.createIndex("charId", "charId", { unique: false });
+        }
+        const oldVersion = event.oldVersion || 0;
+        if (oldVersion > 0 && oldVersion < 48) {
+          const upgradeTx = event.target.transaction;
+          const MP_STORES_TO_CLEAR = [
+            "memory_nodes",
+            "memory_vectors",
+            "memory_links",
+            "memory_batches",
+            "topic_boxes",
+            "anticipations",
+            "event_boxes"
+          ];
+          let cleared = 0;
+          for (const name of MP_STORES_TO_CLEAR) {
+            if (db.objectStoreNames.contains(name) && upgradeTx) {
+              try {
+                upgradeTx.objectStore(name).clear();
+                cleared++;
+              } catch (e) {
+                console.warn(`[DB v48 wipe] skip ${name}:`, e);
+              }
+            }
+          }
+          let hwmCleared = 0;
+          try {
+            const toRemove = [];
+            const spaceId = DB_NAME3 === "AetherOS_Data" ? DEFAULT_SPACE_ID : DB_NAME3.slice("AetherOS_Data__".length);
+            const storage = rawSpaceStorage ? createSpaceStorage(rawSpaceStorage, spaceId) : localStorage;
+            for (let i = 0; i < storage.length; i++) {
+              const key = storage.key(i);
+              if (key && key.startsWith("mp_lastMsgId_")) toRemove.push(key);
+            }
+            for (const key of toRemove) {
+              storage.removeItem(key);
+              hwmCleared++;
+            }
+          } catch {
+          }
+          console.log(`\u{1F5D1}\uFE0F [DB v48] \u4E00\u6B21\u6027\u6E05\u7A7A\u5B8C\u6210\uFF1A${cleared} \u4E2A store\uFF0C${hwmCleared} \u4E2A\u9AD8\u6C34\u4F4D\uFF08oldVersion=${oldVersion}\uFF09`);
+        }
+        if (!db.objectStoreNames.contains("pixel_home_assets")) {
+          const phaStore = db.createObjectStore("pixel_home_assets", { keyPath: "id" });
+          phaStore.createIndex("createdAt", "createdAt", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("pixel_home_layouts")) {
+          const phlStore = db.createObjectStore("pixel_home_layouts", { keyPath: ["charId", "roomId"] });
+          phlStore.createIndex("charId", "charId", { unique: false });
+        }
+      };
+    });
+    dbPromise2 = promise;
+    void promise.catch(reportDatabaseFailure);
+    return promise;
+  };
+  return { open, close: async () => {
+    if (dbPromise2) {
+      try {
+        (await dbPromise2).close();
+      } finally {
+        dbPromise2 = null;
+      }
+    }
+  } };
+}
+function openSpaceDB(id) {
+  let opener = spaceOpeners.get(id);
+  if (!opener) {
+    opener = makeSpaceOpener(spaceDatabaseName("AetherOS_Data", id));
+    spaceOpeners.set(id, opener);
+  }
+  return opener.open();
+}
+var DB_NAME2, DB_VERSION3, STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES2, STORE_EMOJIS, STORE_EMOJI_CATEGORIES, STORE_THEMES, STORE_ASSETS2, STORE_BLOB_ASSETS, STORE_SCHEDULED, STORE_GALLERY, STORE_USER, STORE_DIARIES, STORE_TASKS, STORE_TASKS_V2, STORE_CHAR_WALLETS, STORE_WALLET_TX, STORE_CHAR_HOMES, STORE_JOB_SESSIONS, STORE_JOB_POSITIONS, STORE_JOB_NOTES, STORE_JOB_RESUMES, STORE_JOB_PROFILE, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES, STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_NOVELS, STORE_BANK_TX, STORE_BANK_DATA, STORE_XHS_STOCK, STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_SONGS, STORE_QUIZZES, STORE_GUIDEBOOK, STORE_LIFE_SIM, STORE_DAILY_SCHEDULE, STORE_HANDBOOK, STORE_TRACKERS, STORE_TRACKER_ENTRIES, STORE_HOTNEWS, STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS, STORE_API_CALL_LOG, STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIFE_RECORDS, STORE_MED_PLANS, STORE_LIFE_SETTINGS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, API_CALL_LOG_MAX_AGE_MS, API_CALL_LOG_MAX_ENTRIES, SULLY_CATEGORY_ID, SULLY_PRESET_EMOJIS, spaceOpeners, openDB2, normalizeWorldRelationships, DB;
 var init_db = __esm({
   "utils/db.ts"() {
     "use strict";
+    init_userSpaces();
+    init_sharedAssetLock();
     init_localRead();
     init_activityBackup();
     init_linkPrecision();
@@ -4257,6 +5231,8 @@ var init_db = __esm({
     init_beautyAuthorBackup();
     init_worldbook();
     init_homeMessageBridge();
+    init_phoneEvidence();
+    init_phoneGeneration();
     init_secretNote();
     init_storyTheaterTimeline();
     init_episodeOrder();
@@ -4270,15 +5246,15 @@ var init_db = __esm({
     init_localBackup();
     init_desktopSkinBackup();
     init_library();
-    DB_NAME2 = "AetherOS_Data";
-    DB_VERSION2 = 75;
+    DB_NAME2 = spaceDatabaseName("AetherOS_Data");
+    DB_VERSION3 = 75;
     STORE_CHARACTERS = "characters";
     STORE_CHAR_GROUPS = "character_groups";
-    STORE_MESSAGES = "messages";
+    STORE_MESSAGES2 = "messages";
     STORE_EMOJIS = "emojis";
     STORE_EMOJI_CATEGORIES = "emoji_categories";
     STORE_THEMES = "themes";
-    STORE_ASSETS = "assets";
+    STORE_ASSETS2 = "assets";
     STORE_BLOB_ASSETS = "blob_assets";
     STORE_SCHEDULED = "scheduled_messages";
     STORE_GALLERY = "gallery";
@@ -4350,362 +5326,10 @@ var init_db = __esm({
       { name: "Sully\u9053\u6B49", url: "https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/sorry.png", categoryId: SULLY_CATEGORY_ID },
       { name: "Sully\u7B49\u4F60\u6D88\u606F", url: "https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/wait.png", categoryId: SULLY_CATEGORY_ID }
     ];
-    dbPromise2 = null;
+    spaceOpeners = /* @__PURE__ */ new Map();
     openDB2 = () => {
-      if (dbPromise2) return dbPromise2;
-      const promise = new Promise((resolve, reject) => {
-        const diagnosticRequest = beginDatabaseOpen(DB_VERSION2);
-        const openVersions = { requestedVersion: DB_VERSION2, requestId: diagnosticRequest };
-        const request = indexedDB.open(DB_NAME2, DB_VERSION2);
-        let settled = false;
-        const openTimer = setTimeout(() => {
-          recordDatabaseOpen("open-timeout", openVersions);
-          settled = true;
-          if (dbPromise2 === promise) dbPromise2 = null;
-          reject(new Error("\u672C\u5730\u6570\u636E\u5E93\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u5173\u95ED\u5176\u4ED6\u7CEF\u7C73\u673A\u9875\u9762\u540E\u91CD\u8BD5\uFF1B\u65E0\u9700\u6E05\u7406\u6570\u636E"));
-        }, 2e4);
-        request.onerror = () => {
-          if (settled) return;
-          const err6 = request.error;
-          if (err6?.name === "VersionError") {
-            recordDatabaseOpen("versionless-fallback", openVersions, err6);
-            console.warn("[DB] open VersionError \u2014\u2014 \u73B0\u6709\u7248\u672C\u9AD8\u4E8E\u5F53\u524D build, \u56DE\u9000\u5230\u4E0D\u5E26\u7248\u672C\u53F7\u6253\u5F00");
-            const fb = indexedDB.open(DB_NAME2);
-            fb.onsuccess = () => {
-              const db = fb.result;
-              if (settled) {
-                db.close();
-                return;
-              }
-              clearTimeout(openTimer);
-              associateDatabaseOpen(db, diagnosticRequest, DB_VERSION2);
-              recordDatabaseOpen("open-ready", { ...openVersions, actualVersion: db.version });
-              db.onversionchange = () => {
-                recordDatabaseOpen("version-change", { ...openVersions, actualVersion: db.version });
-                db.close();
-                if (dbPromise2 === promise) dbPromise2 = null;
-              };
-              db.onclose = () => {
-                recordDatabaseOpen("connection-closed", { ...openVersions, actualVersion: db.version });
-                if (dbPromise2 === promise) dbPromise2 = null;
-              };
-              resolve(db);
-            };
-            fb.onerror = () => {
-              if (settled) return;
-              clearTimeout(openTimer);
-              recordDatabaseOpen("open-error", openVersions, fb.error);
-              settled = true;
-              console.error("DB Open Error (versionless fallback):", fb.error);
-              if (dbPromise2 === promise) dbPromise2 = null;
-              reject(fb.error);
-            };
-            return;
-          }
-          clearTimeout(openTimer);
-          recordDatabaseOpen("open-error", openVersions, err6);
-          console.error("DB Open Error:", err6);
-          if (dbPromise2 === promise) dbPromise2 = null;
-          settled = true;
-          reject(err6);
-        };
-        request.onsuccess = () => {
-          clearTimeout(openTimer);
-          const db = request.result;
-          if (settled) {
-            try {
-              db.close();
-            } catch {
-            }
-            return;
-          }
-          associateDatabaseOpen(db, diagnosticRequest, DB_VERSION2);
-          recordDatabaseOpen("open-ready", { ...openVersions, actualVersion: db.version });
-          db.onversionchange = () => {
-            recordDatabaseOpen("version-change", { ...openVersions, actualVersion: db.version });
-            db.close();
-            if (dbPromise2 === promise) dbPromise2 = null;
-          };
-          db.onclose = () => {
-            recordDatabaseOpen("connection-closed", { ...openVersions, actualVersion: db.version });
-            if (dbPromise2 === promise) dbPromise2 = null;
-          };
-          resolve(db);
-        };
-        request.onblocked = () => {
-          clearTimeout(openTimer);
-          recordDatabaseOpen("open-blocked", openVersions);
-          console.warn("[DB] open blocked \u2014\u2014 \u53E6\u4E00\u4E2A tab \u4ECD\u6301\u6709\u65E7\u7248\u672C\u8FDE\u63A5\u672A\u5173\u95ED");
-          if (dbPromise2 === promise) dbPromise2 = null;
-          settled = true;
-          reject(new Error("IndexedDB open blocked \u2014\u2014 \u5173\u95ED\u5176\u5B83\u6807\u7B7E\u9875\u540E\u91CD\u8BD5"));
-        };
-        request.onupgradeneeded = (event) => {
-          clearTimeout(openTimer);
-          const db = event.target.result;
-          const upgradeVersions = { ...openVersions, fromVersion: event.oldVersion, actualVersion: db.version };
-          recordDatabaseOpen("upgrade-started", upgradeVersions);
-          const upgradeTransaction = request.transaction;
-          upgradeTransaction.addEventListener("complete", () => recordDatabaseOpen("upgrade-committed", upgradeVersions));
-          upgradeTransaction.addEventListener("abort", () => recordDatabaseOpen("upgrade-aborted", upgradeVersions, upgradeTransaction.error));
-          const createStore = (name, options2) => {
-            if (!db.objectStoreNames.contains(name)) {
-              db.createObjectStore(name, options2);
-            }
-          };
-          createStore(STORE_CHARACTERS, { keyPath: "id" });
-          createStore(STORE_CHAR_GROUPS, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_MESSAGES)) {
-            const msgStore = db.createObjectStore(STORE_MESSAGES, { keyPath: "id", autoIncrement: true });
-            msgStore.createIndex("charId", "charId", { unique: false });
-            msgStore.createIndex("groupId", "groupId", { unique: false });
-          } else {
-            const msgStore = event.target.transaction?.objectStore(STORE_MESSAGES);
-            if (msgStore && !msgStore.indexNames.contains(STORE_MESSAGES) && !msgStore.indexNames.contains("groupId")) {
-              try {
-                msgStore.createIndex("groupId", "groupId", { unique: false });
-              } catch (e) {
-                console.log("Index already exists");
-              }
-            }
-          }
-          try {
-            const msgStore = event.target.transaction?.objectStore(STORE_MESSAGES);
-            if (msgStore && !msgStore.indexNames.contains("charId_type")) {
-              msgStore.createIndex("charId_type", ["charId", "type"], { unique: false });
-            }
-          } catch (e) {
-            console.log("charId_type index migration skipped", e);
-          }
-          const messageStore = event.target.transaction.objectStore(STORE_MESSAGES);
-          if (!messageStore.indexNames.contains("charId_source")) {
-            messageStore.createIndex("charId_source", ["charId", "metadata.source"], { unique: false });
-          }
-          if (!messageStore.indexNames.contains("charId_homeTurn")) {
-            messageStore.createIndex("charId_homeTurn", ["charId", "metadata.homeTurnId"], { unique: false });
-          }
-          const deliveryStore = event.target.transaction.objectStore(STORE_MESSAGES);
-          if (!deliveryStore.indexNames.contains("charId_deliveryId")) {
-            deliveryStore.createIndex("charId_deliveryId", ["charId", "metadata.deliveryId"], { unique: false });
-          }
-          createStore(STORE_EMOJIS, { keyPath: "name" });
-          createStore(STORE_EMOJI_CATEGORIES, { keyPath: "id" });
-          createStore(STORE_THEMES, { keyPath: "id" });
-          createStore(STORE_ASSETS, { keyPath: "id" });
-          createStore(STORE_BLOB_ASSETS, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_SCHEDULED)) {
-            const schedStore = db.createObjectStore(STORE_SCHEDULED, { keyPath: "id" });
-            schedStore.createIndex("charId", "charId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains(STORE_GALLERY)) {
-            const galleryStore = db.createObjectStore(STORE_GALLERY, { keyPath: "id" });
-            galleryStore.createIndex("charId", "charId", { unique: false });
-          }
-          createStore(STORE_USER, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_DIARIES)) {
-            const diaryStore = db.createObjectStore(STORE_DIARIES, { keyPath: "id" });
-            diaryStore.createIndex("charId", "charId", { unique: false });
-          }
-          createStore(STORE_TASKS, { keyPath: "id" });
-          createStore(STORE_TASKS_V2, { keyPath: "id" });
-          createStore(STORE_ANNIVERSARIES, { keyPath: "id" });
-          createStore(STORE_CHAR_WALLETS, { keyPath: "charId" });
-          createStore(STORE_CHAR_HOMES, { keyPath: "charId" });
-          if (!db.objectStoreNames.contains(STORE_WALLET_TX)) {
-            const wtxStore = db.createObjectStore(STORE_WALLET_TX, { keyPath: "id" });
-            wtxStore.createIndex("charId", "charId", { unique: false });
-          }
-          createStore(STORE_JOB_SESSIONS, { keyPath: "id" });
-          createStore(STORE_JOB_POSITIONS, { keyPath: "id" });
-          createStore(STORE_JOB_NOTES, { keyPath: "id" });
-          createStore(STORE_JOB_RESUMES, { keyPath: "id" });
-          createStore(STORE_JOB_PROFILE, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_ROOM_TODOS)) {
-            db.createObjectStore(STORE_ROOM_TODOS, { keyPath: "id" });
-          }
-          if (!db.objectStoreNames.contains(STORE_ROOM_NOTES)) {
-            const notesStore = db.createObjectStore(STORE_ROOM_NOTES, { keyPath: "id" });
-            notesStore.createIndex("charId", "charId", { unique: false });
-          }
-          createStore(STORE_GROUPS, { keyPath: "id" });
-          createStore(STORE_JOURNAL_STICKERS, { keyPath: "name" });
-          createStore(STORE_SOCIAL_POSTS, { keyPath: "id" });
-          createStore(STORE_COURSES, { keyPath: "id" });
-          createStore(STORE_GAMES, { keyPath: "id" });
-          createStore(STORE_WORLDBOOKS, { keyPath: "id" });
-          createStore(STORE_NOVELS, { keyPath: "id" });
-          createStore(STORE_VR_NOVELS, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_VR_ANNOTATIONS)) {
-            const vrAnnStore = db.createObjectStore(STORE_VR_ANNOTATIONS, { keyPath: "id" });
-            vrAnnStore.createIndex("novelId", "novelId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains(STORE_CC_PARTS)) {
-            const ccStore = db.createObjectStore(STORE_CC_PARTS, { keyPath: "id" });
-            ccStore.createIndex("categoryKey", "categoryKey", { unique: false });
-          }
-          createStore(STORE_VR_MUSIC, { keyPath: "id" });
-          createStore(STORE_VR_GUESTBOOK, { keyPath: "id" });
-          createStore(STORE_VR_SCRIPTS, { keyPath: "id" });
-          createStore(STORE_VR_PLAYS, { keyPath: "id" });
-          createStore(STORE_VR_PRESETS, { keyPath: "key" });
-          if (!db.objectStoreNames.contains(STORE_VR_LETTERS)) {
-            const ltStore = db.createObjectStore(STORE_VR_LETTERS, { keyPath: "id" });
-            ltStore.createIndex("box", "box", { unique: false });
-          }
-          createStore(STORE_VR_SETTINGS, { keyPath: "id" });
-          createStore(STORE_API_CALL_LOG, { keyPath: "id" });
-          createStore(STORE_WORLDS, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_WORLD_EPISODES)) {
-            const weStore = db.createObjectStore(STORE_WORLD_EPISODES, { keyPath: "id" });
-            weStore.createIndex("worldId", "worldId", { unique: false });
-          }
-          createStore(STORE_BANK_TX, { keyPath: "id" });
-          createStore(STORE_BANK_DATA, { keyPath: "id" });
-          createStore(STORE_XHS_STOCK, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_XHS_ACTIVITIES)) {
-            const xhsActStore = db.createObjectStore(STORE_XHS_ACTIVITIES, { keyPath: "id" });
-            xhsActStore.createIndex("characterId", "characterId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains(STORE_XHS_OWNED_POSTS)) {
-            const ownedPostStore = db.createObjectStore(STORE_XHS_OWNED_POSTS, { keyPath: "id" });
-            ownedPostStore.createIndex("characterId", "characterId", { unique: false });
-            ownedPostStore.createIndex("noteId", "noteId", { unique: false });
-          }
-          createStore(STORE_SONGS, { keyPath: "id" });
-          createStore(STORE_QUIZZES, { keyPath: "id" });
-          createStore(STORE_GUIDEBOOK, { keyPath: "id" });
-          createStore(STORE_LIFE_SIM, { keyPath: "id" });
-          createStore(STORE_DAILY_SCHEDULE, { keyPath: "id" });
-          createStore(STORE_HANDBOOK, { keyPath: "id" });
-          createStore(STORE_TRACKERS, { keyPath: "id" });
-          if (!db.objectStoreNames.contains(STORE_TRACKER_ENTRIES)) {
-            const teStore = db.createObjectStore(STORE_TRACKER_ENTRIES, { keyPath: "id" });
-            teStore.createIndex("trackerId", "trackerId", { unique: false });
-            teStore.createIndex("date", "date", { unique: false });
-          }
-          if (!db.objectStoreNames.contains(STORE_LIFE_RECORDS)) {
-            const lrStore = db.createObjectStore(STORE_LIFE_RECORDS, { keyPath: "id" });
-            lrStore.createIndex("date", "date", { unique: false });
-            lrStore.createIndex("module", "module", { unique: false });
-          }
-          createStore(STORE_MED_PLANS, { keyPath: "id" });
-          createStore(STORE_LIFE_SETTINGS, { keyPath: "id" });
-          createStore(STORE_STORY_THEATERS, { keyPath: "id" });
-          createStore(STORE_STORY_THEATER_PRESETS, { keyPath: "id" });
-          createStore(STORE_STORY_THEATER_MASKS, { keyPath: "id" });
-          createStore(STORE_HOTNEWS, { keyPath: "id" });
-          if (!db.objectStoreNames.contains("memory_nodes")) {
-            const mnStore = db.createObjectStore("memory_nodes", { keyPath: "id" });
-            mnStore.createIndex("charId", "charId", { unique: false });
-            mnStore.createIndex("room", "room", { unique: false });
-            mnStore.createIndex("embedded", "embedded", { unique: false });
-            mnStore.createIndex("boxId", "boxId", { unique: false });
-            mnStore.createIndex("eventBoxId", "eventBoxId", { unique: false });
-          } else {
-            const mnStore = event.target.transaction?.objectStore("memory_nodes");
-            if (mnStore && !mnStore.indexNames.contains("eventBoxId")) {
-              try {
-                mnStore.createIndex("eventBoxId", "eventBoxId", { unique: false });
-              } catch (e) {
-                console.log("memory_nodes eventBoxId index migration skipped");
-              }
-            }
-          }
-          if (!db.objectStoreNames.contains("memory_vectors")) {
-            const mvStore = db.createObjectStore("memory_vectors", { keyPath: "memoryId" });
-            mvStore.createIndex("charId", "charId", { unique: false });
-          } else {
-            const mvStore = event.target.transaction?.objectStore("memory_vectors");
-            if (mvStore && !mvStore.indexNames.contains("charId")) {
-              try {
-                mvStore.createIndex("charId", "charId", { unique: false });
-              } catch (e) {
-                console.log("memory_vectors charId index migration skipped");
-              }
-            }
-          }
-          if (!db.objectStoreNames.contains("memory_links")) {
-            const mlStore = db.createObjectStore("memory_links", { keyPath: "id" });
-            mlStore.createIndex("sourceId", "sourceId", { unique: false });
-            mlStore.createIndex("targetId", "targetId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("memory_batches")) {
-            const mbStore = db.createObjectStore("memory_batches", { keyPath: "id" });
-            mbStore.createIndex("charId", "charId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("topic_boxes")) {
-            const tbStore = db.createObjectStore("topic_boxes", { keyPath: "id" });
-            tbStore.createIndex("charId", "charId", { unique: false });
-            tbStore.createIndex("status", "status", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("anticipations")) {
-            const antStore = db.createObjectStore("anticipations", { keyPath: "id" });
-            antStore.createIndex("charId", "charId", { unique: false });
-            antStore.createIndex("status", "status", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("event_boxes")) {
-            const ebStore = db.createObjectStore("event_boxes", { keyPath: "id" });
-            ebStore.createIndex("charId", "charId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("room_plates")) {
-            const rpStore = db.createObjectStore("room_plates", { keyPath: "id" });
-            rpStore.createIndex("charId", "charId", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("digest_reports")) {
-            const drStore = db.createObjectStore("digest_reports", { keyPath: "id" });
-            drStore.createIndex("charId", "charId", { unique: false });
-          }
-          const oldVersion = event.oldVersion || 0;
-          if (oldVersion > 0 && oldVersion < 48) {
-            const upgradeTx = event.target.transaction;
-            const MP_STORES_TO_CLEAR = [
-              "memory_nodes",
-              "memory_vectors",
-              "memory_links",
-              "memory_batches",
-              "topic_boxes",
-              "anticipations",
-              "event_boxes"
-            ];
-            let cleared = 0;
-            for (const name of MP_STORES_TO_CLEAR) {
-              if (db.objectStoreNames.contains(name) && upgradeTx) {
-                try {
-                  upgradeTx.objectStore(name).clear();
-                  cleared++;
-                } catch (e) {
-                  console.warn(`[DB v48 wipe] skip ${name}:`, e);
-                }
-              }
-            }
-            let hwmCleared = 0;
-            try {
-              const toRemove = [];
-              for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                if (key && key.startsWith("mp_lastMsgId_")) toRemove.push(key);
-              }
-              for (const key of toRemove) {
-                localStorage.removeItem(key);
-                hwmCleared++;
-              }
-            } catch {
-            }
-            console.log(`\u{1F5D1}\uFE0F [DB v48] \u4E00\u6B21\u6027\u6E05\u7A7A\u5B8C\u6210\uFF1A${cleared} \u4E2A store\uFF0C${hwmCleared} \u4E2A\u9AD8\u6C34\u4F4D\uFF08oldVersion=${oldVersion}\uFF09`);
-          }
-          if (!db.objectStoreNames.contains("pixel_home_assets")) {
-            const phaStore = db.createObjectStore("pixel_home_assets", { keyPath: "id" });
-            phaStore.createIndex("createdAt", "createdAt", { unique: false });
-          }
-          if (!db.objectStoreNames.contains("pixel_home_layouts")) {
-            const phlStore = db.createObjectStore("pixel_home_layouts", { keyPath: ["charId", "roomId"] });
-            phlStore.createIndex("charId", "charId", { unique: false });
-          }
-        };
-      });
-      dbPromise2 = promise;
-      void promise.catch(reportDatabaseFailure);
-      return promise;
+      assertUserSpaceAvailable(SESSION_SPACE_ID);
+      return openSpaceDB(SESSION_SPACE_ID);
     };
     normalizeWorldRelationships = (world) => {
       const rels = world.relationships || [];
@@ -4723,19 +5347,14 @@ var init_db = __esm({
       return { ...world, relationships: out };
     };
     DB = {
-      deleteDB: async () => {
-        if (dbPromise2) {
-          try {
-            (await dbPromise2).close();
-          } catch {
-          }
-          dbPromise2 = null;
-        }
+      deleteDB: async (spaceId = SESSION_SPACE_ID) => {
+        await spaceOpeners.get(spaceId)?.close();
+        spaceOpeners.delete(spaceId);
         return new Promise((resolve, reject) => {
-          const req = indexedDB.deleteDatabase(DB_NAME2);
+          const req = indexedDB.deleteDatabase(spaceDatabaseName("AetherOS_Data", spaceId));
           req.onsuccess = () => resolve();
           req.onerror = () => reject(req.error);
-          req.onblocked = () => console.warn("Delete blocked");
+          req.onblocked = () => reject(new Error("\u8BF7\u5173\u95ED\u5176\u4ED6 SullyOS \u6807\u7B7E\u9875\u540E\u91CD\u8BD5\u91CD\u7F6E"));
         });
       },
       getCharacter: async (id) => {
@@ -4833,8 +5452,8 @@ var init_db = __esm({
         const db = await openDB2();
         await ensureStoryTimelineRepair(db);
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, sealHomeActions ? "readwrite" : "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, sealHomeActions ? "readwrite" : "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("charId");
           const request = index.getAll(IDBKeyRange.only(charId));
           let snapshot = [];
@@ -4870,8 +5489,8 @@ var init_db = __esm({
         if (remaining.size === 0) return found;
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const request = transaction.objectStore(STORE_MESSAGES).index("charId").openCursor(IDBKeyRange.only(charId), "prev");
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const request = transaction.objectStore(STORE_MESSAGES2).index("charId").openCursor(IDBKeyRange.only(charId), "prev");
           request.onsuccess = () => {
             const cursor = request.result;
             if (!cursor) return;
@@ -4896,8 +5515,8 @@ var init_db = __esm({
       countMessagesByCharId: async (charId) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const request = transaction.objectStore(STORE_MESSAGES).index("charId").count(IDBKeyRange.only(charId));
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const request = transaction.objectStore(STORE_MESSAGES2).index("charId").count(IDBKeyRange.only(charId));
           request.onsuccess = () => resolve(request.result || 0);
           request.onerror = () => reject(request.error);
         });
@@ -4914,8 +5533,8 @@ var init_db = __esm({
           }
         })();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("charId");
           const collected = [];
           const cursorReq = index.openCursor(IDBKeyRange.only(charId), "prev");
@@ -4937,8 +5556,8 @@ var init_db = __esm({
       getRecentMessagesByCharIdAndSource: async (charId, source, limit, beforeId) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("charId");
           const collected = [];
           const cursorReq = index.openCursor(IDBKeyRange.only(charId), "prev");
@@ -4970,8 +5589,8 @@ var init_db = __esm({
       // 跟总消息量无关——上万条聊天的用户也不会把整段历史读进内存。
       getVRCardsByCharId: async (charId, limit, accept = () => true) => {
         const db = await openDB2();
-        const indexed = db.transaction(STORE_MESSAGES, "readonly").objectStore(STORE_MESSAGES).indexNames.contains("charId_type");
-        return readLocalCursor(db, STORE_MESSAGES, {
+        const indexed = db.transaction(STORE_MESSAGES2, "readonly").objectStore(STORE_MESSAGES2).indexNames.contains("charId_type");
+        return readLocalCursor(db, STORE_MESSAGES2, {
           index: indexed ? "charId_type" : "charId",
           query: IDBKeyRange.only(indexed ? [charId, "vr_card"] : charId),
           direction: limit === void 0 && indexed ? "next" : "prev",
@@ -4982,8 +5601,8 @@ var init_db = __esm({
       /** Legacy market deduplication only needs IDs, never retain every card body. */
       getVRMarketEventIds: async (charId) => {
         const db = await openDB2();
-        const indexed = db.transaction(STORE_MESSAGES, "readonly").objectStore(STORE_MESSAGES).indexNames.contains("charId_type");
-        return readLocalCursor(db, STORE_MESSAGES, {
+        const indexed = db.transaction(STORE_MESSAGES2, "readonly").objectStore(STORE_MESSAGES2).indexNames.contains("charId_type");
+        return readLocalCursor(db, STORE_MESSAGES2, {
           index: indexed ? "charId_type" : "charId",
           query: IDBKeyRange.only(indexed ? [charId, "vr_card"] : charId),
           accept: (m) => !m.groupId && m.type === "vr_card" && m.metadata?.vrCard && typeof m.metadata.marketEventId === "string",
@@ -4994,9 +5613,9 @@ var init_db = __esm({
       getPrivateMessageRefs: async (charId, limit, afterId = 0) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE_MESSAGES, "readonly");
+          const tx = db.transaction(STORE_MESSAGES2, "readonly");
           const refs = [];
-          const req = tx.objectStore(STORE_MESSAGES).index("charId").openCursor(IDBKeyRange.only(charId), "prev");
+          const req = tx.objectStore(STORE_MESSAGES2).index("charId").openCursor(IDBKeyRange.only(charId), "prev");
           req.onsuccess = () => {
             const cursor = req.result;
             if (!cursor || Number(cursor.primaryKey) <= afterId || refs.length >= limit) {
@@ -5016,8 +5635,8 @@ var init_db = __esm({
       getRecentMessagesWithCount: async (charId, limit, accept) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("charId");
           const countReq = index.count(IDBKeyRange.only(charId));
           countReq.onsuccess = () => {
@@ -5044,8 +5663,8 @@ var init_db = __esm({
         const db = await openDB2();
         await ensureStoryTimelineRepair(db);
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("charId");
           const collected = [];
           const cursorReq = index.openCursor(IDBKeyRange.only(charId), "prev");
@@ -5064,11 +5683,63 @@ var init_db = __esm({
           cursorReq.onerror = () => reject(cursorReq.error);
         });
       },
+      savePhoneGeneration: async (charId, generation, appName) => {
+        const db = await openDB2();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(["characters", STORE_MESSAGES2, STORE_ASSETS2], "readwrite");
+          const characters = tx.objectStore("characters"), messages = tx.objectStore(STORE_MESSAGES2);
+          const read = characters.get(charId);
+          let failure, committed, firstId = Infinity;
+          read.onsuccess = () => {
+            try {
+              const character2 = read.result;
+              if (!character2) throw new Error("\u89D2\u8272\u5DF2\u4E0D\u5B58\u5728\uFF0C\u672C\u6B21\u751F\u6210\u672A\u4FDD\u5B58");
+              const existingIds = new Set(character2.phoneState?.records?.map((record4) => record4.id));
+              committed = { ...generation, records: generation.records.filter((record4) => !existingIds.has(record4.id)).map((record4) => ({ ...record4 })) };
+              const persist = () => characters.put({ ...character2, phoneState: mergePhoneGeneration(character2.phoneState, committed) });
+              if (character2.phoneState?.sendToChat === false || !committed.records.length) {
+                persist();
+                return;
+              }
+              let remaining = committed.records.length;
+              for (const record4 of committed.records) {
+                const card = buildPhoneEvidenceChatCard(record4, appName);
+                const add = messages.add({ charId, role: "assistant", type: "phone_card", content: card.content, metadata: card.metadata, timestamp: record4.timestamp });
+                add.onsuccess = () => {
+                  try {
+                    record4.systemMessageId = add.result;
+                    firstId = Math.min(firstId, record4.systemMessageId);
+                    clearStaleMemoryMirror(tx, charId, record4.systemMessageId);
+                    if (--remaining === 0) persist();
+                  } catch (error) {
+                    failure = error;
+                    tx.abort();
+                  }
+                };
+              }
+            } catch (error) {
+              failure = error;
+              tx.abort();
+            }
+          };
+          tx.oncomplete = () => {
+            try {
+              const key = `mp_lastMsgId_${charId}`;
+              if (Number(localStorage.getItem(key)) >= firstId) localStorage.removeItem(key);
+            } catch {
+            }
+            if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PHONE_GENERATION_COMMITTED, { detail: { charId, generation: committed } }));
+            resolve();
+          };
+          tx.onerror = () => reject(failure || tx.error);
+          tx.onabort = () => reject(failure || tx.error || new Error("\u624B\u673A\u8BB0\u5F55\u672A\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5"));
+        });
+      },
       saveMessage: async (msg) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction([STORE_MESSAGES, STORE_ASSETS], "readwrite");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction([STORE_MESSAGES2, STORE_ASSETS2], "readwrite");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const timestamp2 = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
           const { timestamp: _ignored, ...payload } = msg;
           const request = store.add({ ...payload, timestamp: timestamp2 });
@@ -5096,8 +5767,8 @@ var init_db = __esm({
       saveMessageOnce: async (deliveryId, msg) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const tx = db.transaction([STORE_MESSAGES, STORE_ASSETS], "readwrite");
-          const store = tx.objectStore(STORE_MESSAGES);
+          const tx = db.transaction([STORE_MESSAGES2, STORE_ASSETS2], "readwrite");
+          const store = tx.objectStore(STORE_MESSAGES2);
           let savedId = 0;
           let inserted = false;
           const indexed = store.indexNames.contains("charId_deliveryId");
@@ -5151,8 +5822,8 @@ var init_db = __esm({
         if (items.length === 0) return 0;
         const db = await openDB2();
         const existing = await new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE_MESSAGES, "readonly");
-          const idx = tx.objectStore(STORE_MESSAGES).index("charId");
+          const tx = db.transaction(STORE_MESSAGES2, "readonly");
+          const idx = tx.objectStore(STORE_MESSAGES2).index("charId");
           const acc = [];
           const req = idx.openCursor(IDBKeyRange.only(charId));
           req.onsuccess = () => {
@@ -5188,8 +5859,8 @@ var init_db = __esm({
           }
         }
         return new Promise((resolve, reject) => {
-          const tx = db.transaction(STORE_MESSAGES, "readwrite");
-          const store = tx.objectStore(STORE_MESSAGES);
+          const tx = db.transaction(STORE_MESSAGES2, "readwrite");
+          const store = tx.objectStore(STORE_MESSAGES2);
           let written = 0;
           for (const p of pendings) {
             const record4 = p.explicitId !== void 0 ? { ...p.payload, id: p.explicitId } : { ...p.payload };
@@ -5205,8 +5876,8 @@ var init_db = __esm({
       },
       updateMessage: async (id, content) => {
         const db = await openDB2();
-        const transaction = db.transaction(STORE_MESSAGES, "readwrite");
-        const store = transaction.objectStore(STORE_MESSAGES);
+        const transaction = db.transaction(STORE_MESSAGES2, "readwrite");
+        const store = transaction.objectStore(STORE_MESSAGES2);
         return new Promise((resolve, reject) => {
           const req = store.get(id);
           req.onsuccess = () => {
@@ -5227,8 +5898,8 @@ var init_db = __esm({
       getMessageById: async (id) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const request = transaction.objectStore(STORE_MESSAGES).get(id);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const request = transaction.objectStore(STORE_MESSAGES2).get(id);
           request.onsuccess = () => resolve(request.result || null);
           request.onerror = () => reject(request.error);
         });
@@ -5236,8 +5907,8 @@ var init_db = __esm({
       findImageMessageByUrl: async (charId, url) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const request = transaction.objectStore(STORE_MESSAGES).index("charId").openCursor(IDBKeyRange.only(charId));
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const request = transaction.objectStore(STORE_MESSAGES2).index("charId").openCursor(IDBKeyRange.only(charId));
           request.onsuccess = () => {
             const cursor = request.result;
             if (!cursor) {
@@ -5256,8 +5927,8 @@ var init_db = __esm({
       },
       updateMessageMetadata: async (id, updater) => {
         const db = await openDB2();
-        const transaction = db.transaction(STORE_MESSAGES, "readwrite");
-        const store = transaction.objectStore(STORE_MESSAGES);
+        const transaction = db.transaction(STORE_MESSAGES2, "readwrite");
+        const store = transaction.objectStore(STORE_MESSAGES2);
         return new Promise((resolve, reject) => {
           const req = store.get(id);
           req.onsuccess = () => {
@@ -5280,9 +5951,9 @@ var init_db = __esm({
         await preserveContentFavoritesBeforeMessageDeletion2({ ids: [id] });
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readwrite");
-          deleteSecretNotesForIds(transaction.objectStore(STORE_MESSAGES), [id]);
-          transaction.objectStore(STORE_MESSAGES).delete(id);
+          const transaction = db.transaction(STORE_MESSAGES2, "readwrite");
+          deleteSecretNotesForIds(transaction.objectStore(STORE_MESSAGES2), [id]);
+          transaction.objectStore(STORE_MESSAGES2).delete(id);
           transaction.oncomplete = () => {
             announceSecretNotesChanged();
             resolve();
@@ -5296,8 +5967,8 @@ var init_db = __esm({
         const { preserveContentFavoritesBeforeMessageDeletion: preserveContentFavoritesBeforeMessageDeletion2 } = await Promise.resolve().then(() => (init_contentFavorites(), contentFavorites_exports));
         await preserveContentFavoritesBeforeMessageDeletion2({ ids });
         const db = await openDB2();
-        const transaction = db.transaction(STORE_MESSAGES, "readwrite");
-        const store = transaction.objectStore(STORE_MESSAGES);
+        const transaction = db.transaction(STORE_MESSAGES2, "readwrite");
+        const store = transaction.objectStore(STORE_MESSAGES2);
         deleteSecretNotesForIds(store, ids);
         ids.forEach((id) => store.delete(id));
         return new Promise((resolve, reject) => {
@@ -5314,8 +5985,8 @@ var init_db = __esm({
         await preserveContentFavoritesBeforeMessageDeletion2({ charId });
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readwrite");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readwrite");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("charId");
           const request = index.openCursor(IDBKeyRange.only(charId));
           request.onsuccess = () => {
@@ -5361,8 +6032,8 @@ var init_db = __esm({
       getGroupMessages: async (groupId) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("groupId");
           const request = index.getAll(IDBKeyRange.only(groupId));
           request.onsuccess = () => resolve(request.result || []);
@@ -5372,8 +6043,8 @@ var init_db = __esm({
       getRecentGroupMessagesWithCount: async (groupId, limit) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_MESSAGES, "readonly");
-          const store = transaction.objectStore(STORE_MESSAGES);
+          const transaction = db.transaction(STORE_MESSAGES2, "readonly");
+          const store = transaction.objectStore(STORE_MESSAGES2);
           const index = store.index("groupId");
           const countReq = index.count(IDBKeyRange.only(groupId));
           countReq.onsuccess = () => {
@@ -5604,8 +6275,8 @@ var init_db = __esm({
       getAllAssets: async () => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readonly");
-          const store = transaction.objectStore(STORE_ASSETS);
+          const transaction = db.transaction(STORE_ASSETS2, "readonly");
+          const store = transaction.objectStore(STORE_ASSETS2);
           const request = store.getAll();
           request.onsuccess = () => resolve(request.result || []);
           request.onerror = () => reject(request.error);
@@ -5614,8 +6285,8 @@ var init_db = __esm({
       getAsset: async (id) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readonly");
-          const store = transaction.objectStore(STORE_ASSETS);
+          const transaction = db.transaction(STORE_ASSETS2, "readonly");
+          const store = transaction.objectStore(STORE_ASSETS2);
           const request = store.get(id);
           request.onsuccess = () => resolve(request.result?.data || null);
           request.onerror = () => reject(request.error);
@@ -5624,8 +6295,8 @@ var init_db = __esm({
       saveAsset: async (id, data) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readwrite");
-          transaction.objectStore(STORE_ASSETS).put({ id, data });
+          const transaction = db.transaction(STORE_ASSETS2, "readwrite");
+          transaction.objectStore(STORE_ASSETS2).put({ id, data });
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error("IndexedDB transaction aborted"));
@@ -5635,8 +6306,8 @@ var init_db = __esm({
       saveAssetBatch: async (entries2) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readwrite");
-          const store = transaction.objectStore(STORE_ASSETS);
+          const transaction = db.transaction(STORE_ASSETS2, "readwrite");
+          const store = transaction.objectStore(STORE_ASSETS2);
           for (const entry of entries2) store.put(entry);
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
@@ -5646,8 +6317,8 @@ var init_db = __esm({
       getAssetRaw: async (id) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readonly");
-          const store = transaction.objectStore(STORE_ASSETS);
+          const transaction = db.transaction(STORE_ASSETS2, "readonly");
+          const store = transaction.objectStore(STORE_ASSETS2);
           const request = store.get(id);
           request.onsuccess = () => resolve(request.result?.data ?? null);
           request.onerror = () => reject(request.error);
@@ -5656,8 +6327,8 @@ var init_db = __esm({
       saveAssetRaw: async (id, data) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readwrite");
-          transaction.objectStore(STORE_ASSETS).put({ id, data });
+          const transaction = db.transaction(STORE_ASSETS2, "readwrite");
+          transaction.objectStore(STORE_ASSETS2).put({ id, data });
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error("saveAssetRaw transaction aborted"));
@@ -5666,8 +6337,8 @@ var init_db = __esm({
       deleteAsset: async (id) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_ASSETS, "readwrite");
-          transaction.objectStore(STORE_ASSETS).delete(id);
+          const transaction = db.transaction(STORE_ASSETS2, "readwrite");
+          transaction.objectStore(STORE_ASSETS2).delete(id);
           transaction.oncomplete = () => resolve();
           transaction.onerror = () => reject(transaction.error);
           transaction.onabort = () => reject(transaction.error || new Error("deleteAsset aborted"));
@@ -5676,42 +6347,20 @@ var init_db = __esm({
       // ─── Blob 资源（图片二进制，见 utils/blobRef.ts）───────────────
       // IndexedDB 原生支持存 Blob（结构化克隆），比 base64 省 ~33% 空间、不占 JS 堆，
       // 读出后用 URL.createObjectURL 渲染即可。旧库（<v65）可能还没有此 store，读操作做空兜底。
-      getBlobAsset: async (id) => {
-        const db = await openDB2();
-        if (!db.objectStoreNames.contains(STORE_BLOB_ASSETS)) return null;
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_BLOB_ASSETS, "readonly");
-          const store = transaction.objectStore(STORE_BLOB_ASSETS);
-          const request = store.get(id);
-          request.onsuccess = () => resolve(request.result?.blob ?? null);
-          request.onerror = () => reject(request.error);
-        });
-      },
-      putBlobAsset: async (id, blob) => {
-        const db = await openDB2();
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_BLOB_ASSETS, "readwrite");
-          transaction.objectStore(STORE_BLOB_ASSETS).put({ id, blob });
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error("putBlobAsset aborted"));
-        });
-      },
+      getBlobAsset: async (id) => (await Promise.resolve().then(() => (init_sharedBlobPool(), sharedBlobPool_exports))).readSharedBlob(id),
+      putBlobAsset: async (id, blob) => (await Promise.resolve().then(() => (init_sharedBlobPool(), sharedBlobPool_exports))).storeSharedBlob(id, blob),
       deleteBlobAsset: async (id) => {
-        const db = await openDB2();
-        if (!db.objectStoreNames.contains(STORE_BLOB_ASSETS)) return;
-        return new Promise((resolve, reject) => {
-          const transaction = db.transaction(STORE_BLOB_ASSETS, "readwrite");
-          transaction.objectStore(STORE_BLOB_ASSETS).delete(id);
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () => reject(transaction.error || new Error("deleteBlobAsset aborted"));
+        await withSharedAssetLock("exclusive", async () => {
+          if (id.startsWith("pool_") || !canCoordinateAssetDeletion() && listUserSpaces().length > 1) return;
+          const { isSharedAssetReferenced: isSharedAssetReferenced2 } = await Promise.resolve().then(() => (init_spaceAssets(), spaceAssets_exports));
+          if (await isSharedAssetReferenced2(id)) return;
+          await (await Promise.resolve().then(() => (init_sharedBlobPool(), sharedBlobPool_exports))).removeSharedBlob(id);
         });
       },
       // 只列 blobRef 命名空间的 id（img_ 存量 / b_ SDK 新生成）。blob_assets 是混用表，
       // GC 的世界观必须限制在自己的前缀内；今后往这张表加新 id 族时不得使用这两个前缀。
       listBlobAssetIds: async () => {
-        const db = await openDB2();
+        const db = await openSpaceDB(DEFAULT_SPACE_ID);
         if (!db.objectStoreNames.contains(STORE_BLOB_ASSETS)) return [];
         return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_BLOB_ASSETS, "readonly");
@@ -7377,10 +8026,10 @@ var init_db = __esm({
       replaceWorldBeat: async (world, episode, charId, card, expectedWorld, expectedEpisode) => {
         const db = await openDB2();
         return new Promise((resolve, reject) => {
-          const tx = db.transaction([STORE_WORLDS, STORE_WORLD_EPISODES, STORE_MESSAGES], "readwrite");
+          const tx = db.transaction([STORE_WORLDS, STORE_WORLD_EPISODES, STORE_MESSAGES2], "readwrite");
           const worlds = tx.objectStore(STORE_WORLDS);
           const episodes = tx.objectStore(STORE_WORLD_EPISODES);
-          const messages = tx.objectStore(STORE_MESSAGES);
+          const messages = tx.objectStore(STORE_MESSAGES2);
           let failure;
           const abort = () => {
             failure = new Error("\u91CD\u6F14\u671F\u95F4\u5BB6\u56ED\u8BB0\u5F55\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u91CD\u6F14");
@@ -7870,11 +8519,11 @@ var init_db = __esm({
         const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings, charWallets, walletTx, charHomes, jobSessions, jobPositions, jobNotes, jobResumes, jobProfiles] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
-          getAllFromStore(STORE_MESSAGES),
+          getAllFromStore(STORE_MESSAGES2),
           getAllFromStore(STORE_THEMES),
           getAllFromStore(STORE_EMOJIS),
           getAllFromStore(STORE_EMOJI_CATEGORIES),
-          getAllFromStore(STORE_ASSETS),
+          getAllFromStore(STORE_ASSETS2),
           getAllFromStore(STORE_GALLERY),
           getAllFromStore(STORE_USER),
           getAllFromStore(STORE_DIARIES),
@@ -8024,11 +8673,11 @@ var init_db = __esm({
         const availableStores = [
           STORE_CHARACTERS,
           STORE_CHAR_GROUPS,
-          STORE_MESSAGES,
+          STORE_MESSAGES2,
           STORE_THEMES,
           STORE_EMOJIS,
           STORE_EMOJI_CATEGORIES,
-          STORE_ASSETS,
+          STORE_ASSETS2,
           STORE_GALLERY,
           STORE_USER,
           STORE_DIARIES,
@@ -8333,13 +8982,13 @@ var init_db = __esm({
           data.characterGroups = void 0;
         }, data.characterGroups?.length || 0);
         await runSection("\u804A\u5929\u8BB0\u5F55", data.messages !== void 0, async () => {
-          if (!hasStore(STORE_MESSAGES)) return;
+          if (!hasStore(STORE_MESSAGES2)) return;
           try {
             const isPatchMode = !hasCharacterBackup;
             if (!isPatchMode) {
-              await clearStore(STORE_MESSAGES);
+              await clearStore(STORE_MESSAGES2);
             }
-            await putItems(STORE_MESSAGES, data.messages || [], "\u804A\u5929\u8BB0\u5F55", true);
+            await putItems(STORE_MESSAGES2, data.messages || [], "\u804A\u5929\u8BB0\u5F55", true);
             data.messages = void 0;
           } finally {
             invalidateStoryTimelineRepair(db);
@@ -8359,8 +9008,8 @@ var init_db = __esm({
         }, data.emojiCategories?.length || 0);
         await runSection("\u7CFB\u7EDF\u8D44\u6E90", data.assets !== void 0, async () => {
           if (mediaOnly) {
-            await mergeStore(STORE_ASSETS, (data.assets || []).filter((a) => !isActivityTextAsset(a.id)), "\u7CFB\u7EDF\u8D44\u6E90", true);
-          } else await clearAndAdd(STORE_ASSETS, data.assets || [], "\u7CFB\u7EDF\u8D44\u6E90", true);
+            await mergeStore(STORE_ASSETS2, (data.assets || []).filter((a) => !isActivityTextAsset(a.id)), "\u7CFB\u7EDF\u8D44\u6E90", true);
+          } else await clearAndAdd(STORE_ASSETS2, data.assets || [], "\u7CFB\u7EDF\u8D44\u6E90", true);
           data.assets = void 0;
         }, data.assets?.length || 0);
         await runSection("\u6D3B\u52A8\u6587\u5B57\u8BB0\u5F55", data.activityTextAssets !== void 0 && !mediaOnly, async () => {
@@ -8368,7 +9017,7 @@ var init_db = __esm({
           if (!Array.isArray(records) || records.some((a) => !a || typeof a.id !== "string" || !isActivityTextAsset(a.id) || a.id === "friend_feed_v1" || typeof a.data !== "string")) {
             throw new Error("\u6D3B\u52A8\u6587\u5B57\u5907\u4EFD\u683C\u5F0F\u4E0D\u6B63\u786E");
           }
-          await withStore(STORE_ASSETS, (store) => {
+          await withStore(STORE_ASSETS2, (store) => {
             const keys = store.getAllKeys();
             keys.onsuccess = () => {
               for (const key of keys.result) if (typeof key === "string" && key !== "friend_feed_v1" && isActivityTextAsset(key)) store.delete(key);
@@ -8770,7 +9419,7 @@ var init_db = __esm({
 
 // worker/amsg/src/instantInput.ts
 var INSTANT_INPUT_NAMESPACE = "amsg:instant-input";
-var INSTANT_INPUT_TTL_DAYS = 30;
+var INSTANT_INPUT_TTL_DAYS = 7;
 var parseInstantInputRef = (value) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const ref = value;
@@ -9093,6 +9742,25 @@ function installAnthropicFetch(browser = false) {
   const wrapped = (resource, init) => fetchLlm(resource, init, original, browser);
   wrapped.__sullyAnthropic = true;
   globalThis.fetch = wrapped;
+}
+
+// utils/amsgReproduction.ts
+var DIAGNOSTIC_NAMESPACE = "amsg:diagnostic";
+var DIAGNOSTIC_CHAR_ID = "amsg-diagnostic";
+var DIAGNOSTIC_RETENTION_DAYS = 7;
+function diagnosticRunId(metadata) {
+  const value = metadata?.amsgDiagnosticRunId;
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value) ? value : null;
+}
+function safeDiagnosticError(error) {
+  const e = error;
+  const names = ["Error", "TypeError", "AbortError", "TimeoutError", "NotAllowedError", "InvalidStateError", "QuotaExceededError", "VersionError", "DataError", "TransactionInactiveError"];
+  const status = Number(e?.statusCode ?? e?.status ?? e?.llmStatus ?? e?.cause?.statusCode ?? e?.cause?.status);
+  return {
+    errorName: typeof e?.name === "string" && names.includes(e.name) ? e.name : "Error",
+    ...typeof e?.code === "string" && ["LLM_CALL_FAILED", "PUSH_PAYLOAD_TOO_LARGE", "PUSH_SUBSCRIPTION_MISSING", "CREDENTIAL_NOT_FOUND", "INVALID_PARAMETERS", "TASK_NOT_FOUND", "TASK_ALREADY_COMPLETED"].includes(e.code) ? { errorCode: e.code } : {},
+    ...Number.isInteger(status) && status >= 100 && status <= 599 ? { httpStatus: status } : {}
+  };
 }
 
 // worker/amsg/src/cloudDataOwnership.ts
@@ -9430,6 +10098,7 @@ var describeMinutes = (minutes) => {
   const m = minutes % 60;
   return m ? `${h} \u5C0F\u65F6 ${m} \u5206\u949F` : `${h} \u5C0F\u65F6`;
 };
+var SELF_SCHEDULE_HARD_GAP_MS = 3 * 6e4;
 var checkSelfScheduleRules = (input) => {
   const { limits } = input;
   if (input.recurrence !== "none" && !limits.allowSelfRecurring) {
@@ -9439,18 +10108,15 @@ var checkSelfScheduleRules = (input) => {
       message: "\u7528\u6237\u6CA1\u6709\u8BA9\u4F60\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u6D88\u606F\uFF0C\u8FD9\u6B21\u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF08\u53BB\u6389 recurrence \u518D\u6392\uFF09\u3002"
     };
   }
-  const conflict = findGapConflict(input.sendAtMs, limits.minSendGapMs, input.busy);
+  const userGapApplies = limits.minSendGapMs >= SELF_SCHEDULE_HARD_GAP_MS;
+  const gapMs = Math.max(limits.minSendGapMs, SELF_SCHEDULE_HARD_GAP_MS);
+  const conflict = findGapConflict(input.sendAtMs, gapMs, input.busy);
   if (conflict !== null) {
-    const gapMinutes = Math.round(limits.minSendGapMs / 6e4);
-    const earliest = earliestSlotAfter(
-      Math.max(input.earliestMs, input.sendAtMs),
-      limits.minSendGapMs,
-      input.busy
-    );
+    const earliest = earliestSlotAfter(Math.max(input.earliestMs, input.sendAtMs), gapMs, input.busy);
     return {
       ok: false,
       reason: "min_gap",
-      message: `\u79BB ${input.formatTime(conflict)} \u90A3\u6B21\u592A\u8FD1\u4E86\uFF1A\u7528\u6237\u5B9A\u4E86\u4E24\u6B21\u4E3B\u52A8\u6D88\u606F\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(gapMinutes)}\u3002\u8981\u6392\u7684\u8BDD\u6700\u65E9 ${input.formatTime(earliest)}\uFF1B\u6CA1\u90A3\u4E48\u8981\u7D27\u7684\u8BDD\uFF0C\u8FD9\u6B21\u5C31\u522B\u6392\u4E86\u3002`
+      message: userGapApplies ? `\u79BB ${input.formatTime(conflict)} \u90A3\u6B21\u592A\u8FD1\u4E86\uFF1A\u7528\u6237\u5B9A\u4E86\u4E24\u6B21\u4E3B\u52A8\u6D88\u606F\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(Math.round(limits.minSendGapMs / 6e4))}\u3002\u8981\u6392\u7684\u8BDD\u6700\u65E9 ${input.formatTime(earliest)}\uFF1B\u6CA1\u90A3\u4E48\u8981\u7D27\u7684\u8BDD\uFF0C\u8FD9\u6B21\u5C31\u522B\u6392\u4E86\u3002` : `${input.formatTime(conflict)} \u524D\u540E\u5DF2\u7ECF\u6709\u4E00\u6B21\u4E3B\u52A8\u6D88\u606F\u4E86\uFF0C\u540C\u4E00\u65F6\u523B\u4E0D\u80FD\u518D\u6392\u4E00\u6761\u3002\u5982\u679C\u662F\u540C\u4E00\u4EF6\u4E8B\uFF0C\u5B83\u5DF2\u7ECF\u6392\u7740\uFF0C\u4E0D\u7528\u518D\u6392\uFF1B\u8981\u6362\u65F6\u95F4\u6216\u5185\u5BB9\uFF0C\u6539\u539F\u6765\u90A3\u6761\uFF08renew / cancel\uFF09\u3002`
     };
   }
   return {
@@ -9462,20 +10128,46 @@ var buildLimitsBrief = (input) => {
   const { limits } = input;
   const lines = [];
   if (Number.isFinite(limits.maxUnansweredSends)) {
-    const left = Math.max(0, limits.maxUnansweredSends - input.committedSends);
-    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u7684\u65F6\u5019\uFF0C\u4F60\u6700\u591A\u8FDE\u7740\u4E3B\u52A8\u627E\u5BF9\u65B9 ${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09\uFF0C` + (left > 0 ? `\u73B0\u5728\u8FD8\u80FD\u518D\u6392 ${left} \u6B21\u3002` : "\u73B0\u5728\u4E00\u6B21\u90FD\u4E0D\u80FD\u518D\u6392\u4E86\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u3002"));
+    const used = Math.min(limits.maxUnansweredSends, Math.max(0, input.committedSends));
+    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u671F\u95F4\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u7528 ${used}/${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09` + (used < limits.maxUnansweredSends ? "\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u540E\u624D\u80FD\u518D\u6392\u3002"));
   }
   if (limits.minSendGapMs > 0) {
     lines.push(`- \u4E24\u6B21\u4E3B\u52A8\u627E\u5BF9\u65B9\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(Math.round(limits.minSendGapMs / 6e4))}` + (input.earliestText ? `\uFF0C\u8FD9\u6B21\u6700\u65E9\u6392\u5230 ${input.earliestText}\u3002` : "\u3002"));
   }
   if (input.dailyRemaining !== void 0 && Number.isFinite(limits.dailySendCap)) {
-    lines.push(input.dailyRemaining > 0 ? `- \u4ECA\u5929\u8FD8\u80FD\u518D\u4E3B\u52A8\u627E\u5BF9\u65B9 ${input.dailyRemaining} \u6B21\u3002` : "- \u4ECA\u5929\u4E3B\u52A8\u627E\u5BF9\u65B9\u7684\u6B21\u6570\u5DF2\u7ECF\u7528\u5B8C\u4E86\uFF0C\u8981\u6392\u5C31\u6392\u5230\u660E\u5929\u3002");
+    const remaining = Math.min(limits.dailySendCap, Math.max(0, input.dailyRemaining));
+    lines.push(`- \u4ECA\u5929\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u7528 ${limits.dailySendCap - remaining}/${limits.dailySendCap} \u6B21` + (remaining > 0 ? "\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u8981\u6392\u5C31\u6392\u5230\u660E\u5929\u3002"));
   }
-  lines.push(`- \u540C\u65F6\u6700\u591A\u6302 ${limits.maxActiveTasks} \u4E2A\u6392\u7A0B\u4EFB\u52A1\uFF0C\u73B0\u5728\u6302\u7740 ${input.activeTasks} \u4E2A\u3002`);
+  lines.push(`- \u6392\u7A0B\u4EFB\u52A1\uFF1A\u6302\u7740 ${input.activeTasks}/${limits.maxActiveTasks} \u4E2A\u3002`);
   if (!limits.allowSelfRecurring) lines.push("- \u53EA\u80FD\u6392\u4E00\u6B21\u6027\u7684\uFF0C\u4E0D\u80FD\u6392\u6BCF\u5929/\u6BCF\u5468\u91CD\u590D\u7684\u3002");
   if (!limits.allowSelfForce) lines.push("- \u6392\u7684\u6D88\u606F\u5230\u70B9\u78B0\u4E0A\u5BF9\u65B9\u6B63\u5728\u804A\u5929\u4F1A\u81EA\u52A8\u4F5C\u7F62\uFF08\u8F6C\u6210\u4F60\u5728\u804A\u5929\u91CC\u81EA\u7136\u5E26\u51FA\uFF09\uFF0C\u6CA1\u6709\u300C\u5230\u70B9\u5FC5\u53D1\u300D\u3002");
   return ["\u7528\u6237\u7ED9\u4F60\u5B9A\u7684\u89C4\u77E9\uFF08\u7CFB\u7EDF\u7167\u7740\u6267\u884C\uFF1A\u8D85\u51FA\u7684\u6392\u4E0D\u4E0A\uFF0C\u6392\u4E0A\u4E86\u5230\u70B9\u4E5F\u4E0D\u53D1\uFF09\uFF1A", ...lines].join("\n");
 };
+
+// utils/amsgTaskKinds.ts
+var AMSG_TASK_KIND_KEY = "amsgKind";
+var readTaskKind = (metadata) => {
+  const raw2 = metadata?.[AMSG_TASK_KIND_KEY];
+  return typeof raw2 === "string" && raw2 ? raw2 : null;
+};
+var AMSG_BACKGROUND_JOB_SUBTYPE = "job";
+var AMSG_INSTANT_CHAT_SUBTYPE = "instant-chat";
+var AMSG_INSTANT_CHAT_FLAG = "amsgInstantChat";
+var isInstantChatTask = (metadata) => !!metadata && metadata[AMSG_INSTANT_CHAT_FLAG] === true;
+var classifyTaskRow = (row) => {
+  const { metadata } = row;
+  if (metadata) {
+    if (isInstantChatTask(metadata)) return "instant-chat";
+    if (readTaskKind(metadata)) return "background-job";
+    if (metadata.amsgSelfScheduled === true) return "scheduled";
+  }
+  if (row.messageSubtype === AMSG_INSTANT_CHAT_SUBTYPE) return "instant-chat";
+  if (row.messageSubtype === AMSG_BACKGROUND_JOB_SUBTYPE) return "background-job";
+  return "scheduled";
+};
+var AMSG_JOB_NAMESPACE = "amsg:job";
+var AMSG_JOB_TTL_DAYS = 3;
+var AMSG_JOB_ID_KEY = "amsgJobId";
 
 // utils/amsgFirePack.ts
 var AMSG_STATE_NAMESPACE_PREFIX = "amsg:char:";
@@ -9519,8 +10211,8 @@ var packStateValue = async (json) => {
 var unpackStateValue = async (value) => {
   if (!value.startsWith(GZIP_VALUE_PREFIX)) return value;
   const gz = base64ToBytes(value.slice(GZIP_VALUE_PREFIX.length));
-  const raw = await streamThrough(gz, new DecompressionStream("gzip"));
-  return new TextDecoder().decode(raw);
+  const raw2 = await streamThrough(gz, new DecompressionStream("gzip"));
+  return new TextDecoder().decode(raw2);
 };
 var AMSG_LAST_SKIP_KEY = "last_skip";
 var AMSG_SLOT_CURRENT_TIME = "{{AMSG_CURRENT_TIME}}";
@@ -9729,6 +10421,8 @@ var renderFirePack = (pack, nowMs, taskInstruction, extras) => {
   const timeSinceUser = formatTimeSinceUser(diffMinutes);
   const awayHint = buildAwayHint(pack.targetName, timeSinceUser);
   let out = pack.template;
+  if (extras?.mustSpeak) out = out.split(`${BEFORE_SPEAK_LINES.join("\n")}
+`).join("");
   out = fillSlot(out, AMSG_SLOT_CURRENT_TIME, currentTime);
   out = fillSlot(out, AMSG_SLOT_USER_CLOCK, buildUserClockHint(nowMs, tz, { tzId: pack.userTzId }, pack.targetName));
   out = fillSlot(out, AMSG_SLOT_TIME_SINCE_USER, timeSinceUser);
@@ -9776,8 +10470,8 @@ var chatContentOk = (content) => {
 var chatFieldOk = (chat) => {
   if (chat === void 0) return true;
   if (!chat || typeof chat !== "object" || Array.isArray(chat)) return false;
-  const { messages, builtAt } = chat;
-  return typeof builtAt === "number" && Array.isArray(messages) && messages.length > 0 && messages.every((m) => !!m && typeof m === "object" && typeof m.role === "string" && chatContentOk(m.content));
+  const { messages, builtAt, timelyInsertAt } = chat;
+  return typeof builtAt === "number" && (timelyInsertAt === void 0 || Number.isInteger(timelyInsertAt)) && Array.isArray(messages) && messages.length > 0 && messages.every((m) => !!m && typeof m === "object" && typeof m.role === "string" && chatContentOk(m.content));
 };
 var parseFirePack = (value) => {
   try {
@@ -9818,9 +10512,9 @@ var PLATE_TITLES = {
 };
 
 // utils/memoryPalace/jsonUtils.ts
-function safeParseJsonArray(raw) {
-  if (!raw || !raw.trim()) return [];
-  let cleaned = raw.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
+function safeParseJsonArray(raw2) {
+  if (!raw2 || !raw2.trim()) return [];
+  let cleaned = raw2.replace(/```(?:json)?\s*/g, "").replace(/```/g, "").trim();
   const fullMatch = cleaned.match(/\[[\s\S]*\]/);
   if (fullMatch) {
     try {
@@ -9859,19 +10553,19 @@ function fixBrokenJson(s) {
   s = s.replace(/"([^"]*)\n([^"]*)"/g, (_, a, b) => `"${a}\\n${b}"`);
   return s;
 }
-function salvageObjects(raw) {
+function salvageObjects(raw2) {
   const results = [];
-  const n = raw.length;
+  const n = raw2.length;
   let i = 0;
   while (i < n) {
-    const start = raw.indexOf("{", i);
+    const start = raw2.indexOf("{", i);
     if (start < 0) break;
     let depth = 0;
     let inString = false;
     let escaped = false;
     let end = -1;
     for (let j = start; j < n; j++) {
-      const ch = raw.charCodeAt(j);
+      const ch = raw2.charCodeAt(j);
       if (escaped) {
         escaped = false;
         continue;
@@ -9895,7 +10589,7 @@ function salvageObjects(raw) {
       }
     }
     if (end < 0) break;
-    const candidate = raw.slice(start, end + 1);
+    const candidate = raw2.slice(start, end + 1);
     i = end + 1;
     try {
       const obj = JSON.parse(candidate);
@@ -9986,11 +10680,11 @@ var plateJobKey = (jobId) => `plate:${jobId}`;
 var isPlateRoomValue = (v) => PLATE_ROOMS.includes(v);
 var asStringArray = (v) => Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null;
 var snapshotTimeFields = (value) => typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? { snapshotAt: value } : {};
-function parsePlateJobInput(raw) {
-  let obj = raw;
-  if (typeof raw === "string") {
+function parsePlateJobInput(raw2) {
+  let obj = raw2;
+  if (typeof raw2 === "string") {
     try {
-      obj = JSON.parse(raw);
+      obj = JSON.parse(raw2);
     } catch {
       return null;
     }
@@ -10066,6 +10760,8 @@ var character = (id, kind, label) => ({
   kind
 });
 async function resolveSullyCloudOwnership(input) {
+  const diagnosticId = input.type === "state" && input.namespace === DIAGNOSTIC_NAMESPACE ? diagnosticRunId({ amsgDiagnosticRunId: input.key?.split(":")[0] }) : diagnosticRunId(record(record(input.payload).metadata)) ?? diagnosticRunId(record(record(input.task).metadata));
+  if (diagnosticId) return { owner: { type: "diagnostic", id: diagnosticId, label: "\u4E3B\u52A8\u6D88\u606F\u590D\u73B0" }, kind: "diagnostic" };
   if (input.type === "state") {
     if (input.namespace === INSTANT_INPUT_NAMESPACE && typeof input.value === "string") {
       const envelope = parseInstantInputEnvelope(input.value);
@@ -10183,7 +10879,8 @@ function pickStaleStoppedReplyKeys(rows, nowMs = Date.now(), protectKey) {
 // worker/amsg/src/index.ts
 import { DurableObject } from "cloudflare:workers";
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3_04a7d0876d4bfad11669a8b82156c2ad/node_modules/@rei-standard/amsg-server/dist/chunk-GN44PST5.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@3_f2a08373d30841ce79e2e19c7fb88ed9/node_modules/@rei-standard/amsg-server/dist/chunk-R2CRPRKR.mjs
+var CLEANUP_BATCH_LIMIT = 100;
 var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
   "user_id",
   "uuid",
@@ -10202,7 +10899,7 @@ var UPDATABLE_COLUMNS = /* @__PURE__ */ new Set([
 var TASK_DELIVERY_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, retry_after, status, retry_count";
 var TASK_DETAIL_COLUMNS = "id, user_id, uuid, encrypted_payload, message_type, next_send_at, status, retry_count, last_error, created_at, updated_at";
 
-// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0/node_modules/@rei-standard/amsg-shared/dist/index.mjs
+// node_modules/.pnpm/@rei-standard+amsg-shared@0.5.0-next.0/node_modules/@rei-standard/amsg-shared/dist/index.mjs
 var TEXT_ENCODER = new TextEncoder();
 var TEXT_DECODER = new TextDecoder("utf-8", { fatal: false });
 function toUint8(buf) {
@@ -10217,7 +10914,7 @@ function concatBytes(...chunks) {
   const out = new Uint8Array(total);
   let offset = 0;
   for (const c of chunks) {
-    out.set(c instanceof Uint8Array ? c : new Uint8Array(c.buffer || c), offset);
+    out.set(toUint8(c), offset);
     offset += c.byteLength;
   }
   return out;
@@ -10285,7 +10982,7 @@ function randomBytes(n) {
 function randomUUID() {
   return globalThis.crypto.randomUUID();
 }
-var VALID_LLM_MESSAGE_ROLES = /* @__PURE__ */ new Set(["system", "user", "assistant", "tool"]);
+var VALID_LLM_MESSAGE_ROLES = /* @__PURE__ */ new Set(["system", "developer", "user", "assistant", "tool"]);
 var LLM_MESSAGES_ERROR = Object.freeze({
   MESSAGES_NOT_ARRAY: "MESSAGES_NOT_ARRAY",
   MESSAGE_NOT_OBJECT: "MESSAGE_NOT_OBJECT",
@@ -10465,28 +11162,28 @@ function buildUpstreamError(summary, status, detail) {
   return error;
 }
 async function readUpstreamErrorDetail(response) {
-  let raw;
+  let raw2;
   let truncated = false;
   try {
-    ({ text: raw, truncated } = await readBoundedBody(response));
+    ({ text: raw2, truncated } = await readBoundedBody(response));
   } catch {
     return { message: "", code: "" };
   }
-  if (typeof raw !== "string" || !raw.trim()) return { message: "", code: "" };
+  if (typeof raw2 !== "string" || !raw2.trim()) return { message: "", code: "" };
   let body;
   try {
-    body = JSON.parse(raw);
+    body = JSON.parse(raw2);
   } catch {
-    if (truncated && looksLikeJson(raw)) {
-      const salvaged = salvageJsonStringFields(raw);
+    if (truncated && looksLikeJson(raw2)) {
+      const salvaged = salvageJsonStringFields(raw2);
       return {
         message: clampDetail(salvaged.message || TRUNCATED_BODY_NOTE),
         code: clampCode(salvaged.code)
       };
     }
-    return { message: clampDetail(raw), code: "" };
+    return { message: clampDetail(raw2), code: "" };
   }
-  return extractErrorEnvelopeDetail(body, { fallbackMessage: raw });
+  return extractErrorEnvelopeDetail(body, { fallbackMessage: raw2 });
 }
 function extractErrorEnvelopeDetail(body, { fallbackMessage = "", keepNumericCode = false } = {}) {
   const envelope = body && typeof body === "object" ? body : {};
@@ -10518,11 +11215,11 @@ var EMPTY_BODY_NOTE = "response body is empty";
 var NON_COMPLETION_KEYS_MAX = 10;
 async function readCompletionBody(response) {
   if (typeof response.text === "function") {
-    const raw = await response.text();
+    const raw2 = await response.text();
     try {
-      return { parsed: true, data: JSON.parse(raw) };
+      return { parsed: true, data: JSON.parse(raw2) };
     } catch {
-      return { parsed: false, raw: typeof raw === "string" ? raw : null };
+      return { parsed: false, raw: typeof raw2 === "string" ? raw2 : null };
     }
   }
   try {
@@ -10540,12 +11237,12 @@ function isChatCompletionShape(data) {
   ) && /** @type {any} */
   data.choices.length > 0;
 }
-function describeUnparsableBody(raw) {
-  if (raw === null) return { message: "", code: "" };
-  const trimmed = raw.trim();
+function describeUnparsableBody(raw2) {
+  if (raw2 === null) return { message: "", code: "" };
+  const trimmed = raw2.trim();
   if (!trimmed) return { message: EMPTY_BODY_NOTE, code: "" };
   if (looksLikeSseStream(trimmed)) return { message: SSE_BODY_NOTE, code: "" };
-  return { message: clampDetail(raw), code: "" };
+  return { message: clampDetail(raw2), code: "" };
 }
 function looksLikeSseStream(trimmed) {
   return trimmed.startsWith(":") || SSE_FIELD_LINE.test(trimmed);
@@ -10596,12 +11293,12 @@ async function readBoundedBody(response) {
 }
 var TRUNCATED_BODY_NOTE = "upstream error body was truncated before any readable message";
 var JSON_STRING_FIELD = /"(message|detail|code|status|type)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
-function looksLikeJson(raw) {
-  return /^\s*[{[]/.test(raw);
+function looksLikeJson(raw2) {
+  return /^\s*[{[]/.test(raw2);
 }
-function salvageJsonStringFields(raw) {
+function salvageJsonStringFields(raw2) {
   const found = {};
-  for (const match of raw.matchAll(JSON_STRING_FIELD)) {
+  for (const match of raw2.matchAll(JSON_STRING_FIELD)) {
     if (found[match[1]] !== void 0) continue;
     const value = unescapeJsonString(match[2]);
     if (match[1] === "type" && value === "error") continue;
@@ -10702,7 +11399,10 @@ var NONCE_INFO = utf8("Content-Encoding: nonce\0");
 var VAPID_DEFAULT_TTL = 60;
 var VAPID_TOKEN_LIFETIME = 12 * 3600;
 var RECORD_SIZE = 4096;
-async function sendWebPush({ subscription, payload, vapid, ttl, fetch: fetchImpl }) {
+var SEND_DEFAULT_TIMEOUT_MS = 3e4;
+var VAPID_MAX_TOKEN_LIFETIME = 24 * 3600;
+var RESPONSE_BODY_MAX_BYTES = 16 * 1024;
+async function sendWebPush({ subscription, payload, vapid, ttl, fetch: fetchImpl, signal, timeoutMs }) {
   if (!subscription || typeof subscription.endpoint !== "string") {
     throw new Error("sendWebPush: invalid subscription");
   }
@@ -10731,16 +11431,31 @@ async function sendWebPush({ subscription, payload, vapid, ttl, fetch: fetchImpl
   if (typeof fetchFn !== "function") {
     throw new Error("sendWebPush: no fetch implementation available");
   }
-  const res = await fetchFn(subscription.endpoint, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/octet-stream",
-      "Content-Encoding": "aes128gcm",
-      "TTL": String(Number.isFinite(ttl) ? ttl : VAPID_DEFAULT_TTL),
-      "Authorization": `vapid t=${jwt}, k=${vapid.publicKey}`
-    },
-    body: encryptedBody
-  });
+  const timeoutController = new AbortController();
+  const timer = setTimeout(
+    () => timeoutController.abort(new DOMException("Web Push request timed out", "TimeoutError")),
+    Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : SEND_DEFAULT_TIMEOUT_MS
+  );
+  let res;
+  try {
+    res = await fetchFn(subscription.endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Encoding": "aes128gcm",
+        "TTL": String(Number.isFinite(ttl) ? ttl : VAPID_DEFAULT_TTL),
+        "Authorization": `vapid t=${jwt}, k=${vapid.publicKey}`
+      },
+      body: encryptedBody,
+      signal: signal ? AbortSignal.any([signal, timeoutController.signal]) : timeoutController.signal
+    });
+  } catch (cause) {
+    const err6 = new Error(`Web Push delivery failed: ${cause?.message || cause}`, { cause });
+    err6.code = "PUSH_SEND_FAILED";
+    throw err6;
+  } finally {
+    clearTimeout(timer);
+  }
   if (!res.ok) {
     const text3 = await safeReadText(res);
     const err6 = new Error(
@@ -10822,7 +11537,7 @@ async function hkdfSha256(salt, ikm, info, length) {
   );
   return new Uint8Array(bits);
 }
-async function buildVapidJwt({ audience, subject, publicKey, privateKey }) {
+async function buildVapidJwt({ audience, subject, publicKey, privateKey: privateKey2 }) {
   const header = jsonToBase64Url({ typ: "JWT", alg: "ES256" });
   const payload = jsonToBase64Url({
     aud: audience,
@@ -10831,7 +11546,7 @@ async function buildVapidJwt({ audience, subject, publicKey, privateKey }) {
   });
   const signingInput = utf8(`${header}.${payload}`);
   const pubBytes = base64UrlToBytes(publicKey);
-  const privBytes = base64UrlToBytes(privateKey);
+  const privBytes = base64UrlToBytes(privateKey2);
   if (pubBytes.length !== 65 || pubBytes[0] !== 4) {
     throw new Error("VAPID publicKey must be a 65-byte uncompressed P-256 point (base64url).");
   }
@@ -10871,7 +11586,22 @@ function writeUint32BE(buf, offset, value) {
 }
 async function safeReadText(res) {
   try {
-    return await res.text();
+    const body = res.body;
+    if (!body || typeof body.getReader !== "function") {
+      return (await res.text()).slice(0, RESPONSE_BODY_MAX_BYTES);
+    }
+    const reader = body.getReader();
+    const chunks = [];
+    let total = 0;
+    while (total < RESPONSE_BODY_MAX_BYTES) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(toUint8(value));
+      total += value.byteLength;
+    }
+    reader.cancel().catch(() => {
+    });
+    return utf8Decode(concatBytes(...chunks).subarray(0, RESPONSE_BODY_MAX_BYTES));
   } catch {
     return "";
   }
@@ -11017,9 +11747,21 @@ function requireField(kind, field, value) {
     throw new Error(`[amsg-shared] ${kind}: '${field}' is required`);
   }
 }
+function requireEnumField(kind, field, value, allowed) {
+  requireField(kind, field, value);
+  const values = Object.values(allowed);
+  if (!values.includes(
+    /** @type {string} */
+    value
+  )) {
+    throw new Error(
+      `[amsg-shared] ${kind}: '${field}' must be one of ${values.map((v) => `'${v}'`).join(" | ")}`
+    );
+  }
+}
 function buildContentPush(args) {
-  requireField("ContentPush", "messageType", args.messageType);
-  requireField("ContentPush", "source", args.source);
+  requireEnumField("ContentPush", "messageType", args.messageType, MESSAGE_TYPE);
+  requireEnumField("ContentPush", "source", args.source, PUSH_SOURCE);
   requireField("ContentPush", "messageId", args.messageId);
   requireField("ContentPush", "sessionId", args.sessionId);
   if (typeof args.message !== "string") {
@@ -11047,8 +11789,8 @@ function buildContentPush(args) {
   return push;
 }
 function buildReasoningPush(args) {
-  requireField("ReasoningPush", "messageType", args.messageType);
-  requireField("ReasoningPush", "source", args.source);
+  requireEnumField("ReasoningPush", "messageType", args.messageType, MESSAGE_TYPE);
+  requireEnumField("ReasoningPush", "source", args.source, PUSH_SOURCE);
   requireField("ReasoningPush", "messageId", args.messageId);
   requireField("ReasoningPush", "sessionId", args.sessionId);
   if (typeof args.reasoningContent !== "string" || !args.reasoningContent) {
@@ -11109,8 +11851,8 @@ function buildResultPush(args) {
   if (!args || typeof args !== "object" || Array.isArray(args)) {
     throw new Error("[amsg-shared] ResultPush: payload must be a plain object");
   }
-  requireField("ResultPush", "messageType", args.messageType);
-  requireField("ResultPush", "source", args.source);
+  requireEnumField("ResultPush", "messageType", args.messageType, MESSAGE_TYPE);
+  requireEnumField("ResultPush", "source", args.source, PUSH_SOURCE);
   requireField("ResultPush", "messageId", args.messageId);
   requireField("ResultPush", "sessionId", args.sessionId);
   if (typeof args.resultKind !== "string" || !args.resultKind.trim()) {
@@ -11200,9 +11942,9 @@ function readReasoningContent(llmResponse) {
     /** @type {{ message?: { reasoning_content?: unknown, content?: unknown } }} */
     choices[0]?.message
   );
-  const raw = message?.reasoning_content;
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
+  const raw2 = message?.reasoning_content;
+  if (typeof raw2 === "string") {
+    const trimmed = raw2.trim();
     if (trimmed.length > 0) return trimmed;
   }
   const content = message?.content;
@@ -11395,7 +12137,7 @@ function stringifyDecisionForError(value) {
   }
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-server@3_04a7d0876d4bfad11669a8b82156c2ad/node_modules/@rei-standard/amsg-server/dist/chunk-EIM3PKFY.mjs
+// node_modules/.pnpm/@rei-standard+amsg-server@3_f2a08373d30841ce79e2e19c7fb88ed9/node_modules/@rei-standard/amsg-server/dist/chunk-WFKLHUUE.mjs
 var DAY_MS = 24 * 60 * 60 * 1e3;
 var MAX_LISTED_SKIPPED_OCCURRENCES = 32;
 var MAX_ADJUST_STEPS = 32;
@@ -11455,23 +12197,34 @@ function epochFromWallParts({ year, month, day, hour, minute, second, ms }, tzId
   if (tzOffsetMsAt(refined, tzId) !== tzOffsetMsAt(firstGuess, tzId)) return firstGuess;
   return refined;
 }
+function timeOfDayFor(occurrenceMs, wall, tzId, anchorMs) {
+  if (!Number.isFinite(anchorMs)) return wall;
+  const anchor = wallPartsOf(anchorMs, tzId);
+  if (anchor.hour === wall.hour && anchor.minute === wall.minute && anchor.second === wall.second) return wall;
+  const anchorOnThisDay = epochFromWallParts(
+    { year: wall.year, month: wall.month, day: wall.day, hour: anchor.hour, minute: anchor.minute, second: anchor.second, ms: occurrenceMs - Math.floor(occurrenceMs / 1e3) * 1e3 },
+    tzId
+  );
+  return anchorOnThisDay === occurrenceMs ? anchor : wall;
+}
 function periodDaysOf(recurrenceType) {
   return recurrenceType === "weekly" ? 7 : 1;
 }
-function advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId) {
+function advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId, anchorMs) {
   const days = periodDaysOf(recurrenceType) * periods;
   if (!tzId) return occurrenceMs + days * DAY_MS;
   try {
     const p = wallPartsOf(occurrenceMs, tzId);
+    const time = timeOfDayFor(occurrenceMs, p, tzId, anchorMs);
     const shiftedDate = new Date(utcFromParts(p.year, p.month, p.day, 0, 0, 0, 0) + days * DAY_MS);
     return epochFromWallParts(
       {
         year: shiftedDate.getUTCFullYear(),
         month: shiftedDate.getUTCMonth() + 1,
         day: shiftedDate.getUTCDate(),
-        hour: p.hour,
-        minute: p.minute,
-        second: p.second,
+        hour: time.hour,
+        minute: time.minute,
+        second: time.second,
         ms: occurrenceMs - Math.floor(occurrenceMs / 1e3) * 1e3
       },
       tzId
@@ -11481,19 +12234,19 @@ function advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId) {
     return occurrenceMs + days * DAY_MS;
   }
 }
-function planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId) {
+function planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId, anchorMs) {
   const periodMs = periodDaysOf(recurrenceType) * DAY_MS;
   let periods = nowMs > occurrenceMs ? Math.max(1, Math.floor((nowMs - occurrenceMs) / periodMs)) : 1;
-  let cursor = advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId);
+  let cursor = advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId, anchorMs);
   for (let step = 0; step < MAX_ADJUST_STEPS && periods > 1; step++) {
-    const previous = advanceOccurrence(occurrenceMs, recurrenceType, periods - 1, tzId);
+    const previous = advanceOccurrence(occurrenceMs, recurrenceType, periods - 1, tzId, anchorMs);
     if (previous <= nowMs) break;
     periods -= 1;
     cursor = previous;
   }
   for (let step = 0; step < MAX_ADJUST_STEPS && cursor <= nowMs; step++) {
     periods += 1;
-    cursor = advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId);
+    cursor = advanceOccurrence(occurrenceMs, recurrenceType, periods, tzId, anchorMs);
   }
   if (cursor <= nowMs) {
     periods = Math.ceil((nowMs - occurrenceMs + 1) / periodMs);
@@ -11505,16 +12258,177 @@ function planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId) {
   if (skippedCount <= MAX_LISTED_SKIPPED_OCCURRENCES) {
     skippedOccurrences = [occurrenceMs];
     for (let i = 1; i < skippedCount; i++) {
-      skippedOccurrences.push(advanceOccurrence(occurrenceMs, recurrenceType, i, tzId));
+      skippedOccurrences.push(advanceOccurrence(occurrenceMs, recurrenceType, i, tzId, anchorMs));
     }
   } else {
-    skippedOccurrences = [occurrenceMs, advanceOccurrence(occurrenceMs, recurrenceType, skippedCount - 1, tzId)];
+    skippedOccurrences = [occurrenceMs, advanceOccurrence(occurrenceMs, recurrenceType, skippedCount - 1, tzId, anchorMs)];
     skippedTruncated = true;
   }
   return { nextMs: cursor, skippedCount, skippedOccurrences, skippedTruncated };
 }
-function nextFutureOccurrence(occurrenceMs, recurrenceType, nowMs, tzId) {
-  return new Date(planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId).nextMs).toISOString();
+function nextFutureOccurrence(occurrenceMs, recurrenceType, nowMs, tzId, anchorMs) {
+  return new Date(planNextOccurrence(occurrenceMs, recurrenceType, nowMs, tzId, anchorMs).nextMs).toISOString();
+}
+var NonRetryableError = class extends Error {
+  /**
+   * @param {string} message
+   * @param {{ code?: string, cause?: unknown }} [options]
+   */
+  constructor(message, options2 = {}) {
+    super(message, options2.cause !== void 0 ? { cause: options2.cause } : void 0);
+    this.name = "NonRetryableError";
+    this.permanent = true;
+    if (options2.code) this.code = options2.code;
+  }
+};
+function isNonRetryableError(error) {
+  return !!error && typeof error === "object" && /** @type {any} */
+  error.permanent === true;
+}
+var DeploymentConfigError = class extends Error {
+  /**
+   * @param {string} message
+   * @param {{ code?: string, cause?: unknown }} [options]
+   */
+  constructor(message, options2 = {}) {
+    super(message, options2.cause !== void 0 ? { cause: options2.cause } : void 0);
+    this.name = "DeploymentConfigError";
+    if (options2.code) this.code = options2.code;
+  }
+};
+var STORED_DATA_UNDECRYPTABLE_CODE = "STORED_DATA_UNDECRYPTABLE";
+var StoredDataUndecryptableError = class extends Error {
+  /** @param {{ cause?: unknown }} [options] */
+  constructor(options2 = {}) {
+    super(
+      "\u5E93\u91CC\u7684\u6570\u636E\u662F\u7528\u53E6\u4E00\u628A\u4E3B\u5BC6\u94A5\u52A0\u5BC6\u7684\uFF0C\u5F53\u524D\u7684 AMSG_MASTER_KEY \u89E3\u4E0D\u5F00\u3002\u5E38\u89C1\u539F\u56E0\u662F\u91CD\u65B0\u90E8\u7F72\u65F6\u6362\u4E86 AMSG_MASTER_KEY\uFF1A\u6362\u56DE\u539F\u6765\u7684\u5BC6\u94A5\u5373\u53EF\u6062\u590D\uFF0C\u6216\u8005\u6E05\u6389\u4E91\u7AEF\u7684\u65E7\u6570\u636E\u540E\u91CD\u65B0\u5199\u5165\u3002",
+      options2.cause !== void 0 ? { cause: options2.cause } : void 0
+    );
+    this.name = "StoredDataUndecryptableError";
+    this.code = STORED_DATA_UNDECRYPTABLE_CODE;
+    this.status = 409;
+  }
+};
+function isStoredDataUndecryptableError(error) {
+  return !!error && typeof error === "object" && /** @type {any} */
+  error.code === STORED_DATA_UNDECRYPTABLE_CODE;
+}
+function markPermanent(error, code2) {
+  if (!error || typeof error !== "object") return error;
+  const target = (
+    /** @type {any} */
+    error
+  );
+  try {
+    target.permanent = true;
+    if (code2 && typeof target.code !== "string") target.code = code2;
+  } catch (_frozen) {
+  }
+  return error;
+}
+var TASK_CANCELLED_CODE = "TASK_CANCELLED";
+function isTaskCancelledError(error) {
+  return !!error && typeof error === "object" && /** @type {any} */
+  error.code === TASK_CANCELLED_CODE;
+}
+function markUnrecoverablePartialDelivery(error, { outboxed, pushedCount }) {
+  if (outboxed || !(pushedCount > 0) || isTaskCancelledError(error)) return error;
+  return markPermanent(error);
+}
+var TERMINAL_PUSH_STATUSES = /* @__PURE__ */ new Set([404, 410]);
+var PUSH_PAYLOAD_TOO_LARGE_STATUS = 413;
+var PERMANENT_ERROR_CODES = /* @__PURE__ */ new Set([
+  "PUSH_SUBSCRIPTION_MISSING",
+  "PUSH_SUBSCRIPTION_STORE_UNSUPPORTED",
+  "PUSH_PAYLOAD_TOO_LARGE"
+]);
+var LLM_CALL_FAILED_CODE = "LLM_CALL_FAILED";
+var PERMANENT_LLM_STATUSES = /* @__PURE__ */ new Set([400, 401, 402, 403, 404, 405, 413, 422]);
+function isPermanentLlmFailure(error) {
+  if (!error || typeof error !== "object") return false;
+  const { code: code2, llmStatus } = (
+    /** @type {any} */
+    error
+  );
+  return code2 === LLM_CALL_FAILED_CODE && Number.isInteger(llmStatus) && PERMANENT_LLM_STATUSES.has(llmStatus);
+}
+function markPermanentIfLlmRejected(error) {
+  return isPermanentLlmFailure(error) ? markPermanent(error) : error;
+}
+function isPermanentDeliveryFailure(failure) {
+  const { permanent, errorCode, pushStatus } = failure || {};
+  return permanent === true || typeof errorCode === "string" && PERMANENT_ERROR_CODES.has(errorCode) || Number.isInteger(pushStatus) && (TERMINAL_PUSH_STATUSES.has(
+    /** @type {number} */
+    pushStatus
+  ) || pushStatus === PUSH_PAYLOAD_TOO_LARGE_STATUS);
+}
+var pushStatusCodes = /* @__PURE__ */ new WeakMap();
+function tagPushStatusCode(error) {
+  if (error && typeof error === "object" && Number.isInteger(
+    /** @type {any} */
+    error.statusCode
+  )) {
+    pushStatusCodes.set(
+      /** @type {object} */
+      error,
+      /** @type {any} */
+      error.statusCode
+    );
+  }
+  return error;
+}
+async function sendTaggedPush(webpush, subscription, payloadJson) {
+  try {
+    return await webpush.sendNotification(subscription, payloadJson);
+  } catch (error) {
+    throw tagPushStatusCode(error);
+  }
+}
+function readPushStatusCode(error) {
+  if (!error || typeof error !== "object") return null;
+  const statusCode = pushStatusCodes.get(
+    /** @type {object} */
+    error
+  );
+  return Number.isInteger(statusCode) ? statusCode : null;
+}
+function buildErrorExtra(errorCode, pushStatus) {
+  const extra = {};
+  if (typeof errorCode === "string" && errorCode) extra.errorCode = errorCode.slice(0, 64);
+  if (Number.isInteger(pushStatus)) extra.pushStatus = /** @type {number} */
+  pushStatus;
+  return Object.keys(extra).length > 0 ? extra : void 0;
+}
+var ERROR_SUMMARY_MAX_CHARS = 500;
+function sanitizeErrorSummary(reason) {
+  const flattened = String(reason ?? "").replace(/\s+/g, " ").trim();
+  const safe = redactCredentials(flattened);
+  return safe.length > ERROR_SUMMARY_MAX_CHARS ? `${safe.slice(0, ERROR_SUMMARY_MAX_CHARS - 3)}\u2026` : safe;
+}
+var D1_LIMIT_CODES = [
+  [/Exceeded maximum DB size/i, "D1_STORAGE_FULL"],
+  [/daily row read limit/i, "D1_DAILY_READ_LIMIT"],
+  [/daily row write limit/i, "D1_DAILY_WRITE_LIMIT"]
+];
+function summarizeErrorCause(error, stage) {
+  const raw2 = error && typeof error === "object" ? (
+    /** @type {any} */
+    error
+  ) : {};
+  const name = typeof raw2.name === "string" && raw2.name ? raw2.name : "Error";
+  const rawMessage = typeof raw2.message === "string" && raw2.message ? raw2.message : String(error ?? "");
+  const cause = {
+    stage,
+    name: sanitizeErrorSummary(name).slice(0, 100),
+    message: sanitizeErrorSummary(rawMessage)
+  };
+  if (typeof raw2.code === "string" && raw2.code) {
+    cause.code = sanitizeErrorSummary(raw2.code).slice(0, 100);
+  } else {
+    const limit = D1_LIMIT_CODES.find(([pattern]) => pattern.test(rawMessage));
+    if (limit) cause.code = limit[1];
+  }
+  return cause;
 }
 var base64ToBytes2 = base64UrlToBytes;
 var TAG_LENGTH_BYTES = 16;
@@ -11599,14 +12513,18 @@ async function encryptForStorage(text3, encryptionKey) {
   return `${bytesToHex(iv)}:${bytesToHex(authTag)}:${bytesToHex(ciphertext)}`;
 }
 async function decryptFromStorage(encryptedText, encryptionKey) {
-  const [ivHex, authTagHex, encryptedDataHex] = encryptedText.split(":");
-  const plain = await aesGcmOpen(
-    encryptionKey,
-    hexToBytes(ivHex),
-    hexToBytes(encryptedDataHex),
-    hexToBytes(authTagHex)
-  );
-  return utf8Decode(plain);
+  try {
+    const [ivHex, authTagHex, encryptedDataHex] = encryptedText.split(":");
+    const plain = await aesGcmOpen(
+      encryptionKey,
+      hexToBytes(ivHex),
+      hexToBytes(encryptedDataHex),
+      hexToBytes(authTagHex)
+    );
+    return utf8Decode(plain);
+  } catch (error) {
+    throw new StoredDataUndecryptableError({ cause: error });
+  }
 }
 var CRED_ID_MAX_LENGTH = 128;
 var CRED_VALUE_FIELD_MAX_LENGTH = 2048;
@@ -11729,9 +12647,26 @@ async function resolveFireCredentials({ db, userId, userKey, decryptedPayload })
     `\u51ED\u636E ${credId} \u4E0D\u5B58\u5728\uFF08PUT /llm-credentials \u8865\u4F20\u540E\u8FD9\u6761\u4EFB\u52A1\u4E0B\u4E00\u8F6E\u91CD\u8BD5\u5373\u81EA\u6108\uFF09`
   );
 }
+var ISO_8601_RE = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/i;
 function isValidISO8601(dateString) {
-  const date = new Date(dateString);
-  return date instanceof Date && !isNaN(date.getTime());
+  return typeof dateString === "string" && ISO_8601_RE.test(dateString) && !Number.isNaN(Date.parse(dateString));
+}
+function isFutureTimestamp(value) {
+  return new Date(value) > /* @__PURE__ */ new Date();
+}
+var LOCAL_FETCH_SCHEMES = /* @__PURE__ */ new Set(["file:", "data:", "blob:", "javascript:", "about:"]);
+function isValidPushEndpoint(endpoint) {
+  if (typeof endpoint !== "string") return false;
+  let url;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  if (!url.host && !LOCAL_FETCH_SCHEMES.has(url.protocol)) return true;
+  if (url.protocol !== "https:" || url.username || url.password) return false;
+  const host = url.hostname;
+  return host !== "localhost" && !host.endsWith(".localhost") && !host.startsWith("[") && !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host);
 }
 function isValidUUID(uuid) {
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -11837,9 +12772,12 @@ function validateScheduleMessagePayload(payload) {
     if (!payload.firstSendTime || !isValidISO8601(payload.firstSendTime)) {
       return { valid: false, errorCode: "INVALID_TIMESTAMP", errorMessage: "\u65F6\u95F4\u683C\u5F0F\u65E0\u6548", details: { field: "firstSendTime" } };
     }
-    if (payload.firstSendTime && new Date(payload.firstSendTime) <= /* @__PURE__ */ new Date()) {
+    if (!isFutureTimestamp(payload.firstSendTime)) {
       return { valid: false, errorCode: "INVALID_TIMESTAMP", errorMessage: "\u65F6\u95F4\u5FC5\u987B\u5728\u672A\u6765", details: { field: "firstSendTime", reason: "must be in the future" } };
     }
+  }
+  if (payload.metadata != null && (typeof payload.metadata !== "object" || Array.isArray(payload.metadata))) {
+    return { valid: false, errorCode: "INVALID_PARAMETERS", errorMessage: "metadata \u5FC5\u987B\u662F\u666E\u901A\u5BF9\u8C61", details: { invalidFields: ["metadata"] } };
   }
   if (payload.supersedesUuid !== void 0 && payload.supersedesUuid !== null) {
     if (typeof payload.supersedesUuid !== "string" || !isValidUUID(payload.supersedesUuid)) {
@@ -11968,8 +12906,8 @@ var REQUEST_ERRORS = {
 var DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
 var GZIP_MAGIC_0 = 31;
 var GZIP_MAGIC_1 = 139;
-function normalizeContentEncoding(raw) {
-  const value = String(raw || "").trim().toLowerCase();
+function normalizeContentEncoding(raw2) {
+  const value = String(raw2 || "").trim().toLowerCase();
   if (!value) return "";
   const tokens = value.split(",").map((t) => t.trim()).filter((t) => t && t !== "identity");
   if (tokens.length === 0) return "";
@@ -12131,142 +13069,6 @@ function createGetUserKeyHandler(ctx) {
   }
   return { GET };
 }
-var NonRetryableError = class extends Error {
-  /**
-   * @param {string} message
-   * @param {{ code?: string, cause?: unknown }} [options]
-   */
-  constructor(message, options2 = {}) {
-    super(message, options2.cause !== void 0 ? { cause: options2.cause } : void 0);
-    this.name = "NonRetryableError";
-    this.permanent = true;
-    if (options2.code) this.code = options2.code;
-  }
-};
-function isNonRetryableError(error) {
-  return !!error && typeof error === "object" && /** @type {any} */
-  error.permanent === true;
-}
-var DeploymentConfigError = class extends Error {
-  /**
-   * @param {string} message
-   * @param {{ code?: string, cause?: unknown }} [options]
-   */
-  constructor(message, options2 = {}) {
-    super(message, options2.cause !== void 0 ? { cause: options2.cause } : void 0);
-    this.name = "DeploymentConfigError";
-    if (options2.code) this.code = options2.code;
-  }
-};
-function markPermanent(error, code2) {
-  if (!error || typeof error !== "object") return error;
-  const target = (
-    /** @type {any} */
-    error
-  );
-  try {
-    target.permanent = true;
-    if (code2 && typeof target.code !== "string") target.code = code2;
-  } catch (_frozen) {
-  }
-  return error;
-}
-var TASK_CANCELLED_CODE = "TASK_CANCELLED";
-function isTaskCancelledError(error) {
-  return !!error && typeof error === "object" && /** @type {any} */
-  error.code === TASK_CANCELLED_CODE;
-}
-function markUnrecoverablePartialDelivery(error, { outboxed, pushedCount }) {
-  if (outboxed || !(pushedCount > 0) || isTaskCancelledError(error)) return error;
-  return markPermanent(error);
-}
-var TERMINAL_PUSH_STATUSES = /* @__PURE__ */ new Set([404, 410]);
-var PUSH_PAYLOAD_TOO_LARGE_STATUS = 413;
-var PERMANENT_ERROR_CODES = /* @__PURE__ */ new Set([
-  "PUSH_SUBSCRIPTION_MISSING",
-  "PUSH_SUBSCRIPTION_STORE_UNSUPPORTED",
-  "PUSH_PAYLOAD_TOO_LARGE"
-]);
-var LLM_CALL_FAILED_CODE = "LLM_CALL_FAILED";
-var PERMANENT_LLM_STATUSES = /* @__PURE__ */ new Set([400, 401, 402, 403, 404, 405, 413, 422]);
-function isPermanentLlmFailure(error) {
-  if (!error || typeof error !== "object") return false;
-  const { code: code2, llmStatus } = (
-    /** @type {any} */
-    error
-  );
-  return code2 === LLM_CALL_FAILED_CODE && Number.isInteger(llmStatus) && PERMANENT_LLM_STATUSES.has(llmStatus);
-}
-function markPermanentIfLlmRejected(error) {
-  return isPermanentLlmFailure(error) ? markPermanent(error) : error;
-}
-function isPermanentDeliveryFailure(failure) {
-  const { permanent, errorCode, pushStatus } = failure || {};
-  return permanent === true || typeof errorCode === "string" && PERMANENT_ERROR_CODES.has(errorCode) || Number.isInteger(pushStatus) && (TERMINAL_PUSH_STATUSES.has(
-    /** @type {number} */
-    pushStatus
-  ) || pushStatus === PUSH_PAYLOAD_TOO_LARGE_STATUS);
-}
-var pushStatusCodes = /* @__PURE__ */ new WeakMap();
-function tagPushStatusCode(error) {
-  if (error && typeof error === "object" && Number.isInteger(
-    /** @type {any} */
-    error.statusCode
-  )) {
-    pushStatusCodes.set(
-      /** @type {object} */
-      error,
-      /** @type {any} */
-      error.statusCode
-    );
-  }
-  return error;
-}
-async function sendTaggedPush(webpush, subscription, payloadJson) {
-  try {
-    return await webpush.sendNotification(subscription, payloadJson);
-  } catch (error) {
-    throw tagPushStatusCode(error);
-  }
-}
-function readPushStatusCode(error) {
-  if (!error || typeof error !== "object") return null;
-  const statusCode = pushStatusCodes.get(
-    /** @type {object} */
-    error
-  );
-  return Number.isInteger(statusCode) ? statusCode : null;
-}
-function buildErrorExtra(errorCode, pushStatus) {
-  const extra = {};
-  if (typeof errorCode === "string" && errorCode) extra.errorCode = errorCode.slice(0, 64);
-  if (Number.isInteger(pushStatus)) extra.pushStatus = /** @type {number} */
-  pushStatus;
-  return Object.keys(extra).length > 0 ? extra : void 0;
-}
-var ERROR_SUMMARY_MAX_CHARS = 500;
-function sanitizeErrorSummary(reason) {
-  const flattened = String(reason ?? "").replace(/\s+/g, " ").trim();
-  const safe = redactCredentials(flattened);
-  return safe.length > ERROR_SUMMARY_MAX_CHARS ? `${safe.slice(0, ERROR_SUMMARY_MAX_CHARS - 3)}\u2026` : safe;
-}
-function summarizeErrorCause(error, stage) {
-  const raw = error && typeof error === "object" ? (
-    /** @type {any} */
-    error
-  ) : {};
-  const name = typeof raw.name === "string" && raw.name ? raw.name : "Error";
-  const rawMessage = typeof raw.message === "string" && raw.message ? raw.message : String(error ?? "");
-  const cause = {
-    stage,
-    name: sanitizeErrorSummary(name).slice(0, 100),
-    message: sanitizeErrorSummary(rawMessage)
-  };
-  if (typeof raw.code === "string" && raw.code) {
-    cause.code = sanitizeErrorSummary(raw.code).slice(0, 100);
-  }
-  return cause;
-}
 var DEFAULT_MAX_DELIVERY_RETRIES = 3;
 function resolveMaxDeliveryRetries(ctx) {
   const value = ctx.maxDeliveryRetries;
@@ -12335,7 +13137,8 @@ async function sendWebPush2(args) {
 var SCHEDULED_DEFAULT_TTL = 2419200;
 function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}) {
   return {
-    async sendNotification(subscription, payload) {
+    acceptsSendOptions: true,
+    async sendNotification(subscription, payload, { signal, timeoutMs } = {}) {
       return sendWebPush2({
         subscription,
         payload,
@@ -12345,10 +13148,37 @@ function createWebCryptoWebPush(vapid = {}, { ttl = SCHEDULED_DEFAULT_TTL } = {}
           publicKey: vapid.publicKey,
           privateKey: vapid.privateKey
         },
-        fetch: globalThis.fetch
+        fetch: globalThis.fetch,
+        signal,
+        timeoutMs
       });
     }
   };
+}
+function withPushSignal(webpush, signal) {
+  if (!signal || !webpush || /** @type {any} */
+  webpush.acceptsSendOptions !== true) return webpush;
+  const bound = Object.create(
+    /** @type {any} */
+    webpush
+  );
+  Object.defineProperty(bound, "sendNotification", {
+    value: (subscription, payload, options2) => (
+      /** @type {any} */
+      webpush.sendNotification(subscription, payload, { signal, ...options2 })
+    ),
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
+  return bound;
+}
+function assertVapidConfigured(vapid) {
+  if (!vapid || !vapid.email || !vapid.publicKey || !vapid.privateKey) {
+    const err6 = new Error("VAPID configuration missing - push notifications cannot be sent");
+    err6.code = "VAPID_CONFIG_MISSING";
+    throw err6;
+  }
 }
 var ATTACHMENT_NAMESPACE = "amsg:attachments";
 var ATTACHMENT_RETENTION_DAYS = 30;
@@ -12420,14 +13250,14 @@ function buildChunkedRootValue(chunkCount) {
 }
 function parseChunkedRootCount(value) {
   if (typeof value !== "string" || !value.startsWith(ROOT_MARKER_PREFIX)) return null;
-  const raw = value.slice(ROOT_MARKER_PREFIX.length);
-  if (!/^[1-9][0-9]*$/.test(raw)) return null;
-  return Number(raw);
+  const raw2 = value.slice(ROOT_MARKER_PREFIX.length);
+  if (!/^[1-9][0-9]*$/.test(raw2)) return null;
+  return Number(raw2);
 }
 function splitStateValue(value) {
   return chunkReasoningByUtf8Bytes(value, STATE_CHUNK_SLICE_BYTES);
 }
-async function resolveClientStateEntries(rows, fetchChunkRows, decryptValue) {
+async function resolveClientStateEntries(rows, fetchChunkRows, decryptValue, onUndecryptable) {
   let chunkMap = null;
   const loadChunks = async () => {
     if (chunkMap === null) {
@@ -12439,32 +13269,30 @@ async function resolveClientStateEntries(rows, fetchChunkRows, decryptValue) {
   const entries2 = [];
   for (const row of rows) {
     const count = parseChunkedRootCount(row.value);
-    if (count === null) {
-      entries2.push({
-        namespace: row.namespace,
-        key: row.key,
-        value: await decryptValue(row.value),
-        updatedAt: row.updated_at
-      });
+    let valueSources = [row.value];
+    if (count !== null) {
+      const map = await loadChunks();
+      const chunkRows = [];
+      for (let i = 0; i < count; i++) {
+        const chunk = map.get(chunkKeyFor(row.key, i));
+        if (!chunk || chunk.updated_at !== row.updated_at) break;
+        chunkRows.push(chunk);
+      }
+      if (chunkRows.length !== count) continue;
+      valueSources = chunkRows.map((chunk) => chunk.value);
+    }
+    let value;
+    try {
+      value = (await Promise.all(valueSources.map(decryptValue))).join("");
+    } catch (error) {
+      if (!onUndecryptable || !isStoredDataUndecryptableError(error)) throw error;
+      onUndecryptable(row);
       continue;
     }
-    const map = await loadChunks();
-    const chunkRows = [];
-    let intact = true;
-    for (let i = 0; i < count; i++) {
-      const chunk = map.get(chunkKeyFor(row.key, i));
-      if (!chunk || chunk.updated_at !== row.updated_at) {
-        intact = false;
-        break;
-      }
-      chunkRows.push(chunk);
-    }
-    if (!intact) continue;
-    const parts = await Promise.all(chunkRows.map((chunk) => decryptValue(chunk.value)));
     entries2.push({
       namespace: row.namespace,
       key: row.key,
-      value: parts.join(""),
+      value,
       updatedAt: row.updated_at
     });
   }
@@ -12837,9 +13665,10 @@ function supportsPushSubscriptionStore(db) {
   return !!db && typeof db.getPushSubscription === "function" && typeof db.upsertPushSubscription === "function" && typeof db.deletePushSubscription === "function";
 }
 function isPushSubscriptionShape(subscription) {
-  return !!subscription && typeof subscription === "object" && !Array.isArray(subscription) && typeof /** @type {{ endpoint?: unknown }} */
-  subscription.endpoint === "string" && /** @type {{ endpoint: string }} */
-  subscription.endpoint.trim().length > 0;
+  return !!subscription && typeof subscription === "object" && !Array.isArray(subscription) && isValidPushEndpoint(
+    /** @type {{ endpoint?: unknown }} */
+    subscription.endpoint
+  );
 }
 async function savePushSubscription({ db, userId, userKey, subscription, updatedAt }) {
   const at = Number.isInteger(updatedAt) && updatedAt > 0 ? updatedAt : Date.now();
@@ -12928,7 +13757,9 @@ function createResultEmitter({
       assertNotCancelled();
       pushed = shouldSendPush(push, { outboxed: true }) ? await sendResultPush({ db, task, userKey, decryptedPayload, webpush, push }) : false;
     } catch (error) {
-      await discardUndeliveredPushes({ db, userId: task.user_id, pushes: [push], sentIds: [] });
+      if (!isTaskCancelledError(error)) {
+        await discardUndeliveredPushes({ db, userId: task.user_id, pushes: [push], sentIds: [] });
+      }
       throw error;
     }
     if (pushed) {
@@ -13008,15 +13839,23 @@ function projectTask(row, decryptedPayload, options2 = {}) {
     lastError: hasRowLastError(row) ? parseRowLastError(row.last_error) : payload.lastError ?? null
   };
 }
+async function projectStoredTask(row, userKey, options2) {
+  try {
+    return projectTask(row, JSON.parse(await decryptFromStorage(row.encrypted_payload, userKey)), options2);
+  } catch (error) {
+    if (!isStoredDataUndecryptableError(error)) throw error;
+    return { ...projectTask(row, null, options2), error: { code: error.code, message: error.message } };
+  }
+}
 function hasRowLastError(row) {
   return !!row && Object.prototype.hasOwnProperty.call(row, "last_error");
 }
-function parseRowLastError(raw) {
-  if (typeof raw !== "string" || !raw) return null;
+function parseRowLastError(raw2) {
+  if (typeof raw2 !== "string" || !raw2) return null;
   try {
-    return JSON.parse(raw);
+    return JSON.parse(raw2);
   } catch (_error) {
-    return { reason: raw };
+    return { reason: raw2 };
   }
 }
 var DEFAULT_MAX_TOOL_ITERATIONS = 5;
@@ -13110,17 +13949,20 @@ function firstPositiveNumber(values, fallback) {
 }
 async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
   const hooks = ctx.hooks;
-  const signal = ctx.signal || new AbortController().signal;
-  const isCancelled = () => signal.aborted || ctx.isTaskCancelled?.() === true;
+  const taskSignal = ctx.signal || new AbortController().signal;
+  const isCancelled = () => taskSignal.aborted || ctx.isTaskCancelled?.() === true;
   const throwIfCancelled = () => {
     if (!isCancelled()) return;
-    if (isTaskCancelledError(signal.reason)) throw signal.reason;
+    if (isTaskCancelledError(taskSignal.reason)) throw taskSignal.reason;
     const error = new Error("Task was cancelled or superseded");
     error.code = "TASK_CANCELLED";
     throw error;
   };
-  const cancellation = { signal, isCancelled, throwIfCancelled };
-  ctx = { ...ctx, ...cancellation };
+  const hookController = new AbortController();
+  if (taskSignal.aborted) hookController.abort(taskSignal.reason);
+  else taskSignal.addEventListener("abort", () => hookController.abort(taskSignal.reason), { once: true });
+  const cancellation = { signal: hookController.signal, isCancelled, throwIfCancelled };
+  ctx = { ...ctx, ...cancellation, webpush: withPushSignal(ctx.webpush, hookController.signal) };
   if (typeof hooks.onLLMOutput !== "function") {
     throw new DeploymentConfigError(
       "AGENTIC_CONFIG_ERROR: hooks.onBeforeFire requires hooks.onLLMOutput to classify LLM rounds",
@@ -13183,11 +14025,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       throw new DeploymentConfigError("AGENTIC_TASK_VIEW_UNSUPPORTED: adapter has no listTasks", { code: "AGENTIC_TASK_VIEW_UNSUPPORTED" });
     }
     const { tasks, total } = await ctx.db.listTasks(task.user_id, { status, limit, offset });
-    const projected = await Promise.all(tasks.map(async (row) => projectTask(
-      row,
-      JSON.parse(await decryptFromStorage(row.encrypted_payload, userKey)),
-      { includeMetadata }
-    )));
+    const projected = await Promise.all(tasks.map((row) => projectStoredTask(row, userKey, { includeMetadata })));
     return { tasks: projected, pagination: { total, limit, offset, hasMore: offset + tasks.length < total } };
   };
   const scheduleTask = async (options2) => {
@@ -13481,6 +14319,7 @@ async function runAgenticFire({ task, decryptedPayload, userKey, ctx }) {
       resolveLlmCredential: resolveLlmCredential2,
       fireCtx,
       progress,
+      hookController,
       sessionId,
       messageIdBase,
       occurrenceMs
@@ -13559,12 +14398,17 @@ async function runFireChain({
   resolveLlmCredential: resolveLlmCredential2,
   fireCtx,
   progress,
+  hookController,
   sessionId,
   messageIdBase,
   occurrenceMs
 }) {
   ctx.throwIfCancelled();
-  const before = await hooks.onBeforeFire(fireCtx);
+  const beforeFireBudgetMs = firstPositiveNumber([ctx.totalTimeoutMs], DEFAULT_TOTAL_TIMEOUT_MS);
+  const before = await awaitWithinBudget(() => hooks.onBeforeFire(fireCtx), beforeFireBudgetMs, {
+    hookController,
+    makeError: () => totalTimeoutError(beforeFireBudgetMs, 0)
+  });
   ctx.throwIfCancelled();
   if (before == null) return { handled: false };
   if (typeof before === "object" && before.skip === true) {
@@ -13611,10 +14455,12 @@ async function runFireChain({
   });
   for (let iteration = 0; iteration < maxToolIterations; iteration++) {
     ctx.throwIfCancelled();
-    if (nowFn() >= deadline) {
-      throw new Error(`AGENTIC_TOTAL_TIMEOUT: fire chain exceeded ${totalTimeoutMs}ms after ${iteration} LLM round(s)`);
-    }
+    if (nowFn() >= deadline) throw totalTimeoutError(totalTimeoutMs, iteration);
     progress.iterations = iteration + 1;
+    const withinDeadline = (run) => awaitWithinBudget(run, deadline - nowFn(), {
+      hookController,
+      makeError: () => totalTimeoutError(totalTimeoutMs, iteration + 1)
+    });
     const roundTimeoutMs = Math.max(1, Math.min(3e5, deadline - nowFn()));
     progress.llmCalls++;
     const { response: llmResponse } = await callLlm2(
@@ -13659,16 +14505,16 @@ async function runFireChain({
       renewTask,
       resolveLlmCredential: resolveLlmCredential2
     });
-    const decision = await hooks.onLLMOutput(sessionCtx);
+    const decision = await withinDeadline(() => hooks.onLLMOutput(sessionCtx));
     ctx.throwIfCancelled();
     const rawCalls = decision?.decision === "tool-request" ? extractToolCallsFromDecision(decision) : [];
-    const validId = (call) => typeof call?.id === "string" && call.id.trim().length > 0;
+    const validId2 = (call) => typeof call?.id === "string" && call.id.trim().length > 0;
     const nativeCalls = Array.isArray(assistantMessage.tool_calls) ? assistantMessage.tool_calls : [];
-    const usedIds = new Set([...rawCalls, ...nativeCalls].filter(validId).map((call) => call.id));
+    const usedIds = new Set([...rawCalls, ...nativeCalls].filter(validId2).map((call) => call.id));
     const malformedIds = /* @__PURE__ */ new Set();
     const toolCalls = rawCalls.map((call, index) => {
-      let id = validId(call) ? call.id : `call_${iteration + 1}_${index + 1}`;
-      if (!validId(call)) {
+      let id = validId2(call) ? call.id : `call_${iteration + 1}_${index + 1}`;
+      if (!validId2(call)) {
         while (usedIds.has(id)) id += "_";
         usedIds.add(id);
       }
@@ -13735,14 +14581,14 @@ async function runFireChain({
     let toolResults;
     try {
       ctx.throwIfCancelled();
-      toolResults = permittedCalls.length > 0 ? await hooks.executeToolCalls(permittedCalls, sessionCtx) : [];
+      toolResults = permittedCalls.length > 0 ? await withinDeadline(() => hooks.executeToolCalls(permittedCalls, sessionCtx)) : [];
       ctx.throwIfCancelled();
       if (!Array.isArray(toolResults)) {
         throw new TypeError('executeToolCalls must resolve to an array of { tool_call_id, role: "tool", content }');
       }
     } catch (error) {
       ctx.throwIfCancelled();
-      if (isTaskCancelledError(error)) throw error;
+      if (isTaskCancelledError(error) || error?.code === TOTAL_TIMEOUT_CODE) throw error;
       toolResults = permittedCalls.map((toolCall) => ({
         tool_call_id: toolCall && typeof toolCall === "object" && typeof toolCall.id === "string" ? toolCall.id : "",
         role: "tool",
@@ -13750,7 +14596,7 @@ async function runFireChain({
       }));
     }
     toolResults = [...toolResults, ...deniedResults];
-    const declared = nativeCalls.filter(validId).map((call) => toolCalls.find((item) => item.id === call.id) || call);
+    const declared = nativeCalls.filter(validId2).map((call) => toolCalls.find((item) => item.id === call.id) || call);
     const nativeIds = new Set(declared.map((call) => call.id));
     const synthesized = toolCalls.filter((call) => !nativeIds.has(call.id));
     const assistantWithTools = { ...assistantMessage, tool_calls: [...declared, ...synthesized] };
@@ -13760,6 +14606,30 @@ async function runFireChain({
     `AGENTIC_LOOP_EXCEEDED: no finish/skip-push decision within ${maxToolIterations} LLM round(s)`,
     "AGENTIC_LOOP_EXCEEDED"
   );
+}
+var TOTAL_TIMEOUT_CODE = "AGENTIC_TOTAL_TIMEOUT";
+function totalTimeoutError(totalTimeoutMs, rounds) {
+  return taggedRetryableError(
+    `${TOTAL_TIMEOUT_CODE}: fire chain exceeded ${totalTimeoutMs}ms after ${rounds} LLM round(s)`,
+    TOTAL_TIMEOUT_CODE
+  );
+}
+async function awaitWithinBudget(run, remainingMs, { hookController, makeError }) {
+  const expire = () => {
+    const error = makeError();
+    hookController.abort(error);
+    return error;
+  };
+  if (remainingMs <= 0) throw expire();
+  let timer;
+  const expired = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(expire()), Math.min(remainingMs, 2147483647));
+  });
+  try {
+    return await Promise.race([run(), expired]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 function taggedRetryableError(message, code2) {
   const error = new Error(message);
@@ -13838,9 +14708,7 @@ async function sendHookPushPayloads({
     progress.outboxed = outboxed;
     if (ctx._deliveryState) ctx._deliveryState.outboxed = outboxed;
     ctx.throwIfCancelled();
-    if (!ctx.vapid || !ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
-      throw new Error("VAPID configuration missing - push notifications cannot be sent");
-    }
+    assertVapidConfigured(ctx.vapid);
     const pushSubscription = await resolvePushSubscription({
       db: ctx.db,
       userId: task.user_id,
@@ -13865,14 +14733,6 @@ async function sendHookPushPayloads({
   } catch (error) {
     markUnrecoverablePartialDelivery(error, { outboxed, pushedCount });
     await markPushesDelivered({ db: ctx.db, userId: task.user_id, messageIds: sentIds });
-    if (isTaskCancelledError(error)) {
-      await discardUndeliveredPushes({
-        db: ctx.db,
-        userId: task.user_id,
-        pushes: finalized,
-        sentIds
-      });
-    }
     await notifyAfterSend(ctx, { ...afterSendBase, sentCount, pushedCount, outboxed, error });
     throw error;
   }
@@ -13912,13 +14772,17 @@ var RAW_CLOUD_ADAPTER = /* @__PURE__ */ Symbol("cloud-data-adapter");
 function guardError(code2, message) {
   return Object.assign(new Error(message), { code: code2, status: 409 });
 }
+var MAX_OWNER_LABEL_CHARS = 300;
 function validOwner(owner) {
-  return owner && typeof owner.type === "string" && owner.type.trim().length > 0 && owner.type.length <= 100 && typeof owner.id === "string" && owner.id.trim().length > 0 && owner.id.length <= 300;
+  return owner && typeof owner.type === "string" && owner.type.trim().length > 0 && owner.type.length <= 100 && typeof owner.id === "string" && owner.id.trim().length > 0 && owner.id.length <= 300 && (owner.label == null || typeof owner.label === "string" && owner.label.length <= MAX_OWNER_LABEL_CHARS);
+}
+function validOwnerGeneration(generation) {
+  return Number.isSafeInteger(generation) && generation >= 0;
 }
 function validateGuard(guard) {
   if (!validOwner(guard?.owner))
     throw guardError("INVALID_CLOUD_OWNER", "Cloud owner is invalid");
-  if (!Number.isSafeInteger(guard.generation) || guard.generation < 0) {
+  if (!validOwnerGeneration(guard.generation)) {
     throw guardError(
       "INVALID_CLOUD_OWNER_GENERATION",
       "Cloud owner generation must be a non-negative integer"
@@ -13969,6 +14833,15 @@ async function captureCloudTaskGuard(db, userId, payload, resolveOwner, task) {
   await assertCloudGuard(db, userId, guard);
   return guard;
 }
+async function readPreviousMetadata(stored2, userKey) {
+  try {
+    return JSON.parse(await decryptFromStorage(stored2, userKey));
+  } catch (error) {
+    if (!isStoredDataUndecryptableError(error)) throw error;
+    console.warn("[amsg-server] \u65E7\u5F52\u5C5E\u8BB0\u5F55\u89E3\u4E0D\u5F00\uFF08\u4E3B\u5BC6\u94A5\u6362\u8FC7\uFF1F\uFF09\uFF0C\u6309\u6CA1\u6709\u65E7\u8BB0\u5F55\u8986\u76D6\u5199\u5165");
+    return null;
+  }
+}
 function createCloudGuardedAdapter(db, {
   masterKey,
   resolveOwner,
@@ -13990,8 +14863,8 @@ function createCloudGuardedAdapter(db, {
       );
       expectedCloudMetadata = stored2;
       if (stored2) {
-        const previous = JSON.parse(await decryptFromStorage(stored2, userKey));
-        if (previous.owner) {
+        const previous = await readPreviousMetadata(stored2, userKey);
+        if (previous?.owner) {
           if (resolved.owner && (previous.owner.type !== resolved.owner.type || previous.owner.id !== resolved.owner.id)) {
             throw guardError(
               "CLOUD_OWNER_IMMUTABLE",
@@ -14048,6 +14921,16 @@ function createCloudGuardedAdapter(db, {
   const wrap = (name, fn) => {
     if (typeof db[name] === "function") methods.set(name, fn);
   };
+  const withSidecarRetry = async (attempt) => {
+    for (let tries = 0; ; tries++) {
+      try {
+        return await attempt();
+      } catch (error) {
+        if (error?.code !== "CLOUD_RESOURCE_CHANGED") throw error;
+        if (tries >= 2) throw Object.assign(error, { status: error.status ?? 409 });
+      }
+    }
+  };
   for (const method of ["createTask", "createTaskSuperseding"]) {
     wrap(method, async (params, supersedesUuid) => {
       const key = await keyFor(params.user_id);
@@ -14072,7 +14955,7 @@ function createCloudGuardedAdapter(db, {
   }
   wrap(
     "upsertClientState",
-    async (userId, entries2, cleanups = [], now = Date.now()) => {
+    (userId, entries2, cleanups = [], now = Date.now()) => withSidecarRetry(async () => {
       const key = await keyFor(userId);
       const roots = /* @__PURE__ */ new Map();
       const rows = [];
@@ -14130,9 +15013,9 @@ function createCloudGuardedAdapter(db, {
         now,
         inheritedGuard
       );
-    }
+    })
   );
-  wrap("upsertLlmCredentials", async (userId, entries2) => {
+  wrap("upsertLlmCredentials", (userId, entries2) => withSidecarRetry(async () => {
     const key = await keyFor(userId);
     const rows = [];
     for (const entry of entries2) {
@@ -14148,7 +15031,7 @@ function createCloudGuardedAdapter(db, {
       rows.push({ ...entry, ...metadata });
     }
     return db.upsertLlmCredentials(userId, rows, inheritedGuard);
-  });
+  }));
   wrap("appendOutboxMessages", async (userId, entries2) => {
     const key = await keyFor(userId);
     const rows = [];
@@ -14352,9 +15235,7 @@ async function redeliverCommittedBatch(task, ctx, userKey, decryptedPayload, bat
   if (pending.length === 0) {
     return { success: true, messagesSent, redelivered: true, pushedCount: 0 };
   }
-  if (!ctx.vapid || !ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
-    throw new Error("VAPID configuration missing - push notifications cannot be sent");
-  }
+  assertVapidConfigured(ctx.vapid);
   const pushSubscription = await resolvePushSubscription({
     db: ctx.db,
     userId: task.user_id,
@@ -14362,21 +15243,14 @@ async function redeliverCommittedBatch(task, ctx, userKey, decryptedPayload, bat
     legacyFallback: decryptedPayload.pushSubscription ?? null
   });
   const sentIds = [];
-  let cancelled = false;
   try {
     for (let i = 0; i < pending.length; i++) {
       await sendTaggedPush(ctx.webpush, pushSubscription, JSON.stringify(pending[i]));
       sentIds.push(pending[i].messageId);
       if (i < pending.length - 1) await sleepFor(ctx, SLEEP_BETWEEN_MESSAGES_MS2);
     }
-  } catch (error) {
-    cancelled = isTaskCancelledError(error);
-    throw error;
   } finally {
     await markPushesDelivered({ db: ctx.db, userId: task.user_id, messageIds: sentIds });
-    if (cancelled) {
-      await discardUndeliveredPushes({ db: ctx.db, userId: task.user_id, pushes: pending, sentIds });
-    }
   }
   return { success: true, messagesSent, redelivered: true, pushedCount: sentIds.length };
 }
@@ -14384,11 +15258,13 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
   const deliveryState = {
     outboxed: false,
     deliveryLimit: resolveMaxDeliveryRetries(ctx),
+    // 按任务定的 generation 上限要等 payload 解出来才算得出；解密、云守卫这些更早
+    // 的失败也得有个上限可查，先按投递上限兜着。
     generationLimit: resolveMaxDeliveryRetries(ctx),
     retryCount: task.retry_count ?? 0,
     isCancelled: ctx.isTaskCancelled
   };
-  ctx = { ...ctx, _deliveryState: deliveryState };
+  ctx = { ...ctx, _deliveryState: deliveryState, webpush: withPushSignal(ctx.webpush, ctx.signal) };
   try {
     const masterKey = providedMasterKey || ctx.masterKey;
     if (!masterKey) {
@@ -14401,13 +15277,20 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
       await assertCloudGuard(ctx.db, task.user_id, cloudGuard);
       const originalWebpush = ctx.webpush;
       const guardedDb = createCloudGuardedAdapter(ctx.db, { masterKey, resolveOwner: ctx.cloudData?.resolveOwner, guard: cloudGuard, userId: task.user_id });
-      ctx = { ...ctx, db: guardedDb, webpush: originalWebpush && {
-        ...originalWebpush,
-        async sendNotification(...args) {
-          await assertCloudGuard(guardedDb, task.user_id, cloudGuard);
-          return originalWebpush.sendNotification(...args);
-        }
-      } };
+      let guardedWebpush = originalWebpush;
+      if (originalWebpush) {
+        guardedWebpush = Object.create(originalWebpush);
+        Object.defineProperty(guardedWebpush, "sendNotification", {
+          value: async (...args) => {
+            await assertCloudGuard(guardedDb, task.user_id, cloudGuard);
+            return originalWebpush.sendNotification(...args);
+          },
+          writable: true,
+          enumerable: true,
+          configurable: true
+        });
+      }
+      ctx = { ...ctx, db: guardedDb, webpush: guardedWebpush };
     }
     const committed = await findCommittedBatch({
       db: ctx.db,
@@ -14502,9 +15385,7 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
     const pushesToSend = reasoningPush ? [reasoningPush, ...contentPushes] : contentPushes;
     const outboxed = await appendPushesToOutbox({ db: ctx.db, userId: task.user_id, userKey, pushes: pushesToSend });
     deliveryState.outboxed = outboxed;
-    if (!ctx.vapid.email || !ctx.vapid.publicKey || !ctx.vapid.privateKey) {
-      throw new Error("VAPID configuration missing - push notifications cannot be sent");
-    }
+    assertVapidConfigured(ctx.vapid);
     const pushSubscription = await resolvePushSubscription({
       db: ctx.db,
       userId: task.user_id,
@@ -14514,7 +15395,6 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
     const pushGate = { outboxed };
     const contentToPush = contentPushes.filter((push) => shouldSendPush(push, pushGate));
     const sentIds = [];
-    let cancelledMidBurst = false;
     let reasoningError;
     try {
       if (reasoningPush && shouldSendPush(reasoningPush, pushGate)) {
@@ -14534,18 +15414,9 @@ async function processSingleMessage(task, ctx, providedMasterKey, predecrypted =
         }
       }
     } catch (error) {
-      cancelledMidBurst = isTaskCancelledError(error);
       throw markUnrecoverablePartialDelivery(error, { outboxed, pushedCount: sentIds.length });
     } finally {
       await markPushesDelivered({ db: ctx.db, userId: task.user_id, messageIds: sentIds });
-      if (cancelledMidBurst) {
-        await discardUndeliveredPushes({
-          db: ctx.db,
-          userId: task.user_id,
-          pushes: pushesToSend,
-          sentIds
-        });
-      }
     }
     return {
       success: true,
@@ -14997,9 +15868,19 @@ async function deriveSerializeGroup(userKey, rawKey) {
   return bytesToBase64Url(await hmacSha256(utf8(userKey), utf8(rawKey)));
 }
 async function runScheduledTick(ctx) {
-  const tasks = await ctx.db.getPendingTasks(50);
-  const summary = await deliverTasks(ctx, tasks);
-  await ctx.db.cleanupOldTasks(7);
+  try {
+    const tasks = await ctx.db.getPendingTasks(50);
+    return await deliverTasks(ctx, tasks);
+  } finally {
+    await runTickCleanup(ctx);
+  }
+}
+async function runTickCleanup(ctx) {
+  try {
+    await ctx.db.cleanupOldTasks(7);
+  } catch (error) {
+    console.warn("[amsg-server] cleanupOldTasks \u5931\u8D25\uFF08\u5DF2\u5FFD\u7565\uFF09:", error && error.message);
+  }
   if (typeof ctx.db.cleanupOutbox === "function") {
     try {
       await ctx.db.cleanupOutbox({
@@ -15011,7 +15892,6 @@ async function runScheduledTick(ctx) {
     }
   }
   await cleanupExpiredClientState(ctx);
-  return summary;
 }
 async function cleanupExpiredClientState(ctx) {
   if (typeof ctx.db.cleanupClientState !== "function") return;
@@ -15057,7 +15937,7 @@ async function deliverTasks(ctx, tasks) {
   const serializeBy = typeof ctx.serializeBy === "function" ? ctx.serializeBy : null;
   const heartbeatMs = ctx.leaseHeartbeatMs === 0 ? 0 : positiveNumber(ctx.leaseHeartbeatMs) || DEFAULT_LEASE_HEARTBEAT_MS;
   const heartbeatEnabled = heartbeatMs > 0 && typeof db.claimTask === "function" && typeof db.renewTaskLease === "function";
-  const heartbeatLeaseTtlMs = Math.max(DEFAULT_HEARTBEAT_LEASE_TTL_MS, heartbeatMs * 2);
+  const heartbeatLeaseTtlMs = Math.max(DEFAULT_HEARTBEAT_LEASE_TTL_MS, heartbeatMs * 3);
   const startTime = Date.now();
   const MAX_CONCURRENT = 8;
   const results = {
@@ -15071,28 +15951,42 @@ async function deliverTasks(ctx, tasks) {
     staleTasks: [],
     deferredTasks: [],
     cancelledTasks: [],
+    leaseLostTasks: [],
     reasoningSkippedTasks: [],
     redeliveredTasks: [],
     failedTasks: []
   };
   const groupsTakenThisTick = /* @__PURE__ */ new Set();
   const taskCloudGuards = /* @__PURE__ */ new Map();
+  const leaseOptions = (taskId) => {
+    const token = activeLeases.get(taskId)?.token;
+    return token ? { leaseToken: token } : null;
+  };
   const updateLifecycleTask = (taskId, fields) => {
-    const guard = taskCloudGuards.get(taskId);
-    return guard ? db.updateTaskById(taskId, fields, guard) : db.updateTaskById(taskId, fields);
+    const guard = taskCloudGuards.get(taskId) ?? null;
+    const options2 = leaseOptions(taskId);
+    if (!guard && !options2) return db.updateTaskById(taskId, fields);
+    return db.updateTaskById(taskId, fields, guard, options2 ?? {});
   };
   const supportsClaim = typeof db.claimTask === "function";
-  async function claimForThisTick(task, serializeGroup) {
+  async function claimForThisTick(task, serializeGroup, leaseToken) {
     if (!supportsClaim) return true;
     const leaseUntil = new Date(
       Date.now() + (heartbeatEnabled ? heartbeatLeaseTtlMs : claimLeaseMs)
     ).toISOString();
-    const guard = taskCloudGuards.get(task.id);
-    return !!(guard ? await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup, guard) : await db.claimTask(task.id, task.next_send_at, leaseUntil, serializeGroup));
+    const guard = taskCloudGuards.get(task.id) ?? null;
+    return !!await db.claimTask(
+      task.id,
+      task.next_send_at,
+      leaseUntil,
+      serializeGroup,
+      guard,
+      { leaseToken, userId: task.user_id }
+    );
   }
-  function startLeaseHeartbeat(task) {
+  function startLeaseHeartbeat(task, leaseToken) {
     const controller = new AbortController();
-    const lease = { lost: false, released: false, signal: controller.signal, stop: () => {
+    const lease = { lost: false, released: false, token: leaseToken, signal: controller.signal, stop: () => {
     } };
     if (!heartbeatEnabled) return lease;
     let stopped = false;
@@ -15101,12 +15995,16 @@ async function deliverTasks(ctx, tasks) {
       if (stopped) return;
       let renewed;
       try {
-        const guard = taskCloudGuards.get(task.id);
+        const guard = taskCloudGuards.get(task.id) ?? null;
         const until = new Date(Date.now() + heartbeatLeaseTtlMs).toISOString();
-        renewed = guard ? await db.renewTaskLease(task.id, until, guard) : await db.renewTaskLease(task.id, until);
+        renewed = await db.renewTaskLease(task.id, until, guard, { leaseToken, userId: task.user_id });
       } catch (error) {
-        if (error?.code === "CLOUD_OWNER_RETIRED") renewed = false;
-        else console.warn("[amsg-server] \u79DF\u7EA6\u7EED\u79DF\u5931\u8D25\uFF08\u4E0B\u4E2A\u5FC3\u8DF3\u518D\u8BD5\uFF09:", error && error.message);
+        if (error?.code === "CLOUD_OWNER_RETIRED") {
+          lease.ownerRetired = true;
+          renewed = false;
+        } else {
+          console.warn("[amsg-server] \u79DF\u7EA6\u7EED\u79DF\u5931\u8D25\uFF08\u4E0B\u4E2A\u5FC3\u8DF3\u518D\u8BD5\uFF09:", error && error.message);
+        }
       }
       if (renewed === false) {
         if (stopped || lease.released) return;
@@ -15114,7 +16012,7 @@ async function deliverTasks(ctx, tasks) {
         const error = new Error("Task was cancelled or superseded");
         error.code = TASK_CANCELLED_CODE;
         controller.abort(error);
-        console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u7684\u79DF\u7EA6\u5DF2\u5931\u6548\uFF08\u884C\u88AB\u53D6\u6D88\u6216\u9876\u66FF\uFF09\uFF0C\u5269\u4F59\u63A8\u9001\u5C06\u4E2D\u6B62`);
+        console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u7684\u79DF\u7EA6\u5DF2\u5931\u6548\uFF08\u884C\u88AB\u53D6\u6D88\u3001\u9876\u66FF\uFF0C\u6216\u79DF\u7EA6\u8FC7\u671F\u540E\u88AB\u522B\u7684 tick \u63A5\u624B\uFF09\uFF0C\u5269\u4F59\u63A8\u9001\u5C06\u4E2D\u6B62`);
         return;
       }
       if (!stopped) schedule();
@@ -15200,6 +16098,10 @@ async function deliverTasks(ctx, tasks) {
     groupsTakenThisTick.add(scopedKey);
     return { taken: false, rawKey };
   }
+  function anchorMsOf(decryptedPayload) {
+    const ms = decryptedPayload && decryptedPayload.firstSendTime ? Date.parse(decryptedPayload.firstSendTime) : NaN;
+    return Number.isNaN(ms) ? void 0 : ms;
+  }
   async function recordCancelled(task, status) {
     results.cancelledTasks.push({
       taskId: task.id,
@@ -15208,6 +16110,26 @@ async function deliverTasks(ctx, tasks) {
     });
     console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u5728\u6295\u9012\u671F\u95F4\u88AB\u53D6\u6D88\u6216\u9876\u66FF\uFF08${status}\uFF09`);
     await discardUndeliveredPushesForTask({ db, userId: task.user_id, taskUuid: task.uuid });
+  }
+  async function recordLostLease(task, status) {
+    if (activeLeases.get(task.id)?.ownerRetired) {
+      await recordCancelled(task, "owner_retired");
+      return;
+    }
+    let rowGone = !task.uuid;
+    if (task.uuid) {
+      try {
+        rowGone = await db.getTaskStatus(task.uuid, task.user_id) === null;
+      } catch (_readError) {
+        rowGone = false;
+      }
+    }
+    if (rowGone) {
+      await recordCancelled(task, status);
+      return;
+    }
+    results.leaseLostTasks.push({ taskId: task.id, status });
+    console.warn(`[amsg-server] \u4EFB\u52A1 ${task.id} \u7684\u79DF\u7EA6\u5DF2\u88AB\u522B\u7684 tick \u63A5\u624B\uFF08${status}\uFF09\uFF0C\u672C\u8DF3\u4E0D\u518D\u5199\u8FD9\u6761\u4EFB\u52A1`);
   }
   async function payloadStillFresh(task) {
     if (typeof db.getTaskByUuid !== "function" || !task.uuid) return true;
@@ -15260,56 +16182,68 @@ async function deliverTasks(ctx, tasks) {
     const tzId = decryptedPayload ? decryptedPayload.tzId ?? null : null;
     const permanent = isPermanentDeliveryFailure({ permanent: failure.permanent, errorCode, pushStatus });
     const errorExtra = buildErrorExtra(errorCode, pushStatus);
+    const landed = async (write) => {
+      if (!rowVanished(await write)) return true;
+      results.failedCount--;
+      await recordLostLease(task, "cancelled_mid_delivery");
+      return false;
+    };
     try {
       if (permanent || failure.willRetry === false || task.retry_count >= (failure.retryLimit ?? maxDeliveryRetries)) {
         const encrypted = await encryptPayloadWithLastError(task, decryptedPayload, userKey, reason, errorExtra);
         if (isRecurringType(recurrenceType)) {
-          const nextSendAt = nextFutureOccurrence(Date.parse(task.next_send_at), recurrenceType, Date.now(), tzId);
-          await updateAndRelease(task.id, {
+          const nextSendAt = nextFutureOccurrence(Date.parse(task.next_send_at), recurrenceType, Date.now(), tzId, anchorMsOf(decryptedPayload));
+          if (!await landed(updateAndRelease(task.id, {
             next_send_at: nextSendAt,
             retry_count: 0,
             ...encrypted ? { encrypted_payload: encrypted } : {},
             last_error: lastErrorJson(task, reason, errorExtra)
-          });
+          }))) return;
           results.failedTasks.push({ taskId: task.id, reason, retryCount: task.retry_count, status: "occurrence_skipped", nextSendAt, ...permanent ? { permanent: true } : {} });
         } else {
-          await updateAndRelease(task.id, {
+          if (!await landed(updateAndRelease(task.id, {
             status: "failed",
             ...encrypted ? { encrypted_payload: encrypted } : {},
             last_error: lastErrorJson(task, reason, errorExtra)
-          });
+          }))) return;
           results.failedTasks.push({ taskId: task.id, reason, retryCount: task.retry_count, status: "permanently_failed", ...permanent ? { permanent: true } : {} });
         }
       } else {
         const nextRetryTime = new Date(Date.now() + (task.retry_count + 1) * 2 * 60 * 1e3);
         if (supportsClaim) {
-          await updateTaskWithLastError(task.id, {
+          if (!await landed(updateTaskWithLastError(task.id, {
             retry_after: nextRetryTime.toISOString(),
             lease_until: null,
             retry_count: task.retry_count + 1,
             last_error: lastErrorJson(task, reason, errorExtra)
-          });
+          }))) return;
         } else {
-          await updateTaskWithLastError(task.id, {
+          if (!await landed(updateTaskWithLastError(task.id, {
             next_send_at: nextRetryTime.toISOString(),
             retry_count: task.retry_count + 1,
             last_error: lastErrorJson(task, reason, errorExtra)
-          });
+          }))) return;
         }
         results.failedTasks.push({ taskId: task.id, reason, retryCount: task.retry_count + 1, nextRetryAt: nextRetryTime.toISOString() });
       }
     } catch (updateError) {
-      results.failedTasks.push({ taskId: task.id, reason, status: "retry_update_failed", updateError: updateError.message });
+      results.failedTasks.push({ taskId: task.id, reason, status: "retry_update_failed", updateError: updateError?.message ?? String(updateError) });
     }
   }
-  async function handlePostSendPersistenceFailure(task, reason, recurrenceType, tzId) {
+  async function handlePostSendPersistenceFailure(task, reason, recurrenceType, tzId, anchorMs) {
     results.failedCount++;
+    const vanished = async (write) => {
+      if (!rowVanished(await write)) return false;
+      results.failedCount--;
+      await recordLostLease(task, "cancelled_after_delivery");
+      return true;
+    };
     if (isRecurringType(recurrenceType)) {
       let advanced = false;
       let nextSendAt = null;
       try {
-        nextSendAt = nextFutureOccurrence(Date.parse(task.next_send_at), recurrenceType, Date.now(), tzId);
-        await updateAndRelease(task.id, { next_send_at: nextSendAt, retry_count: 0 });
+        nextSendAt = nextFutureOccurrence(Date.parse(task.next_send_at), recurrenceType, Date.now(), tzId, anchorMs);
+        if (await vanished(updateAndRelease(task.id, { next_send_at: nextSendAt, retry_count: 0 }))) return;
         advanced = true;
       } catch (_advanceError) {
         advanced = false;
@@ -15324,7 +16258,7 @@ async function deliverTasks(ctx, tasks) {
     }
     let markedSent = false;
     try {
-      await updateAndRelease(task.id, { status: "sent", retry_count: 0 });
+      if (await vanished(updateAndRelease(task.id, { status: "sent", retry_count: 0 }))) return;
       markedSent = true;
     } catch (_markSentError) {
       markedSent = false;
@@ -15340,27 +16274,28 @@ async function deliverTasks(ctx, tasks) {
     const decryptedPayload = decrypted.ok ? decrypted.payload : null;
     const userKey = decrypted.ok ? decrypted.userKey : null;
     const serializeGroup = serializeKey ? await deriveSerializeGroup(userKey, serializeKey) : null;
+    const leaseToken = supportsClaim ? globalThis.crypto.randomUUID() : null;
     let claimed;
     try {
       if (decrypted.ok) {
         const guard = await captureCloudTaskGuard(db, task.user_id, decryptedPayload, ctx.cloudData?.resolveOwner, task);
         if (guard) taskCloudGuards.set(task.id, guard);
       }
-      claimed = await claimForThisTick(task, serializeGroup);
+      claimed = await claimForThisTick(task, serializeGroup, leaseToken);
     } catch (error) {
       if (error?.code === "CLOUD_OWNER_RETIRED") {
         await recordCancelled(task, "owner_retired");
         return;
       }
       results.failedCount++;
-      results.failedTasks.push({ taskId: task.id, reason: error.message || "\u4EFB\u52A1\u5360\u4F4D\u5931\u8D25", status: "claim_failed" });
+      results.failedTasks.push({ taskId: task.id, reason: error?.message || "\u4EFB\u52A1\u5360\u4F4D\u5931\u8D25", status: "claim_failed" });
       return;
     }
     if (!claimed) {
       results.claimSkippedTasks++;
       return;
     }
-    const lease = startLeaseHeartbeat(task);
+    const lease = startLeaseHeartbeat(task, leaseToken);
     activeLeases.set(task.id, lease);
     try {
       await deliverClaimedTask(task, decrypted, lease);
@@ -15373,7 +16308,7 @@ async function deliverTasks(ctx, tasks) {
     const decryptedPayload = decrypted.ok ? decrypted.payload : null;
     const userKey = decrypted.ok ? decrypted.userKey : null;
     if (!decrypted.ok) {
-      await handleDeliveryFailure(task, decrypted.error && decrypted.error.message || "\u4EFB\u52A1\u8F7D\u8377\u89E3\u5BC6\u5931\u8D25", null, null, null);
+      await handleDeliveryFailure(task, decrypted.error && decrypted.error.message || "\u4EFB\u52A1\u8F7D\u8377\u89E3\u5BC6\u5931\u8D25", null, null, null, { errorCode: decrypted.error?.code });
       return;
     }
     const recurrenceType = decryptedPayload.recurrenceType;
@@ -15410,7 +16345,7 @@ async function deliverTasks(ctx, tasks) {
           isCancelled: () => lease.lost
         });
         const recurring = isRecurringType(recurrenceType);
-        const plan = recurring ? planNextOccurrence(occurrenceMs, recurrenceType, Date.now(), tzId) : null;
+        const plan = recurring ? planNextOccurrence(occurrenceMs, recurrenceType, Date.now(), tzId, anchorMsOf(decryptedPayload)) : null;
         const nextSendAt = recurring ? new Date(plan.nextMs).toISOString() : null;
         const action = recurring ? "fast_forwarded" : "expired";
         const skippedCount = recurring ? plan.skippedCount : 1;
@@ -15421,11 +16356,16 @@ async function deliverTasks(ctx, tasks) {
           "stale",
           recurring ? { skippedCount, nextSendAt } : void 0
         );
-        await updateAndRelease(task.id, {
+        const settled = await updateAndRelease(task.id, {
           ...recurring ? { next_send_at: nextSendAt, retry_count: 0 } : { status: "failed" },
           ...encrypted ? { encrypted_payload: encrypted } : {},
           last_error: lastErrorJson(task, "stale", recurring ? { skippedCount, nextSendAt } : void 0)
         });
+        if (rowVanished(settled)) {
+          await recordLostLease(task, "cancelled_before_delivery");
+          return;
+        }
+        await discardUndeliveredPushesForTask({ db, userId: task.user_id, taskUuid: task.uuid });
         results.staleTasks.push({
           taskId: task.id,
           reason: "stale",
@@ -15448,7 +16388,7 @@ async function deliverTasks(ctx, tasks) {
         });
       } catch (error) {
         results.failedCount++;
-        results.failedTasks.push({ taskId: task.id, reason: error.message || "\u8FC7\u671F\u4EFB\u52A1\u5904\u7406\u5931\u8D25", status: "stale_update_failed" });
+        results.failedTasks.push({ taskId: task.id, reason: error?.message || "\u8FC7\u671F\u4EFB\u52A1\u5904\u7406\u5931\u8D25", status: "stale_update_failed" });
       }
     };
     if (Number.isFinite(occurrenceMs) && Date.now() - occurrenceMs > staleAfterMs && notOnFreshRetryChain) {
@@ -15467,13 +16407,13 @@ async function deliverTasks(ctx, tasks) {
           lease_until: null
         });
         if (rowVanished(updated)) {
-          await recordCancelled(task, "cancelled_mid_delivery");
+          await recordLostLease(task, "cancelled_mid_delivery");
           return;
         }
         results.deferredTasks.push({ taskId: task.id, retryAfter: retryAfter2 });
       } catch (error) {
         results.failedCount++;
-        results.failedTasks.push({ taskId: task.id, reason: error.message || "\u63A8\u8FDF\u5199\u5E93\u5931\u8D25", status: "defer_update_failed" });
+        results.failedTasks.push({ taskId: task.id, reason: error?.message || "\u63A8\u8FDF\u5199\u5E93\u5931\u8D25", status: "defer_update_failed" });
       }
     };
     let sendResult;
@@ -15497,12 +16437,12 @@ async function deliverTasks(ctx, tasks) {
       );
     } catch (error) {
       if (lease.lost) {
-        await recordCancelled(task, "cancelled_mid_delivery");
+        await recordLostLease(task, "cancelled_mid_delivery");
         return;
       }
       await handleDeliveryFailure(
         task,
-        error.message || "\u6D88\u606F\u53D1\u9001\u5931\u8D25",
+        error?.message || "\u6D88\u606F\u53D1\u9001\u5931\u8D25",
         recurrenceType,
         decryptedPayload,
         userKey,
@@ -15512,7 +16452,7 @@ async function deliverTasks(ctx, tasks) {
     }
     if (sendResult.deferred) {
       if (lease.lost) {
-        await recordCancelled(task, "cancelled_mid_delivery");
+        await recordLostLease(task, "cancelled_mid_delivery");
         return;
       }
       await handleDeferred(sendResult.retryAfter);
@@ -15524,7 +16464,7 @@ async function deliverTasks(ctx, tasks) {
         return;
       }
       if (lease.lost) {
-        await recordCancelled(task, "cancelled_mid_delivery");
+        await recordLostLease(task, "cancelled_mid_delivery");
         return;
       }
       await handleDeliveryFailure(
@@ -15549,13 +16489,14 @@ async function deliverTasks(ctx, tasks) {
     try {
       if (recurrenceType === "none") {
         markLeaseReleased(task.id);
-        if (rowVanished(await db.deleteTaskById(task.id))) {
-          await recordCancelled(task, "cancelled_after_delivery");
+        const deleteOptions = leaseOptions(task.id);
+        if (rowVanished(deleteOptions ? await db.deleteTaskById(task.id, deleteOptions) : await db.deleteTaskById(task.id))) {
+          await recordLostLease(task, "cancelled_after_delivery");
           return;
         }
         results.deletedOnceOffTasks++;
       } else {
-        const nextSendAt = nextFutureOccurrence(occurrenceMs, recurrenceType, Date.now(), tzId);
+        const nextSendAt = nextFutureOccurrence(occurrenceMs, recurrenceType, Date.now(), tzId, anchorMsOf(decryptedPayload));
         const clearedPayload = decryptedPayload && decryptedPayload.lastError ? await encryptPayloadWithoutLastError(task, decryptedPayload, userKey) : null;
         const updated = await updateAndRelease(task.id, {
           next_send_at: nextSendAt,
@@ -15564,14 +16505,14 @@ async function deliverTasks(ctx, tasks) {
           ...clearedPayload ? { encrypted_payload: clearedPayload } : {}
         });
         if (rowVanished(updated)) {
-          await recordCancelled(task, "cancelled_after_delivery");
+          await recordLostLease(task, "cancelled_after_delivery");
           return;
         }
         results.updatedRecurringTasks++;
       }
       results.successCount++;
     } catch (error) {
-      await handlePostSendPersistenceFailure(task, error.message || "\u53D1\u9001\u540E\u72B6\u6001\u66F4\u65B0\u5931\u8D25", recurrenceType, tzId);
+      await handlePostSendPersistenceFailure(task, error?.message || "\u53D1\u9001\u540E\u72B6\u6001\u66F4\u65B0\u5931\u8D25", recurrenceType, tzId, anchorMsOf(decryptedPayload));
     }
   }
   const taskQueue = [];
@@ -15588,9 +16529,12 @@ async function deliverTasks(ctx, tasks) {
   while (taskQueue.length > 0 || processing.length > 0) {
     while (processing.length < MAX_CONCURRENT && taskQueue.length > 0) {
       const entry = taskQueue.shift();
-      const promise = processTask(entry);
+      const promise = processTask(entry).catch((error) => {
+        results.failedCount++;
+        results.failedTasks.push({ taskId: entry.task.id, reason: error?.message || "\u4EFB\u52A1\u5904\u7406\u5F02\u5E38", status: "unexpected_error" });
+      });
       processing.push(promise);
-      promise.finally(() => {
+      promise.then(() => {
         const index = processing.indexOf(promise);
         if (index > -1) processing.splice(index, 1);
       });
@@ -15619,8 +16563,12 @@ async function deliverTasks(ctx, tasks) {
       deferredTasks: results.deferredTasks,
       // 投递期间行被取消 / 顶替的任务。`cancelled_mid_delivery` = 推送在发出去
       // 之前被拦下；`cancelled_after_delivery` = 推送已经发完，收尾写库才发现
-      // 行没了。两种都不计入 successCount / failedCount。
+      // 行没了；`cancelled_before_delivery` = 过期收场写库时发现行没了。三种都
+      // 不计入 successCount / failedCount。
       cancelledTasks: results.cancelledTasks,
+      // 租约过期后被别的 tick 接手的任务（{ taskId, status }，status 与上面同一
+      // 套：说明是在哪一步发现的）。这边没再写过这条任务，也不计成功 / 失败。
+      leaseLostTasks: results.leaseLostTasks,
       // 正文送到了、只有思考过程没发出去的任务（{ taskId, reason }）。这些任务
       // 照常计入 successCount——列在这里只是让「这次没有思考过程」看得见。
       reasoningSkippedTasks: results.reasoningSkippedTasks,
@@ -15678,6 +16626,12 @@ function createUpdateMessageHandler(ctx) {
     }
     if (updates.nextSendAt && !isValidISO8601(updates.nextSendAt)) {
       return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "\u66F4\u65B0\u6570\u636E\u683C\u5F0F\u9519\u8BEF", details: { invalidFields: ["nextSendAt"] } } } };
+    }
+    if (updates.nextSendAt && !isFutureTimestamp(updates.nextSendAt)) {
+      return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "nextSendAt \u5FC5\u987B\u5728\u672A\u6765", details: { invalidFields: ["nextSendAt"] } } } };
+    }
+    if (updates.metadata != null && !isPlainObject(updates.metadata)) {
+      return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "metadata \u5FC5\u987B\u662F\u666E\u901A\u5BF9\u8C61", details: { invalidFields: ["metadata"] } } } };
     }
     if (Object.prototype.hasOwnProperty.call(updates, "contactName") && (typeof updates.contactName !== "string" || !updates.contactName.trim())) {
       return { status: 400, body: { success: false, error: { code: "INVALID_UPDATE_DATA", message: "contactName \u5FC5\u987B\u662F\u975E\u7A7A\u5B57\u7B26\u4E32", details: { invalidFields: ["contactName"] } } } };
@@ -15777,6 +16731,9 @@ function createUpdateMessageHandler(ctx) {
       ...promptUpdates,
       ...Object.prototype.hasOwnProperty.call(updates, "contactName") && { contactName: updates.contactName },
       ...updates.userMessage && { userMessage: updates.userMessage },
+      // 改排期时 payload 里的首发时刻跟着走（与 hook 的 renewTask 同口径）：循环
+      // 任务推进用它当锚点，不同步的话春令时顺延后回不到用户改过的钟点。
+      ...updates.nextSendAt && { firstSendTime: updates.nextSendAt },
       ...updates.recurrenceType && { recurrenceType: updates.recurrenceType },
       ...Object.prototype.hasOwnProperty.call(updates, "tzId") && { tzId: updates.tzId ?? null },
       // avatarUrl 走 truthy spread：显式传 null 只是「不改」，不是「清空」。
@@ -15882,6 +16839,7 @@ function createCancelMessageHandler(ctx) {
   }
   return { DELETE };
 }
+var TASK_STATUS_FILTERS = ["all", "pending", "sent", "failed"];
 function createMessagesHandler(ctx) {
   async function GET(url, headers) {
     const tenantResult = await ctx.tenantManager.resolveTenant(headers, { url });
@@ -15898,6 +16856,9 @@ function createMessagesHandler(ctx) {
     const status = u.searchParams.get("status") || "all";
     const limit = Math.min(parseInt(u.searchParams.get("limit") || "20", 10), 100);
     const offset = parseInt(u.searchParams.get("offset") || "0", 10);
+    if (!TASK_STATUS_FILTERS.includes(status)) {
+      return { status: 400, body: { success: false, error: { code: "INVALID_PARAMETERS", message: `status \u53C2\u6570\u65E0\u6548\uFF0C\u5FC5\u987B\u662F ${TASK_STATUS_FILTERS.join(" / ")} \u4E4B\u4E00` } } };
+    }
     if (isNaN(limit) || limit < 1) {
       return { status: 400, body: { success: false, error: { code: "INVALID_PARAMETERS", message: "limit \u53C2\u6570\u65E0\u6548\uFF0C\u5FC5\u987B\u4E3A\u6B63\u6574\u6570" } } };
     }
@@ -15906,10 +16867,7 @@ function createMessagesHandler(ctx) {
     }
     const { tasks, total } = await db.listTasks(userId, { status, limit, offset });
     const userKey = await deriveUserEncryptionKey(userId, masterKey);
-    const decryptedTasks = await Promise.all(tasks.map(async (task) => {
-      const decrypted = JSON.parse(await decryptFromStorage(task.encrypted_payload, userKey));
-      return projectTask(task, decrypted);
-    }));
+    const decryptedTasks = await Promise.all(tasks.map((task) => projectStoredTask(task, userKey)));
     const responsePayload = {
       tasks: decryptedTasks,
       pagination: { total, limit, offset, hasMore: offset + limit < total }
@@ -16257,6 +17215,7 @@ var SQLITE_TABLE_SQL = `
     message_type TEXT NOT NULL CHECK (message_type IN ('fixed', 'prompted', 'auto', 'instant')),
     next_send_at TEXT NOT NULL,
     lease_until TEXT,
+    lease_token TEXT,
     retry_after TEXT,
     serialize_group TEXT,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'sent', 'failed')),
@@ -16289,6 +17248,11 @@ var SQLITE_MIGRATIONS = [
     // 解密失败时也写得进去，GET /message 对已失败的行也读得出来。
     sql: "ALTER TABLE scheduled_messages ADD COLUMN last_error TEXT",
     description: "Sanitized last delivery-failure summary (2.6.0)"
+  },
+  {
+    name: "add_lease_token",
+    sql: "ALTER TABLE scheduled_messages ADD COLUMN lease_token TEXT",
+    description: "Lease ownership token (claimTask / renewTaskLease)"
   }
 ];
 var SQLITE_INDEXES = [
@@ -16723,11 +17687,12 @@ var D1Adapter = class {
       return indexes.map((index) => results[index]);
     } catch (error) {
       if (/cloud_metadata_guard/.test(error.message || "")) {
-        throw Object.assign(new Error("Cloud resource ownership changed"), { code: "CLOUD_RESOURCE_CHANGED" });
+        throw Object.assign(new Error("Cloud resource ownership changed"), { code: "CLOUD_RESOURCE_CHANGED", status: 409 });
       }
       if (/cloud_owner_guard/.test(error.message || "")) {
         const denied = new Error("Cloud owner is retired or generation changed");
         denied.code = "CLOUD_OWNER_RETIRED";
+        denied.status = 409;
         throw denied;
       }
       throw error;
@@ -17171,7 +18136,7 @@ var D1Adapter = class {
       );
     }
     return {
-      columnsCreated: 13,
+      columnsCreated: SQLITE_REQUIRED_SCHEMA.tables.scheduled_messages.length,
       indexesCreated: indexResults.filter((r) => r.status === "success").length,
       indexesFailed: indexResults.filter((r) => r.status === "failed").length,
       columns: [],
@@ -17296,7 +18261,9 @@ var D1Adapter = class {
     ).bind(uuid).first();
     return row ? { status: row.status } : null;
   }
-  async updateTaskById(taskId, updates, cloudGuard = null) {
+  // options.leaseToken 见 interface.js：带上时只改仍持有这份租约的行，改不到
+  // 回 null（行没了，或租约已经是别人的）。
+  async updateTaskById(taskId, updates, cloudGuard = null, options2 = {}) {
     const sets = [];
     const values = [];
     for (const [key, value] of Object.entries(updates)) {
@@ -17311,12 +18278,18 @@ var D1Adapter = class {
       values.push(this._now());
     }
     values.push(taskId);
+    let tokenGate = "";
+    if (options2?.leaseToken) {
+      tokenGate = " AND lease_token = ?";
+      values.push(options2.leaseToken);
+    }
     const statement = this._db.prepare(
-      `UPDATE scheduled_messages SET ${sets.join(", ")} WHERE id = ?`
+      `UPDATE scheduled_messages SET ${sets.join(", ")} WHERE id = ?${tokenGate}`
     ).bind(...values);
     const ownerUser = cloudGuard ? await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first() : null;
     if (cloudGuard && !ownerUser) return null;
-    await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
+    const [res] = await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
+    if (tokenGate && !(res.meta.changes > 0)) return null;
     return this._db.prepare("SELECT * FROM scheduled_messages WHERE id = ?").bind(taskId).first();
   }
   /**
@@ -17355,8 +18328,14 @@ var D1Adapter = class {
     if (!res.meta.changes) return null;
     return { uuid, updated_at: now };
   }
-  async deleteTaskById(taskId) {
-    const res = await this._db.prepare("DELETE FROM scheduled_messages WHERE id = ?").bind(taskId).run();
+  async deleteTaskById(taskId, options2 = {}) {
+    const values = [taskId];
+    let tokenGate = "";
+    if (options2?.leaseToken) {
+      tokenGate = " AND lease_token = ?";
+      values.push(options2.leaseToken);
+    }
+    const res = await this._db.prepare(`DELETE FROM scheduled_messages WHERE id = ?${tokenGate}`).bind(...values).run();
     return res.meta.changes > 0;
   }
   async deleteTaskByUuid(uuid, userId) {
@@ -17409,10 +18388,14 @@ var D1Adapter = class {
    * @param {string} expectedNextSendAt - 读这行时拿到的 next_send_at 原值
    * @param {string|Date} leaseUntil - 租期末尾
    * @param {string|null} [serializeGroup] - 串行分组标识；空表示不参与分组串行
+   * @param {Object|null} [cloudGuard]
+   * @param {{ leaseToken?: string|null, userId?: string|null }} [options] -
+   *   `leaseToken` 随租约写进 lease_token，之后续租 / 收尾写库带同一个值比对；
+   *   `userId` 是这行的 user_id（调用方手里有就传，带 cloudGuard 时省掉一次查）
    * @returns {Promise<boolean>} true = 领到了；false = 别人正拿着租约、同分组
    *   有任务正在跑、排期被改过、或行已不是 pending
    */
-  async claimTask(taskId, expectedNextSendAt, leaseUntil, serializeGroup = null, cloudGuard = null) {
+  async claimTask(taskId, expectedNextSendAt, leaseUntil, serializeGroup = null, cloudGuard = null, options2 = {}) {
     const expected = typeof expectedNextSendAt === "string" ? expectedNextSendAt : this._iso(expectedNextSendAt);
     const grouped = typeof serializeGroup === "string" && serializeGroup.length > 0;
     const now = this._now();
@@ -17421,6 +18404,10 @@ var D1Adapter = class {
     if (grouped) {
       sets.push("serialize_group = ?");
       values.push(serializeGroup);
+    }
+    if (options2?.leaseToken) {
+      sets.push("lease_token = ?");
+      values.push(options2.leaseToken);
     }
     sets.push("updated_at = ?");
     values.push(now);
@@ -17439,28 +18426,50 @@ var D1Adapter = class {
     const statement = this._db.prepare(
       `UPDATE scheduled_messages SET ${sets.join(", ")} WHERE ${where}`
     ).bind(...values);
-    const ownerUser = cloudGuard ? await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first() : null;
-    if (cloudGuard && !ownerUser) return false;
-    const [res] = await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
+    const ownerUserId = await this._taskOwnerForGuard(taskId, cloudGuard, options2?.userId);
+    if (cloudGuard && !ownerUserId) return false;
+    const [res] = await this._cloudBatch([statement], ownerUserId, [cloudGuard]);
     return (res.meta.changes || 0) > 0;
+  }
+  /**
+   * 带 cloudGuard 的写要知道这行归哪个用户（守卫断言按 user_id 查）。调用方手里
+   * 有就直接用，没有才去查一次。没有守卫时不查。
+   *
+   * @private
+   * @returns {Promise<string|null|undefined>} 守卫要用的 user_id；带守卫但行不存在 → null
+   */
+  async _taskOwnerForGuard(taskId, cloudGuard, userId) {
+    if (!cloudGuard) return void 0;
+    if (userId) return userId;
+    const row = await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first();
+    return row ? row.user_id : null;
   }
   /**
    * 投递期间的租约续期（run-tick 的心跳用）。只在行仍是 pending 且确实持有
    * 租约（lease_until 非空）时生效——收尾把租约放掉之后，迟到的心跳不会把
-   * 租约复活。
+   * 租约复活。带 leaseToken 时还要求租约仍是自己那份：租约过期后被别的 tick
+   * 接手，原执行者的心跳就续不上了，不会把接手者的租约当成自己的续下去。
    *
    * @param {number} taskId
    * @param {string|Date} leaseUntil - 新的租期末尾
+   * @param {Object|null} [cloudGuard]
+   * @param {{ leaseToken?: string|null, userId?: string|null }} [options] - 同 claimTask
    * @returns {Promise<boolean>} true = 续上了
    */
-  async renewTaskLease(taskId, leaseUntil, cloudGuard = null) {
+  async renewTaskLease(taskId, leaseUntil, cloudGuard = null, options2 = {}) {
+    const values = [this._iso(leaseUntil), taskId];
+    let tokenGate = "";
+    if (options2?.leaseToken) {
+      tokenGate = " AND lease_token = ?";
+      values.push(options2.leaseToken);
+    }
     const statement = this._db.prepare(
       `UPDATE scheduled_messages SET lease_until = ?
-       WHERE id = ? AND status = 'pending' AND lease_until IS NOT NULL`
-    ).bind(this._iso(leaseUntil), taskId);
-    const ownerUser = cloudGuard ? await this._db.prepare("SELECT user_id FROM scheduled_messages WHERE id=?").bind(taskId).first() : null;
-    if (cloudGuard && !ownerUser) return false;
-    const [res] = await this._cloudBatch([statement], ownerUser?.user_id, [cloudGuard]);
+       WHERE id = ? AND status = 'pending' AND lease_until IS NOT NULL${tokenGate}`
+    ).bind(...values);
+    const ownerUserId = await this._taskOwnerForGuard(taskId, cloudGuard, options2?.userId);
+    if (cloudGuard && !ownerUserId) return false;
+    const [res] = await this._cloudBatch([statement], ownerUserId, [cloudGuard]);
     return (res.meta.changes || 0) > 0;
   }
   async listTasks(userId, opts = {}) {
@@ -17480,7 +18489,7 @@ var D1Adapter = class {
       `SELECT ${TASK_DETAIL_COLUMNS}
        FROM scheduled_messages
        WHERE ${where}
-       ORDER BY next_send_at ASC
+       ORDER BY next_send_at ASC, id ASC
        LIMIT ? OFFSET ?`
     ).bind(...params, limit, offset).all();
     return { tasks: res.results || [], total };
@@ -17491,7 +18500,7 @@ var D1Adapter = class {
     const res = await this._db.prepare(
       `DELETE FROM scheduled_messages
        WHERE rowid IN (SELECT rowid FROM scheduled_messages
-         WHERE status IN ('sent', 'failed') AND updated_at < ? LIMIT 100)`
+         WHERE status IN ('sent', 'failed') AND updated_at < ? LIMIT ${CLEANUP_BATCH_LIMIT})`
     ).bind(cutoff).run();
     return res.meta.changes || 0;
   }
@@ -18323,6 +19332,12 @@ function validateEntry(entry, index, maxValueBytes) {
   if (guard !== void 0 && (!Number.isInteger(guard) || guard <= 0)) {
     return rejectEntry(entry, index, "INVALID_STATE_VERSION", `entries[${index}].version / builtAt \u5FC5\u987B\u662F\u6B63\u6574\u6570\uFF08\u6BEB\u79D2\u65F6\u95F4\u6233\u6216\u5355\u8C03\u9012\u589E\u7248\u672C\u53F7\uFF09`);
   }
+  if (entry.owner !== void 0 && entry.owner !== null && !validOwner(entry.owner)) {
+    return rejectEntry(entry, index, "INVALID_CLOUD_OWNER", `entries[${index}].owner \u5FC5\u987B\u662F { type, id, label? }\uFF08type \u2264 100\u3001id \u2264 300\u3001label \u2264 300 \u5B57\u7B26\uFF09`);
+  }
+  if (entry.ownerGeneration != null && !validOwnerGeneration(entry.ownerGeneration)) {
+    return rejectEntry(entry, index, "INVALID_CLOUD_OWNER_GENERATION", `entries[${index}].ownerGeneration \u5FC5\u987B\u662F\u975E\u8D1F\u6574\u6570`);
+  }
   return null;
 }
 function createClientStateHandler(ctx) {
@@ -18405,12 +19420,18 @@ function createClientStateHandler(ctx) {
     }
     const userKey = await deriveUserEncryptionKey(userId, masterKey);
     const rows = await db.getClientState(userId, namespace, key === null ? void 0 : { key });
+    const undecryptable = [];
     const decrypted = await resolveClientStateEntries(
       key === null ? rows : rows.filter((row) => row.key === key),
       () => db.getClientState(userId, chunkNamespaceFor(namespace), key === null ? void 0 : { keyPrefix: chunkKeyPrefixFor(key) }),
-      (value) => decryptFromStorage(value, userKey)
+      (value) => decryptFromStorage(value, userKey),
+      (row) => undecryptable.push({ key: row.key, updatedAt: row.updated_at, code: STORED_DATA_UNDECRYPTABLE_CODE })
     );
-    const encryptedResponse = await encryptPayload({ namespace, entries: decrypted }, userKey);
+    const encryptedResponse = await encryptPayload({
+      namespace,
+      entries: decrypted,
+      ...undecryptable.length > 0 ? { undecryptable } : {}
+    }, userKey);
     return { status: 200, body: { success: true, encrypted: true, version: 1, data: encryptedResponse } };
   }
   async function DELETE(url, headers) {
@@ -18481,7 +19502,7 @@ function createClientStateNamespacesHandler(ctx) {
   }
   return { GET };
 }
-var SERVER_VERSION = true ? "3.1.0-next.1" : "0.0.0-dev";
+var SERVER_VERSION = true ? "3.2.0-next.2" : "0.0.0-dev";
 var SERVER_FEATURES = Object.freeze([
   "client-state",
   "client-state-chunking",
@@ -18684,11 +19705,11 @@ async function buildCloudDataInventory({
   userKey,
   resolveOwner
 }) {
-  const raw = await db.listCloudResourceRows(userId);
-  const gaps = [...raw.gaps || []];
+  const raw2 = await db.listCloudResourceRows(userId);
+  const gaps = [...raw2.gaps || []];
   const entries2 = [];
   const metadata = new Map(
-    (raw.metadata || []).map((row) => [row.resource_key, row.encrypted_value])
+    (raw2.metadata || []).map((row) => [row.resource_key, row.encrypted_value])
   );
   const readStoredMetadata = async (metadataKey) => {
     const encryptedMetadata = metadata.get(metadataKey) || null;
@@ -18706,7 +19727,7 @@ async function buildCloudDataInventory({
   };
   const taskPayloads = /* @__PURE__ */ new Map();
   const taskByUuid = /* @__PURE__ */ new Map();
-  for (const row of raw.task || []) {
+  for (const row of raw2.task || []) {
     try {
       const payload = JSON.parse(
         await decryptFromStorage(row.encrypted_payload, userKey)
@@ -18716,7 +19737,7 @@ async function buildCloudDataInventory({
     } catch {
     }
   }
-  const tasks = (raw.task || []).filter((row) => taskPayloads.has(row.id)).map((row) => ({ ...taskPayloads.get(row.id), uuid: row.uuid }));
+  const tasks = (raw2.task || []).filter((row) => taskPayloads.has(row.id)).map((row) => ({ ...taskPayloads.get(row.id), uuid: row.uuid }));
   const add = async ({
     type,
     identity,
@@ -18788,7 +19809,7 @@ async function buildCloudDataInventory({
       )
     });
   };
-  for (const row of raw.task || []) {
+  for (const row of raw2.task || []) {
     const payload = taskPayloads.get(row.id);
     await add({
       type: "task",
@@ -18800,7 +19821,7 @@ async function buildCloudDataInventory({
       status: row.status
     });
   }
-  const stateRows = raw.state || [];
+  const stateRows = raw2.state || [];
   const roots = stateRows.filter((row) => !isChunkNamespace(row.namespace));
   const chunks = /* @__PURE__ */ new Map();
   for (const row of stateRows.filter(
@@ -18914,7 +19935,7 @@ async function buildCloudDataInventory({
       status: "orphan-chunks"
     });
   }
-  for (const row of raw.credential || []) {
+  for (const row of raw2.credential || []) {
     await add({
       type: "credential",
       identity: [row.cred_id],
@@ -18923,7 +19944,7 @@ async function buildCloudDataInventory({
       status: null
     });
   }
-  for (const row of raw.outbox || []) {
+  for (const row of raw2.outbox || []) {
     const metadataKey = JSON.stringify(["outbox", row.message_id]);
     const metadataInfo = await readStoredMetadata(metadataKey);
     const skipFullDecrypt = !metadataInfo.unreadable && hasCompleteStoredMetadata(metadataInfo.stored);
@@ -18961,7 +19982,7 @@ async function buildCloudDataInventory({
       metadataInfo
     });
   }
-  for (const row of raw.subscription || []) {
+  for (const row of raw2.subscription || []) {
     await add({
       type: "subscription",
       identity: [userId],
@@ -19000,9 +20021,6 @@ var CLOUD_RESOURCE_TYPES = [
 ];
 function cloudError(code2, message, status = 400) {
   return Object.assign(new Error(message), { code: code2, status });
-}
-function validCloudOwner(owner) {
-  return owner && typeof owner.type === "string" && owner.type.length > 0 && owner.type.length <= 100 && typeof owner.id === "string" && owner.id.length > 0 && owner.id.length <= 300;
 }
 var ownerEquals = (a, b) => a && b && a.type === b.type && a.id === b.id;
 async function cloudInventory(ctx, db, userId, userKey) {
@@ -19059,9 +20077,9 @@ async function makeCleanupPlan(ctx, db, userId, key, input) {
   const { mode: mode2, owner, resourceIds, types } = input;
   if (!["purge", "retire-owner"].includes(mode2))
     throw cloudError("INVALID_CLEANUP_MODE", "\u6E05\u7406\u6A21\u5F0F\u65E0\u6548");
-  if (owner !== void 0 && !validCloudOwner(owner))
+  if (owner !== void 0 && !validOwner(owner))
     throw cloudError("INVALID_CLOUD_OWNER", "\u5F52\u5C5E\u683C\u5F0F\u65E0\u6548");
-  if (mode2 === "retire-owner" && !validCloudOwner(owner))
+  if (mode2 === "retire-owner" && !validOwner(owner))
     throw cloudError("INVALID_CLOUD_OWNER", "\u5F7B\u5E95\u79FB\u9664\u9700\u8981\u660E\u786E\u5F52\u5C5E");
   if (resourceIds !== void 0 && (!Array.isArray(resourceIds) || !resourceIds.length || resourceIds.some((id) => typeof id !== "string")))
     throw cloudError("INVALID_CLEANUP_SELECTION", "\u8BF7\u9009\u62E9\u81F3\u5C11\u4E00\u9879\u8D44\u6E90");
@@ -19203,7 +20221,7 @@ function assertRetirementAcknowledged(operation) {
     );
   }
 }
-async function advanceCleanup(ctx, db, userId, key, operation) {
+async function advanceCleanup(ctx, db, userId, key, operation, { maxEntries = 25, deadline = Infinity } = {}) {
   if (operation.status === "completed" || operation.status === "failed" || operation.nextAttemptAt > Date.now())
     return operation;
   const leaseToken = crypto.randomUUID();
@@ -19231,6 +20249,7 @@ async function advanceCleanup(ctx, db, userId, key, operation) {
       );
     }
   };
+  let leaseLost = false;
   try {
     operation = await readCloudRecord(
       db,
@@ -19303,11 +20322,9 @@ async function advanceCleanup(ctx, db, userId, key, operation) {
     const currentById = new Map(
       beforeBatch.entries.map((entry) => [entry.resource.id, entry])
     );
-    const batch = operation.entries.slice(
-      operation.cursor,
-      operation.cursor + 25
-    );
-    for (const entry of batch) {
+    const end = Math.min(operation.entries.length, operation.cursor + maxEntries);
+    while (operation.cursor < end && Date.now() < deadline) {
+      const entry = operation.entries[operation.cursor];
       await renewLease();
       const currentEntry = currentById.get(entry.resource.id);
       if (currentEntry && currentEntry.version !== entry.version) {
@@ -19374,7 +20391,10 @@ async function advanceCleanup(ctx, db, userId, key, operation) {
     operation.errors = [];
     operation.attempts = 0;
   } catch (error) {
-    if (error.code === "CLOUD_LEASE_LOST") throw error;
+    if (error.code === "CLOUD_LEASE_LOST") {
+      leaseLost = true;
+      throw error;
+    }
     operation.attempts = (operation.attempts || 0) + 1;
     const terminal = ["CLOUD_PLAN_CHANGED", "CLOUD_OWNER_CHANGED"].includes(error.code) || operation.attempts >= 8;
     operation.status = terminal ? "failed" : "pending";
@@ -19390,15 +20410,17 @@ async function advanceCleanup(ctx, db, userId, key, operation) {
     if (terminal)
       for (const count of operation.counts) count.failed = count.remaining;
   } finally {
-    operation.updatedAt = Date.now();
-    await save(db, userId, key, "operation", operation, { leaseToken });
-    if (typeof db.releaseCloudDataRecord === "function")
-      await db.releaseCloudDataRecord(
-        userId,
-        "operation",
-        operation.id,
-        leaseToken
-      );
+    if (!leaseLost) {
+      operation.updatedAt = Date.now();
+      await save(db, userId, key, "operation", operation, { leaseToken });
+      if (typeof db.releaseCloudDataRecord === "function")
+        await db.releaseCloudDataRecord(
+          userId,
+          "operation",
+          operation.id,
+          leaseToken
+        );
+    }
   }
   return operation;
 }
@@ -19413,6 +20435,7 @@ var WORK_INDEX_METHODS = [
   "repairCloudResourceMetadata"
 ];
 var UNREADABLE_RETRY_MS = 15 * 6e4;
+var CLEANUP_TICK_BUDGET_MS = 2e4;
 async function repairLegacyWorkIndex(ctx) {
   const db = ctx.db;
   const name = "management-work-v1";
@@ -19454,7 +20477,9 @@ async function resumeCloudDataCleanups(ctx) {
     await db.cleanupCloudDataRecords("plan", Date.now() - 36e5);
     rows = await db.listCloudDataRecordsAcrossUsers("operation");
   }
+  const deadline = Date.now() + CLEANUP_TICK_BUDGET_MS;
   for (const row of rows) {
+    if (Date.now() >= deadline) break;
     try {
       const key = await deriveUserEncryptionKey(row.userId, ctx.masterKey);
       const operation = JSON.parse(await decryptFromStorage(row.data, key));
@@ -19469,7 +20494,7 @@ async function resumeCloudDataCleanups(ctx) {
         continue;
       }
       if (["pending", "running"].includes(operation.status)) {
-        await advanceCleanup(ctx, db, row.userId, key, operation);
+        await advanceCleanup(ctx, db, row.userId, key, operation, { maxEntries: Infinity, deadline });
       }
     } catch (error) {
       console.warn("[amsg] A cloud cleanup operation could not be resumed");
@@ -19653,7 +20678,7 @@ function createCloudDataHandler(ctx) {
         };
       } else if (path.endsWith("/owner")) {
         const owner = method === "POST" ? input.owner : { type: params.get("ownerType"), id: params.get("ownerId") };
-        if (!validCloudOwner(owner))
+        if (!validOwner(owner))
           throw cloudError("INVALID_CLOUD_OWNER", "\u5F52\u5C5E\u683C\u5F0F\u65E0\u6548");
         if (method === "POST") {
           const beforeRestore = await db.getCloudOwner(userId, owner);
@@ -19702,7 +20727,8 @@ function createCloudDataHandler(ctx) {
         body: {
           success: false,
           error: {
-            code: error.code || "CLOUD_DATA_FAILED",
+            // 只透出 cloudError 造的错（带 status）；驱动抛上来的 pg / D1 错误码不外露。
+            code: error.status ? error.code : "CLOUD_DATA_FAILED",
             message: error.status ? error.message : "\u4E91\u7AEF\u7BA1\u7406\u8BF7\u6C42\u5931\u8D25\uFF1B\u672A\u80FD\u786E\u8BA4\u64CD\u4F5C\u7ED3\u679C\u3002"
           }
         }
@@ -19932,7 +20958,7 @@ function createSingleUserServer(config) {
     }
   };
 }
-var SCHEMA_VERSION = "2.6.0-cloud-data.2";
+var SCHEMA_VERSION = "3.2.0-lease-token";
 function requireIntrospection(db) {
   if (!db || typeof db.describeSchema !== "function") {
     throw new Error(
@@ -20204,6 +21230,9 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
       }
       return jsonResponse(result.status, result.body, cors);
     } catch (error) {
+      if (typeof error?.code === "string" && Number.isInteger(error.status) && error.status >= 400 && error.status < 500) {
+        return jsonResponse(error.status, { success: false, error: { code: error.code, message: error.message } }, cors);
+      }
       console.error("[amsg single-user] fetch() unhandled error:", error && error.message);
       const cause = summarizeErrorCause(error, "request");
       await reportError({ stage: "request", error, cause, path: pathOf(request) });
@@ -20220,14 +21249,17 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
       await reportError({ stage: "config", error, cause, path: null });
       return { ok: false, cause };
     }
-    const cleanup = {};
-    try {
-      await resumeCloudDataCleanups(buildTickContext(cfg));
-    } catch (error) {
-      console.error("[amsg single-user] scheduled(): cloud cleanup failed:", error && error.message);
-      cleanup.cloudCleanupCause = summarizeErrorCause(error, "cloud-cleanup");
-      await reportError({ stage: "cloud-cleanup", error, cause: cleanup.cloudCleanupCause, path: null });
-    }
+    const runCleanup = async () => {
+      try {
+        await resumeCloudDataCleanups(buildTickContext(cfg));
+        return {};
+      } catch (error) {
+        console.error("[amsg single-user] scheduled(): cloud cleanup failed:", error && error.message);
+        const cloudCleanupCause = summarizeErrorCause(error, "cloud-cleanup");
+        await reportError({ stage: "cloud-cleanup", error, cause: cloudCleanupCause, path: null });
+        return { cloudCleanupCause };
+      }
+    };
     if (!pushConfigured(cfg)) {
       console.error("[amsg single-user] scheduled(): VAPID/webpush not configured; skipping tick");
       const cause = summarizeErrorCause(
@@ -20235,17 +21267,19 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
         "config"
       );
       await reportError({ stage: "config", error: null, cause, path: null });
-      return { ok: false, cause, ...cleanup };
+      return { ok: false, cause, ...await runCleanup() };
     }
+    let tick;
     try {
       const summary = await runScheduledTick(buildTickContext(cfg));
-      return { ok: true, summary, ...cleanup };
+      tick = { ok: true, summary };
     } catch (error) {
       console.error("[amsg single-user] scheduled(): tick failed:", error && error.message);
       const cause = summarizeErrorCause(error, "tick");
       await reportError({ stage: "tick", error, cause, path: null });
-      return { ok: false, cause, ...cleanup };
+      tick = { ok: false, cause };
     }
+    return { ...tick, ...await runCleanup() };
   }
   async function runTask2(uuid, env) {
     const cfg = await resolveConfig(env);
@@ -20263,414 +21297,864 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
   return { fetch: fetch2, scheduled: scheduled2, runTask: runTask2, getSchemaVersion: getSchemaVersion2, ensureSchema: ensureSchema2 };
 }
 
-// node_modules/.pnpm/@rei-standard+amsg-shared@0.4.0-next.11/node_modules/@rei-standard/amsg-shared/dist/index.mjs
-var TEXT_ENCODER2 = new TextEncoder();
-var TEXT_DECODER2 = new TextDecoder("utf-8", { fatal: false });
-function utf83(str) {
-  return TEXT_ENCODER2.encode(String(str));
-}
-var LLM_MESSAGES_ERROR2 = Object.freeze({
-  MESSAGES_NOT_ARRAY: "MESSAGES_NOT_ARRAY",
-  MESSAGE_NOT_OBJECT: "MESSAGE_NOT_OBJECT",
-  INVALID_ROLE: "INVALID_ROLE",
-  TOOL_CALL_MALFORMED: "TOOL_CALL_MALFORMED",
-  TOOL_CONTENT_INVALID: "TOOL_CONTENT_INVALID",
-  TOOL_CALL_ID_MISSING: "TOOL_CALL_ID_MISSING",
-  CONTENT_EMPTY_STRING: "CONTENT_EMPTY_STRING",
-  CONTENT_EMPTY_ARRAY: "CONTENT_EMPTY_ARRAY",
-  CONTENT_INVALID_TYPE: "CONTENT_INVALID_TYPE"
-});
-var UPSTREAM_ERROR_BODY_MAX_BYTES2 = 16 * 1024;
-var CREDENTIAL_LIKE_TOKEN2 = /\b[A-Za-z]{2,6}-[A-Za-z0-9_-]{16,}/g;
-var LONG_OPAQUE_RUN2 = /[A-Za-z0-9+/_.-]{48,}/g;
-var MODEL_ID_LIKE2 = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]{1,12})+$/;
-var MODEL_ID_MAX_CHARS2 = 64;
-var CREDENTIAL_PREFIX_SEGMENTS2 = /* @__PURE__ */ new Set([
-  "sk",
-  "pk",
-  "ak",
-  "api",
-  "apikey",
-  "key",
-  "token",
-  "secret",
-  "auth",
-  "bearer",
-  "session",
-  "sess",
-  "pat",
-  "xai",
-  "gsk"
-]);
-var UUID_SHAPE2 = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/;
-function alternationCount2(segment) {
-  return (segment.match(/[a-z]+|[0-9]+/g) || []).length;
-}
-var MOE_SIZE_SEGMENT2 = /^\d+x\d+b$/;
-var HEX_SEGMENT2 = /^[0-9a-f]+$/;
-var HEX_RUN_MAX_CHARS2 = 15;
-function looksLikeModelId2(token) {
-  if (token.length > MODEL_ID_MAX_CHARS2) return false;
-  if (!MODEL_ID_LIKE2.test(token)) return false;
-  if (UUID_SHAPE2.test(token)) return false;
-  const segments = token.split(/[.-]/);
-  if (CREDENTIAL_PREFIX_SEGMENTS2.has(segments[0])) return false;
-  let hexRunChars = 0;
-  for (const segment of segments) {
-    if (HEX_SEGMENT2.test(segment)) {
-      hexRunChars += segment.length;
-      if (hexRunChars > HEX_RUN_MAX_CHARS2) return false;
-    } else {
-      hexRunChars = 0;
-    }
-  }
-  return segments.every(
-    (segment) => alternationCount2(segment) < 3 || MOE_SIZE_SEGMENT2.test(segment)
-  );
-}
-function redactCredentials2(text3) {
-  let s = text3;
-  s = s.replace(/Bearer\s+[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [redacted]");
-  s = s.replace(CREDENTIAL_LIKE_TOKEN2, (token) => looksLikeModelId2(token) ? token : "[redacted]");
-  s = s.replace(LONG_OPAQUE_RUN2, (run) => {
-    const token = run.replace(/^[._+/-]+/, "").replace(/[._+/-]+$/, "");
-    return looksLikeModelId2(token) ? run : "[redacted]";
+// utils/voiceTextDedup.ts
+function deduplicateVoiceText(text3) {
+  if (/\[html\]|<翻[译譯]>|```/i.test(text3)) return text3;
+  const normalize2 = (s) => s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
+  const blocks = [];
+  const spoken = [];
+  const protectedText = text3.replace(/(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g, (block, leadingSubtitle, voice, subtitle) => {
+    spoken.push(normalize2(voice), ...[leadingSubtitle, subtitle].filter(Boolean).map(normalize2));
+    return "\nVOICE" + (blocks.push(block) - 1) + "\n";
   });
-  return s;
-}
-var KEY_INFO_PREFIX2 = utf83("WebPush: info\0");
-var CEK_INFO2 = utf83("Content-Encoding: aes128gcm\0");
-var NONCE_INFO2 = utf83("Content-Encoding: nonce\0");
-var VAPID_TOKEN_LIFETIME2 = 12 * 3600;
-var REI_SW_EVENT2 = Object.freeze({
-  CONTENT_RECEIVED: "rei-amsg-content-received",
-  REASONING_RECEIVED: "rei-amsg-reasoning-received",
-  TOOL_REQUEST_RECEIVED: "rei-amsg-tool-request-received",
-  ERROR_RECEIVED: "rei-amsg-error-received",
-  /** 宿主自定义的一条结果（`messageKind: 'result'`），不是聊天内容。 */
-  RESULT_RECEIVED: "rei-amsg-result-received",
-  MULTIPART_EXPIRED: "rei-amsg-multipart-expired",
-  UNKNOWN_RECEIVED: "rei-amsg-unknown-received"
-});
-var MULTIPART_FAILURE_REASON2 = Object.freeze({
-  /** TTL 到期仍未收齐，或收到的分片本身已经过期。 */
-  TTL_EXPIRED: "ttl-expired",
-  /** 分片信封不合规：version / encoding 对不上、index 越界、chunk 不是合法 base64url。 */
-  INVALID_CHUNK: "invalid-chunk",
-  /** 同一个 id 的分片报了不一样的 total / encoding，已收的部分拼不回去。 */
-  CHUNK_CONFLICT: "chunk-conflict",
-  /** 累计字节数超过 maxTotalBytes。 */
-  SIZE_LIMIT_EXCEEDED: "size-limit-exceeded",
-  /** 收齐了但拼不回原 payload（缺片、超限、JSON 解不开）。 */
-  RESTORE_FAILED: "restore-failed",
-  /** 分片仓库（IndexedDB）读写失败。 */
-  STORAGE_FAILED: "storage-failed",
-  /** 接收端把 multipart 关了（`multipart.enabled === false`），分片没法重组。 */
-  DISABLED: "disabled"
-});
-var REI_SW_MESSAGE_TYPE2 = Object.freeze({
-  ENQUEUE_REQUEST: "REI_ENQUEUE_REQUEST",
-  DELIVER: "REI_AMSG_DELIVER",
-  FLUSH_QUEUE: "REI_FLUSH_QUEUE",
-  /**
-   * 入队的点对点回执：谁发的 ENQUEUE_REQUEST 就回给谁一条，一次一条。
-   * 没转 MessagePort 过来时会落到全局的 `navigator.serviceWorker` message
-   * 监听器上。
-   */
-  QUEUE_RESULT: "REI_QUEUE_RESULT",
-  /**
-   * 队列请求被永久拒绝、即将从队列里删掉时广播给所有窗口的一条。
-   *
-   * 跟 QUEUE_RESULT 分开是因为两者的收信人不是一回事：这条是广播，可能来自后台
-   * `sync` 冲刷、说的也可能是另一条八竿子打不着的旧请求。共用一个 type 的话，
-   * 页面等自己那条入队回执时会先收到这一条、当成自己的结果处理。
-   */
-  QUEUE_DROPPED: "REI_QUEUE_DROPPED"
-});
-var REI_AMSG_DELIVER_MESSAGE_TYPE2 = REI_SW_MESSAGE_TYPE2.DELIVER;
-var MESSAGE_KIND2 = Object.freeze({
-  CONTENT: "content",
-  REASONING: "reasoning",
-  TOOL_REQUEST: "tool_request",
-  ERROR: "error",
-  RESULT: "result"
-});
-var MESSAGE_TYPE2 = Object.freeze({
-  INSTANT: "instant",
-  FIXED: "fixed",
-  PROMPTED: "prompted",
-  AUTO: "auto"
-});
-var PUSH_SOURCE2 = Object.freeze({
-  INSTANT: "instant",
-  SCHEDULED: "scheduled"
-});
-var REASONING_CHUNK_ENCODER2 = new TextEncoder();
-var REASONING_CHUNK_DECODER2 = new TextDecoder("utf-8", { fatal: true });
-var REASONING_TAG_RE_G2 = /<(think|thinking|thought)>[\s\S]*?<\/\1>/gi;
-function stripReasoningTags2(content) {
-  if (typeof content !== "string" || !content.includes("<")) return content;
-  return content.replace(REASONING_TAG_RE_G2, "").trim();
+  if (!blocks.length) return text3;
+  return protectedText.split(/\r?\n/).filter((line) => {
+    if (/[<>\[\]\u0002]/.test(line)) return true;
+    const plain = normalize2(line);
+    return plain.length < 12 || !spoken.some((voice) => voice.includes(plain));
+  }).join("\n").replace(/\u0002VOICE(\d+)\u0002/g, (_, i) => blocks[Number(i)]).trim();
 }
 
-// utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-10-29.1";
-
-// utils/amsgTaskKinds.ts
-var AMSG_TASK_KIND_KEY = "amsgKind";
-var readTaskKind = (metadata) => {
-  const raw = metadata?.[AMSG_TASK_KIND_KEY];
-  return typeof raw === "string" && raw ? raw : null;
-};
-var AMSG_JOB_NAMESPACE = "amsg:job";
-var AMSG_JOB_TTL_DAYS = 3;
-var AMSG_JOB_ID_KEY = "amsgJobId";
-
-// worker/amsg/src/skipDiagnostics.ts
-var BODY_ERROR_MAX_CHARS = 200;
-var CONTENT_EXCERPT_CHARS = 300;
-var REASONING_TAIL_CHARS = 200;
-var BODY_EXCERPT_CHARS = 500;
-var asRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : null;
-var numberOrNull = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
-var clip = (text3, max) => text3.length > max ? `${text3.slice(0, max)}\u2026` : text3;
-var safeStringify = (value) => {
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
-};
-var readFirstMessage = (body) => {
-  const choices = Array.isArray(body?.choices) ? body.choices : [];
-  const choice = asRecord(choices[0]);
-  return { choice, message: asRecord(choice?.message) };
-};
-var readReasoning = (message) => {
-  const value = message?.reasoning_content ?? message?.reasoning ?? message?.thinking;
-  return typeof value === "string" ? value : "";
-};
-var readBodyError = (body, hasChoices) => {
-  if (!body) return null;
-  let text3 = "";
-  const error = body.error;
-  if (typeof error === "string") {
-    text3 = error;
-  } else {
-    const record4 = asRecord(error);
-    if (record4) {
-      const code2 = typeof record4.code === "string" || typeof record4.code === "number" ? String(record4.code) : typeof record4.type === "string" ? record4.type : "";
-      const message = typeof record4.message === "string" ? record4.message : "";
-      text3 = [code2 && `[${code2}]`, message].filter(Boolean).join(" ") || safeStringify(record4);
-    }
-  }
-  if (!text3 && !hasChoices) {
-    const topLevel = body.message ?? body.msg;
-    if (typeof topLevel === "string") text3 = topLevel;
-  }
-  return text3 ? clip(redactCredentials2(text3), BODY_ERROR_MAX_CHARS) : null;
-};
-var describeLlmResponseShape = (llmResponse, llmOutputText) => {
-  const body = asRecord(llmResponse);
-  const hasChoices = Array.isArray(body?.choices) && body.choices.length > 0;
-  const { choice, message } = readFirstMessage(body);
-  const content = message?.content;
-  const contentType = content === void 0 ? "missing" : content === null ? "null" : typeof content === "string" ? "string" : Array.isArray(content) ? "array" : "other";
-  const contentChars = typeof content === "string" ? content.length : Array.isArray(content) ? content.reduce((sum, part) => {
-    const text3 = asRecord(part)?.text;
-    return sum + (typeof text3 === "string" ? text3.length : 0);
-  }, 0) : 0;
-  const usage = asRecord(body?.usage);
-  const usageDetails = asRecord(usage?.completion_tokens_details);
-  return {
-    model: typeof body?.model === "string" ? body.model : null,
-    hasChoices,
-    finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
-    contentType,
-    contentChars,
-    ...Array.isArray(content) ? { contentParts: content.length } : {},
-    visibleChars: stripReasoningTags2(llmOutputText || "").trim().length,
-    reasoningChars: readReasoning(message).length,
-    toolCalls: Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0,
-    usage: usage ? {
-      promptTokens: numberOrNull(usage.prompt_tokens),
-      completionTokens: numberOrNull(usage.completion_tokens),
-      reasoningTokens: numberOrNull(usageDetails?.reasoning_tokens)
-    } : null,
-    bodyError: readBodyError(body, hasChoices)
-  };
-};
-var excerptLlmResponse = (llmResponse) => {
-  const body = asRecord(llmResponse);
-  const hasChoices = Array.isArray(body?.choices) && body.choices.length > 0;
-  if (!hasChoices) {
-    return { body: clip(redactCredentials2(safeStringify(llmResponse)), BODY_EXCERPT_CHARS) };
-  }
-  const { message } = readFirstMessage(body);
-  const excerpt = {};
-  const content = message?.content;
-  if (typeof content === "string") {
-    if (content) excerpt.content = clip(redactCredentials2(content), CONTENT_EXCERPT_CHARS);
-  } else if (content != null) {
-    excerpt.content = clip(redactCredentials2(safeStringify(content)), CONTENT_EXCERPT_CHARS);
-  }
-  const reasoning = readReasoning(message);
-  if (reasoning) {
-    const tail = reasoning.length > REASONING_TAIL_CHARS ? `\u2026${reasoning.slice(-REASONING_TAIL_CHARS)}` : reasoning;
-    excerpt.reasoningTail = redactCredentials2(tail);
-  }
-  if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
-    excerpt.toolCalls = clip(redactCredentials2(safeStringify(message.tool_calls)), CONTENT_EXCERPT_CHARS);
-  }
-  return excerpt;
-};
-var rawExcerptEnabled = false;
-var configureSkipDiagnostics = (options2) => {
-  rawExcerptEnabled = options2.rawExcerpt;
-};
-var isDebugFlagOn = (value) => typeof value === "string" && ["1", "true"].includes(value.trim().toLowerCase());
-var logSkipDiagnostic = (input) => {
-  try {
-    console.warn("[amsg:skip-diag]", {
-      sessionId: input.sessionId ?? null,
-      reason: input.reason,
-      iteration: input.iteration ?? null,
-      ...describeLlmResponseShape(input.llmResponse, input.llmOutputText ?? ""),
-      ...rawExcerptEnabled ? { raw: excerptLlmResponse(input.llmResponse) } : {}
-    });
-  } catch (error) {
-    console.warn("[amsg:skip-diag] \u8BCA\u65AD\u65E5\u5FD7\u6CA1\u8BB0\u4E0B\u6765\uFF08\u8DF3\u8FC7\u7167\u5E38\u751F\u6548\uFF09", error);
-  }
-};
-
-// worker/amsg/src/plateFire.ts
-var discardJob = async (writeState, jobId) => {
-  if (!writeState) return;
-  try {
-    await writeState(AMSG_JOB_NAMESPACE, [{ key: plateJobKey(jobId), value: null }]);
-  } catch (error) {
-    console.warn("[amsg:plate] job \u884C\u6CA1\u5220\u6389\uFF08\u7B49 TTL \u515C\u5E95\uFF09", jobId, error);
-  }
-};
-var plateConsolidateHandler = {
-  async beforeFire({ ctx, charId, taskMeta }) {
-    const jobId = taskMeta[AMSG_JOB_ID_KEY];
-    if (typeof jobId !== "string" || !jobId) {
-      throw new Error(`\u95E8\u724C\u6574\u7406\u4EFB\u52A1\u7684 metadata \u91CC\u6CA1\u6709 ${AMSG_JOB_ID_KEY}`);
-    }
-    const rows = await ctx.readState(AMSG_JOB_NAMESPACE);
-    const row = rows.find((r) => r.key === plateJobKey(jobId));
-    if (!row?.value) {
-      return { skip: true, reason: `\u95E8\u724C\u6574\u7406 job ${jobId} \u7684\u8F93\u5165\u5DF2\u4E0D\u5728\uFF08\u8FC7\u671F\u6216\u5DF2\u64A4\u9500\uFF09` };
-    }
-    const discardAndFail = async (message) => {
-      await discardJob(ctx.writeState, jobId);
-      throw new Error(message);
-    };
-    let json;
-    try {
-      json = await unpackStateValue(row.value);
-    } catch (error) {
-      return discardAndFail(`\u95E8\u724C\u6574\u7406 job ${jobId} \u7684\u8F93\u5165\u89E3\u538B\u5931\u8D25\uFF08\u6570\u636E\u635F\u574F\uFF09\uFF1A${String(error)}`);
-    }
-    const job = parsePlateJobInput(json);
-    if (!job) return discardAndFail(`\u95E8\u724C\u6574\u7406 job ${jobId} \u7684\u8F93\u5165\u89E3\u6790\u5931\u8D25\uFF08\u6570\u636E\u635F\u574F\uFF09`);
-    if (job.charId !== charId) {
-      return discardAndFail(`\u95E8\u724C\u6574\u7406 job ${jobId} \u7684 charId \u4E0E\u4EFB\u52A1\u5BF9\u4E0D\u4E0A`);
-    }
-    if (job.rooms.length === 0) {
-      await discardJob(ctx.writeState, jobId);
-      return { skip: true, reason: `\u95E8\u724C\u6574\u7406 job ${jobId} \u6CA1\u6709\u8981\u6574\u7406\u7684\u623F\u95F4` };
-    }
-    return {
-      messages: buildPlateJobMessages(job),
-      // 跟浏览器那条路同一个超时（叶子里那个常量）。不显式交上去的话这一次 fire 会落到
-      // 库自己的默认值（四分钟），同一件活儿两条路的耐心不一样，而且改那个常量对云端
-      // 毫无影响——「本地什么样云端就什么样」这条线得自己拉齐。
-      totalTimeoutMs: PLATE_LLM_TIMEOUT_MS,
-      state: { jobId, job }
-    };
-  },
-  async llmOutput({ ctx, state }) {
-    const { jobId, job } = state;
-    const items = parsePlateLlmReply(ctx.llmOutputText || "");
-    if (items.length === 0) {
-      console.warn("[amsg:plate] LLM \u6CA1\u8FD4\u56DE\u6709\u6548\u6761\u76EE\uFF0C\u95E8\u724C\u4FDD\u6301\u4E0D\u52A8", jobId);
-      logSkipDiagnostic({
-        sessionId: ctx.sessionId,
-        reason: "plate-empty-generation",
-        iteration: ctx.iteration,
-        llmResponse: ctx.llmResponse,
-        llmOutputText: ctx.llmOutputText
-      });
-      await discardJob(ctx.writeState, jobId);
-      return { decision: "skip-push", reason: "plate-empty-generation" };
-    }
-    if (typeof ctx.emitResult !== "function") {
-      console.warn("[amsg:plate] \u8FD9\u53F0 worker \u4E0D\u652F\u6301 emitResult\uFF0C\u6574\u7406\u7ED3\u679C\u9001\u4E0D\u56DE\u53BB", jobId);
-      await discardJob(ctx.writeState, jobId);
-      return { decision: "skip-push", reason: "plate-emit-result-unsupported" };
-    }
-    try {
-      await ctx.emitResult({
-        ...buildPlateConsolidateResult({ jobId, charId: job.charId, items, rooms: job.rooms, snapshotAt: job.snapshotAt }),
-        // 背景工作，整理完不该把人叫回来看。show:false 的 payload 上游只落收件箱、
-        // 不发推送，客户端下次上线补收。
-        notification: { show: false }
-      });
-    } catch (error) {
-      console.warn("[amsg:plate] \u6574\u7406\u7ED3\u679C\u9001\u4E0D\u8FDB\u6536\u4EF6\u7BB1\uFF08\u591A\u534A\u662F\u6536\u4EF6\u7BB1\u8868\u6CA1\u5EFA\u5168\uFF0C\u53BB\u8BBE\u7F6E\u9875\u70B9\u4E00\u6B21\u300C\u91CD\u65B0\u8FDE\u63A5\u5E76\u9A8C\u8BC1\u300D\uFF09", jobId, error);
-      await discardJob(ctx.writeState, jobId);
-      return { decision: "skip-push", reason: "plate-emit-result-failed" };
-    }
-    console.log("[amsg:plate] \u6574\u7406\u7ED3\u679C\u5DF2\u9001\u8FDB\u6536\u4EF6\u7BB1", {
-      jobId,
-      charId: job.charId,
-      items: items.length,
-      resultKind: PLATE_CONSOLIDATE_RESULT_KIND
-    });
-    await discardJob(ctx.writeState, jobId);
-    return { decision: "skip-push", reason: "plate-result-emitted" };
-  }
-};
-
-// worker/amsg/src/fireKinds.ts
-var FIRE_KIND_HANDLERS = Object.assign(
-  /* @__PURE__ */ Object.create(null),
-  { [PLATE_CONSOLIDATE_KIND]: plateConsolidateHandler }
-);
-var KIND_FIRE_SCRATCH_KEY = "kindFire";
-var putKindFireStash = (scratch, kind, state) => {
-  scratch[KIND_FIRE_SCRATCH_KEY] = { kind, state };
-};
-var getKindFireStash = (scratch) => {
-  const raw = scratch?.[KIND_FIRE_SCRATCH_KEY];
-  if (!raw || typeof raw !== "object") return null;
-  const stash = raw;
-  return typeof stash.kind === "string" ? { kind: stash.kind, state: stash.state } : null;
-};
-
-// utils/amsgFireSkipResult.ts
-var FIRE_SKIP_RESULT_KIND = "fire-skipped";
-var SILENT_REASONS = /* @__PURE__ */ new Set(["schedule-off"]);
-var shouldReportFireSkip = (reason) => !SILENT_REASONS.has(reason);
-function buildFireSkipResult(args) {
-  return {
-    resultKind: FIRE_SKIP_RESULT_KIND,
-    v: 1,
-    charId: args.charId,
-    taskUuid: args.taskUuid,
-    occurrenceMs: args.occurrenceMs,
-    reason: args.reason,
-    ...args.task ? {
-      task: {
-        mode: args.task.mode,
-        ...args.task.promptHint ? { promptHint: args.task.promptHint } : {},
-        recurrenceType: args.task.recurrenceType
+// utils/friendFeedReplyFormat.ts
+var FRIEND_FEED_MAIN_PROMPT_PREFIX = "\u3010\u987A\u4FBF\u56DE\u597D\u53CB\u5708\u3011";
+function extractFriendFeedReplyTags(raw2, namespace = "FRIEND_FEED_REPLY") {
+  const marker = new RegExp("\\[\\[" + namespace + "\\s*:", "gi");
+  const actions = [];
+  let text3 = "", cursor = 0, match;
+  while (match = marker.exec(raw2)) {
+    text3 += raw2.slice(cursor, match.index);
+    let start = marker.lastIndex;
+    while (start < raw2.length && /\s/.test(raw2[start])) start++;
+    let depth = 0, quoted = false, escaped = false, end = -1;
+    if (raw2[start] === "{") for (let i = start; i < raw2.length; i++) {
+      const c = raw2[i];
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (c === "\\") escaped = true;
+        else if (c === '"') quoted = false;
+      } else if (c === '"') quoted = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        end = i + 1;
+        break;
       }
-    } : {}
+    }
+    const close = end >= 0 ? /^\s*\]\]/.exec(raw2.slice(end)) : null;
+    if (close) {
+      try {
+        actions.push(JSON.parse(raw2.slice(start, end)));
+      } catch {
+      }
+      cursor = end + close[0].length;
+    } else {
+      const fallback = raw2[start] === "{" && end < 0 ? -1 : raw2.indexOf("]]", end >= 0 ? end : start);
+      cursor = fallback < 0 ? raw2.length : fallback + 2;
+    }
+    marker.lastIndex = cursor;
+  }
+  return { text: text3 + raw2.slice(cursor), actions };
+}
+
+// node_modules/.pnpm/@rei-standard+amsg-instant@0.12.0-next.0/node_modules/@rei-standard/amsg-instant/dist/index.mjs
+var MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024;
+var WEB_PUSH_MAX_BODY_BYTES2 = 4096;
+var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES2 = 16 + 4 + 1 + 65 + 1 + 16;
+var MAX_PUSH_PAYLOAD_BYTES2 = WEB_PUSH_MAX_BODY_BYTES2 - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES2;
+var PROBE_BYTE_ENCODER = new TextEncoder();
+var LONGEST_MESSAGE_KIND = Object.values(MESSAGE_KIND).reduce((longest, kind) => kind.length > longest.length ? kind : longest, "");
+var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
+function segmentTextWithProtectedBlocks(text3, options2) {
+  if (!text3) return [];
+  const splitAndSanitize = (plainText) => {
+    const chunks = options2.splitText(plainText).filter((c) => c !== "");
+    return chunks.map((chunk) => ({
+      raw: chunk,
+      sanitized: options2.sanitizeText ? options2.sanitizeText(chunk) : chunk,
+      protect: false
+    }));
+  };
+  if (!options2.protectedPatterns || options2.protectedPatterns.length === 0) {
+    return splitAndSanitize(text3);
+  }
+  const matches = [];
+  for (const p of options2.protectedPatterns) {
+    const flags = p.pattern.flags.includes("g") ? p.pattern.flags : p.pattern.flags + "g";
+    const regex = new RegExp(p.pattern.source, flags);
+    let match;
+    while ((match = regex.exec(text3)) !== null) {
+      if (match[0].length === 0) {
+        regex.lastIndex++;
+        continue;
+      }
+      matches.push({
+        index: match.index,
+        length: match[0].length,
+        raw: match[0],
+        matchObj: match,
+        patternDef: p
+      });
+    }
+  }
+  matches.sort((a, b) => {
+    if (a.index !== b.index) return a.index - b.index;
+    return b.length - a.length;
+  });
+  const validMatches = [];
+  let lastEnd = 0;
+  for (const m of matches) {
+    if (m.index >= lastEnd) {
+      validMatches.push(m);
+      lastEnd = m.index + m.length;
+    }
+  }
+  const segments = [];
+  let cursor = 0;
+  const resolveField = (field, raw2, match) => typeof field === "function" ? field(raw2, match) : field;
+  for (const m of validMatches) {
+    if (m.index > cursor) {
+      const plainText = text3.substring(cursor, m.index);
+      segments.push(...splitAndSanitize(plainText));
+    }
+    const previewStr = resolveField(m.patternDef.preview, m.raw, m.matchObj);
+    const metaData = resolveField(m.patternDef.meta, m.raw, m.matchObj);
+    let sanitized = previewStr;
+    if (sanitized == null) {
+      sanitized = options2.sanitizeText ? options2.sanitizeText(m.raw) : m.raw;
+    }
+    const pushSeg = {
+      raw: m.raw,
+      sanitized,
+      protect: true
+    };
+    if (metaData !== void 0) {
+      pushSeg.meta = metaData;
+    }
+    segments.push(pushSeg);
+    cursor = m.index + m.length;
+  }
+  if (cursor < text3.length) {
+    const plainText = text3.substring(cursor);
+    segments.push(...splitAndSanitize(plainText));
+  }
+  return segments;
+}
+var SSE_ENCODER = new TextEncoder();
+var SSE_KEEPALIVE_BYTES = SSE_ENCODER.encode(": keepalive\n\n");
+var SSE_DONE_BYTES = SSE_ENCODER.encode("event: done\ndata: {}\n\n");
+
+// utils/sanitize.ts
+var stripLiteralBackslashN = (t) => t.replace(/\\n/g, "\n");
+var stripLeakedSourceTags = (t) => t.replace(
+  /\s*\[\s*(?:聊\s*(?:天|chat)|chat|通\s*(?:话|call)|call|约\s*(?:会|date)|date)\s*\]\s*/giu,
+  "\n"
+);
+var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
+var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
+var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
+var stripBusinessTagsForBubble = (t) => extractFriendFeedReplyTags(extractFriendFeedReplyTags(t).text, "HOME_VISIT_REPLY").text.replace(/\[\[(?:ACTION|RECALL|SEARCH|READ_NEWS|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
+var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
+var stripAllDoubleBracketTags = (t) => t.replace(/\[\[[\s\S]*?\]\]/g, "");
+var stripQuotes = (t) => t.replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, "").replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, "").replace(/\[回复\s*[""“][^""”]*?[""”](?:\.{0,3})\]\s*[：:]?\s*/g, "").replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, "");
+var stripSystemLogLeak = (t) => t.replace(/[\[【]\s*(?:系统|系統|System)\s*(?:提示)?\s*[:：][^\[\]【】]*[\]】]\s*/gi, "").replace(/\[\s*(?:系统|系統)\s*\]\s*/g, "");
+var stripMarkdownHeaders = (t) => t.replace(/^#{1,6}\s+/gm, "");
+var stripMarkdownBold = (t) => t.replace(/\*{2,}/g, "");
+var stripMarkdownDividers = (t) => t.replace(/^\s*---\s*$/gm, "").replace(/^\s*[-*+]\s*$/gm, "");
+var stripBackticks = (t) => t.replace(/`(\[\[[\s\S]*?\]\])`/g, "$1").replace(/``+/g, "").replace(/(^|\s)`(\s|$)/gm, "$1$2");
+var stripLegacyTrans = (t) => t.replace(/%%TRANS%%[\s\S]*/gi, "");
+var collapseWhitespace = (t) => t.replace(/\n{3,}/g, "\n\n").trim();
+var stripThinkBlocks = (t) => t.replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, "").replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, "");
+var stripInnerState = (t) => t.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, "");
+var replaceMarkdownLinks = (t) => t.replace(/\[([^\]]+)\]\([^)]+\)/g, "[\u94FE\u63A5\uFF1A$1]");
+var replaceSendEmoji = (t) => t.replace(/\[\[SEND_EMOJI[:：]\s*(.+?)\]\]/g, "[\u8868\u60C5\uFF1A$1]");
+var replaceEmojiReverseTag = (t) => t.replace(/\[(?:你|User|用户|System|[\w一-龥]+)\s*发送了表情包[:：]\s*(.*?)\]/g, "[\u8868\u60C5\uFF1A$1]");
+var replaceHtmlBlocks = (t) => t.replace(/\[html\][\s\S]*?\[\/html\]/gi, "[HTML \u5361\u7247]");
+var replaceTranslationForBanner = (t) => t.replace(/<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g, "$1").replace(/<译文>[\s\S]*?<\/译文>/g, "").replace(/<\/?(?:翻译|原文)>/g, "");
+var replaceVoiceForBanner = (t) => t.replace(
+  /(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g,
+  (_m, pre, inner, post) => (post || pre || inner || "").trim()
+).replace(/<字幕>([\s\S]*?)<\/字幕>/g, "$1").replace(/<\/?字幕>/g, "");
+function repairPairedTag(text3, tokenRe, closeFormOf, closeBeforeTrailingSubtitle) {
+  const kept = [];
+  let cursor = 0;
+  let openForm = null;
+  let tok;
+  while ((tok = tokenRe.exec(text3)) !== null) {
+    const isClose = tok[0].startsWith("</");
+    if (!isClose && /\/\s*>$/.test(tok[0])) {
+      kept.push(text3.slice(cursor, tok.index));
+      cursor = tok.index + tok[0].length;
+      continue;
+    }
+    if (isClose) {
+      if (openForm === null) {
+        kept.push(text3.slice(cursor, tok.index));
+        cursor = tok.index + tok[0].length;
+      } else {
+        openForm = null;
+      }
+    } else if (openForm !== null) {
+      kept.push(text3.slice(cursor, tok.index));
+      cursor = tok.index + tok[0].length;
+    } else {
+      openForm = closeFormOf(tok[0]);
+    }
+  }
+  kept.push(text3.slice(cursor));
+  let result = kept.join("");
+  if (openForm !== null) {
+    const closeTag = `</${openForm}>`;
+    if (closeBeforeTrailingSubtitle) {
+      const trail = result.match(/(\s*<字幕>[\s\S]*?<\/字幕>\s*)$/);
+      if (trail) {
+        const at = result.length - trail[0].length;
+        return result.slice(0, at).replace(/\s+$/, "") + closeTag + trail[0].replace(/\s+$/, "");
+      }
+    }
+    result = result.replace(/\s+$/, "") + closeTag;
+  }
+  return result;
+}
+function normalizeVoiceTags(t) {
+  if (!/[语語]音|字幕/.test(t)) return t;
+  let result = t;
+  result = result.replace(/＜\s*[/／]\s*([语語]音|字幕)\s*＞/g, "</$1>");
+  result = result.replace(/＜\s*((?:[语語]音|字幕)[^<>＜＞]*?)\s*＞/g, "<$1>");
+  result = result.replace(/<\s*[/／]\s*([语語]音|字幕)\s*>/g, "</$1>");
+  result = result.replace(/<([语語]音|字幕)\s*([^<>]*?)\s*>/g, (_m, tag2, attrs) => {
+    if (!attrs) return `<${tag2}>`;
+    const fixed = attrs.replace(/[“”＂]/g, '"').replace(/[‘’]/g, "'").replace(/＝/g, "=").trim();
+    return `<${tag2} ${fixed}>`;
+  });
+  result = repairPairedTag(result, /<\/?[语語]音[^>]*>/g, (tok) => /語/.test(tok) ? "\u8A9E\u97F3" : "\u8BED\u97F3", true);
+  result = repairPairedTag(result, /<\/?字幕[^>]*>/g, () => "\u5B57\u5E55", false);
+  result = result.replace(/(<[语語]音[^>]*>)([\s\S]*?)(<\/[语語]音>)/g, (block, open, inner, close) => {
+    const subtitles = [];
+    const speech = inner.replace(/<字幕>([\s\S]*?)<\/字幕>/g, (_m, sub) => {
+      if (sub.trim()) subtitles.push(sub.trim());
+      return "";
+    });
+    if (subtitles.length === 0) return block;
+    return `${open}${speech.trim()}${close}
+<\u5B57\u5E55>${subtitles.join("\n")}</\u5B57\u5E55>`;
+  });
+  return result;
+}
+var simpTransTag = (tag2) => tag2.replace(/譯/g, "\u8BD1");
+function normalizeTranslationTags(t) {
+  if (!/[<＜]\s*[/／]?\s*(?:翻[译譯]|原文|[译譯]文)/.test(t)) return t;
+  let result = t;
+  result = result.replace(/[<＜]\s*[/／]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag2) => `</${simpTransTag(tag2)}>`);
+  result = result.replace(/[<＜]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag2) => `<${simpTransTag(tag2)}>`);
+  result = result.replace(
+    /[<＜]\s*([/／]?)\s*(翻[译譯]|原文|[译譯]文)\s*(?=$|\n|[<＜])/g,
+    (_m, slash, tag2) => `<${slash ? "/" : ""}${simpTransTag(tag2)}>`
+  );
+  result = repairPairedTag(result, /<\/?原文[^>]*>/g, () => "\u539F\u6587", false);
+  result = repairPairedTag(result, /<\/?译文[^>]*>/g, () => "\u8BD1\u6587", false);
+  result = repairPairedTag(result, /<\/?翻译[^>]*>/g, () => "\u7FFB\u8BD1", false);
+  const HOLD = String.fromCharCode(3);
+  const blocks = [];
+  const hold = (m) => {
+    blocks.push(m);
+    return `${HOLD}${blocks.length - 1}${HOLD}`;
+  };
+  result = result.replace(/<翻译>\s*<原文>[\s\S]*?<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g, hold);
+  result = result.replace(
+    /(?:<翻译>\s*)?<原文>([\s\S]*?)<\/原文>\s*<译文>([\s\S]*?)<\/译文>\s*(?:<\/翻译>)?/g,
+    (_m, a, b) => hold(`<\u7FFB\u8BD1><\u539F\u6587>${a.trim()}</\u539F\u6587><\u8BD1\u6587>${b.trim()}</\u8BD1\u6587></\u7FFB\u8BD1>`)
+  );
+  result = result.replace(
+    /<翻译>\s*(?!<原文>)((?:(?!<\/?翻译>)[\s\S])*?)<\/翻译>\s*<译文>([\s\S]*?)<\/译文>/g,
+    (_m, a, b) => hold(`<\u7FFB\u8BD1><\u539F\u6587>${a.trim()}</\u539F\u6587><\u8BD1\u6587>${b.trim()}</\u8BD1\u6587></\u7FFB\u8BD1>`)
+  );
+  result = result.replace(/<译文>[\s\S]*?<\/译文>/g, "");
+  result = result.replace(/[<＜]\s*[/／]?\s*(?:翻[译譯]|原文|[译譯]文)\s*[>＞]?/g, "");
+  result = result.replace(new RegExp(`${HOLD}(\\d+)${HOLD}`, "g"), (_m, n) => blocks[Number(n)] || "");
+  return result;
+}
+var extractTranslationOriginal = (t) => {
+  let result = t.replace(
+    /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g,
+    "$1"
+  );
+  result = result.replace(/<译文>[\s\S]*?<\/译文>/g, "");
+  result = result.replace(/<\/?(?:翻译|原文)>/g, "");
+  return result;
+};
+function sanitizeForNotification(text3) {
+  let result = text3;
+  result = stripLiteralBackslashN(result);
+  result = stripThinkBlocks(result);
+  result = replaceHtmlBlocks(result);
+  result = replaceEmojiReverseTag(result);
+  result = replaceSendEmoji(result);
+  result = normalizeTranslationTags(result);
+  result = extractTranslationOriginal(result);
+  result = stripTimestamps(result);
+  result = stripChineseDate(result);
+  result = stripRoleNamePrefix(result);
+  result = stripSystemLogLeak(result);
+  result = stripLeakedSourceTags(result);
+  result = stripInnerState(result);
+  result = stripBusinessTagsForNotification(result);
+  result = stripQuotes(result);
+  result = replaceMarkdownLinks(result);
+  result = stripMarkdownHeaders(result);
+  result = stripMarkdownBold(result);
+  result = stripMarkdownDividers(result);
+  result = stripBackticks(result);
+  result = stripLegacyTrans(result);
+  result = collapseWhitespace(result);
+  return result;
+}
+function sanitizeIntoSegments(text3) {
+  let cleaned = stripLiteralBackslashN(text3);
+  cleaned = stripThinkBlocks(cleaned);
+  cleaned = deduplicateVoiceText(normalizeVoiceTags(cleaned));
+  cleaned = normalizeTranslationTags(cleaned);
+  const ATOM_MARKER = String.fromCharCode(2);
+  const atomBlocks = [];
+  const atomSegments = segmentTextWithProtectedBlocks(cleaned, {
+    splitText: (plainText) => [plainText],
+    protectedPatterns: [
+      {
+        pattern: /\[html\][\s\S]*?\[\/html\]/i,
+        preview: "[HTML \u5361\u7247]"
+      },
+      {
+        pattern: /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/,
+        preview: (_raw, match) => (match[1] || "").trim() || "[\u7FFB\u8BD1]"
+      },
+      {
+        // 语音块 + 紧邻的 <字幕> 块是一个原子单元 (字幕是这条语音的中文对照, 拆开
+        // 就配不上了)。字幕前置/后置都容忍; banner 预览优先用字幕 (用户读得懂中文)。
+        // 闭合容许空格 + 简繁互换 (normalizeVoiceTags 已修, 这里不再依赖 \1 回引)。
+        pattern: /(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/,
+        preview: (_raw, match) => (match[3] || match[1] || match[2] || "").trim() || "[\u8BED\u97F3]"
+      }
+    ]
+  });
+  cleaned = atomSegments.map((seg) => {
+    if (!seg.protect) return seg.raw;
+    const idx = atomBlocks.length;
+    atomBlocks.push({
+      raw: seg.raw,
+      sanitized: typeof seg.sanitized === "string" ? seg.sanitized : sanitizeTextForBanner(seg.raw)
+    });
+    return `
+${ATOM_MARKER}B${idx}${ATOM_MARKER}
+`;
+  }).join("");
+  cleaned = extractTranslationOriginal(cleaned);
+  cleaned = stripInnerState(cleaned);
+  cleaned = stripBusinessTagsForNotification(cleaned);
+  cleaned = stripTimestamps(cleaned);
+  cleaned = stripChineseDate(cleaned);
+  cleaned = stripRoleNamePrefix(cleaned);
+  cleaned = stripLeakedSourceTags(cleaned);
+  cleaned = stripLegacyTrans(cleaned);
+  cleaned = stripMarkdownDividers(cleaned);
+  const rawChunks = chunkText(cleaned);
+  const SOLO_RE = new RegExp(`^${ATOM_MARKER}B(\\d+)${ATOM_MARKER}$`);
+  const GLOBAL_RE = new RegExp(`${ATOM_MARKER}B(\\d+)${ATOM_MARKER}`, "g");
+  const segments = [];
+  let pendingQuoteRaw = "";
+  for (const rawChunk of rawChunks) {
+    const soloMatch = rawChunk.trim().match(SOLO_RE);
+    if (soloMatch) {
+      const blk = atomBlocks[Number(soloMatch[1])];
+      if (blk) segments.push({ raw: blk.raw, sanitized: blk.sanitized });
+      continue;
+    }
+    const parts = splitOnSendEmoji(rawChunk);
+    for (const part of parts) {
+      if (part.kind === "emoji") {
+        segments.push({
+          raw: `[[SEND_EMOJI: ${part.name}]]`,
+          sanitized: `[\u8868\u60C5\uFF1A${part.name}]`
+        });
+        continue;
+      }
+      let rawText = part.text.replace(
+        GLOBAL_RE,
+        (_m, n) => atomBlocks[Number(n)]?.raw || ""
+      );
+      rawText = rawText.trim();
+      if (!rawText) continue;
+      const sanitized = sanitizeTextForBanner(rawText).trim();
+      if (!sanitized) {
+        if (!stripQuotes(rawText).trim()) pendingQuoteRaw += `${rawText}
+`;
+        continue;
+      }
+      if (!stripAllDoubleBracketTags(sanitized).trim()) continue;
+      segments.push({
+        raw: pendingQuoteRaw ? `${pendingQuoteRaw}${rawText}` : rawText,
+        sanitized
+      });
+      pendingQuoteRaw = "";
+    }
+  }
+  return segments;
+}
+function sanitizeTextForBanner(text3) {
+  let result = text3;
+  result = replaceHtmlBlocks(result);
+  result = replaceTranslationForBanner(result);
+  result = replaceVoiceForBanner(result);
+  result = stripQuotes(result);
+  result = stripSystemLogLeak(result);
+  result = replaceEmojiReverseTag(result);
+  result = replaceMarkdownLinks(result);
+  result = stripMarkdownHeaders(result);
+  result = stripMarkdownBold(result);
+  result = stripBackticks(result);
+  result = collapseWhitespace(result);
+  return result;
+}
+function chunkText(text3) {
+  return text3.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
+}
+function splitOnSendEmoji(chunk) {
+  const re = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;
+  const parts = [];
+  let lastIndex = 0;
+  let m;
+  while ((m = re.exec(chunk)) !== null) {
+    if (m.index > lastIndex) {
+      parts.push({ kind: "text", text: chunk.slice(lastIndex, m.index) });
+    }
+    parts.push({ kind: "emoji", name: m[1].trim() });
+    lastIndex = m.index + m[0].length;
+  }
+  if (lastIndex < chunk.length) {
+    parts.push({ kind: "text", text: chunk.slice(lastIndex) });
+  }
+  if (parts.length === 0 && chunk) parts.push({ kind: "text", text: chunk });
+  return parts;
+}
+
+// utils/transferFormat.ts
+function parseTransferAmount(raw2) {
+  if (typeof raw2 === "number") return Number.isFinite(raw2) && raw2 > 0 ? raw2 : null;
+  if (typeof raw2 !== "string") return null;
+  let s = raw2.replace(/[０-９．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248));
+  s = s.replace(/[¥￥$＄]/g, "").replace(/(?:元|块钱|块|圆|RMB|CNY|credits?)/gi, "").replace(/[,，\s]/g, "");
+  if (!/^\d+(?:\.\d+)?$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+function formatTransferAmount(n) {
+  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
+}
+var RECORD_TRANSFER_RE = /\[\[\s*[记記][录錄]\s*[:：]\s*TRANSFER[^\]]*\]\]/gi;
+var ACTION_SEND_KV_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER\s*((?:\|[^\]]*)?)\s*\]\]/gi;
+var ACTION_SEND_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER\s*[:：]\s*([^\]]*?)\s*\]\]/gi;
+var FORGED_TO_VALUES = /* @__PURE__ */ new Set(["char", "self", "me", "\u89D2\u8272", "\u81EA\u5DF1", "\u6211", "\u81EA\u5206", "\u672C\u4EBA"]);
+function parseKvArgs(argStr) {
+  const out = {};
+  for (const part of argStr.split(/[|｜]/)) {
+    const seg = part.trim();
+    if (!seg) continue;
+    const eq = seg.search(/[=＝]/);
+    if (eq < 0) {
+      if (!("amount" in out) && parseTransferAmount(seg) !== null) out.amount = seg;
+      continue;
+    }
+    const k = seg.slice(0, eq).trim().toLowerCase();
+    const v = seg.slice(eq + 1).trim();
+    if (k) out[k] = v;
+  }
+  return out;
+}
+function kvToSendEvent(argStr) {
+  const kv = parseKvArgs(argStr);
+  const to = (kv.to ?? kv["\u7ED9"] ?? "").toLowerCase();
+  if (to && FORGED_TO_VALUES.has(to)) return null;
+  const amount = parseTransferAmount(kv.amount ?? kv["\u91D1\u989D"]);
+  return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
+}
+var ACTION_ACCEPT_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER_ACCEPT\s*\]\]/gi;
+var ACTION_RETURN_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER_RETURN\s*\]\]/gi;
+var SYSTEM_LOG_RE = /[\[【]\s*(?:系统|系統|System)\s*(?:提示)?\s*[:：]\s*([^\[\]【】]*?)\s*[\]】]/gi;
+var BARE_TRANSFER_RE = /\[\s*转[账帐]\s*[:：]?\s*([^\[\]]{0,24}?)\s*\]/gi;
+var AMOUNT_FRAGMENT = String.raw`[¥￥$＄]?\s*([0-9０-９][0-9０-９.,，]*)\s*(?:元|块钱|块|圆)?`;
+var LOG_SEND_RE = new RegExp(String.raw`^(?:你|我)\s*(?:向|给).*?转(?:[账帐]了?|了)\s*${AMOUNT_FRAGMENT}`);
+var LOG_ACCEPT_RE = /^你(?:接收|接受|收下|领取)了.*?转[账帐]/;
+var LOG_RETURN_RE = /^你退回了.*?转[账帐]/;
+var LOG_FORGED_RE = /(?:向|给)你转[账帐]|(?:接收|接受|收下|领取|退回)了你的转[账帐]/;
+var LOG_IS_TRANSFER_RE = /转[账帐]|转了?\s*[¥￥$＄]?\s*[0-9０-９]/;
+function classifySystemLog(inner) {
+  const s = inner.trim();
+  if (!LOG_IS_TRANSFER_RE.test(s)) return void 0;
+  if (LOG_ACCEPT_RE.test(s)) return { kind: "accept" };
+  if (LOG_RETURN_RE.test(s)) return { kind: "return" };
+  const m = s.match(LOG_SEND_RE);
+  if (m) {
+    const amount = parseTransferAmount(m[1]);
+    return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
+  }
+  if (LOG_FORGED_RE.test(s)) return null;
+  return null;
+}
+function collect(text3, re, toEvent, hits) {
+  re.lastIndex = 0;
+  let m;
+  while ((m = re.exec(text3)) !== null) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (hits.some((h) => start < h.end && end > h.start)) continue;
+    const event = toEvent(m);
+    if (event === void 0) continue;
+    hits.push({ start, end, event });
+  }
+}
+function extractTransferCommands(content) {
+  const src = String(content ?? "");
+  if (!src) return { text: "", events: [], consumed: 0 };
+  const hits = [];
+  collect(src, RECORD_TRANSFER_RE, () => null, hits);
+  collect(src, ACTION_SEND_KV_RE, (m) => kvToSendEvent(m[1] ?? ""), hits);
+  collect(src, ACTION_SEND_RE, (m) => {
+    const amount = parseTransferAmount(m[1]);
+    return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
+  }, hits);
+  collect(src, ACTION_ACCEPT_RE, () => ({ kind: "accept" }), hits);
+  collect(src, ACTION_RETURN_RE, () => ({ kind: "return" }), hits);
+  collect(src, SYSTEM_LOG_RE, (m) => classifySystemLog(m[1] ?? ""), hits);
+  collect(src, BARE_TRANSFER_RE, (m) => {
+    const amount = parseTransferAmount(m[1]);
+    return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
+  }, hits);
+  hits.sort((a, b) => a.start - b.start);
+  let text3 = "";
+  let cursor = 0;
+  for (const h of hits) {
+    text3 += src.slice(cursor, h.start);
+    cursor = h.end;
+  }
+  text3 += src.slice(cursor);
+  return {
+    text: text3.trim(),
+    events: hits.map((h) => h.event).filter((e) => e !== null),
+    consumed: hits.length
   };
 }
+
+// utils/scheduleChangeParse.ts
+var KEYWORD_RE = /^\s*(?:ACTION\s*[:：]\s*CHANGE_SCHEDULE|change[\s_-]*(?:schedule|schedue)|modify[\s_-]*schedule|修改(?:未来)?日程|更改(?:未来)?日程|改日程)(?=\s|[:：|=→>\-（(]|\d|$)/iu;
+var parseDirectiveBody = (input) => {
+  const body = input.replace(/^[\s【\[]+|[\s】\]]+$/gu, "").trim();
+  const keyword = body.match(KEYWORD_RE);
+  if (!keyword) return { recognized: false };
+  const rest = body.slice(keyword[0].length).replace(/^\s*[:：|=→>\-]+\s*/u, "");
+  const time = rest.match(/[（(]?\s*(\d{1,2})\s*(?:[:：点时])\s*(\d{1,2})?\s*(?:分)?\s*[）)]?/u);
+  if (!time || time.index == null) return { recognized: true, directive: null };
+  const hour = Number(time[1]);
+  const minute = time[2] == null || time[2] === "" ? 0 : Number(time[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return { recognized: true, directive: null };
+  }
+  const activity = rest.slice(time.index + time[0].length).replace(/^\s*(?:[:：|=→>\-]+)\s*/u, "").replace(/[】\]]+\s*$/gu, "").trim();
+  if (!activity) return { recognized: true, directive: null };
+  return {
+    recognized: true,
+    directive: {
+      startTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+      // 日程卡本来就是短标题；截断异常长输出，避免一条标签撑坏 UI / prompt。
+      activity: activity.slice(0, 120)
+    }
+  };
+};
+var extractScheduleChangeDirectives = (text3) => {
+  const directives = [];
+  let malformedCount = 0;
+  const consumeBody = (body, original) => {
+    const parsed = parseDirectiveBody(body);
+    if (!parsed.recognized) return original;
+    if (parsed.directive) directives.push(parsed.directive);
+    else malformedCount += 1;
+    return "";
+  };
+  let cleanedText = (text3 || "").replace(
+    /(?:【{1,2}|\[{1,2})([^【】\[\]\r\n]{1,360})(?:】{1,2}|\]{1,2})/gu,
+    (whole, body) => consumeBody(body ?? "", whole)
+  );
+  cleanedText = cleanedText.replace(
+    /^[ \t]*(?:【【?|\[\[?)?[ \t]*(?:ACTION[ \t]*[:：][ \t]*CHANGE_SCHEDULE|change[ \t_-]*(?:schedule|schedue)|modify[ \t_-]*schedule|修改(?:未来)?日程|更改(?:未来)?日程|改日程)[ \t]*[:：|]?[^\r\n]{0,360}/gimu,
+    (whole) => consumeBody(whole, whole)
+  );
+  const recognizedSomething = directives.length > 0 || malformedCount > 0;
+  if (!recognizedSomething) {
+    return { cleanedText: text3 || "", directives, malformedCount };
+  }
+  return {
+    cleanedText: cleanedText.replace(/[ \t]+\r?\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim(),
+    directives,
+    malformedCount
+  };
+};
+
+// worker/amsg/src/classifier.ts
+var DATA_TAGS = [
+  // [[RECALL: 2024-05]] / [[RECALL: 2024年5]]
+  {
+    re: /\[\[RECALL:\s*(\d{4})[-/年](\d{1,2})\]\]/g,
+    toolName: "recall",
+    toArgs: (m) => ({ year: m[1], month: m[2].padStart(2, "0") })
+  },
+  // [[SEARCH: query]]
+  {
+    re: /\[\[SEARCH:\s*(.+?)\]\]/g,
+    toolName: "web_search",
+    toArgs: (m) => ({ query: m[1].trim() })
+  },
+  // [[READ_DIARY: 2024-05-19]] / [[READ_DIARY: 今天]]
+  {
+    re: /\[\[READ_DIARY:\s*(.+?)\]\]/g,
+    toolName: "notion_read_diary",
+    toArgs: (m) => ({ date: m[1].trim() })
+  },
+  // [[FS_READ_DIARY: 2024-05-19]]
+  {
+    re: /\[\[FS_READ_DIARY:\s*(.+?)\]\]/g,
+    toolName: "feishu_read_diary",
+    toArgs: (m) => ({ date: m[1].trim() })
+  },
+  // [[READ_NOTE: keyword]]
+  {
+    re: /\[\[READ_NOTE:\s*(.+?)\]\]/g,
+    toolName: "read_note",
+    toArgs: (m) => ({ keyword: m[1].trim() })
+  },
+  // [[XHS_SEARCH: keyword]]
+  {
+    re: /\[\[XHS_SEARCH:\s*(.+?)\]\]/g,
+    toolName: "xhs_search",
+    toArgs: (m) => ({ keyword: m[1].trim() })
+  },
+  // [[XHS_BROWSE]] / [[XHS_BROWSE: category]]
+  {
+    re: /\[\[XHS_BROWSE(?::\s*(.+?))?\]\]/g,
+    toolName: "xhs_browse",
+    toArgs: (m) => m[1] ? { category: m[1].trim() } : {}
+  },
+  // [[XHS_DETAIL: noteId]]
+  {
+    re: /\[\[XHS_DETAIL:\s*(.+?)\]\]/g,
+    toolName: "xhs_detail",
+    toArgs: (m) => ({ noteId: m[1].trim() })
+  },
+  // [[XHS_MY_PROFILE]]
+  {
+    re: /\[\[XHS_MY_PROFILE\]\]/g,
+    toolName: "xhs_my_profile",
+    toArgs: () => ({})
+  }
+];
+var DATA_TOOL_NAMES = Object.freeze([...new Set(DATA_TAGS.map((spec) => spec.toolName))]);
+var SIDE_EFFECT_TAGS = [
+  // [[ACTION:POKE]]
+  {
+    re: /\[\[ACTION:POKE\]\]/g,
+    toDirective: () => ({ type: "poke" })
+  },
+  // 转账 (TRANSFER / TRANSFER_ACCEPT / TRANSFER_RETURN) 不在这张表里 —— 见 classifyLLMOutput
+  // 里的 extractTransferCommands, 那份解析跟客户端共用一份源码, 且要认模仿历史日志的口语形态。
+  // [[ACTION:ADD_EVENT|title|date]]
+  {
+    re: /\[\[ACTION:ADD_EVENT\s*\|\s*(.*?)\s*\|\s*(.*?)\]\]/g,
+    toDirective: (m) => ({ type: "add_event", title: m[1], date: m[2] })
+  },
+  // [schedule_message | time | fixed | text]  (note: 单方括号, 跟原 chatParser 一致)
+  {
+    re: /\[schedule_message\s*\|\s*(.+?)\s*\|\s*fixed\s*\|\s*(.+?)\]/g,
+    toDirective: (m) => ({ type: "schedule_message", time: m[1], text: m[2] })
+  },
+  // [[MUSIC_ACTION:verb]] 或 [[MUSIC_ACTION:verb|arg1|arg2]]
+  {
+    re: /\[\[MUSIC_ACTION:(join|add|add_new|join_and_add|join_and_add_new)(?:\|([^\]]*))?\]\]/g,
+    toDirective: (m) => ({
+      type: "music_action",
+      verb: m[1],
+      args: m[2] ? m[2].split("|").map((s) => s.trim()) : []
+    })
+  },
+  // [[XHS_LIKE: noteId]]
+  {
+    re: /\[\[XHS_LIKE:\s*(.+?)\]\]/g,
+    toDirective: (m) => ({ type: "xhs_like", noteId: m[1].trim() })
+  },
+  // [[XHS_FAV: noteId]]
+  {
+    re: /\[\[XHS_FAV:\s*(.+?)\]\]/g,
+    toDirective: (m) => ({ type: "xhs_fav", noteId: m[1].trim() })
+  },
+  // [[XHS_COMMENT: noteId | text]]
+  {
+    re: /\[\[XHS_COMMENT:\s*([^|]+?)\s*\|\s*([^\]]+?)\]\]/g,
+    toDirective: (m) => ({ type: "xhs_comment", noteId: m[1].trim(), text: m[2].trim() })
+  },
+  // [[XHS_REPLY: noteId | commentId | text]]
+  {
+    re: /\[\[XHS_REPLY:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^\]]+?)\]\]/g,
+    toDirective: (m) => ({
+      type: "xhs_reply",
+      noteId: m[1].trim(),
+      commentId: m[2].trim(),
+      text: m[3].trim()
+    })
+  },
+  // [[XHS_POST: title | content | tags]]   (用 s flag 兼容多行 content)
+  {
+    re: /\[\[XHS_POST:\s*([^|]+?)\s*\|\s*([\s\S]+?)\s*\|\s*([^\]]+?)\]\]/g,
+    toDirective: (m) => ({
+      type: "xhs_post",
+      title: m[1].trim(),
+      content: m[2].trim(),
+      tags: m[3].trim()
+    })
+  },
+  // [[XHS_SHARE: 3]]
+  {
+    re: /\[\[XHS_SHARE:\s*(\d+)\]\]/g,
+    toDirective: (m) => ({ type: "xhs_share", idx: Number(m[1]) })
+  },
+  // [[LIFE:MED|布洛芬]] 生活记录代记 — 跟 chatParser.ts 的 `\[\[LIFE:[^\]]*\]\]` 同口径,
+  // 冒号后整段原样带走, 不在这里拆 verb/args (那份解析在 lifeRecords.parseLifeDirective)。
+  {
+    re: /\[\[LIFE:([^\]]*)\]\]/g,
+    toDirective: (m) => ({ type: "life_record", body: m[1] })
+  },
+  // [[NEWS_CARD: 来源|标题]] 分享热点卡片 — 跟 chatParser.ts:NEWS_CARD_RE 同口径。
+  {
+    re: /\[\[NEWS_CARD:\s*([^\]]*?)\s*\]\]/g,
+    toDirective: (m) => ({ type: "news_card", body: m[1] })
+  },
+  // 写日记 — 长形态: [[DIARY_START: title|mood]]\n content \n[[DIARY_END]]
+  // 短形态: [[DIARY: title|content]] 或 [[DIARY: content]] (无 title)
+  // 行为跟 applyAssistantPostProcessing.ts:465-495 字节对齐:
+  //   - 长形态 header 含 `|` → title|mood 切, 不含 `|` → 整段 = title
+  //   - 短形态 raw 含 `|` → title|content 切, 不含 `|` → 整段 = content (title 留空, 客户端兜底)
+  // 多行 content 用 [\s\S]*? 跨行, 别用 `s` flag (worker 端 esbuild target 默认 ok 但避免冗余)
+  {
+    re: /\[\[DIARY_START:\s*(.+?)\]\]\n?([\s\S]*?)\[\[DIARY_END\]\]/g,
+    toDirective: (m) => parseDiaryLong(m, "notion_write_diary")
+  },
+  {
+    re: /\[\[DIARY:\s*([\s\S]+?)\]\]/g,
+    toDirective: (m) => parseDiaryShort(m, "notion_write_diary")
+  },
+  // 飞书写日记 — 同形态, FS_ 前缀
+  {
+    re: /\[\[FS_DIARY_START:\s*(.+?)\]\]\n?([\s\S]*?)\[\[FS_DIARY_END\]\]/g,
+    toDirective: (m) => parseDiaryLong(m, "feishu_write_diary")
+  },
+  {
+    re: /\[\[FS_DIARY:\s*([\s\S]+?)\]\]/g,
+    toDirective: (m) => parseDiaryShort(m, "feishu_write_diary")
+  }
+];
+function parseDiaryLong(m, type) {
+  const header = m[1].trim();
+  const content = (m[2] || "").trim();
+  let title = "";
+  let mood = "";
+  if (header.includes("|")) {
+    const parts = header.split("|");
+    title = parts[0].trim();
+    mood = parts.slice(1).join("|").trim();
+  } else {
+    title = header;
+  }
+  return { type, title, content, mood: mood || void 0 };
+}
+function parseDiaryShort(m, type) {
+  const raw2 = m[1].trim();
+  let title = "";
+  let content = "";
+  if (raw2.includes("|")) {
+    const parts = raw2.split("|");
+    title = parts[0].trim();
+    content = parts.slice(1).join("|").trim();
+  } else {
+    content = raw2;
+  }
+  return { type, title, content };
+}
+function classifyLLMOutput(text3) {
+  const social = extractFriendFeedReplyTags(text3);
+  const visits = extractFriendFeedReplyTags(social.text, "HOME_VISIT_REPLY");
+  text3 = visits.text;
+  const toolCalls = [];
+  for (const spec of DATA_TAGS) {
+    const matches = Array.from(text3.matchAll(spec.re));
+    for (const m of matches) {
+      const args = spec.toArgs(m);
+      if (!args) continue;
+      toolCalls.push({
+        id: `call_${spec.toolName}_${toolCalls.length}_${Date.now().toString(36)}`,
+        type: "function",
+        function: { name: spec.toolName, arguments: JSON.stringify(args) }
+      });
+    }
+  }
+  if (toolCalls.length > 0) {
+    let prefix = text3;
+    for (const spec of DATA_TAGS) prefix = prefix.replace(spec.re, "");
+    prefix = prefix.trim();
+    if (social.actions.length) prefix += "\n" + social.actions.map((action) => "[[FRIEND_FEED_REPLY:" + JSON.stringify(action) + "]]").join("\n");
+    if (visits.actions.length) prefix += "\n" + visits.actions.map((action) => "[[HOME_VISIT_REPLY:" + JSON.stringify(action) + "]]").join("\n");
+    const sanitizedPrefix = sanitizeForNotification(prefix);
+    return { kind: "tool-request", prefix, sanitizedPrefix, toolCalls };
+  }
+  const directives = social.actions.map((action) => ({ type: "friend_feed_reply", action }));
+  directives.push(...visits.actions.map((action) => ({ type: "home_visit_reply", action })));
+  const { text: textAfterTransfers, events: transferEvents } = extractTransferCommands(visits.text);
+  for (const ev of transferEvents) {
+    if (ev.kind === "send") {
+      const amount = parseTransferAmount(ev.amount);
+      if (amount !== null) directives.push({ type: "transfer", amount });
+    } else if (ev.kind === "accept") {
+      directives.push({ type: "transfer_accept" });
+    } else {
+      directives.push({ type: "transfer_return" });
+    }
+  }
+  const scheduleParsed = extractScheduleChangeDirectives(textAfterTransfers);
+  const textAfterSchedule = scheduleParsed.cleanedText;
+  for (const d of scheduleParsed.directives) {
+    directives.push({ type: "change_schedule", time: d.startTime, activity: d.activity });
+  }
+  for (const spec of SIDE_EFFECT_TAGS) {
+    const matches = Array.from(textAfterSchedule.matchAll(spec.re));
+    for (const m of matches) {
+      const d = spec.toDirective(m);
+      if (d) directives.push(d);
+    }
+  }
+  const dedupedDirectives = [];
+  const seenDirectives = /* @__PURE__ */ new Set();
+  for (const d of directives) {
+    const key = JSON.stringify(d);
+    if (seenDirectives.has(key)) {
+      console.warn("[classifier] \u540C\u4E00\u6761\u6D88\u606F\u91CC\u91CD\u590D\u7684\u526F\u4F5C\u7528, \u53EA\u4FDD\u7559\u7B2C\u4E00\u4E2A:", key);
+      continue;
+    }
+    seenDirectives.add(key);
+    dedupedDirectives.push(d);
+  }
+  let cleanedText = textAfterSchedule;
+  for (const spec of DATA_TAGS) cleanedText = cleanedText.replace(spec.re, "");
+  for (const spec of SIDE_EFFECT_TAGS) cleanedText = cleanedText.replace(spec.re, "");
+  cleanedText = cleanedText.trim();
+  const sanitizedBody = sanitizeForNotification(cleanedText);
+  return { kind: "finish", cleanedText, sanitizedBody, directives: dedupedDirectives };
+}
+
+// worker/amsg/src/agentic.ts
+init_mcpFireCore();
 
 // utils/amsg2ExpireGuard.ts
 var FIRE_GRACE_MS = 9e4;
@@ -20684,6 +22168,7 @@ var AMSG2_SCHEDULE_SECRECY_NOTE = "\u4E0D\u8981\u5411\u7528\u6237\u590D\u8FF0\u6
 var AMSG2_SCHEDULE_NOT_YET_NOTE = "\u6392\u5728\u672A\u6765\u7684\u4E8B\u5230\u70B9\u81EA\u5DF1\u4F1A\u54CD\uFF0C\u4E0D\u7528\u4F60\u73B0\u5728\u63D0\u524D\u66FF\u5B83\u5F00\u53E3\u2014\u2014\u8FD8\u6CA1\u5230\u90A3\u4E2A\u65F6\u523B\u7684\u5C31\u8BA9\u5B83\u5B89\u9759\u5F85\u7740\uFF0C\u522B\u6BCF\u8F6E\u90FD\u62FF\u5B83\u8D77\u8BDD\u5934\u3001\u8FFD\u7740\u95EE\u8FDB\u5C55\u3002\u5BF9\u65B9\u81EA\u5DF1\u63D0\u8D77\uFF0C\u6216\u8005\u771F\u5230\u4E86\u90A3\u4E2A\u70B9\uFF0C\u624D\u662F\u8BF4\u5B83\u7684\u65F6\u5019\u3002";
 var describeExpirePolicy = (policy) => policy === "force" ? "\u5230\u70B9\u5FC5\u53D1" : "\u5230\u70B9\u770B\u60C5\u51B5";
 var describeTaskMode = (task) => {
+  if (task.away) return "\u79BB\u5F00\u540E\u6D88\u606F";
   if (task.mode === "fixed") return "\u56FA\u5B9A\u6D88\u606F";
   if (task.mode === "prompted") return `\u63D0\u793A\u65B9\u5411\u300C${task.promptHint || ""}\u300D`;
   return task.promptHint ? `\u81EA\u52A8\uFF08\u7075\u611F\uFF1A${task.promptHint}\uFF09` : "\u81EA\u52A8";
@@ -20880,6 +22365,8 @@ var buildTaskInstruction = (mode2, promptHint) => {
     promptHint?.trim() ? `\u53EF\u9009\u7075\u611F\u8865\u5145\uFF1A${promptHint.trim()}` : "\u53EF\u9009\u7075\u611F\u8865\u5145\uFF1A\u65E0"
   ].join("\n");
 };
+var AMSG_AWAY_MESSAGE_META = "amsgAwayMessage";
+var AMSG_AWAY_DELAY_META = "amsgAwayDelayMinutes";
 var pad22 = (n) => n.toString().padStart(2, "0");
 var hasExplicitOffset = (s) => /(?:Z|[+-]\d{2}:?\d{2})$/i.test(s.trim());
 var wallClockIso = (ms, tz) => {
@@ -20887,8 +22374,8 @@ var wallClockIso = (ms, tz) => {
   return `${p.year}-${pad22(p.month)}-${pad22(p.day)}T${pad22(p.hour)}:${pad22(p.minute)}:00`;
 };
 var buildSendAtExample = (nowMs, tz) => wallClockIso(nowMs + 24 * 36e5, tz);
-var resolveSendAtMs = (raw, tz) => {
-  const text3 = raw.trim();
+var resolveSendAtMs = (raw2, tz) => {
+  const text3 = raw2.trim();
   if (hasExplicitOffset(text3)) return new Date(text3).getTime();
   return wallClockToTimestamp(text3, tz.tzId);
 };
@@ -20978,14 +22465,14 @@ var resolveFireTargetTask = (tasks, taskIdArg, nowMs, tz) => {
   if (pending.length === 0 && tasks.length === 1) return { task: tasks[0] };
   return { ok: false, reason: "ambiguous_task", message: "\u4F60\u6302\u7740\u4E0D\u6B62\u4E00\u4E2A\u4EFB\u52A1\uFF0C\u5E26 task_id\uFF08\u6392\u7A0B\u6E05\u5355\u91CC\u7684\u77ED id\uFF09\u6307\u5B9A\u8981\u52A8\u54EA\u4E00\u4E2A\u3002" };
 };
-var parseFireRenewSendAt = (raw, nowMs, tz) => {
+var parseFireRenewSendAt = (raw2, nowMs, tz) => {
   const example = buildSendAtExample(nowMs, tz);
-  if (typeof raw !== "string" || !raw.trim()) {
+  if (typeof raw2 !== "string" || !raw2.trim()) {
     return { ok: false, reason: "invalid_send_at", message: `send_at \u5FC5\u586B\uFF0C\u5199\u4F60\u672C\u5730\u7684\u5899\u949F\u65F6\u95F4\uFF08\u5982 ${example}\uFF09\u3002` };
   }
-  const sendAtMs = resolveSendAtMs(raw, tz);
+  const sendAtMs = resolveSendAtMs(raw2, tz);
   if (!Number.isFinite(sendAtMs)) {
-    return { ok: false, reason: "invalid_send_at", message: `send_at\u300C${raw}\u300D\u89E3\u6790\u4E0D\u51FA\u65F6\u95F4\uFF0C\u5199\u4F60\u672C\u5730\u7684\u5899\u949F\u65F6\u95F4\uFF08\u5982 ${example}\uFF09\u3002` };
+    return { ok: false, reason: "invalid_send_at", message: `send_at\u300C${raw2}\u300D\u89E3\u6790\u4E0D\u51FA\u65F6\u95F4\uFF0C\u5199\u4F60\u672C\u5730\u7684\u5899\u949F\u65F6\u95F4\uFF08\u5982 ${example}\uFF09\u3002` };
   }
   if (sendAtMs < nowMs + MIN_SCHEDULE_LEAD_MS2) {
     return {
@@ -20996,10 +22483,10 @@ var parseFireRenewSendAt = (raw, nowMs, tz) => {
   }
   return { sendAt: new Date(sendAtMs).toISOString() };
 };
-var escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
+var escapeRegExp2 = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
 var extractFireScheduleTextCalls = (content) => {
   if (!content) return [];
-  const re = new RegExp(`(^|[^\\w./])${escapeRegExp(AMSG_FIRE_SCHEDULE_TOOL)}\\s*\\(([^)]*)\\)`, "g");
+  const re = new RegExp(`(^|[^\\w./])${escapeRegExp2(AMSG_FIRE_SCHEDULE_TOOL)}\\s*\\(([^)]*)\\)`, "g");
   const calls = [];
   const executable = content.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]*`/g, (match) => " ".repeat(match.length));
   for (const m of executable.matchAll(re)) {
@@ -21015,12 +22502,749 @@ var extractFireScheduleTextCalls = (content) => {
   return calls;
 };
 
+// utils/vrWorld/sarEnvelopeCore.ts
+var planFromSARModuleSnapshot = (snapshot) => {
+  if (!snapshot || !snapshot.character && !snapshot.user) return null;
+  const character2 = snapshot.character;
+  const user = snapshot.user;
+  const hasActiveEffect = character2?.phase === "active" || user?.phase === "active";
+  const hasAfterglow = character2?.phase === "afterglow" || user?.phase === "afterglow";
+  return { character: character2, user, hasActiveEffect, hasAfterglow, requiresEnvelope: hasActiveEffect };
+};
+var isPlainSARChatActionOnlyChunk = (text3) => {
+  const clean2 = text3.trim();
+  if (!clean2) return false;
+  return /^(?:(?:（[^（）]*）|\([^()]*\)|\*[^*\n]+\*)\s*)+[。！？!?…～~—-]*$/s.test(clean2);
+};
+var isSARChatActionOnlyChunk = (text3) => {
+  const bilingualParts = text3.split(/%%BILINGUAL%%/i).map((part) => part.trim()).filter(Boolean);
+  return bilingualParts.length > 0 && bilingualParts.every(isPlainSARChatActionOnlyChunk);
+};
+var isSARChatHtmlPlaceholder = (text3) => /^\[HTML\s*卡片\]$/i.test(text3.trim());
+var consumeSARChatSurfaceChunk = (canonicalChunk, surfaceChunks, startIndex) => {
+  let index = Math.max(0, startIndex);
+  if (isSARChatHtmlPlaceholder(canonicalChunk)) {
+    if (surfaceChunks[index] && isSARChatHtmlPlaceholder(surfaceChunks[index])) index += 1;
+    return { nextIndex: index };
+  }
+  if (isSARChatActionOnlyChunk(canonicalChunk)) {
+    if (surfaceChunks[index] && isSARChatActionOnlyChunk(surfaceChunks[index])) index += 1;
+    return { nextIndex: index };
+  }
+  while (surfaceChunks[index] && (isSARChatActionOnlyChunk(surfaceChunks[index]) || isSARChatHtmlPlaceholder(surfaceChunks[index]))) index += 1;
+  const surface = surfaceChunks[index];
+  return { surface, nextIndex: surface === void 0 ? index : index + 1 };
+};
+var tag = (raw2, name) => {
+  const match = raw2.match(new RegExp(`<${name}>\\s*([\\s\\S]*?)\\s*</${name}>`, "i"));
+  const value = match?.[1]?.trim();
+  return value || void 0;
+};
+var parseSARModuleReply = (raw2, plan) => {
+  if (!plan.requiresEnvelope) return { canonical: raw2, enveloped: false };
+  const body = tag(raw2, "SAR_MODULE_OUTPUT") || raw2;
+  const canonical = tag(body, "CHAR_TRUE");
+  if (!canonical) return { canonical: raw2.trim(), enveloped: false };
+  return {
+    canonical,
+    assistantSurface: plan.character?.phase === "active" ? tag(body, "CHAR_SURFACE") : void 0,
+    userSurface: plan.user?.phase === "active" ? tag(body, "USER_SURFACE") : void 0,
+    enveloped: true
+  };
+};
+var createSARModuleSurfaceMeta = (state, surface) => {
+  const clean2 = surface.trim();
+  if (!clean2 || state.phase !== "active") return void 0;
+  return {
+    version: 1,
+    runId: state.runId,
+    moduleId: state.moduleId,
+    moduleTitle: state.moduleTitle,
+    target: state.target,
+    phase: "active",
+    surface: clean2,
+    canonicalField: "content",
+    surfaceField: "metadata.sarModuleSurface.surface"
+  };
+};
+
+// worker/amsg/src/sarEnvelope.ts
+var AMSG_SAR_META_KEY = "amsgSar";
+var amsgSarUserSurfaceKey = (clientTaskId) => `sar_user_surface:${clientTaskId}`;
+var amsgSarSnapshotKey = (clientTaskId) => `sar_snapshot:${clientTaskId}`;
+var amsgSarSurfaceKey = (clientTaskId, segmentIndex) => `sar_surface:${clientTaskId}:${segmentIndex}`;
+var SAR_SURFACE_BANNER_MAX = 100;
+var clipSarSurfaceBanner = (banner) => {
+  const chars = Array.from(banner);
+  return chars.length <= SAR_SURFACE_BANNER_MAX ? banner : `${chars.slice(0, SAR_SURFACE_BANNER_MAX - 1).join("")}\u2026`;
+};
+var isPlainObject2 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
+var isSurfaceSource = (value) => isPlainObject2(value) && typeof value.phase === "string";
+var readSarSnapshot = (metadata) => {
+  const raw2 = metadata?.[AMSG_SAR_META_KEY];
+  if (!isPlainObject2(raw2) || raw2.v !== 1) return null;
+  if (raw2.character !== void 0 && !isSurfaceSource(raw2.character)) return null;
+  if (raw2.user !== void 0 && !isSurfaceSource(raw2.user)) return null;
+  return raw2;
+};
+var stripSarSnapshot = (metadata) => {
+  const { [AMSG_SAR_META_KEY]: _snapshot, ...rest } = metadata ?? {};
+  return rest;
+};
+var SURFACE_BLOCK_RE = /<(CHAR_SURFACE|USER_SURFACE)>[\s\S]*?(?:<\/\1>|(?=<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>)|$)/gi;
+var PLACEHOLDER = String.fromCharCode(5);
+var PLACEHOLDER_RE = new RegExp(`${PLACEHOLDER}(\\d+)${PLACEHOLDER}`, "g");
+var maskSarSurfaceBlocks = (text3) => {
+  const blocks = [];
+  const masked = text3.replace(SURFACE_BLOCK_RE, (block) => {
+    blocks.push(block);
+    return `${PLACEHOLDER}${blocks.length - 1}${PLACEHOLDER}`;
+  });
+  return {
+    masked,
+    restore: (value) => blocks.length === 0 ? value : value.replace(PLACEHOLDER_RE, (_m, n) => blocks[Number(n)] ?? "")
+  };
+};
+var ENVELOPE_TAG_RE = /<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>/gi;
+var stripEnvelopeTags = (text3) => text3.replace(ENVELOPE_TAG_RE, "").trim();
+var closeOpenTag = (text3, name, stoppers) => {
+  const open = new RegExp(`<${name}>`, "i").exec(text3);
+  if (!open || new RegExp(`</${name}>`, "i").test(text3)) return text3;
+  const after = open.index + open[0].length;
+  const stop = new RegExp(stoppers.join("|"), "i").exec(text3.slice(after));
+  const at = stop ? after + stop.index : text3.length;
+  return `${text3.slice(0, at)}</${name}>${text3.slice(at)}`;
+};
+var repairEnvelope = (text3) => {
+  let repaired = closeOpenTag(text3, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
+  repaired = closeOpenTag(repaired, "CHAR_SURFACE", ["<USER_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
+  repaired = closeOpenTag(repaired, "USER_SURFACE", ["<CHAR_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
+  return repaired;
+};
+var parseSarEnvelopeRounds = (rounds, plan) => {
+  const texts = rounds.filter((round) => round.trim().length > 0);
+  if (!plan.requiresEnvelope) return { canonical: texts.join("\n"), enveloped: false, pieces: [] };
+  const pieces = [];
+  let enveloped = false;
+  let userSurface;
+  for (const text3 of texts) {
+    const parsed = parseSARModuleReply(repairEnvelope(text3), plan);
+    if (parsed.enveloped) {
+      enveloped = true;
+      if (parsed.userSurface) userSurface = parsed.userSurface;
+    }
+    const canonical = stripEnvelopeTags(parsed.canonical);
+    if (!canonical) continue;
+    const surface = parsed.enveloped && parsed.assistantSurface ? stripEnvelopeTags(parsed.assistantSurface) : "";
+    pieces.push({ canonical, ...surface ? { surface } : {} });
+  }
+  return {
+    canonical: pieces.map((p) => p.canonical).join("\n"),
+    enveloped,
+    pieces,
+    ...userSurface ? { userSurface } : {}
+  };
+};
+var isEmojiSegment = (seg) => /^\[\[SEND_EMOJI[:：]/i.test(seg.raw.trim());
+var isHtmlSegment = (seg) => /^\[html\][\s\S]*\[\/html\]$/i.test(seg.raw.trim());
+var TRANSLATION_BLOCK_RE = /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>([\s\S]*?)<\/译文>\s*<\/翻译>/;
+var alignKey = (seg) => {
+  const translation = seg.raw.match(TRANSLATION_BLOCK_RE);
+  if (translation) {
+    const original = translation[1].trim();
+    const translated = translation[2].trim();
+    return original && translated ? `${original}
+%%BILINGUAL%%
+${translated}` : original || translated;
+  }
+  return seg.sanitized;
+};
+var segmentSurface = (surfaceText) => {
+  const prepared = surfaceText.replace(/\[html\][\s\S]*?\[\/html\]/gi, "\n").replace(/\[\[[\s\S]*?\]\]/g, "");
+  return sanitizeIntoSegments(prepared).filter((seg) => !isEmojiSegment(seg) && !isHtmlSegment(seg));
+};
+var alignSarSurfaceSegments = (canonicalSegments, surfaceText) => {
+  const surfaceSegs = segmentSurface(surfaceText);
+  const surfaceKeys = surfaceSegs.map(alignKey);
+  let index = 0;
+  return canonicalSegments.map((seg) => {
+    if (isEmojiSegment(seg) || isHtmlSegment(seg)) return void 0;
+    const consumed = consumeSARChatSurfaceChunk(alignKey(seg), surfaceKeys, index);
+    index = consumed.nextIndex;
+    if (consumed.surface === void 0) return void 0;
+    const matched = surfaceSegs[consumed.nextIndex - 1];
+    return matched ? { surface: matched.raw, banner: matched.sanitized } : void 0;
+  });
+};
+var segmentCanonical = (text3) => {
+  const scan = classifyLLMOutput(text3);
+  return sanitizeIntoSegments(scan.kind === "finish" ? scan.cleanedText : scan.prefix);
+};
+var buildSarSurfaceSlots = (parse, segments) => {
+  const none = segments.map(() => void 0);
+  if (!parse.pieces.some((p) => p.surface)) return none;
+  if (parse.pieces.length === 1) return alignSarSurfaceSegments(segments, parse.pieces[0].surface ?? "");
+  const counts = parse.pieces.map((p) => segmentCanonical(p.canonical).length);
+  if (counts.reduce((a, b) => a + b, 0) !== segments.length) {
+    return alignSarSurfaceSegments(
+      segments,
+      parse.pieces.map((p) => p.surface).filter((s) => !!s).join("\n")
+    );
+  }
+  const slots = [];
+  let offset = 0;
+  parse.pieces.forEach((piece, i) => {
+    const slice = segments.slice(offset, offset + counts[i]);
+    offset += counts[i];
+    slots.push(...piece.surface ? alignSarSurfaceSegments(slice, piece.surface) : slice.map(() => void 0));
+  });
+  return slots;
+};
+
+// worker/amsg/src/agentic.ts
+var createFireSessionState = () => ({
+  narrations: [],
+  toolCalls: [],
+  duplicateToolCalls: 0,
+  mcpCallSeq: 0,
+  xhsShareNotes: null,
+  finalReasoning: null
+});
+var MAX_DUPLICATE_TOOL_CALLS = 2;
+var DEFAULT_TOOL_ITERATIONS = 5;
+var MCP_MAX_TOOL_ITERATIONS = 12;
+var resolveToolIterationBudget = (hasMcp) => hasMcp ? MCP_MAX_TOOL_ITERATIONS : DEFAULT_TOOL_ITERATIONS;
+var XHS_SHARE_TAG_RE = /\[\[XHS_SHARE:\s*\d+\]\]/;
+var XHS_DESC_MAX = 120;
+function buildXhsSessionPayload(directives, notes, xsecTokens) {
+  if (directives.length === 0) return null;
+  const sharedIdx = /* @__PURE__ */ new Set();
+  const refNoteIds = /* @__PURE__ */ new Set();
+  for (const d of directives) {
+    if (d.type === "xhs_share") sharedIdx.add(d.idx);
+    else if (d.type === "xhs_like" || d.type === "xhs_fav") refNoteIds.add(d.noteId);
+    else if (d.type === "xhs_comment" || d.type === "xhs_reply") refNoteIds.add(d.noteId);
+  }
+  if (sharedIdx.size === 0 && refNoteIds.size === 0) return null;
+  const pickedNotes = [];
+  for (const idx of [...sharedIdx].sort((a, b) => a - b)) {
+    const note = idx >= 1 ? notes?.[idx - 1] : void 0;
+    if (!note) continue;
+    pickedNotes.push({ idx, note: { ...note, desc: (note.desc || "").slice(0, XHS_DESC_MAX) } });
+  }
+  const pickedTokens = (xsecTokens ?? []).filter(([noteId]) => refNoteIds.has(noteId));
+  if (pickedNotes.length === 0 && pickedTokens.length === 0) return null;
+  return { notes: pickedNotes, xsecTokens: pickedTokens };
+}
+function attachSceneSong(directives, sceneSong) {
+  if (!sceneSong) return directives;
+  return directives.map((d) => d.type === "music_action" ? { ...d, song: sceneSong } : d);
+}
+var resolveNativeFireToolName = (raw2, manageToolNames, mcpResolve) => {
+  const candidates = [raw2];
+  const lastSegment = raw2.split(/[:./]/).pop();
+  if (lastSegment && lastSegment !== raw2) candidates.push(lastSegment);
+  for (const c of candidates) {
+    if (!c) continue;
+    if (c.startsWith(MCP_FIRE_NAME_PREFIX) && mcpResolve?.has(c.slice(MCP_FIRE_NAME_PREFIX.length))) {
+      return { kind: "mcp", name: c };
+    }
+    if (manageToolNames.has(c)) return { kind: "manage", name: c };
+    if (mcpResolve?.has(c)) return { kind: "mcp", name: `${MCP_FIRE_NAME_PREFIX}${c}` };
+  }
+  return null;
+};
+var classifyNativeToolCalls = (rawToolCalls, manageToolNames, mcpResolve) => {
+  const out = { manage: [], mcp: [], dropped: [] };
+  const calls = Array.isArray(rawToolCalls) ? rawToolCalls : [];
+  for (const tc of calls) {
+    const raw2 = tc?.function?.name;
+    const resolved = typeof raw2 === "string" && raw2 ? resolveNativeFireToolName(raw2, manageToolNames, mcpResolve) : null;
+    if (!resolved) {
+      out.dropped.push(typeof raw2 === "string" && raw2 ? raw2 : null);
+      continue;
+    }
+    const call = resolved.name === raw2 ? tc : { ...tc, function: { ...tc.function, name: resolved.name } };
+    (resolved.kind === "mcp" ? out.mcp : out.manage).push(call);
+  }
+  return out;
+};
+function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, maxToolIterations = DEFAULT_TOOL_ITERATIONS) {
+  const isFinalRound = typeof iteration === "number" && iteration >= maxToolIterations - 1;
+  const sarPlan = planFromSARModuleSnapshot(build.sar ?? null);
+  const sarMask = sarPlan?.requiresEnvelope ? maskSarSurfaceBlocks(llmOutputText) : null;
+  const roundText = sarMask ? sarMask.masked : llmOutputText;
+  const restoreSurfaces = (text3) => sarMask ? sarMask.restore(text3) : text3;
+  const nativeToolCalls = mcp?.nativeToolCalls ?? [];
+  const textCalls = mcp?.resolve.size ? extractTextFakedMcpCalls(roundText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX }) : [];
+  const nativeScheduleCalls = schedule?.nativeToolCalls ?? [];
+  const hasNativeSchedule = nativeScheduleCalls.some(
+    (tc) => tc?.function?.name === AMSG_FIRE_SCHEDULE_TOOL
+  );
+  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(roundText) : [];
+  const scheduleCalls = [
+    ...nativeScheduleCalls,
+    ...(hasNativeSchedule ? [] : scheduleTextCalls).map((c) => ({
+      id: `sched_${state.mcpCallSeq++}`,
+      type: "function",
+      function: { name: AMSG_FIRE_SCHEDULE_TOOL, arguments: JSON.stringify(c.args) }
+    }))
+  ];
+  const strippedText = scheduleTextCalls.length ? stripTextFakedMcpCalls(roundText, scheduleTextCalls) : roundText;
+  const scanText = textCalls.length ? stripTextFakedMcpCalls(strippedText, textCalls) : strippedText;
+  const mcpToolCalls = nativeToolCalls.length > 0 ? nativeToolCalls : textCalls.map((c) => ({
+    // id 只需在一轮的 assistant/tool 消息配对里唯一；本次 fire 内自增，绝不重号。
+    id: `mcp_${state.mcpCallSeq++}`,
+    type: "function",
+    // exposedName 恒为裸名（alsoMatchPrefix 的命中也回裸名），统一补前缀即可。
+    function: { name: `${MCP_FIRE_NAME_PREFIX}${c.exposedName}`, arguments: JSON.stringify(c.args) }
+  }));
+  const extraToolCalls = [...mcpToolCalls, ...scheduleCalls];
+  const result = classifyLLMOutput(scanText);
+  const isToolRound = result.kind === "tool-request" || extraToolCalls.length > 0;
+  if (isToolRound) {
+    const narration = result.kind === "tool-request" ? result.prefix : scanText;
+    if (state.duplicateToolCalls < MAX_DUPLICATE_TOOL_CALLS && !isFinalRound) {
+      if (narration.trim()) state.narrations.push(restoreSurfaces(narration));
+      if (state.xhsShareNotes === null && XHS_SHARE_TAG_RE.test(narration)) {
+        state.xhsShareNotes = [...build.xhsNotes ?? []];
+      }
+      return {
+        decision: "tool-request",
+        toolCalls: result.kind === "tool-request" ? [...result.toolCalls, ...extraToolCalls] : extraToolCalls
+      };
+    }
+  }
+  const thisRound = isToolRound ? "" : restoreSurfaces(scanText);
+  const rounds = [...state.narrations, thisRound].filter((part) => part.trim().length > 0);
+  const fullText = rounds.join("\n");
+  const sarParse = sarPlan?.requiresEnvelope ? parseSarEnvelopeRounds(rounds, sarPlan) : null;
+  const finalScan = sarParse ? classifyLLMOutput(sarParse.canonical) : fullText === scanText ? result : classifyLLMOutput(fullText);
+  const cleanedText = finalScan.kind === "finish" ? finalScan.cleanedText : finalScan.prefix;
+  const directives = attachSceneSong(
+    finalScan.kind === "finish" ? finalScan.directives : [],
+    build.sceneSong
+  );
+  const xhsSession = buildXhsSessionPayload(
+    directives,
+    state.xhsShareNotes ?? build.xhsNotes,
+    build.xhsXsecTokens
+  );
+  const finishMeta = directives.length > 0 ? { directives, ...xhsSession ? { xhsSession } : {} } : void 0;
+  const declined = fullText.includes(AMSG_SILENT_MARK);
+  const segments = declined ? [] : sanitizeIntoSegments(cleanedText);
+  if (segments.length === 0) {
+    const scheduleChanges = directives.filter((d) => d.type === "change_schedule").map((d) => ({ startTime: d.time, activity: d.activity }));
+    return {
+      decision: "skip-push",
+      reason: declined ? "declined" : finishMeta ? "side-effects-only" : "empty-generation",
+      ...!declined && directives.some((d) => d.type !== "change_schedule") && finishMeta ? { sideEffects: finishMeta } : {},
+      ...scheduleChanges.length > 0 ? { scheduleChanges } : {}
+    };
+  }
+  const sarCharacter = build.sar?.character;
+  const surfaceSlots = sarParse && sarCharacter?.phase === "active" ? buildSarSurfaceSlots(sarParse, segments) : [];
+  const sarLastMeta = {
+    ...build.sar ? { [AMSG_SAR_META_KEY]: build.sar } : {},
+    ...sarParse?.userSurface ? { amsgSarUserSurface: sarParse.userSurface } : {}
+  };
+  const lastMeta = finishMeta || Object.keys(sarLastMeta).length > 0 ? { ...finishMeta ?? {}, ...sarLastMeta } : void 0;
+  const lastIdx = segments.length - 1;
+  return {
+    decision: "finish",
+    pushPayloads: segments.map((seg, i) => {
+      const slot = surfaceSlots[i];
+      const surfaceMeta = slot && sarCharacter ? createSARModuleSurfaceMeta(sarCharacter, slot.surface) : void 0;
+      const extra = {
+        ...surfaceMeta ? { amsgSarSurface: surfaceMeta } : {},
+        ...i === lastIdx ? lastMeta ?? {} : {}
+      };
+      return buildScheduledPush(
+        seg.raw,
+        build,
+        Object.keys(extra).length > 0 ? extra : void 0,
+        // 外显横幅截短：这条 push 还要装外显 meta，别把单段正文的字节预算吃掉一半。
+        surfaceMeta && slot ? clipSarSurfaceBanner(slot.banner) : seg.sanitized
+      );
+    })
+  };
+}
+function buildScheduledPush(message, build, extraMeta, bannerBody) {
+  const title = `\u6765\u81EA ${build.contactName}`;
+  return {
+    messageKind: "content",
+    messageType: build.messageType,
+    source: "scheduled",
+    message,
+    title,
+    contactName: build.contactName,
+    avatarUrl: build.avatarUrl,
+    messageSubtype: "chat",
+    taskId: build.taskId,
+    metadata: {
+      // SAR 快照不许摊进每一条（它只随最后一条经 extraMeta 回去）；调用方已摘过，这里兜一道。
+      ...stripSarSnapshot(build.metadata),
+      amsgOccurrenceMs: build.occurrenceMs,
+      ...extraMeta ?? {}
+    },
+    ...bannerBody !== void 0 ? { notification: { title, body: bannerBody } } : {}
+  };
+}
+
+// utils/amsgBundleVersion.ts
+var AMSG_BUNDLE_VERSION = "2026-11-07.3";
+
+// worker/amsg/src/reproduction.ts
+async function writeDiagnosticStage(writeState, runId, event, fields = {}) {
+  if (!writeState) return;
+  const entry = { ...fields, runId, side: "worker", event, ts: (/* @__PURE__ */ new Date()).toISOString(), workerVersion: AMSG_BUNDLE_VERSION };
+  try {
+    await writeState(DIAGNOSTIC_NAMESPACE, [{ key: `${runId}:${crypto.randomUUID()}`, value: JSON.stringify(entry) }]);
+  } catch {
+  }
+}
+var reproductionHandler = {
+  async beforeFire({ ctx, taskMeta }) {
+    const runId = diagnosticRunId(taskMeta);
+    if (!runId) throw new Error("\u8BCA\u65AD\u4EFB\u52A1\u7F16\u53F7\u7F3A\u5931\u6216\u65E0\u6548");
+    const state = { runId, startedAt: Date.now(), taskId: ctx.task.id == null ? null : String(ctx.task.id) };
+    ctx.scratch.diagnostic = state;
+    await writeDiagnosticStage(ctx.writeState, runId, "fire-start", { taskId: state.taskId });
+    return {
+      state,
+      messages: [
+        { role: "system", content: "\u4F60\u6B63\u5728\u6A21\u62DF\u4E00\u6B21\u4E3B\u52A8\u6D88\u606F\uFF0C\u7528\u4E8E\u68C0\u67E5\u751F\u6210\u3001\u5206\u6BB5\u548C\u7CFB\u7EDF\u901A\u77E5\u3002\u4F60\u4E0D\u662F\u7528\u6237\u7684\u89D2\u8272\uFF0C\u4E0D\u8BFB\u53D6\u6216\u4FEE\u6539\u4EFB\u4F55\u8BB0\u5FC6\u3002\u53EA\u8F93\u51FA\u4E09\u53E5\u7B80\u77ED\u7684\u4E2D\u6587\u95EE\u5019\uFF0C\u6BCF\u53E5\u5355\u72EC\u4E00\u6BB5\uFF0C\u4EE5\u7A7A\u884C\u5206\u9694\u3002\u4E0D\u8981\u8F93\u51FA\u5DE5\u5177\u8C03\u7528\u3001\u52A8\u4F5C\u6807\u7B7E\u3001\u4EE3\u7801\u3001\u601D\u8003\u8FC7\u7A0B\u6216\u4E2A\u4EBA\u4FE1\u606F\u3002\u603B\u5171\u4E0D\u8D85\u8FC7120\u5B57\u3002" },
+        { role: "user", content: "\u8BF7\u4E3B\u52A8\u53D1\u6765\u8FD9\u6B21\u6D4B\u8BD5\u95EE\u5019\uFF0C\u5E76\u5728\u6700\u540E\u4E00\u53E5\u63D0\u9192\u6211\u68C0\u67E5\u7CFB\u7EDF\u901A\u77E5\u3002" }
+      ]
+    };
+  },
+  async llmOutput({ ctx, state }) {
+    const diagnostic = state;
+    const decision = processLLMRound(createFireSessionState(), stripReasoningTags(ctx.llmOutputText || ""), {
+      contactName: "\u4E3B\u52A8\u6D88\u606F\u590D\u73B0",
+      avatarUrl: null,
+      taskId: diagnostic.taskId,
+      messageType: "auto",
+      occurrenceMs: diagnostic.startedAt,
+      metadata: { charId: DIAGNOSTIC_CHAR_ID, amsgKind: "diagnostic", amsgDiagnosticRunId: diagnostic.runId }
+    }, null, null, 0, 1);
+    await writeDiagnosticStage(ctx.writeState, diagnostic.runId, "llm-output", {
+      durationMs: Date.now() - diagnostic.startedAt,
+      outputChars: (ctx.llmOutputText || "").length,
+      decision: decision.decision,
+      chunks: decision.decision === "finish" ? decision.pushPayloads.length : 0
+    });
+    if (decision.decision === "tool-request") return { decision: "skip-push", reason: "diagnostic-tools-disabled" };
+    if (decision.decision === "skip-push") return { decision: "skip-push", reason: decision.reason };
+    return { decision: "finish", pushPayloads: decision.pushPayloads.map((payload) => ({
+      ...payload,
+      metadata: { charId: DIAGNOSTIC_CHAR_ID, amsgKind: "diagnostic", amsgDiagnosticRunId: diagnostic.runId }
+    })) };
+  }
+};
+async function settleReproduction(info) {
+  const state = info.scratch.diagnostic;
+  if (!state) return false;
+  await writeDiagnosticStage(info.writeState, state.runId, "fire-settled", {
+    status: info.status,
+    sentCount: info.sentCount,
+    willRetry: info.willRetry,
+    llmCalls: info.llmCalls,
+    outboxed: info.outboxed,
+    ...info.error ? safeDiagnosticError(info.error) : {}
+  });
+  return true;
+}
+function traceDiagnosticTransport(transport, env) {
+  const record4 = async (payload, event, fields) => {
+    const runId = diagnosticRunId(payload?.metadata);
+    if (!runId || !env.DB || !env.AMSG_MASTER_KEY || typeof payload.taskUuid !== "string") return;
+    try {
+      const db = env.DB;
+      const task = await db.prepare("SELECT user_id FROM scheduled_messages WHERE uuid = ?").bind(payload.taskUuid).first();
+      if (!task) return;
+      const key = await deriveUserEncryptionKey(task.user_id, env.AMSG_MASTER_KEY);
+      const entry = { ...fields, runId, side: "worker", event, ts: typeof fields.ts === "string" ? fields.ts : (/* @__PURE__ */ new Date()).toISOString(), messageId: payload.messageId, chunk: payload.messageIndex, total: payload.totalMessages, workerVersion: AMSG_BUNDLE_VERSION };
+      const value = await encryptForStorage(JSON.stringify(entry), key);
+      await db.prepare("INSERT INTO client_state (user_id, namespace, key, value, updated_at) SELECT user_id, ?, ?, ?, ? FROM scheduled_messages WHERE uuid = ? AND user_id = ?").bind(DIAGNOSTIC_NAMESPACE, `${runId}:${crypto.randomUUID()}`, value, Date.now(), payload.taskUuid, task.user_id).run();
+    } catch {
+    }
+  };
+  return { ...transport, async sendNotification(subscription, raw2) {
+    let payload;
+    try {
+      payload = JSON.parse(raw2);
+    } catch {
+    }
+    const startedAt = Date.now();
+    const attempt = { ts: new Date(startedAt).toISOString() };
+    try {
+      const result = await transport.sendNotification(subscription, raw2);
+      const durationMs = Date.now() - startedAt;
+      await record4(payload, "push-attempt", attempt);
+      await record4(payload, "push-accepted", { durationMs, httpStatus: result?.statusCode ?? result?.status ?? null });
+      return result;
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      await record4(payload, "push-attempt", attempt);
+      await record4(payload, "push-rejected", { durationMs, ...safeDiagnosticError(error) });
+      throw error;
+    }
+  } };
+}
+
+// worker/amsg/src/skipDiagnostics.ts
+var BODY_ERROR_MAX_CHARS = 200;
+var CONTENT_EXCERPT_CHARS = 300;
+var REASONING_TAIL_CHARS = 200;
+var BODY_EXCERPT_CHARS = 500;
+var asRecord = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : null;
+var numberOrNull = (value) => typeof value === "number" && Number.isFinite(value) ? value : null;
+var clip = (text3, max) => text3.length > max ? `${text3.slice(0, max)}\u2026` : text3;
+var safeStringify = (value) => {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
+};
+var readFirstMessage = (body) => {
+  const choices = Array.isArray(body?.choices) ? body.choices : [];
+  const choice = asRecord(choices[0]);
+  return { choice, message: asRecord(choice?.message) };
+};
+var readReasoning = (message) => {
+  const value = message?.reasoning_content ?? message?.reasoning ?? message?.thinking;
+  return typeof value === "string" ? value : "";
+};
+var readBodyError = (body, hasChoices) => {
+  if (!body) return null;
+  let text3 = "";
+  const error = body.error;
+  if (typeof error === "string") {
+    text3 = error;
+  } else {
+    const record4 = asRecord(error);
+    if (record4) {
+      const code2 = typeof record4.code === "string" || typeof record4.code === "number" ? String(record4.code) : typeof record4.type === "string" ? record4.type : "";
+      const message = typeof record4.message === "string" ? record4.message : "";
+      text3 = [code2 && `[${code2}]`, message].filter(Boolean).join(" ") || safeStringify(record4);
+    }
+  }
+  if (!text3 && !hasChoices) {
+    const topLevel = body.message ?? body.msg;
+    if (typeof topLevel === "string") text3 = topLevel;
+  }
+  return text3 ? clip(redactCredentials(text3), BODY_ERROR_MAX_CHARS) : null;
+};
+var describeLlmResponseShape = (llmResponse, llmOutputText) => {
+  const body = asRecord(llmResponse);
+  const hasChoices = Array.isArray(body?.choices) && body.choices.length > 0;
+  const { choice, message } = readFirstMessage(body);
+  const content = message?.content;
+  const contentType = content === void 0 ? "missing" : content === null ? "null" : typeof content === "string" ? "string" : Array.isArray(content) ? "array" : "other";
+  const contentChars = typeof content === "string" ? content.length : Array.isArray(content) ? content.reduce((sum, part) => {
+    const text3 = asRecord(part)?.text;
+    return sum + (typeof text3 === "string" ? text3.length : 0);
+  }, 0) : 0;
+  const usage = asRecord(body?.usage);
+  const usageDetails = asRecord(usage?.completion_tokens_details);
+  return {
+    model: typeof body?.model === "string" ? body.model : null,
+    hasChoices,
+    finishReason: typeof choice?.finish_reason === "string" ? choice.finish_reason : null,
+    contentType,
+    contentChars,
+    ...Array.isArray(content) ? { contentParts: content.length } : {},
+    visibleChars: stripReasoningTags(llmOutputText || "").trim().length,
+    reasoningChars: readReasoning(message).length,
+    toolCalls: Array.isArray(message?.tool_calls) ? message.tool_calls.length : 0,
+    usage: usage ? {
+      promptTokens: numberOrNull(usage.prompt_tokens),
+      completionTokens: numberOrNull(usage.completion_tokens),
+      reasoningTokens: numberOrNull(usageDetails?.reasoning_tokens)
+    } : null,
+    bodyError: readBodyError(body, hasChoices)
+  };
+};
+var excerptLlmResponse = (llmResponse) => {
+  const body = asRecord(llmResponse);
+  const hasChoices = Array.isArray(body?.choices) && body.choices.length > 0;
+  if (!hasChoices) {
+    return { body: clip(redactCredentials(safeStringify(llmResponse)), BODY_EXCERPT_CHARS) };
+  }
+  const { message } = readFirstMessage(body);
+  const excerpt = {};
+  const content = message?.content;
+  if (typeof content === "string") {
+    if (content) excerpt.content = clip(redactCredentials(content), CONTENT_EXCERPT_CHARS);
+  } else if (content != null) {
+    excerpt.content = clip(redactCredentials(safeStringify(content)), CONTENT_EXCERPT_CHARS);
+  }
+  const reasoning = readReasoning(message);
+  if (reasoning) {
+    const tail2 = reasoning.length > REASONING_TAIL_CHARS ? `\u2026${reasoning.slice(-REASONING_TAIL_CHARS)}` : reasoning;
+    excerpt.reasoningTail = redactCredentials(tail2);
+  }
+  if (Array.isArray(message?.tool_calls) && message.tool_calls.length > 0) {
+    excerpt.toolCalls = clip(redactCredentials(safeStringify(message.tool_calls)), CONTENT_EXCERPT_CHARS);
+  }
+  return excerpt;
+};
+var rawExcerptEnabled = false;
+var configureSkipDiagnostics = (options2) => {
+  rawExcerptEnabled = options2.rawExcerpt;
+};
+var isDebugFlagOn = (value) => typeof value === "string" && ["1", "true"].includes(value.trim().toLowerCase());
+var logSkipDiagnostic = (input) => {
+  try {
+    console.warn("[amsg:skip-diag]", {
+      sessionId: input.sessionId ?? null,
+      reason: input.reason,
+      iteration: input.iteration ?? null,
+      ...describeLlmResponseShape(input.llmResponse, input.llmOutputText ?? ""),
+      ...rawExcerptEnabled ? { raw: excerptLlmResponse(input.llmResponse) } : {}
+    });
+  } catch (error) {
+    console.warn("[amsg:skip-diag] \u8BCA\u65AD\u65E5\u5FD7\u6CA1\u8BB0\u4E0B\u6765\uFF08\u8DF3\u8FC7\u7167\u5E38\u751F\u6548\uFF09", error);
+  }
+};
+
+// worker/amsg/src/plateFire.ts
+var discardJob = async (writeState, jobId) => {
+  if (!writeState) return;
+  try {
+    await writeState(AMSG_JOB_NAMESPACE, [{ key: plateJobKey(jobId), value: null }]);
+  } catch (error) {
+    console.warn("[amsg:plate] job \u884C\u6CA1\u5220\u6389\uFF08\u7B49 TTL \u515C\u5E95\uFF09", jobId, error);
+  }
+};
+var plateConsolidateHandler = {
+  async beforeFire({ ctx, charId, taskMeta }) {
+    const jobId = taskMeta[AMSG_JOB_ID_KEY];
+    if (typeof jobId !== "string" || !jobId) {
+      throw new Error(`\u95E8\u724C\u6574\u7406\u4EFB\u52A1\u7684 metadata \u91CC\u6CA1\u6709 ${AMSG_JOB_ID_KEY}`);
+    }
+    const rows = await ctx.readState(AMSG_JOB_NAMESPACE);
+    const row = rows.find((r) => r.key === plateJobKey(jobId));
+    if (!row?.value) {
+      return { skip: true, reason: `\u95E8\u724C\u6574\u7406 job ${jobId} \u7684\u8F93\u5165\u5DF2\u4E0D\u5728\uFF08\u8FC7\u671F\u6216\u5DF2\u64A4\u9500\uFF09` };
+    }
+    const discardAndFail = async (message) => {
+      await discardJob(ctx.writeState, jobId);
+      throw new Error(message);
+    };
+    let json;
+    try {
+      json = await unpackStateValue(row.value);
+    } catch (error) {
+      return discardAndFail(`\u95E8\u724C\u6574\u7406 job ${jobId} \u7684\u8F93\u5165\u89E3\u538B\u5931\u8D25\uFF08\u6570\u636E\u635F\u574F\uFF09\uFF1A${String(error)}`);
+    }
+    const job = parsePlateJobInput(json);
+    if (!job) return discardAndFail(`\u95E8\u724C\u6574\u7406 job ${jobId} \u7684\u8F93\u5165\u89E3\u6790\u5931\u8D25\uFF08\u6570\u636E\u635F\u574F\uFF09`);
+    if (job.charId !== charId) {
+      return discardAndFail(`\u95E8\u724C\u6574\u7406 job ${jobId} \u7684 charId \u4E0E\u4EFB\u52A1\u5BF9\u4E0D\u4E0A`);
+    }
+    if (job.rooms.length === 0) {
+      await discardJob(ctx.writeState, jobId);
+      return { skip: true, reason: `\u95E8\u724C\u6574\u7406 job ${jobId} \u6CA1\u6709\u8981\u6574\u7406\u7684\u623F\u95F4` };
+    }
+    return {
+      messages: buildPlateJobMessages(job),
+      // 跟浏览器那条路同一个超时（叶子里那个常量）。不显式交上去的话这一次 fire 会落到
+      // 库自己的默认值（四分钟），同一件活儿两条路的耐心不一样，而且改那个常量对云端
+      // 毫无影响——「本地什么样云端就什么样」这条线得自己拉齐。
+      totalTimeoutMs: PLATE_LLM_TIMEOUT_MS,
+      state: { jobId, job }
+    };
+  },
+  async llmOutput({ ctx, state }) {
+    const { jobId, job } = state;
+    const items = parsePlateLlmReply(ctx.llmOutputText || "");
+    if (items.length === 0) {
+      console.warn("[amsg:plate] LLM \u6CA1\u8FD4\u56DE\u6709\u6548\u6761\u76EE\uFF0C\u95E8\u724C\u4FDD\u6301\u4E0D\u52A8", jobId);
+      logSkipDiagnostic({
+        sessionId: ctx.sessionId,
+        reason: "plate-empty-generation",
+        iteration: ctx.iteration,
+        llmResponse: ctx.llmResponse,
+        llmOutputText: ctx.llmOutputText
+      });
+      await discardJob(ctx.writeState, jobId);
+      return { decision: "skip-push", reason: "plate-empty-generation" };
+    }
+    if (typeof ctx.emitResult !== "function") {
+      console.warn("[amsg:plate] \u8FD9\u53F0 worker \u4E0D\u652F\u6301 emitResult\uFF0C\u6574\u7406\u7ED3\u679C\u9001\u4E0D\u56DE\u53BB", jobId);
+      await discardJob(ctx.writeState, jobId);
+      return { decision: "skip-push", reason: "plate-emit-result-unsupported" };
+    }
+    try {
+      await ctx.emitResult({
+        ...buildPlateConsolidateResult({ jobId, charId: job.charId, items, rooms: job.rooms, snapshotAt: job.snapshotAt }),
+        // 背景工作，整理完不该把人叫回来看。show:false 的 payload 上游只落收件箱、
+        // 不发推送，客户端下次上线补收。
+        notification: { show: false }
+      });
+    } catch (error) {
+      console.warn("[amsg:plate] \u6574\u7406\u7ED3\u679C\u9001\u4E0D\u8FDB\u6536\u4EF6\u7BB1\uFF08\u591A\u534A\u662F\u6536\u4EF6\u7BB1\u8868\u6CA1\u5EFA\u5168\uFF0C\u53BB\u8BBE\u7F6E\u9875\u70B9\u4E00\u6B21\u300C\u91CD\u65B0\u8FDE\u63A5\u5E76\u9A8C\u8BC1\u300D\uFF09", jobId, error);
+      await discardJob(ctx.writeState, jobId);
+      return { decision: "skip-push", reason: "plate-emit-result-failed" };
+    }
+    console.log("[amsg:plate] \u6574\u7406\u7ED3\u679C\u5DF2\u9001\u8FDB\u6536\u4EF6\u7BB1", {
+      jobId,
+      charId: job.charId,
+      items: items.length,
+      resultKind: PLATE_CONSOLIDATE_RESULT_KIND
+    });
+    await discardJob(ctx.writeState, jobId);
+    return { decision: "skip-push", reason: "plate-result-emitted" };
+  }
+};
+
+// worker/amsg/src/fireKinds.ts
+var FIRE_KIND_HANDLERS = Object.assign(
+  /* @__PURE__ */ Object.create(null),
+  { [PLATE_CONSOLIDATE_KIND]: plateConsolidateHandler, diagnostic: reproductionHandler }
+);
+var KIND_FIRE_SCRATCH_KEY = "kindFire";
+var putKindFireStash = (scratch, kind, state) => {
+  scratch[KIND_FIRE_SCRATCH_KEY] = { kind, state };
+};
+var getKindFireStash = (scratch) => {
+  const raw2 = scratch?.[KIND_FIRE_SCRATCH_KEY];
+  if (!raw2 || typeof raw2 !== "object") return null;
+  const stash = raw2;
+  return typeof stash.kind === "string" ? { kind: stash.kind, state: stash.state } : null;
+};
+
+// utils/amsgFireSkipResult.ts
+var FIRE_SKIP_RESULT_KIND = "fire-skipped";
+var SILENT_REASONS = /* @__PURE__ */ new Set(["schedule-off"]);
+var shouldReportFireSkip = (reason) => !SILENT_REASONS.has(reason);
+function buildFireSkipResult(args) {
+  return {
+    resultKind: FIRE_SKIP_RESULT_KIND,
+    v: 1,
+    charId: args.charId,
+    taskUuid: args.taskUuid,
+    occurrenceMs: args.occurrenceMs,
+    reason: args.reason,
+    ...args.task ? {
+      task: {
+        mode: args.task.mode,
+        ...args.task.promptHint ? { promptHint: args.task.promptHint } : {},
+        recurrenceType: args.task.recurrenceType
+      }
+    } : {}
+  };
+}
+
 // utils/amsgChatPresence.ts
 var AMSG_CHAT_PRESENCE_KEY = "chat_presence";
 var CHAT_PRESENCE_TTL_MS = 45e3;
-var parseAmsgChatPresence = (raw) => {
+var parseAmsgChatPresence = (raw2) => {
   try {
-    const value = raw ? JSON.parse(raw) : null;
+    const value = raw2 ? JSON.parse(raw2) : null;
     return value?.v === 1 && typeof value.charId === "string" && typeof value.activeAt === "number" && (value.lastUserMessageAt === null || typeof value.lastUserMessageAt === "number") ? value : null;
   } catch {
     return null;
@@ -21669,12 +23893,12 @@ var retryAfter = /* @__PURE__ */ new Map();
 var DAY = 864e5;
 var cleanName = (name) => typeof name === "string" ? name.replace(/[\r\n\x00-\x1f]/g, " ").slice(0, 80).trim() : "";
 var validDate = (date) => typeof date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(date);
-function parseHolidayCalendar(country, year, raw, now) {
+function parseHolidayCalendar(country, year, raw2, now) {
   if (country === "MY") {
-    if (raw?.meta?.year !== year || !Array.isArray(raw.data) || !raw.data.length) return null;
+    if (raw2?.meta?.year !== year || !Array.isArray(raw2.data) || !raw2.data.length) return null;
     const states = new Map(MALAYSIA_HOLIDAY_REGIONS.map((r) => [r.sourceCode, r.code]));
-    if (!raw.data.every((d) => validDate(d?.date) && d.date.startsWith(`${year}-`) && cleanName(d.name) && Array.isArray(d.state_codes) && d.state_codes.length > 0 && d.state_codes.every((code2) => typeof code2 === "string" && states.has(code2)))) return null;
-    return { country, year, fetchedAt: now, days: raw.data.map((d) => {
+    if (!raw2.data.every((d) => validDate(d?.date) && d.date.startsWith(`${year}-`) && cleanName(d.name) && Array.isArray(d.state_codes) && d.state_codes.length > 0 && d.state_codes.every((code2) => typeof code2 === "string" && states.has(code2)))) return null;
+    return { country, year, fetchedAt: now, days: raw2.data.map((d) => {
       const regions = [...new Set(d.state_codes.map((code2) => states.get(code2)))];
       return {
         date: d.date,
@@ -21685,20 +23909,20 @@ function parseHolidayCalendar(country, year, raw, now) {
     }) };
   }
   if (country === "CN") {
-    if (raw?.year !== year || !Array.isArray(raw.papers) || !raw.papers.length || !Array.isArray(raw.days)) return null;
-    if (!raw.days.every((d) => validDate(d?.date) && cleanName(d?.name) && typeof d?.isOffDay === "boolean")) return null;
-    return { country, year, fetchedAt: now, days: raw.days.map((d) => ({ date: d.date, name: cleanName(d.name), off: d.isOffDay })) };
+    if (raw2?.year !== year || !Array.isArray(raw2.papers) || !raw2.papers.length || !Array.isArray(raw2.days)) return null;
+    if (!raw2.days.every((d) => validDate(d?.date) && cleanName(d?.name) && typeof d?.isOffDay === "boolean")) return null;
+    return { country, year, fetchedAt: now, days: raw2.days.map((d) => ({ date: d.date, name: cleanName(d.name), off: d.isOffDay })) };
   }
-  if (!Array.isArray(raw) || !raw.every((d) => validDate(d?.date) && d.countryCode === country && Array.isArray(d.types))) return null;
-  return { country, year, fetchedAt: now, days: raw.filter((d) => d.types.includes("Public") && cleanName(d.localName || d.name) && (d.global === true || Array.isArray(d.counties))).map((d) => ({
+  if (!Array.isArray(raw2) || !raw2.every((d) => validDate(d?.date) && d.countryCode === country && Array.isArray(d.types))) return null;
+  return { country, year, fetchedAt: now, days: raw2.filter((d) => d.types.includes("Public") && cleanName(d.localName || d.name) && (d.global === true || Array.isArray(d.counties))).map((d) => ({
     date: d.date,
     name: cleanName(d.localName || d.name),
     off: true,
     ...d.global === true ? {} : { regions: d.counties.filter((v) => typeof v === "string") }
   })) };
 }
-function validCached(raw, country, year) {
-  return raw?.country === country && raw.year === year && Number.isFinite(raw.fetchedAt) && Array.isArray(raw.days) && raw.days.every((d) => validDate(d?.date) && typeof d.name === "string" && d.name === cleanName(d.name) && typeof d.off === "boolean" && (d.regions === void 0 || Array.isArray(d.regions) && d.regions.every((r) => typeof r === "string")));
+function validCached(raw2, country, year) {
+  return raw2?.country === country && raw2.year === year && Number.isFinite(raw2.fetchedAt) && Array.isArray(raw2.days) && raw2.days.every((d) => validDate(d?.date) && typeof d.name === "string" && d.name === cleanName(d.name) && typeof d.off === "boolean" && (d.regions === void 0 || Array.isArray(d.regions) && d.regions.every((r) => typeof r === "string")));
 }
 function insertUserHolidayInProfile(prompt, reminder) {
   if (!reminder) return prompt;
@@ -21717,8 +23941,8 @@ async function loadHolidayCalendar(country, year, cache, now = Date.now()) {
   let saved = memory.get(key);
   if (!saved && cache) {
     try {
-      const raw = await cache.read(key);
-      if (validCached(raw, country, year)) saved = raw;
+      const raw2 = await cache.read(key);
+      if (validCached(raw2, country, year)) saved = raw2;
     } catch {
     }
   }
@@ -21795,10 +24019,10 @@ var HOTNEWS_SLOT_TZ = "Asia/Shanghai";
 var HOTNEWS_KEEP = 60;
 var FETCH_BUDGET_MS = 1e4;
 var parseSnapshot = (rows, key, ok) => {
-  const raw = rows.find((r) => r.key === key)?.value;
-  if (!raw) return null;
+  const raw2 = rows.find((r) => r.key === key)?.value;
+  if (!raw2) return null;
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw2);
     return ok(parsed) ? parsed : null;
   } catch {
     return null;
@@ -21933,8 +24157,6 @@ var TIME_FRAMING_CONVERSATIONAL = "\u65F6\u95F4\u662F\u4F60\u6B64\u523B\u6240\u5
 
 // worker/amsg/src/instantChat.ts
 var INSTANT_TOTAL_TIMEOUT_MS = 6e5;
-var AMSG_INSTANT_CHAT_FLAG = "amsgInstantChat";
-var isInstantChatTask = (metadata) => !!metadata && metadata[AMSG_INSTANT_CHAT_FLAG] === true;
 var buildInstantTimelyBlock = (args) => {
   const blocks = args.blocks.filter((block) => block.trim());
   if (!args.timeAwarenessEnabled && blocks.length === 0) return "";
@@ -21988,8 +24210,8 @@ var kickInstantTick = async (env, uuid) => {
 };
 var UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 var constantTimeEqual2 = async (a, b) => {
-  const raw = crypto.getRandomValues(new Uint8Array(32));
-  const key = await crypto.subtle.importKey("raw", raw, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const raw2 = crypto.getRandomValues(new Uint8Array(32));
+  const key = await crypto.subtle.importKey("raw", raw2, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const enc = new TextEncoder();
   const da = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(a)));
   const db = new Uint8Array(await crypto.subtle.sign("HMAC", key, enc.encode(b)));
@@ -22016,11 +24238,11 @@ var readMaybeGzippedBody = async (request) => {
   if ((request.headers.get("content-encoding") ?? "").toLowerCase() !== "gzip") {
     return request.text();
   }
-  const raw = new Uint8Array(await request.arrayBuffer());
-  if (raw.length < 2 || raw[0] !== GZIP_MAGIC[0] || raw[1] !== GZIP_MAGIC[1]) {
-    return new TextDecoder().decode(raw);
+  const raw2 = new Uint8Array(await request.arrayBuffer());
+  if (raw2.length < 2 || raw2[0] !== GZIP_MAGIC[0] || raw2[1] !== GZIP_MAGIC[1]) {
+    return new TextDecoder().decode(raw2);
   }
-  const stream = new Response(raw).body.pipeThrough(new DecompressionStream("gzip"));
+  const stream = new Response(raw2).body.pipeThrough(new DecompressionStream("gzip"));
   return new Response(stream).text();
 };
 var isEncryptedEnvelope2 = (value) => {
@@ -22243,6 +24465,27 @@ var handleInstantChat = async (args) => {
   });
 };
 
+// utils/amsgSelfUpdateState.ts
+var findCfTokenRejection = (text3) => /\d+: invalid (access|api) token/i.exec(text3)?.[0] ?? null;
+var cfTokenRejectedMessage = (detail, hasAccountId) => `Cloudflare \u4E0D\u8BA4\u8FD9\u679A CF_API_TOKEN\uFF08${detail}\uFF09\uFF0C\u591A\u534A\u5DF2\u7ECF\u8FC7\u671F\u6216\u88AB\u5220\u4E86\u3002\u53BB Cloudflare \u65B0\u5EFA\u4E00\u679A\uFF08\u53EA\u52FE Workers Scripts \u2192 Edit\uFF09\uFF0C\u66FF\u6362 Worker \u91CC\u7684 CF_API_TOKEN\u3002` + (hasAccountId ? "" : "\u5982\u679C\u5B83\u662F cfat_ \u5F00\u5934\u7684\u8D26\u53F7\u4EE4\u724C\uFF0C\u6362\u6210\u666E\u901A API Token\uFF0C\u6216\u8005\u7ED9 Worker \u52A0\u4E00\u6761 CF_ACCOUNT_ID\u3002");
+var OUTCOMES = /* @__PURE__ */ new Set(["updated", "up_to_date", "failed"]);
+var SOURCES = /* @__PURE__ */ new Set(["cron", "client", "manual"]);
+var parseAmsgSelfUpdateState = (raw2) => {
+  const value = raw2;
+  if (!value || typeof value !== "object") return null;
+  if (typeof value.lastCheckAt !== "string" || Number.isNaN(Date.parse(value.lastCheckAt))) return null;
+  if (typeof value.lastOutcome !== "string" || !OUTCOMES.has(value.lastOutcome)) return null;
+  const error = value.lastError;
+  return {
+    lastCheckAt: value.lastCheckAt,
+    lastSource: typeof value.lastSource === "string" && SOURCES.has(value.lastSource) ? value.lastSource : "cron",
+    lastOutcome: value.lastOutcome,
+    bundleHash: typeof value.bundleHash === "string" && value.bundleHash ? value.bundleHash : null,
+    lastUpdatedAt: typeof value.lastUpdatedAt === "string" ? value.lastUpdatedAt : null,
+    lastError: error && typeof error === "object" && typeof error.code === "string" ? { code: error.code, message: typeof error.message === "string" ? error.message : "" } : null
+  };
+};
+
 // worker/amsg/src/selfUpdate.ts
 var CF_API = "https://api.cloudflare.com/client/v4";
 var BUNDLE_URL = "https://raw.githubusercontent.com/Tosd0/sullyos-workers/main/amsg/worker.bundle.js";
@@ -22316,18 +24559,20 @@ async function locateScript(env, token, scriptName) {
   if (configured) {
     const settings = await cf(token, settingsPath(configured));
     if (!settings.ok) {
+      const rejected = findCfTokenRejection(settings.detail);
       return {
         ok: false,
-        message: `\u5728 CF_ACCOUNT_ID \u6307\u5B9A\u7684\u8D26\u53F7\u91CC\u8BFB\u4E0D\u5230\u8FD9\u4E2A Worker \u7684\u914D\u7F6E\uFF08${settings.detail}\uFF09\u3002`
+        message: rejected ? cfTokenRejectedMessage(rejected, true) : `\u5728 CF_ACCOUNT_ID \u6307\u5B9A\u7684\u8D26\u53F7\u91CC\u8BFB\u4E0D\u5230\u8FD9\u4E2A Worker \u7684\u914D\u7F6E\uFF08${settings.detail}\uFF09\u3002`
       };
     }
     return { ok: true, accountId: configured, settings: settings.result };
   }
   const listed = await cf(token, "/accounts");
   if (!listed.ok) {
+    const rejected = findCfTokenRejection(listed.detail);
     return {
       ok: false,
-      message: `\u95EE\u4E0D\u5230\u8D26\u53F7\u5217\u8868\uFF08${listed.detail}\uFF09\u3002\u7ED9 Worker \u52A0\u4E00\u6761 CF_ACCOUNT_ID \u53D8\u91CF\u5373\u53EF\u8DF3\u8FC7\u8FD9\u4E00\u6B65\u3002`
+      message: rejected ? cfTokenRejectedMessage(rejected, false) : `\u95EE\u4E0D\u5230\u8D26\u53F7\u5217\u8868\uFF08${listed.detail}\uFF09\u3002\u7ED9 Worker \u52A0\u4E00\u6761 CF_ACCOUNT_ID \u53D8\u91CF\u5373\u53EF\u8DF3\u8FC7\u8FD9\u4E00\u6B65\u3002`
     };
   }
   const accounts = Array.isArray(listed.result) ? listed.result : [];
@@ -22494,25 +24739,6 @@ async function handleSelfUpdate(request, env) {
   return performSelfUpdate(env, gate.token, scriptName, fetched.bundle);
 }
 
-// utils/amsgSelfUpdateState.ts
-var OUTCOMES = /* @__PURE__ */ new Set(["updated", "up_to_date", "failed"]);
-var SOURCES = /* @__PURE__ */ new Set(["cron", "client", "manual"]);
-var parseAmsgSelfUpdateState = (raw) => {
-  const value = raw;
-  if (!value || typeof value !== "object") return null;
-  if (typeof value.lastCheckAt !== "string" || Number.isNaN(Date.parse(value.lastCheckAt))) return null;
-  if (typeof value.lastOutcome !== "string" || !OUTCOMES.has(value.lastOutcome)) return null;
-  const error = value.lastError;
-  return {
-    lastCheckAt: value.lastCheckAt,
-    lastSource: typeof value.lastSource === "string" && SOURCES.has(value.lastSource) ? value.lastSource : "cron",
-    lastOutcome: value.lastOutcome,
-    bundleHash: typeof value.bundleHash === "string" && value.bundleHash ? value.bundleHash : null,
-    lastUpdatedAt: typeof value.lastUpdatedAt === "string" ? value.lastUpdatedAt : null,
-    lastError: error && typeof error === "object" && typeof error.code === "string" ? { code: error.code, message: typeof error.message === "string" ? error.message : "" } : null
-  };
-};
-
 // utils/amsgTickReport.ts
 var TICK_STALL_MS = 5 * 6e4;
 var LATE_START_MS = 3 * 6e4;
@@ -22568,14 +24794,14 @@ var parseMs = (value) => {
   return Number.isFinite(ms) ? ms : null;
 };
 var toIso = (ms) => ms === null ? null : new Date(ms).toISOString();
-var parseLastError = (raw) => {
-  if (!raw) return null;
+var parseLastError = (raw2) => {
+  if (!raw2) return null;
   let value = null;
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw2);
     value = parsed && typeof parsed === "object" ? parsed : null;
   } catch {
-    return { at: null, occurrence: null, reason: raw, errorCode: null, pushStatus: null };
+    return { at: null, occurrence: null, reason: raw2, errorCode: null, pushStatus: null };
   }
   if (!value) return null;
   const pick = (key) => typeof value?.[key] === "string" && value[key] ? value[key] : null;
@@ -22774,10 +25000,10 @@ var recordTickOutcome = async (db, outcome, nowMs = Date.now()) => {
     console.warn("[amsg:tick-report] \u8FD9\u4E00\u8DF3\u7684\u62A5\u9519\u6CA1\u8BB0\u8FDB\u5E93", error);
   }
 };
-var parseStoredTickFailure = (raw) => {
-  if (!raw) return null;
+var parseStoredTickFailure = (raw2) => {
+  if (!raw2) return null;
   try {
-    const value = JSON.parse(raw);
+    const value = JSON.parse(raw2);
     if (!value || typeof value.stage !== "string" || typeof value.firstAt !== "string" || typeof value.lastAt !== "string") {
       return null;
     }
@@ -22831,10 +25057,10 @@ var SELF_UPDATE_KEY = "self_update";
 var SCHEMA_ENSURED_KEY = "schema_ensured";
 var SCHEMA_ENSURE_RETRY_MS = 60 * 6e4;
 var readSelfUpdateState = async (db) => {
-  const raw = await readDiagnosticValue(db, SELF_UPDATE_KEY);
-  if (!raw) return null;
+  const raw2 = await readDiagnosticValue(db, SELF_UPDATE_KEY);
+  if (!raw2) return null;
   try {
-    return parseAmsgSelfUpdateState(JSON.parse(raw));
+    return parseAmsgSelfUpdateState(JSON.parse(raw2));
   } catch {
     return null;
   }
@@ -22932,10 +25158,10 @@ var runAutoUpdate = async (env, db, options2) => {
   return settle(result);
 };
 var readSchemaMarker = async (db) => {
-  const raw = await readDiagnosticValue(db, SCHEMA_ENSURED_KEY);
-  if (!raw) return { ensuredFor: "", failedAtMs: null };
+  const raw2 = await readDiagnosticValue(db, SCHEMA_ENSURED_KEY);
+  if (!raw2) return { ensuredFor: "", failedAtMs: null };
   try {
-    const value = JSON.parse(raw);
+    const value = JSON.parse(raw2);
     return {
       ensuredFor: typeof value?.ensuredFor === "string" ? value.ensuredFor : "",
       failedAtMs: typeof value?.failedAtMs === "number" ? value.failedAtMs : null
@@ -23431,8 +25657,8 @@ var litePlatform = "auto";
 var bridgeToken = "";
 var getPersistedXhsConfig = () => {
   try {
-    const raw = localStorage.getItem("os_realtime_config");
-    return raw ? JSON.parse(raw)?.xhsMcpConfig : null;
+    const raw2 = localStorage.getItem("os_realtime_config");
+    return raw2 ? JSON.parse(raw2)?.xhsMcpConfig : null;
   } catch {
     return null;
   }
@@ -23466,8 +25692,8 @@ var spiderStorage = () => {
 };
 var readSpiderJson = (key) => {
   try {
-    const raw = spiderStorage()?.getItem(key);
-    return raw ? JSON.parse(raw) : null;
+    const raw2 = spiderStorage()?.getItem(key);
+    return raw2 ? JSON.parse(raw2) : null;
   } catch {
     return null;
   }
@@ -24450,21 +26676,21 @@ ${readResult.content}`);
 async function xhsSearchImpl(conf, keyword, signal) {
   const r = await XhsMcpClient.search(conf.mcpUrl, keyword, void 0, signal);
   if (!r.success) return { success: false, notes: [], message: r.error };
-  const raw = extractNotesFromMcpData(r.data);
-  return { success: true, notes: raw.map((n) => normalizeNote(n)) };
+  const raw2 = extractNotesFromMcpData(r.data);
+  return { success: true, notes: raw2.map((n) => normalizeNote(n)) };
 }
 async function xhsBrowseImpl(conf, signal) {
   const r = await XhsMcpClient.getRecommend(conf.mcpUrl, signal);
   if (!r.success) return { success: false, notes: [], message: r.error };
   const unwrapped = r.data?.data && typeof r.data.data === "object" && !Array.isArray(r.data.data) ? r.data.data : r.data;
   console.log(`\u{1F4D5} [XHS] getRecommend \u54CD\u5E94\u7C7B\u578B: ${typeof r.data}, \u662F\u5426\u6709 data \u5D4C\u5957: ${unwrapped !== r.data}, unwrapped keys: ${unwrapped && typeof unwrapped === "object" ? Object.keys(unwrapped).join(",") : "N/A"}`);
-  const raw = extractNotesFromMcpData(unwrapped);
-  if (raw.length === 0 && unwrapped !== r.data) {
+  const raw2 = extractNotesFromMcpData(unwrapped);
+  if (raw2.length === 0 && unwrapped !== r.data) {
     console.log(`\u{1F4D5} [XHS] getRecommend unwrapped \u63D0\u53D6\u4E3A\u7A7A\uFF0C\u7528\u539F\u59CB\u6570\u636E\u91CD\u8BD5`);
-    const raw2 = extractNotesFromMcpData(r.data);
-    return { success: true, notes: raw2.map((n) => normalizeNote(n)) };
+    const raw22 = extractNotesFromMcpData(r.data);
+    return { success: true, notes: raw22.map((n) => normalizeNote(n)) };
   }
-  return { success: true, notes: raw.map((n) => normalizeNote(n)) };
+  return { success: true, notes: raw2.map((n) => normalizeNote(n)) };
 }
 function cacheXsecTokensImpl(caches, notes) {
   if (!caches) return;
@@ -24816,6 +27042,12 @@ async function dispatchAgenticTool(toolName, args, ctx) {
   }
 }
 
+// utils/replyScope.ts
+var buildReplyScopeRule = (trigger) => {
+  const start = trigger === "user" ? "\u4ECE\u7528\u6237\u6700\u65B0\u53D1\u6765\u7684\u90A3\u6761\u6D88\u606F\u5F00\u59CB" : "\u4ECE\u4F60\u6536\u5230\u8FD9\u4EFD\u8BF4\u660E\u5F00\u59CB\uFF08\u4F60\u4E4B\u524D\u5B89\u6392\u7684\u4E3B\u52A8\u6D88\u606F\u5230\u70B9\u4E86\uFF09";
+  return `[\u8FD9\u6B21\u56DE\u590D\u7684\u8303\u56F4\uFF1A${start}\uFF0C\u5230\u4F60\u7ED9\u51FA\u4E00\u6761\u4E0D\u518D\u8C03\u7528\u5DE5\u5177\u7684\u6B63\u6587\u4E3A\u6B62\u3002\u8FD9\u671F\u95F4\u4F60\u6BCF\u8C03\u7528\u4E00\u6B21\u5DE5\u5177\u3001\u62FF\u5230\u4E00\u6B21\u7ED3\u679C\uFF0C\u90FD\u53EA\u662F\u8FD9\u6B21\u56DE\u590D\u91CC\u7684\u4E00\u6B65\uFF0C\u4E0D\u662F\u65B0\u7684\u4E00\u6B21\uFF1B\u4F60\u5728\u8FD9\u671F\u95F4\u5199\u4E0B\u7684\u8BDD\u90FD\u7B97\u8FD9\u6B21\u56DE\u590D\u7684\u4E00\u90E8\u5206\uFF0C\u540E\u9762\u4E0D\u5FC5\u91CD\u590D\u3002]`;
+};
+
 // utils/agenticToolFeedback.ts
 init_mcpFireCore();
 var toolCallFingerprint = (name, args) => {
@@ -24917,1248 +27149,11 @@ var buildDuplicateToolMessage = (name) => [
 // worker/amsg/src/index.ts
 init_proxyWorker();
 
-// utils/voiceTextDedup.ts
-function deduplicateVoiceText(text3) {
-  if (/\[html\]|<翻[译譯]>|```/i.test(text3)) return text3;
-  const normalize2 = (s) => s.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
-  const blocks = [];
-  const spoken = [];
-  const protectedText = text3.replace(/(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/[语語]音>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g, (block, leadingSubtitle, voice, subtitle) => {
-    spoken.push(normalize2(voice), ...[leadingSubtitle, subtitle].filter(Boolean).map(normalize2));
-    return "\nVOICE" + (blocks.push(block) - 1) + "\n";
-  });
-  if (!blocks.length) return text3;
-  return protectedText.split(/\r?\n/).filter((line) => {
-    if (/[<>\[\]\u0002]/.test(line)) return true;
-    const plain = normalize2(line);
-    return plain.length < 12 || !spoken.some((voice) => voice.includes(plain));
-  }).join("\n").replace(/\u0002VOICE(\d+)\u0002/g, (_, i) => blocks[Number(i)]).trim();
-}
-
-// utils/friendFeedReplyFormat.ts
-var FRIEND_FEED_MAIN_PROMPT_PREFIX = "\u3010\u987A\u4FBF\u56DE\u597D\u53CB\u5708\u3011";
-function extractFriendFeedReplyTags(raw, namespace = "FRIEND_FEED_REPLY") {
-  const marker = new RegExp("\\[\\[" + namespace + "\\s*:", "gi");
-  const actions = [];
-  let text3 = "", cursor = 0, match;
-  while (match = marker.exec(raw)) {
-    text3 += raw.slice(cursor, match.index);
-    let start = marker.lastIndex;
-    while (start < raw.length && /\s/.test(raw[start])) start++;
-    let depth = 0, quoted = false, escaped = false, end = -1;
-    if (raw[start] === "{") for (let i = start; i < raw.length; i++) {
-      const c = raw[i];
-      if (quoted) {
-        if (escaped) escaped = false;
-        else if (c === "\\") escaped = true;
-        else if (c === '"') quoted = false;
-      } else if (c === '"') quoted = true;
-      else if (c === "{") depth++;
-      else if (c === "}" && --depth === 0) {
-        end = i + 1;
-        break;
-      }
-    }
-    const close = end >= 0 ? /^\s*\]\]/.exec(raw.slice(end)) : null;
-    if (close) {
-      try {
-        actions.push(JSON.parse(raw.slice(start, end)));
-      } catch {
-      }
-      cursor = end + close[0].length;
-    } else {
-      const fallback = raw[start] === "{" && end < 0 ? -1 : raw.indexOf("]]", end >= 0 ? end : start);
-      cursor = fallback < 0 ? raw.length : fallback + 2;
-    }
-    marker.lastIndex = cursor;
-  }
-  return { text: text3 + raw.slice(cursor), actions };
-}
-
-// node_modules/.pnpm/@rei-standard+amsg-instant@0.11.0-next.9/node_modules/@rei-standard/amsg-instant/dist/index.mjs
-var WEB_PUSH_MAX_BODY_BYTES2 = 4096;
-var WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES2 = 16 + 4 + 1 + 65 + 1 + 16;
-var MAX_PUSH_PAYLOAD_BYTES2 = WEB_PUSH_MAX_BODY_BYTES2 - WEB_PUSH_ENCRYPTION_OVERHEAD_BYTES2;
-var PROBE_BYTE_ENCODER = new TextEncoder();
-var LONGEST_MESSAGE_KIND = Object.values(MESSAGE_KIND2).reduce((longest, kind) => kind.length > longest.length ? kind : longest, "");
-var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
-function segmentTextWithProtectedBlocks(text3, options2) {
-  if (!text3) return [];
-  const splitAndSanitize = (plainText) => {
-    const chunks = options2.splitText(plainText).filter((c) => c !== "");
-    return chunks.map((chunk) => ({
-      raw: chunk,
-      sanitized: options2.sanitizeText ? options2.sanitizeText(chunk) : chunk,
-      protect: false
-    }));
-  };
-  if (!options2.protectedPatterns || options2.protectedPatterns.length === 0) {
-    return splitAndSanitize(text3);
-  }
-  const matches = [];
-  for (const p of options2.protectedPatterns) {
-    const flags = p.pattern.flags.includes("g") ? p.pattern.flags : p.pattern.flags + "g";
-    const regex = new RegExp(p.pattern.source, flags);
-    let match;
-    while ((match = regex.exec(text3)) !== null) {
-      if (match[0].length === 0) {
-        regex.lastIndex++;
-        continue;
-      }
-      matches.push({
-        index: match.index,
-        length: match[0].length,
-        raw: match[0],
-        matchObj: match,
-        patternDef: p
-      });
-    }
-  }
-  matches.sort((a, b) => {
-    if (a.index !== b.index) return a.index - b.index;
-    return b.length - a.length;
-  });
-  const validMatches = [];
-  let lastEnd = 0;
-  for (const m of matches) {
-    if (m.index >= lastEnd) {
-      validMatches.push(m);
-      lastEnd = m.index + m.length;
-    }
-  }
-  const segments = [];
-  let cursor = 0;
-  const resolveField = (field, raw, match) => typeof field === "function" ? field(raw, match) : field;
-  for (const m of validMatches) {
-    if (m.index > cursor) {
-      const plainText = text3.substring(cursor, m.index);
-      segments.push(...splitAndSanitize(plainText));
-    }
-    const previewStr = resolveField(m.patternDef.preview, m.raw, m.matchObj);
-    const metaData = resolveField(m.patternDef.meta, m.raw, m.matchObj);
-    let sanitized = previewStr;
-    if (sanitized == null) {
-      sanitized = options2.sanitizeText ? options2.sanitizeText(m.raw) : m.raw;
-    }
-    const pushSeg = {
-      raw: m.raw,
-      sanitized,
-      protect: true
-    };
-    if (metaData !== void 0) {
-      pushSeg.meta = metaData;
-    }
-    segments.push(pushSeg);
-    cursor = m.index + m.length;
-  }
-  if (cursor < text3.length) {
-    const plainText = text3.substring(cursor);
-    segments.push(...splitAndSanitize(plainText));
-  }
-  return segments;
-}
-var SSE_ENCODER = new TextEncoder();
-var SSE_KEEPALIVE_BYTES = SSE_ENCODER.encode(": keepalive\n\n");
-var SSE_DONE_BYTES = SSE_ENCODER.encode("event: done\ndata: {}\n\n");
-
-// utils/sanitize.ts
-var stripLiteralBackslashN = (t) => t.replace(/\\n/g, "\n");
-var stripLeakedSourceTags = (t) => t.replace(
-  /\s*\[\s*(?:聊\s*(?:天|chat)|chat|通\s*(?:话|call)|call|约\s*(?:会|date)|date)\s*\]\s*/giu,
-  "\n"
-);
-var stripTimestamps = (t) => t.replace(/\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*/g, "").replace(/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\s*/gm, "").replace(/（[上下]午\d{1,2}[：:]\d{2}）/g, "").replace(/\(\d{1,2}:\d{2}\s*[AP]M\)/gi, "");
-var stripChineseDate = (t) => t.replace(/\[\d{4}[-/年]\d{1,2}[-/月]\d{1,2}.*?\]/g, "");
-var stripRoleNamePrefix = (t) => t.replace(/^[\w一-龥]+:\s*/, "");
-var stripBusinessTagsForBubble = (t) => extractFriendFeedReplyTags(extractFriendFeedReplyTags(t).text, "HOME_VISIT_REPLY").text.replace(/\[\[(?:ACTION|RECALL|SEARCH|READ_NEWS|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[\s*[记記][录錄]\s*[:：][\s\S]*?\]\]/g, "").replace(/\[schedule_message[^\]]*\]/g, "");
-var stripBusinessTagsForNotification = (t) => stripBusinessTagsForBubble(t).replace(/\[\[(?:READ_NOTE|XHS_[A-Z_]+|LIFE|NEWS_CARD)[:\s][\s\S]*?\]\]/g, "").replace(/\[\[XHS_[A-Z_]+\]\]/g, "");
-var stripAllDoubleBracketTags = (t) => t.replace(/\[\[[\s\S]*?\]\]/g, "");
-var stripQuotes2 = (t) => t.replace(/\[\[(?:QU[OA]TE|引用)[：:][\s\S]*?\]\]/g, "").replace(/\[(?:QU[OA]TE|引用)[：:][^\]]*\]/g, "").replace(/\[回复\s*[""“][^""”]*?[""”](?:\.{0,3})\]\s*[：:]?\s*/g, "").replace(/\[[^\[\]\n「」]{0,24}引用了[^\[\]\n「」]{0,24}「[^」\n]*?」[^\[\]\n]{0,24}\]\s*/g, "");
-var stripSystemLogLeak = (t) => t.replace(/[\[【]\s*(?:系统|系統|System)\s*(?:提示)?\s*[:：][^\[\]【】]*[\]】]\s*/gi, "").replace(/\[\s*(?:系统|系統)\s*\]\s*/g, "");
-var stripMarkdownHeaders = (t) => t.replace(/^#{1,6}\s+/gm, "");
-var stripMarkdownBold = (t) => t.replace(/\*{2,}/g, "");
-var stripMarkdownDividers = (t) => t.replace(/^\s*---\s*$/gm, "").replace(/^\s*[-*+]\s*$/gm, "");
-var stripBackticks = (t) => t.replace(/`(\[\[[\s\S]*?\]\])`/g, "$1").replace(/``+/g, "").replace(/(^|\s)`(\s|$)/gm, "$1$2");
-var stripLegacyTrans = (t) => t.replace(/%%TRANS%%[\s\S]*/gi, "");
-var collapseWhitespace = (t) => t.replace(/\n{3,}/g, "\n\n").trim();
-var stripThinkBlocks = (t) => t.replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, "").replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, "");
-var stripInnerState = (t) => t.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, "");
-var replaceMarkdownLinks = (t) => t.replace(/\[([^\]]+)\]\([^)]+\)/g, "[\u94FE\u63A5\uFF1A$1]");
-var replaceSendEmoji = (t) => t.replace(/\[\[SEND_EMOJI[:：]\s*(.+?)\]\]/g, "[\u8868\u60C5\uFF1A$1]");
-var replaceEmojiReverseTag = (t) => t.replace(/\[(?:你|User|用户|System|[\w一-龥]+)\s*发送了表情包[:：]\s*(.*?)\]/g, "[\u8868\u60C5\uFF1A$1]");
-var replaceHtmlBlocks = (t) => t.replace(/\[html\][\s\S]*?\[\/html\]/gi, "[HTML \u5361\u7247]");
-var replaceTranslationForBanner = (t) => t.replace(/<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g, "$1").replace(/<译文>[\s\S]*?<\/译文>/g, "").replace(/<\/?(?:翻译|原文)>/g, "");
-var replaceVoiceForBanner = (t) => t.replace(
-  /(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/g,
-  (_m, pre, inner, post) => (post || pre || inner || "").trim()
-).replace(/<字幕>([\s\S]*?)<\/字幕>/g, "$1").replace(/<\/?字幕>/g, "");
-function repairPairedTag(text3, tokenRe, closeFormOf, closeBeforeTrailingSubtitle) {
-  const kept = [];
-  let cursor = 0;
-  let openForm = null;
-  let tok;
-  while ((tok = tokenRe.exec(text3)) !== null) {
-    const isClose = tok[0].startsWith("</");
-    if (!isClose && /\/\s*>$/.test(tok[0])) {
-      kept.push(text3.slice(cursor, tok.index));
-      cursor = tok.index + tok[0].length;
-      continue;
-    }
-    if (isClose) {
-      if (openForm === null) {
-        kept.push(text3.slice(cursor, tok.index));
-        cursor = tok.index + tok[0].length;
-      } else {
-        openForm = null;
-      }
-    } else if (openForm !== null) {
-      kept.push(text3.slice(cursor, tok.index));
-      cursor = tok.index + tok[0].length;
-    } else {
-      openForm = closeFormOf(tok[0]);
-    }
-  }
-  kept.push(text3.slice(cursor));
-  let result = kept.join("");
-  if (openForm !== null) {
-    const closeTag = `</${openForm}>`;
-    if (closeBeforeTrailingSubtitle) {
-      const trail = result.match(/(\s*<字幕>[\s\S]*?<\/字幕>\s*)$/);
-      if (trail) {
-        const at = result.length - trail[0].length;
-        return result.slice(0, at).replace(/\s+$/, "") + closeTag + trail[0].replace(/\s+$/, "");
-      }
-    }
-    result = result.replace(/\s+$/, "") + closeTag;
-  }
-  return result;
-}
-function normalizeVoiceTags(t) {
-  if (!/[语語]音|字幕/.test(t)) return t;
-  let result = t;
-  result = result.replace(/＜\s*[/／]\s*([语語]音|字幕)\s*＞/g, "</$1>");
-  result = result.replace(/＜\s*((?:[语語]音|字幕)[^<>＜＞]*?)\s*＞/g, "<$1>");
-  result = result.replace(/<\s*[/／]\s*([语語]音|字幕)\s*>/g, "</$1>");
-  result = result.replace(/<([语語]音|字幕)\s*([^<>]*?)\s*>/g, (_m, tag2, attrs) => {
-    if (!attrs) return `<${tag2}>`;
-    const fixed = attrs.replace(/[“”＂]/g, '"').replace(/[‘’]/g, "'").replace(/＝/g, "=").trim();
-    return `<${tag2} ${fixed}>`;
-  });
-  result = repairPairedTag(result, /<\/?[语語]音[^>]*>/g, (tok) => /語/.test(tok) ? "\u8A9E\u97F3" : "\u8BED\u97F3", true);
-  result = repairPairedTag(result, /<\/?字幕[^>]*>/g, () => "\u5B57\u5E55", false);
-  return result;
-}
-var simpTransTag = (tag2) => tag2.replace(/譯/g, "\u8BD1");
-function normalizeTranslationTags(t) {
-  if (!/[<＜]\s*[/／]?\s*(?:翻[译譯]|原文|[译譯]文)/.test(t)) return t;
-  let result = t;
-  result = result.replace(/[<＜]\s*[/／]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag2) => `</${simpTransTag(tag2)}>`);
-  result = result.replace(/[<＜]\s*(翻[译譯]|原文|[译譯]文)\s*[>＞]/g, (_m, tag2) => `<${simpTransTag(tag2)}>`);
-  result = result.replace(
-    /[<＜]\s*([/／]?)\s*(翻[译譯]|原文|[译譯]文)\s*(?=$|\n|[<＜])/g,
-    (_m, slash, tag2) => `<${slash ? "/" : ""}${simpTransTag(tag2)}>`
-  );
-  result = repairPairedTag(result, /<\/?原文[^>]*>/g, () => "\u539F\u6587", false);
-  result = repairPairedTag(result, /<\/?译文[^>]*>/g, () => "\u8BD1\u6587", false);
-  result = repairPairedTag(result, /<\/?翻译[^>]*>/g, () => "\u7FFB\u8BD1", false);
-  const HOLD = String.fromCharCode(3);
-  const blocks = [];
-  const hold = (m) => {
-    blocks.push(m);
-    return `${HOLD}${blocks.length - 1}${HOLD}`;
-  };
-  result = result.replace(/<翻译>\s*<原文>[\s\S]*?<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g, hold);
-  result = result.replace(
-    /(?:<翻译>\s*)?<原文>([\s\S]*?)<\/原文>\s*<译文>([\s\S]*?)<\/译文>\s*(?:<\/翻译>)?/g,
-    (_m, a, b) => hold(`<\u7FFB\u8BD1><\u539F\u6587>${a.trim()}</\u539F\u6587><\u8BD1\u6587>${b.trim()}</\u8BD1\u6587></\u7FFB\u8BD1>`)
-  );
-  result = result.replace(
-    /<翻译>\s*(?!<原文>)((?:(?!<\/?翻译>)[\s\S])*?)<\/翻译>\s*<译文>([\s\S]*?)<\/译文>/g,
-    (_m, a, b) => hold(`<\u7FFB\u8BD1><\u539F\u6587>${a.trim()}</\u539F\u6587><\u8BD1\u6587>${b.trim()}</\u8BD1\u6587></\u7FFB\u8BD1>`)
-  );
-  result = result.replace(/<译文>[\s\S]*?<\/译文>/g, "");
-  result = result.replace(/[<＜]\s*[/／]?\s*(?:翻[译譯]|原文|[译譯]文)\s*[>＞]?/g, "");
-  result = result.replace(new RegExp(`${HOLD}(\\d+)${HOLD}`, "g"), (_m, n) => blocks[Number(n)] || "");
-  return result;
-}
-var extractTranslationOriginal = (t) => {
-  let result = t.replace(
-    /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/g,
-    "$1"
-  );
-  result = result.replace(/<译文>[\s\S]*?<\/译文>/g, "");
-  result = result.replace(/<\/?(?:翻译|原文)>/g, "");
-  return result;
-};
-function sanitizeForNotification(text3) {
-  let result = text3;
-  result = stripLiteralBackslashN(result);
-  result = stripThinkBlocks(result);
-  result = replaceHtmlBlocks(result);
-  result = replaceEmojiReverseTag(result);
-  result = replaceSendEmoji(result);
-  result = normalizeTranslationTags(result);
-  result = extractTranslationOriginal(result);
-  result = stripTimestamps(result);
-  result = stripChineseDate(result);
-  result = stripRoleNamePrefix(result);
-  result = stripSystemLogLeak(result);
-  result = stripLeakedSourceTags(result);
-  result = stripInnerState(result);
-  result = stripBusinessTagsForNotification(result);
-  result = stripQuotes2(result);
-  result = replaceMarkdownLinks(result);
-  result = stripMarkdownHeaders(result);
-  result = stripMarkdownBold(result);
-  result = stripMarkdownDividers(result);
-  result = stripBackticks(result);
-  result = stripLegacyTrans(result);
-  result = collapseWhitespace(result);
-  return result;
-}
-function sanitizeIntoSegments(text3) {
-  let cleaned = stripLiteralBackslashN(text3);
-  cleaned = stripThinkBlocks(cleaned);
-  cleaned = deduplicateVoiceText(normalizeVoiceTags(cleaned));
-  cleaned = normalizeTranslationTags(cleaned);
-  const ATOM_MARKER = String.fromCharCode(2);
-  const atomBlocks = [];
-  const atomSegments = segmentTextWithProtectedBlocks(cleaned, {
-    splitText: (plainText) => [plainText],
-    protectedPatterns: [
-      {
-        pattern: /\[html\][\s\S]*?\[\/html\]/i,
-        preview: "[HTML \u5361\u7247]"
-      },
-      {
-        pattern: /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>[\s\S]*?<\/译文>\s*<\/翻译>/,
-        preview: (_raw, match) => (match[1] || "").trim() || "[\u7FFB\u8BD1]"
-      },
-      {
-        // 语音块 + 紧邻的 <字幕> 块是一个原子单元 (字幕是这条语音的中文对照, 拆开
-        // 就配不上了)。字幕前置/后置都容忍; banner 预览优先用字幕 (用户读得懂中文)。
-        // 闭合容许空格 + 简繁互换 (normalizeVoiceTags 已修, 这里不再依赖 \1 回引)。
-        pattern: /(?:<字幕>([\s\S]*?)<\/字幕>\s*)?<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>(?:\s*<字幕>([\s\S]*?)<\/字幕>)?/,
-        preview: (_raw, match) => (match[3] || match[1] || match[2] || "").trim() || "[\u8BED\u97F3]"
-      }
-    ]
-  });
-  cleaned = atomSegments.map((seg) => {
-    if (!seg.protect) return seg.raw;
-    const idx = atomBlocks.length;
-    atomBlocks.push({
-      raw: seg.raw,
-      sanitized: typeof seg.sanitized === "string" ? seg.sanitized : sanitizeTextForBanner(seg.raw)
-    });
-    return `
-${ATOM_MARKER}B${idx}${ATOM_MARKER}
-`;
-  }).join("");
-  cleaned = extractTranslationOriginal(cleaned);
-  cleaned = stripInnerState(cleaned);
-  cleaned = stripBusinessTagsForNotification(cleaned);
-  cleaned = stripTimestamps(cleaned);
-  cleaned = stripChineseDate(cleaned);
-  cleaned = stripRoleNamePrefix(cleaned);
-  cleaned = stripLeakedSourceTags(cleaned);
-  cleaned = stripLegacyTrans(cleaned);
-  cleaned = stripMarkdownDividers(cleaned);
-  const rawChunks = chunkText(cleaned);
-  const SOLO_RE = new RegExp(`^${ATOM_MARKER}B(\\d+)${ATOM_MARKER}$`);
-  const GLOBAL_RE = new RegExp(`${ATOM_MARKER}B(\\d+)${ATOM_MARKER}`, "g");
-  const segments = [];
-  let pendingQuoteRaw = "";
-  for (const rawChunk of rawChunks) {
-    const soloMatch = rawChunk.trim().match(SOLO_RE);
-    if (soloMatch) {
-      const blk = atomBlocks[Number(soloMatch[1])];
-      if (blk) segments.push({ raw: blk.raw, sanitized: blk.sanitized });
-      continue;
-    }
-    const parts = splitOnSendEmoji(rawChunk);
-    for (const part of parts) {
-      if (part.kind === "emoji") {
-        segments.push({
-          raw: `[[SEND_EMOJI: ${part.name}]]`,
-          sanitized: `[\u8868\u60C5\uFF1A${part.name}]`
-        });
-        continue;
-      }
-      let rawText = part.text.replace(
-        GLOBAL_RE,
-        (_m, n) => atomBlocks[Number(n)]?.raw || ""
-      );
-      rawText = rawText.trim();
-      if (!rawText) continue;
-      const sanitized = sanitizeTextForBanner(rawText).trim();
-      if (!sanitized) {
-        if (!stripQuotes2(rawText).trim()) pendingQuoteRaw += `${rawText}
-`;
-        continue;
-      }
-      if (!stripAllDoubleBracketTags(sanitized).trim()) continue;
-      segments.push({
-        raw: pendingQuoteRaw ? `${pendingQuoteRaw}${rawText}` : rawText,
-        sanitized
-      });
-      pendingQuoteRaw = "";
-    }
-  }
-  return segments;
-}
-function sanitizeTextForBanner(text3) {
-  let result = text3;
-  result = replaceHtmlBlocks(result);
-  result = replaceTranslationForBanner(result);
-  result = replaceVoiceForBanner(result);
-  result = stripQuotes2(result);
-  result = stripSystemLogLeak(result);
-  result = replaceEmojiReverseTag(result);
-  result = replaceMarkdownLinks(result);
-  result = stripMarkdownHeaders(result);
-  result = stripMarkdownBold(result);
-  result = stripBackticks(result);
-  result = collapseWhitespace(result);
-  return result;
-}
-function chunkText(text3) {
-  return text3.split(/(?:\r\n|\r|\n|\u2028|\u2029)+/).map((c) => c.trim()).filter((c) => c.length > 0);
-}
-function splitOnSendEmoji(chunk) {
-  const re = /\[\[SEND_EMOJI[:：]\s*(.*?)\]\]/g;
-  const parts = [];
-  let lastIndex = 0;
-  let m;
-  while ((m = re.exec(chunk)) !== null) {
-    if (m.index > lastIndex) {
-      parts.push({ kind: "text", text: chunk.slice(lastIndex, m.index) });
-    }
-    parts.push({ kind: "emoji", name: m[1].trim() });
-    lastIndex = m.index + m[0].length;
-  }
-  if (lastIndex < chunk.length) {
-    parts.push({ kind: "text", text: chunk.slice(lastIndex) });
-  }
-  if (parts.length === 0 && chunk) parts.push({ kind: "text", text: chunk });
-  return parts;
-}
-
-// utils/transferFormat.ts
-function parseTransferAmount(raw) {
-  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? raw : null;
-  if (typeof raw !== "string") return null;
-  let s = raw.replace(/[０-９．]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 65248));
-  s = s.replace(/[¥￥$＄]/g, "").replace(/(?:元|块钱|块|圆|RMB|CNY|credits?)/gi, "").replace(/[,，\s]/g, "");
-  if (!/^\d+(?:\.\d+)?$/.test(s)) return null;
-  const n = Number(s);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return n;
-}
-function formatTransferAmount(n) {
-  return Number.isInteger(n) ? String(n) : String(Math.round(n * 100) / 100);
-}
-var RECORD_TRANSFER_RE = /\[\[\s*[记記][录錄]\s*[:：]\s*TRANSFER[^\]]*\]\]/gi;
-var ACTION_SEND_KV_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER\s*((?:\|[^\]]*)?)\s*\]\]/gi;
-var ACTION_SEND_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER\s*[:：]\s*([^\]]*?)\s*\]\]/gi;
-var FORGED_TO_VALUES = /* @__PURE__ */ new Set(["char", "self", "me", "\u89D2\u8272", "\u81EA\u5DF1", "\u6211", "\u81EA\u5206", "\u672C\u4EBA"]);
-function parseKvArgs(argStr) {
-  const out = {};
-  for (const part of argStr.split(/[|｜]/)) {
-    const seg = part.trim();
-    if (!seg) continue;
-    const eq = seg.search(/[=＝]/);
-    if (eq < 0) {
-      if (!("amount" in out) && parseTransferAmount(seg) !== null) out.amount = seg;
-      continue;
-    }
-    const k = seg.slice(0, eq).trim().toLowerCase();
-    const v = seg.slice(eq + 1).trim();
-    if (k) out[k] = v;
-  }
-  return out;
-}
-function kvToSendEvent(argStr) {
-  const kv = parseKvArgs(argStr);
-  const to = (kv.to ?? kv["\u7ED9"] ?? "").toLowerCase();
-  if (to && FORGED_TO_VALUES.has(to)) return null;
-  const amount = parseTransferAmount(kv.amount ?? kv["\u91D1\u989D"]);
-  return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
-}
-var ACTION_ACCEPT_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER_ACCEPT\s*\]\]/gi;
-var ACTION_RETURN_RE = /\[\[\s*ACTION\s*[:：]\s*TRANSFER_RETURN\s*\]\]/gi;
-var SYSTEM_LOG_RE = /[\[【]\s*(?:系统|系統|System)\s*(?:提示)?\s*[:：]\s*([^\[\]【】]*?)\s*[\]】]/gi;
-var BARE_TRANSFER_RE = /\[\s*转[账帐]\s*[:：]?\s*([^\[\]]{0,24}?)\s*\]/gi;
-var AMOUNT_FRAGMENT = String.raw`[¥￥$＄]?\s*([0-9０-９][0-9０-９.,，]*)\s*(?:元|块钱|块|圆)?`;
-var LOG_SEND_RE = new RegExp(String.raw`^(?:你|我)\s*(?:向|给).*?转(?:[账帐]了?|了)\s*${AMOUNT_FRAGMENT}`);
-var LOG_ACCEPT_RE = /^你(?:接收|接受|收下|领取)了.*?转[账帐]/;
-var LOG_RETURN_RE = /^你退回了.*?转[账帐]/;
-var LOG_FORGED_RE = /(?:向|给)你转[账帐]|(?:接收|接受|收下|领取|退回)了你的转[账帐]/;
-var LOG_IS_TRANSFER_RE = /转[账帐]|转了?\s*[¥￥$＄]?\s*[0-9０-９]/;
-function classifySystemLog(inner) {
-  const s = inner.trim();
-  if (!LOG_IS_TRANSFER_RE.test(s)) return void 0;
-  if (LOG_ACCEPT_RE.test(s)) return { kind: "accept" };
-  if (LOG_RETURN_RE.test(s)) return { kind: "return" };
-  const m = s.match(LOG_SEND_RE);
-  if (m) {
-    const amount = parseTransferAmount(m[1]);
-    return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
-  }
-  if (LOG_FORGED_RE.test(s)) return null;
-  return null;
-}
-function collect(text3, re, toEvent, hits) {
-  re.lastIndex = 0;
-  let m;
-  while ((m = re.exec(text3)) !== null) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (hits.some((h) => start < h.end && end > h.start)) continue;
-    const event = toEvent(m);
-    if (event === void 0) continue;
-    hits.push({ start, end, event });
-  }
-}
-function extractTransferCommands(content) {
-  const src = String(content ?? "");
-  if (!src) return { text: "", events: [], consumed: 0 };
-  const hits = [];
-  collect(src, RECORD_TRANSFER_RE, () => null, hits);
-  collect(src, ACTION_SEND_KV_RE, (m) => kvToSendEvent(m[1] ?? ""), hits);
-  collect(src, ACTION_SEND_RE, (m) => {
-    const amount = parseTransferAmount(m[1]);
-    return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
-  }, hits);
-  collect(src, ACTION_ACCEPT_RE, () => ({ kind: "accept" }), hits);
-  collect(src, ACTION_RETURN_RE, () => ({ kind: "return" }), hits);
-  collect(src, SYSTEM_LOG_RE, (m) => classifySystemLog(m[1] ?? ""), hits);
-  collect(src, BARE_TRANSFER_RE, (m) => {
-    const amount = parseTransferAmount(m[1]);
-    return amount === null ? null : { kind: "send", amount: formatTransferAmount(amount) };
-  }, hits);
-  hits.sort((a, b) => a.start - b.start);
-  let text3 = "";
-  let cursor = 0;
-  for (const h of hits) {
-    text3 += src.slice(cursor, h.start);
-    cursor = h.end;
-  }
-  text3 += src.slice(cursor);
-  return {
-    text: text3.trim(),
-    events: hits.map((h) => h.event).filter((e) => e !== null),
-    consumed: hits.length
-  };
-}
-
-// utils/scheduleChangeParse.ts
-var KEYWORD_RE = /^\s*(?:ACTION\s*[:：]\s*CHANGE_SCHEDULE|change[\s_-]*(?:schedule|schedue)|modify[\s_-]*schedule|修改(?:未来)?日程|更改(?:未来)?日程|改日程)(?=\s|[:：|=→>\-（(]|\d|$)/iu;
-var parseDirectiveBody = (input) => {
-  const body = input.replace(/^[\s【\[]+|[\s】\]]+$/gu, "").trim();
-  const keyword = body.match(KEYWORD_RE);
-  if (!keyword) return { recognized: false };
-  const rest = body.slice(keyword[0].length).replace(/^\s*[:：|=→>\-]+\s*/u, "");
-  const time = rest.match(/[（(]?\s*(\d{1,2})\s*(?:[:：点时])\s*(\d{1,2})?\s*(?:分)?\s*[）)]?/u);
-  if (!time || time.index == null) return { recognized: true, directive: null };
-  const hour = Number(time[1]);
-  const minute = time[2] == null || time[2] === "" ? 0 : Number(time[2]);
-  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return { recognized: true, directive: null };
-  }
-  const activity = rest.slice(time.index + time[0].length).replace(/^\s*(?:[:：|=→>\-]+)\s*/u, "").replace(/[】\]]+\s*$/gu, "").trim();
-  if (!activity) return { recognized: true, directive: null };
-  return {
-    recognized: true,
-    directive: {
-      startTime: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
-      // 日程卡本来就是短标题；截断异常长输出，避免一条标签撑坏 UI / prompt。
-      activity: activity.slice(0, 120)
-    }
-  };
-};
-var extractScheduleChangeDirectives = (text3) => {
-  const directives = [];
-  let malformedCount = 0;
-  const consumeBody = (body, original) => {
-    const parsed = parseDirectiveBody(body);
-    if (!parsed.recognized) return original;
-    if (parsed.directive) directives.push(parsed.directive);
-    else malformedCount += 1;
-    return "";
-  };
-  let cleanedText = (text3 || "").replace(
-    /(?:【{1,2}|\[{1,2})([^【】\[\]\r\n]{1,360})(?:】{1,2}|\]{1,2})/gu,
-    (whole, body) => consumeBody(body ?? "", whole)
-  );
-  cleanedText = cleanedText.replace(
-    /^[ \t]*(?:【【?|\[\[?)?[ \t]*(?:ACTION[ \t]*[:：][ \t]*CHANGE_SCHEDULE|change[ \t_-]*(?:schedule|schedue)|modify[ \t_-]*schedule|修改(?:未来)?日程|更改(?:未来)?日程|改日程)[ \t]*[:：|]?[^\r\n]{0,360}/gimu,
-    (whole) => consumeBody(whole, whole)
-  );
-  const recognizedSomething = directives.length > 0 || malformedCount > 0;
-  if (!recognizedSomething) {
-    return { cleanedText: text3 || "", directives, malformedCount };
-  }
-  return {
-    cleanedText: cleanedText.replace(/[ \t]+\r?\n/gu, "\n").replace(/\n{3,}/gu, "\n\n").trim(),
-    directives,
-    malformedCount
-  };
-};
-
-// worker/amsg/src/classifier.ts
-var DATA_TAGS = [
-  // [[RECALL: 2024-05]] / [[RECALL: 2024年5]]
-  {
-    re: /\[\[RECALL:\s*(\d{4})[-/年](\d{1,2})\]\]/g,
-    toolName: "recall",
-    toArgs: (m) => ({ year: m[1], month: m[2].padStart(2, "0") })
-  },
-  // [[SEARCH: query]]
-  {
-    re: /\[\[SEARCH:\s*(.+?)\]\]/g,
-    toolName: "web_search",
-    toArgs: (m) => ({ query: m[1].trim() })
-  },
-  // [[READ_DIARY: 2024-05-19]] / [[READ_DIARY: 今天]]
-  {
-    re: /\[\[READ_DIARY:\s*(.+?)\]\]/g,
-    toolName: "notion_read_diary",
-    toArgs: (m) => ({ date: m[1].trim() })
-  },
-  // [[FS_READ_DIARY: 2024-05-19]]
-  {
-    re: /\[\[FS_READ_DIARY:\s*(.+?)\]\]/g,
-    toolName: "feishu_read_diary",
-    toArgs: (m) => ({ date: m[1].trim() })
-  },
-  // [[READ_NOTE: keyword]]
-  {
-    re: /\[\[READ_NOTE:\s*(.+?)\]\]/g,
-    toolName: "read_note",
-    toArgs: (m) => ({ keyword: m[1].trim() })
-  },
-  // [[XHS_SEARCH: keyword]]
-  {
-    re: /\[\[XHS_SEARCH:\s*(.+?)\]\]/g,
-    toolName: "xhs_search",
-    toArgs: (m) => ({ keyword: m[1].trim() })
-  },
-  // [[XHS_BROWSE]] / [[XHS_BROWSE: category]]
-  {
-    re: /\[\[XHS_BROWSE(?::\s*(.+?))?\]\]/g,
-    toolName: "xhs_browse",
-    toArgs: (m) => m[1] ? { category: m[1].trim() } : {}
-  },
-  // [[XHS_DETAIL: noteId]]
-  {
-    re: /\[\[XHS_DETAIL:\s*(.+?)\]\]/g,
-    toolName: "xhs_detail",
-    toArgs: (m) => ({ noteId: m[1].trim() })
-  },
-  // [[XHS_MY_PROFILE]]
-  {
-    re: /\[\[XHS_MY_PROFILE\]\]/g,
-    toolName: "xhs_my_profile",
-    toArgs: () => ({})
-  }
-];
-var DATA_TOOL_NAMES = Object.freeze([...new Set(DATA_TAGS.map((spec) => spec.toolName))]);
-var SIDE_EFFECT_TAGS = [
-  // [[ACTION:POKE]]
-  {
-    re: /\[\[ACTION:POKE\]\]/g,
-    toDirective: () => ({ type: "poke" })
-  },
-  // 转账 (TRANSFER / TRANSFER_ACCEPT / TRANSFER_RETURN) 不在这张表里 —— 见 classifyLLMOutput
-  // 里的 extractTransferCommands, 那份解析跟客户端共用一份源码, 且要认模仿历史日志的口语形态。
-  // [[ACTION:ADD_EVENT|title|date]]
-  {
-    re: /\[\[ACTION:ADD_EVENT\s*\|\s*(.*?)\s*\|\s*(.*?)\]\]/g,
-    toDirective: (m) => ({ type: "add_event", title: m[1], date: m[2] })
-  },
-  // [schedule_message | time | fixed | text]  (note: 单方括号, 跟原 chatParser 一致)
-  {
-    re: /\[schedule_message\s*\|\s*(.+?)\s*\|\s*fixed\s*\|\s*(.+?)\]/g,
-    toDirective: (m) => ({ type: "schedule_message", time: m[1], text: m[2] })
-  },
-  // [[MUSIC_ACTION:verb]] 或 [[MUSIC_ACTION:verb|arg1|arg2]]
-  {
-    re: /\[\[MUSIC_ACTION:(join|add|add_new|join_and_add|join_and_add_new)(?:\|([^\]]*))?\]\]/g,
-    toDirective: (m) => ({
-      type: "music_action",
-      verb: m[1],
-      args: m[2] ? m[2].split("|").map((s) => s.trim()) : []
-    })
-  },
-  // [[XHS_LIKE: noteId]]
-  {
-    re: /\[\[XHS_LIKE:\s*(.+?)\]\]/g,
-    toDirective: (m) => ({ type: "xhs_like", noteId: m[1].trim() })
-  },
-  // [[XHS_FAV: noteId]]
-  {
-    re: /\[\[XHS_FAV:\s*(.+?)\]\]/g,
-    toDirective: (m) => ({ type: "xhs_fav", noteId: m[1].trim() })
-  },
-  // [[XHS_COMMENT: noteId | text]]
-  {
-    re: /\[\[XHS_COMMENT:\s*([^|]+?)\s*\|\s*([^\]]+?)\]\]/g,
-    toDirective: (m) => ({ type: "xhs_comment", noteId: m[1].trim(), text: m[2].trim() })
-  },
-  // [[XHS_REPLY: noteId | commentId | text]]
-  {
-    re: /\[\[XHS_REPLY:\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^\]]+?)\]\]/g,
-    toDirective: (m) => ({
-      type: "xhs_reply",
-      noteId: m[1].trim(),
-      commentId: m[2].trim(),
-      text: m[3].trim()
-    })
-  },
-  // [[XHS_POST: title | content | tags]]   (用 s flag 兼容多行 content)
-  {
-    re: /\[\[XHS_POST:\s*([^|]+?)\s*\|\s*([\s\S]+?)\s*\|\s*([^\]]+?)\]\]/g,
-    toDirective: (m) => ({
-      type: "xhs_post",
-      title: m[1].trim(),
-      content: m[2].trim(),
-      tags: m[3].trim()
-    })
-  },
-  // [[XHS_SHARE: 3]]
-  {
-    re: /\[\[XHS_SHARE:\s*(\d+)\]\]/g,
-    toDirective: (m) => ({ type: "xhs_share", idx: Number(m[1]) })
-  },
-  // [[LIFE:MED|布洛芬]] 生活记录代记 — 跟 chatParser.ts 的 `\[\[LIFE:[^\]]*\]\]` 同口径,
-  // 冒号后整段原样带走, 不在这里拆 verb/args (那份解析在 lifeRecords.parseLifeDirective)。
-  {
-    re: /\[\[LIFE:([^\]]*)\]\]/g,
-    toDirective: (m) => ({ type: "life_record", body: m[1] })
-  },
-  // [[NEWS_CARD: 来源|标题]] 分享热点卡片 — 跟 chatParser.ts:NEWS_CARD_RE 同口径。
-  {
-    re: /\[\[NEWS_CARD:\s*([^\]]*?)\s*\]\]/g,
-    toDirective: (m) => ({ type: "news_card", body: m[1] })
-  },
-  // 写日记 — 长形态: [[DIARY_START: title|mood]]\n content \n[[DIARY_END]]
-  // 短形态: [[DIARY: title|content]] 或 [[DIARY: content]] (无 title)
-  // 行为跟 applyAssistantPostProcessing.ts:465-495 字节对齐:
-  //   - 长形态 header 含 `|` → title|mood 切, 不含 `|` → 整段 = title
-  //   - 短形态 raw 含 `|` → title|content 切, 不含 `|` → 整段 = content (title 留空, 客户端兜底)
-  // 多行 content 用 [\s\S]*? 跨行, 别用 `s` flag (worker 端 esbuild target 默认 ok 但避免冗余)
-  {
-    re: /\[\[DIARY_START:\s*(.+?)\]\]\n?([\s\S]*?)\[\[DIARY_END\]\]/g,
-    toDirective: (m) => parseDiaryLong(m, "notion_write_diary")
-  },
-  {
-    re: /\[\[DIARY:\s*([\s\S]+?)\]\]/g,
-    toDirective: (m) => parseDiaryShort(m, "notion_write_diary")
-  },
-  // 飞书写日记 — 同形态, FS_ 前缀
-  {
-    re: /\[\[FS_DIARY_START:\s*(.+?)\]\]\n?([\s\S]*?)\[\[FS_DIARY_END\]\]/g,
-    toDirective: (m) => parseDiaryLong(m, "feishu_write_diary")
-  },
-  {
-    re: /\[\[FS_DIARY:\s*([\s\S]+?)\]\]/g,
-    toDirective: (m) => parseDiaryShort(m, "feishu_write_diary")
-  }
-];
-function parseDiaryLong(m, type) {
-  const header = m[1].trim();
-  const content = (m[2] || "").trim();
-  let title = "";
-  let mood = "";
-  if (header.includes("|")) {
-    const parts = header.split("|");
-    title = parts[0].trim();
-    mood = parts.slice(1).join("|").trim();
-  } else {
-    title = header;
-  }
-  return { type, title, content, mood: mood || void 0 };
-}
-function parseDiaryShort(m, type) {
-  const raw = m[1].trim();
-  let title = "";
-  let content = "";
-  if (raw.includes("|")) {
-    const parts = raw.split("|");
-    title = parts[0].trim();
-    content = parts.slice(1).join("|").trim();
-  } else {
-    content = raw;
-  }
-  return { type, title, content };
-}
-function classifyLLMOutput(text3) {
-  const social = extractFriendFeedReplyTags(text3);
-  const visits = extractFriendFeedReplyTags(social.text, "HOME_VISIT_REPLY");
-  text3 = visits.text;
-  const toolCalls = [];
-  for (const spec of DATA_TAGS) {
-    const matches = Array.from(text3.matchAll(spec.re));
-    for (const m of matches) {
-      const args = spec.toArgs(m);
-      if (!args) continue;
-      toolCalls.push({
-        id: `call_${spec.toolName}_${toolCalls.length}_${Date.now().toString(36)}`,
-        type: "function",
-        function: { name: spec.toolName, arguments: JSON.stringify(args) }
-      });
-    }
-  }
-  if (toolCalls.length > 0) {
-    let prefix = text3;
-    for (const spec of DATA_TAGS) prefix = prefix.replace(spec.re, "");
-    prefix = prefix.trim();
-    if (social.actions.length) prefix += "\n" + social.actions.map((action) => "[[FRIEND_FEED_REPLY:" + JSON.stringify(action) + "]]").join("\n");
-    if (visits.actions.length) prefix += "\n" + visits.actions.map((action) => "[[HOME_VISIT_REPLY:" + JSON.stringify(action) + "]]").join("\n");
-    const sanitizedPrefix = sanitizeForNotification(prefix);
-    return { kind: "tool-request", prefix, sanitizedPrefix, toolCalls };
-  }
-  const directives = social.actions.map((action) => ({ type: "friend_feed_reply", action }));
-  directives.push(...visits.actions.map((action) => ({ type: "home_visit_reply", action })));
-  const { text: textAfterTransfers, events: transferEvents } = extractTransferCommands(visits.text);
-  for (const ev of transferEvents) {
-    if (ev.kind === "send") {
-      const amount = parseTransferAmount(ev.amount);
-      if (amount !== null) directives.push({ type: "transfer", amount });
-    } else if (ev.kind === "accept") {
-      directives.push({ type: "transfer_accept" });
-    } else {
-      directives.push({ type: "transfer_return" });
-    }
-  }
-  const scheduleParsed = extractScheduleChangeDirectives(textAfterTransfers);
-  const textAfterSchedule = scheduleParsed.cleanedText;
-  for (const d of scheduleParsed.directives) {
-    directives.push({ type: "change_schedule", time: d.startTime, activity: d.activity });
-  }
-  for (const spec of SIDE_EFFECT_TAGS) {
-    const matches = Array.from(textAfterSchedule.matchAll(spec.re));
-    for (const m of matches) {
-      const d = spec.toDirective(m);
-      if (d) directives.push(d);
-    }
-  }
-  const dedupedDirectives = [];
-  const seenDirectives = /* @__PURE__ */ new Set();
-  for (const d of directives) {
-    const key = JSON.stringify(d);
-    if (seenDirectives.has(key)) {
-      console.warn("[classifier] \u540C\u4E00\u6761\u6D88\u606F\u91CC\u91CD\u590D\u7684\u526F\u4F5C\u7528, \u53EA\u4FDD\u7559\u7B2C\u4E00\u4E2A:", key);
-      continue;
-    }
-    seenDirectives.add(key);
-    dedupedDirectives.push(d);
-  }
-  let cleanedText = textAfterSchedule;
-  for (const spec of DATA_TAGS) cleanedText = cleanedText.replace(spec.re, "");
-  for (const spec of SIDE_EFFECT_TAGS) cleanedText = cleanedText.replace(spec.re, "");
-  cleanedText = cleanedText.trim();
-  const sanitizedBody = sanitizeForNotification(cleanedText);
-  return { kind: "finish", cleanedText, sanitizedBody, directives: dedupedDirectives };
-}
-
-// worker/amsg/src/agentic.ts
-init_mcpFireCore();
-
-// utils/vrWorld/sarEnvelopeCore.ts
-var planFromSARModuleSnapshot = (snapshot) => {
-  if (!snapshot || !snapshot.character && !snapshot.user) return null;
-  const character2 = snapshot.character;
-  const user = snapshot.user;
-  const hasActiveEffect = character2?.phase === "active" || user?.phase === "active";
-  const hasAfterglow = character2?.phase === "afterglow" || user?.phase === "afterglow";
-  return { character: character2, user, hasActiveEffect, hasAfterglow, requiresEnvelope: hasActiveEffect };
-};
-var isPlainSARChatActionOnlyChunk = (text3) => {
-  const clean2 = text3.trim();
-  if (!clean2) return false;
-  return /^(?:(?:（[^（）]*）|\([^()]*\)|\*[^*\n]+\*)\s*)+[。！？!?…～~—-]*$/s.test(clean2);
-};
-var isSARChatActionOnlyChunk = (text3) => {
-  const bilingualParts = text3.split(/%%BILINGUAL%%/i).map((part) => part.trim()).filter(Boolean);
-  return bilingualParts.length > 0 && bilingualParts.every(isPlainSARChatActionOnlyChunk);
-};
-var isSARChatHtmlPlaceholder = (text3) => /^\[HTML\s*卡片\]$/i.test(text3.trim());
-var consumeSARChatSurfaceChunk = (canonicalChunk, surfaceChunks, startIndex) => {
-  let index = Math.max(0, startIndex);
-  if (isSARChatHtmlPlaceholder(canonicalChunk)) {
-    if (surfaceChunks[index] && isSARChatHtmlPlaceholder(surfaceChunks[index])) index += 1;
-    return { nextIndex: index };
-  }
-  if (isSARChatActionOnlyChunk(canonicalChunk)) {
-    if (surfaceChunks[index] && isSARChatActionOnlyChunk(surfaceChunks[index])) index += 1;
-    return { nextIndex: index };
-  }
-  while (surfaceChunks[index] && (isSARChatActionOnlyChunk(surfaceChunks[index]) || isSARChatHtmlPlaceholder(surfaceChunks[index]))) index += 1;
-  const surface = surfaceChunks[index];
-  return { surface, nextIndex: surface === void 0 ? index : index + 1 };
-};
-var tag = (raw, name) => {
-  const match = raw.match(new RegExp(`<${name}>\\s*([\\s\\S]*?)\\s*</${name}>`, "i"));
-  const value = match?.[1]?.trim();
-  return value || void 0;
-};
-var parseSARModuleReply = (raw, plan) => {
-  if (!plan.requiresEnvelope) return { canonical: raw, enveloped: false };
-  const body = tag(raw, "SAR_MODULE_OUTPUT") || raw;
-  const canonical = tag(body, "CHAR_TRUE");
-  if (!canonical) return { canonical: raw.trim(), enveloped: false };
-  return {
-    canonical,
-    assistantSurface: plan.character?.phase === "active" ? tag(body, "CHAR_SURFACE") : void 0,
-    userSurface: plan.user?.phase === "active" ? tag(body, "USER_SURFACE") : void 0,
-    enveloped: true
-  };
-};
-var createSARModuleSurfaceMeta = (state, surface) => {
-  const clean2 = surface.trim();
-  if (!clean2 || state.phase !== "active") return void 0;
-  return {
-    version: 1,
-    runId: state.runId,
-    moduleId: state.moduleId,
-    moduleTitle: state.moduleTitle,
-    target: state.target,
-    phase: "active",
-    surface: clean2,
-    canonicalField: "content",
-    surfaceField: "metadata.sarModuleSurface.surface"
-  };
-};
-
-// worker/amsg/src/sarEnvelope.ts
-var AMSG_SAR_META_KEY = "amsgSar";
-var amsgSarUserSurfaceKey = (clientTaskId) => `sar_user_surface:${clientTaskId}`;
-var amsgSarSnapshotKey = (clientTaskId) => `sar_snapshot:${clientTaskId}`;
-var amsgSarSurfaceKey = (clientTaskId, segmentIndex) => `sar_surface:${clientTaskId}:${segmentIndex}`;
-var SAR_SURFACE_BANNER_MAX = 100;
-var clipSarSurfaceBanner = (banner) => {
-  const chars = Array.from(banner);
-  return chars.length <= SAR_SURFACE_BANNER_MAX ? banner : `${chars.slice(0, SAR_SURFACE_BANNER_MAX - 1).join("")}\u2026`;
-};
-var isPlainObject2 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
-var isSurfaceSource = (value) => isPlainObject2(value) && typeof value.phase === "string";
-var readSarSnapshot = (metadata) => {
-  const raw = metadata?.[AMSG_SAR_META_KEY];
-  if (!isPlainObject2(raw) || raw.v !== 1) return null;
-  if (raw.character !== void 0 && !isSurfaceSource(raw.character)) return null;
-  if (raw.user !== void 0 && !isSurfaceSource(raw.user)) return null;
-  return raw;
-};
-var stripSarSnapshot = (metadata) => {
-  const { [AMSG_SAR_META_KEY]: _snapshot, ...rest } = metadata ?? {};
-  return rest;
-};
-var SURFACE_BLOCK_RE = /<(CHAR_SURFACE|USER_SURFACE)>[\s\S]*?(?:<\/\1>|(?=<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>)|$)/gi;
-var PLACEHOLDER = String.fromCharCode(5);
-var PLACEHOLDER_RE = new RegExp(`${PLACEHOLDER}(\\d+)${PLACEHOLDER}`, "g");
-var maskSarSurfaceBlocks = (text3) => {
-  const blocks = [];
-  const masked = text3.replace(SURFACE_BLOCK_RE, (block) => {
-    blocks.push(block);
-    return `${PLACEHOLDER}${blocks.length - 1}${PLACEHOLDER}`;
-  });
-  return {
-    masked,
-    restore: (value) => blocks.length === 0 ? value : value.replace(PLACEHOLDER_RE, (_m, n) => blocks[Number(n)] ?? "")
-  };
-};
-var ENVELOPE_TAG_RE = /<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>/gi;
-var stripEnvelopeTags = (text3) => text3.replace(ENVELOPE_TAG_RE, "").trim();
-var closeOpenTag = (text3, name, stoppers) => {
-  const open = new RegExp(`<${name}>`, "i").exec(text3);
-  if (!open || new RegExp(`</${name}>`, "i").test(text3)) return text3;
-  const after = open.index + open[0].length;
-  const stop = new RegExp(stoppers.join("|"), "i").exec(text3.slice(after));
-  const at = stop ? after + stop.index : text3.length;
-  return `${text3.slice(0, at)}</${name}>${text3.slice(at)}`;
-};
-var repairEnvelope = (text3) => {
-  let repaired = closeOpenTag(text3, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
-  repaired = closeOpenTag(repaired, "CHAR_SURFACE", ["<USER_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
-  repaired = closeOpenTag(repaired, "USER_SURFACE", ["<CHAR_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
-  return repaired;
-};
-var parseSarEnvelopeRounds = (rounds, plan) => {
-  const texts = rounds.filter((round) => round.trim().length > 0);
-  if (!plan.requiresEnvelope) return { canonical: texts.join("\n"), enveloped: false, pieces: [] };
-  const pieces = [];
-  let enveloped = false;
-  let userSurface;
-  for (const text3 of texts) {
-    const parsed = parseSARModuleReply(repairEnvelope(text3), plan);
-    if (parsed.enveloped) {
-      enveloped = true;
-      if (parsed.userSurface) userSurface = parsed.userSurface;
-    }
-    const canonical = stripEnvelopeTags(parsed.canonical);
-    if (!canonical) continue;
-    const surface = parsed.enveloped && parsed.assistantSurface ? stripEnvelopeTags(parsed.assistantSurface) : "";
-    pieces.push({ canonical, ...surface ? { surface } : {} });
-  }
-  return {
-    canonical: pieces.map((p) => p.canonical).join("\n"),
-    enveloped,
-    pieces,
-    ...userSurface ? { userSurface } : {}
-  };
-};
-var isEmojiSegment = (seg) => /^\[\[SEND_EMOJI[:：]/i.test(seg.raw.trim());
-var isHtmlSegment = (seg) => /^\[html\][\s\S]*\[\/html\]$/i.test(seg.raw.trim());
-var TRANSLATION_BLOCK_RE = /<翻译>\s*<原文>([\s\S]*?)<\/原文>\s*<译文>([\s\S]*?)<\/译文>\s*<\/翻译>/;
-var alignKey = (seg) => {
-  const translation = seg.raw.match(TRANSLATION_BLOCK_RE);
-  if (translation) {
-    const original = translation[1].trim();
-    const translated = translation[2].trim();
-    return original && translated ? `${original}
-%%BILINGUAL%%
-${translated}` : original || translated;
-  }
-  return seg.sanitized;
-};
-var segmentSurface = (surfaceText) => {
-  const prepared = surfaceText.replace(/\[html\][\s\S]*?\[\/html\]/gi, "\n").replace(/\[\[[\s\S]*?\]\]/g, "");
-  return sanitizeIntoSegments(prepared).filter((seg) => !isEmojiSegment(seg) && !isHtmlSegment(seg));
-};
-var alignSarSurfaceSegments = (canonicalSegments, surfaceText) => {
-  const surfaceSegs = segmentSurface(surfaceText);
-  const surfaceKeys = surfaceSegs.map(alignKey);
-  let index = 0;
-  return canonicalSegments.map((seg) => {
-    if (isEmojiSegment(seg) || isHtmlSegment(seg)) return void 0;
-    const consumed = consumeSARChatSurfaceChunk(alignKey(seg), surfaceKeys, index);
-    index = consumed.nextIndex;
-    if (consumed.surface === void 0) return void 0;
-    const matched = surfaceSegs[consumed.nextIndex - 1];
-    return matched ? { surface: matched.raw, banner: matched.sanitized } : void 0;
-  });
-};
-var segmentCanonical = (text3) => {
-  const scan = classifyLLMOutput(text3);
-  return sanitizeIntoSegments(scan.kind === "finish" ? scan.cleanedText : scan.prefix);
-};
-var buildSarSurfaceSlots = (parse, segments) => {
-  const none = segments.map(() => void 0);
-  if (!parse.pieces.some((p) => p.surface)) return none;
-  if (parse.pieces.length === 1) return alignSarSurfaceSegments(segments, parse.pieces[0].surface ?? "");
-  const counts = parse.pieces.map((p) => segmentCanonical(p.canonical).length);
-  if (counts.reduce((a, b) => a + b, 0) !== segments.length) {
-    return alignSarSurfaceSegments(
-      segments,
-      parse.pieces.map((p) => p.surface).filter((s) => !!s).join("\n")
-    );
-  }
-  const slots = [];
-  let offset = 0;
-  parse.pieces.forEach((piece, i) => {
-    const slice = segments.slice(offset, offset + counts[i]);
-    offset += counts[i];
-    slots.push(...piece.surface ? alignSarSurfaceSegments(slice, piece.surface) : slice.map(() => void 0));
-  });
-  return slots;
-};
-
-// worker/amsg/src/agentic.ts
-var createFireSessionState = () => ({
-  narrations: [],
-  toolCalls: [],
-  duplicateToolCalls: 0,
-  mcpCallSeq: 0,
-  xhsShareNotes: null,
-  finalReasoning: null
-});
-var MAX_DUPLICATE_TOOL_CALLS = 2;
-var DEFAULT_TOOL_ITERATIONS = 5;
-var MCP_MAX_TOOL_ITERATIONS = 12;
-var resolveToolIterationBudget = (hasMcp) => hasMcp ? MCP_MAX_TOOL_ITERATIONS : DEFAULT_TOOL_ITERATIONS;
-var XHS_SHARE_TAG_RE = /\[\[XHS_SHARE:\s*\d+\]\]/;
-var XHS_DESC_MAX = 120;
-function buildXhsSessionPayload(directives, notes, xsecTokens) {
-  if (directives.length === 0) return null;
-  const sharedIdx = /* @__PURE__ */ new Set();
-  const refNoteIds = /* @__PURE__ */ new Set();
-  for (const d of directives) {
-    if (d.type === "xhs_share") sharedIdx.add(d.idx);
-    else if (d.type === "xhs_like" || d.type === "xhs_fav") refNoteIds.add(d.noteId);
-    else if (d.type === "xhs_comment" || d.type === "xhs_reply") refNoteIds.add(d.noteId);
-  }
-  if (sharedIdx.size === 0 && refNoteIds.size === 0) return null;
-  const pickedNotes = [];
-  for (const idx of [...sharedIdx].sort((a, b) => a - b)) {
-    const note = idx >= 1 ? notes?.[idx - 1] : void 0;
-    if (!note) continue;
-    pickedNotes.push({ idx, note: { ...note, desc: (note.desc || "").slice(0, XHS_DESC_MAX) } });
-  }
-  const pickedTokens = (xsecTokens ?? []).filter(([noteId]) => refNoteIds.has(noteId));
-  if (pickedNotes.length === 0 && pickedTokens.length === 0) return null;
-  return { notes: pickedNotes, xsecTokens: pickedTokens };
-}
-function attachSceneSong(directives, sceneSong) {
-  if (!sceneSong) return directives;
-  return directives.map((d) => d.type === "music_action" ? { ...d, song: sceneSong } : d);
-}
-var resolveNativeFireToolName = (raw, manageToolNames, mcpResolve) => {
-  const candidates = [raw];
-  const lastSegment = raw.split(/[:./]/).pop();
-  if (lastSegment && lastSegment !== raw) candidates.push(lastSegment);
-  for (const c of candidates) {
-    if (!c) continue;
-    if (c.startsWith(MCP_FIRE_NAME_PREFIX) && mcpResolve?.has(c.slice(MCP_FIRE_NAME_PREFIX.length))) {
-      return { kind: "mcp", name: c };
-    }
-    if (manageToolNames.has(c)) return { kind: "manage", name: c };
-    if (mcpResolve?.has(c)) return { kind: "mcp", name: `${MCP_FIRE_NAME_PREFIX}${c}` };
-  }
-  return null;
-};
-var classifyNativeToolCalls = (rawToolCalls, manageToolNames, mcpResolve) => {
-  const out = { manage: [], mcp: [], dropped: [] };
-  const calls = Array.isArray(rawToolCalls) ? rawToolCalls : [];
-  for (const tc of calls) {
-    const raw = tc?.function?.name;
-    const resolved = typeof raw === "string" && raw ? resolveNativeFireToolName(raw, manageToolNames, mcpResolve) : null;
-    if (!resolved) {
-      out.dropped.push(typeof raw === "string" && raw ? raw : null);
-      continue;
-    }
-    const call = resolved.name === raw ? tc : { ...tc, function: { ...tc.function, name: resolved.name } };
-    (resolved.kind === "mcp" ? out.mcp : out.manage).push(call);
-  }
-  return out;
-};
-function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, maxToolIterations = DEFAULT_TOOL_ITERATIONS) {
-  const isFinalRound = typeof iteration === "number" && iteration >= maxToolIterations - 1;
-  const sarPlan = planFromSARModuleSnapshot(build.sar ?? null);
-  const sarMask = sarPlan?.requiresEnvelope ? maskSarSurfaceBlocks(llmOutputText) : null;
-  const roundText = sarMask ? sarMask.masked : llmOutputText;
-  const restoreSurfaces = (text3) => sarMask ? sarMask.restore(text3) : text3;
-  const nativeToolCalls = mcp?.nativeToolCalls ?? [];
-  const textCalls = mcp?.resolve.size ? extractTextFakedMcpCalls(roundText, mcp.resolve, { alsoMatchPrefix: MCP_FIRE_NAME_PREFIX }) : [];
-  const nativeScheduleCalls = schedule?.nativeToolCalls ?? [];
-  const hasNativeSchedule = nativeScheduleCalls.some(
-    (tc) => tc?.function?.name === AMSG_FIRE_SCHEDULE_TOOL
-  );
-  const scheduleTextCalls = schedule ? extractFireScheduleTextCalls(roundText) : [];
-  const scheduleCalls = [
-    ...nativeScheduleCalls,
-    ...(hasNativeSchedule ? [] : scheduleTextCalls).map((c) => ({
-      id: `sched_${state.mcpCallSeq++}`,
-      type: "function",
-      function: { name: AMSG_FIRE_SCHEDULE_TOOL, arguments: JSON.stringify(c.args) }
-    }))
-  ];
-  const strippedText = scheduleTextCalls.length ? stripTextFakedMcpCalls(roundText, scheduleTextCalls) : roundText;
-  const scanText = textCalls.length ? stripTextFakedMcpCalls(strippedText, textCalls) : strippedText;
-  const mcpToolCalls = nativeToolCalls.length > 0 ? nativeToolCalls : textCalls.map((c) => ({
-    // id 只需在一轮的 assistant/tool 消息配对里唯一；本次 fire 内自增，绝不重号。
-    id: `mcp_${state.mcpCallSeq++}`,
-    type: "function",
-    // exposedName 恒为裸名（alsoMatchPrefix 的命中也回裸名），统一补前缀即可。
-    function: { name: `${MCP_FIRE_NAME_PREFIX}${c.exposedName}`, arguments: JSON.stringify(c.args) }
-  }));
-  const extraToolCalls = [...mcpToolCalls, ...scheduleCalls];
-  const result = classifyLLMOutput(scanText);
-  const isToolRound = result.kind === "tool-request" || extraToolCalls.length > 0;
-  if (isToolRound) {
-    const narration = result.kind === "tool-request" ? result.prefix : scanText;
-    if (state.duplicateToolCalls < MAX_DUPLICATE_TOOL_CALLS && !isFinalRound) {
-      if (narration.trim()) state.narrations.push(restoreSurfaces(narration));
-      if (state.xhsShareNotes === null && XHS_SHARE_TAG_RE.test(narration)) {
-        state.xhsShareNotes = [...build.xhsNotes ?? []];
-      }
-      return {
-        decision: "tool-request",
-        toolCalls: result.kind === "tool-request" ? [...result.toolCalls, ...extraToolCalls] : extraToolCalls
-      };
-    }
-  }
-  const thisRound = isToolRound ? "" : restoreSurfaces(scanText);
-  const rounds = [...state.narrations, thisRound].filter((part) => part.trim().length > 0);
-  const fullText = rounds.join("\n");
-  const sarParse = sarPlan?.requiresEnvelope ? parseSarEnvelopeRounds(rounds, sarPlan) : null;
-  const finalScan = sarParse ? classifyLLMOutput(sarParse.canonical) : fullText === scanText ? result : classifyLLMOutput(fullText);
-  const cleanedText = finalScan.kind === "finish" ? finalScan.cleanedText : finalScan.prefix;
-  const directives = attachSceneSong(
-    finalScan.kind === "finish" ? finalScan.directives : [],
-    build.sceneSong
-  );
-  const xhsSession = buildXhsSessionPayload(
-    directives,
-    state.xhsShareNotes ?? build.xhsNotes,
-    build.xhsXsecTokens
-  );
-  const finishMeta = directives.length > 0 ? { directives, ...xhsSession ? { xhsSession } : {} } : void 0;
-  const declined = fullText.includes(AMSG_SILENT_MARK);
-  const segments = declined ? [] : sanitizeIntoSegments(cleanedText);
-  if (segments.length === 0) {
-    const scheduleChanges = directives.filter((d) => d.type === "change_schedule").map((d) => ({ startTime: d.time, activity: d.activity }));
-    return {
-      decision: "skip-push",
-      reason: declined ? "declined" : finishMeta ? "side-effects-only" : "empty-generation",
-      ...!declined && directives.some((d) => d.type !== "change_schedule") && finishMeta ? { sideEffects: finishMeta } : {},
-      ...scheduleChanges.length > 0 ? { scheduleChanges } : {}
-    };
-  }
-  const sarCharacter = build.sar?.character;
-  const surfaceSlots = sarParse && sarCharacter?.phase === "active" ? buildSarSurfaceSlots(sarParse, segments) : [];
-  const sarLastMeta = {
-    ...build.sar ? { [AMSG_SAR_META_KEY]: build.sar } : {},
-    ...sarParse?.userSurface ? { amsgSarUserSurface: sarParse.userSurface } : {}
-  };
-  const lastMeta = finishMeta || Object.keys(sarLastMeta).length > 0 ? { ...finishMeta ?? {}, ...sarLastMeta } : void 0;
-  const lastIdx = segments.length - 1;
-  return {
-    decision: "finish",
-    pushPayloads: segments.map((seg, i) => {
-      const slot = surfaceSlots[i];
-      const surfaceMeta = slot && sarCharacter ? createSARModuleSurfaceMeta(sarCharacter, slot.surface) : void 0;
-      const extra = {
-        ...surfaceMeta ? { amsgSarSurface: surfaceMeta } : {},
-        ...i === lastIdx ? lastMeta ?? {} : {}
-      };
-      return buildScheduledPush(
-        seg.raw,
-        build,
-        Object.keys(extra).length > 0 ? extra : void 0,
-        // 外显横幅截短：这条 push 还要装外显 meta，别把单段正文的字节预算吃掉一半。
-        surfaceMeta && slot ? clipSarSurfaceBanner(slot.banner) : seg.sanitized
-      );
-    })
-  };
-}
-function buildScheduledPush(message, build, extraMeta, bannerBody) {
-  const title = `\u6765\u81EA ${build.contactName}`;
-  return {
-    messageKind: "content",
-    messageType: build.messageType,
-    source: "scheduled",
-    message,
-    title,
-    contactName: build.contactName,
-    avatarUrl: build.avatarUrl,
-    messageSubtype: "chat",
-    taskId: build.taskId,
-    metadata: {
-      // SAR 快照不许摊进每一条（它只随最后一条经 extraMeta 回去）；调用方已摘过，这里兜一道。
-      ...stripSarSnapshot(build.metadata),
-      amsgOccurrenceMs: build.occurrenceMs,
-      ...extraMeta ?? {}
-    },
-    ...bannerBody !== void 0 ? { notification: { title, body: bannerBody } } : {}
-  };
-}
-
 // utils/emotionEvalCore.ts
 var EMOTION_EVAL_SYSTEM_SLOT = "__EMOTION_EVAL_SYSTEM_PROMPT__";
 var EMOTION_EVAL_HISTORY_SLOT = "__EMOTION_EVAL_HISTORY__";
-var tagHomeSecretEval = (raw, requestId2) => requestId2 && /^[\w-]+$/.test(requestId2) ? `HOME_SECRET_REQUEST:${requestId2}
-${raw}` : raw;
+var tagHomeSecretEval = (raw2, requestId2) => requestId2 && /^[\w-]+$/.test(requestId2) ? `HOME_SECRET_REQUEST:${requestId2}
+${raw2}` : raw2;
 var EMOTION_EVAL_TIMEOUT_MS = 12e4;
 var flattenEvalContent = (content) => {
   if (typeof content === "string") return content;
@@ -26224,14 +27219,14 @@ var requestEmotionEval = async (api, promptContent, timeoutMs = EMOTION_EVAL_TIM
     }
     const data = await res.json();
     const message = data?.choices?.[0]?.message;
-    const raw = flattenEvalContent(message?.content) || (typeof message?.reasoning_content === "string" ? message.reasoning_content : "");
-    if (!raw.trim()) {
+    const raw2 = flattenEvalContent(message?.content) || (typeof message?.reasoning_content === "string" ? message.reasoning_content : "");
+    if (!raw2.trim()) {
       return {
         raw: null,
         error: `\u8BC4\u4F30\u6A21\u578B\u6CA1\u6709\u8F93\u51FA\u5185\u5BB9\uFF08finish_reason: ${data?.choices?.[0]?.finish_reason ?? "?"}\uFF09`
       };
     }
-    return { raw, error: null };
+    return { raw: raw2, error: null };
   } catch (error) {
     if (signal?.aborted) return { raw: null, error: null };
     console.warn("[emotion-eval] \u8BC4\u4F30\u5931\u8D25\uFF08\u4E3B\u6D41\u7A0B\u4E0D\u53D7\u5F71\u54CD\uFF09", error);
@@ -26304,17 +27299,67 @@ function buildScheduleChangeResult(args) {
   };
 }
 
+// utils/amsgThirdPartyPush.ts
+var WXPUSHER_SIMPLE_PUSH_URL = "https://wxpusher.zjiecode.com/api/send/message/simple-push";
+function parseThirdPartyPushEndpoint(endpoint) {
+  const raw2 = (endpoint || "").trim();
+  if (!raw2) return null;
+  if (raw2.startsWith("wxpusher:")) {
+    const token2 = raw2.slice("wxpusher:".length).trim();
+    if (!token2) return null;
+    return {
+      provider: "wxpusher",
+      token: token2,
+      serverOrigin: "https://wxpusher.zjiecode.com"
+    };
+  }
+  const match = raw2.match(/^(bark|meow):(https?:\/\/.+)\/([^/?#]+)\/?$/i);
+  if (!match) return null;
+  const provider = match[1].toLowerCase();
+  const serverOrigin = match[2].replace(/\/+$/, "");
+  let token = "";
+  try {
+    token = decodeURIComponent(match[3]).trim();
+  } catch {
+    token = match[3].trim();
+  }
+  if (!token) return null;
+  return {
+    provider,
+    token,
+    serverOrigin
+  };
+}
+function buildThirdPartyClickUrl(baseUrl, charId) {
+  const raw2 = (baseUrl || "").trim();
+  if (!raw2 || !/^https?:\/\//i.test(raw2)) return void 0;
+  try {
+    const parsed = new URL(raw2);
+    if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+      return void 0;
+    }
+    const trimmedCharId = (charId || "").trim();
+    if (trimmedCharId) {
+      parsed.searchParams.set("openApp", "chat");
+      parsed.searchParams.set("activeMsgCharId", trimmedCharId);
+    }
+    return parsed.toString();
+  } catch {
+    return void 0;
+  }
+}
+
 // worker/amsg/src/nativeFcm.ts
 var accessTokenCache = null;
-var utf84 = new TextEncoder();
+var utf83 = new TextEncoder();
 var bytesToB64u = (bytes) => {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
-var textToB64u = (value) => bytesToB64u(utf84.encode(value));
-var pemToPkcs8 = (raw) => {
-  const base64 = raw.replace(/\\n/g, "\n").replace(/-----BEGIN PRIVATE KEY-----/g, "").replace(/-----END PRIVATE KEY-----/g, "").replace(/\s+/g, "");
+var textToB64u = (value) => bytesToB64u(utf83.encode(value));
+var pemToPkcs8 = (raw2) => {
+  const base64 = raw2.replace(/\\n/g, "\n").replace(/-----BEGIN PRIVATE KEY-----/g, "").replace(/-----END PRIVATE KEY-----/g, "").replace(/\s+/g, "");
   if (!base64) throw new Error("FCM_SERVICE_ACCOUNT_PRIVATE_KEY \u4E0D\u662F\u6709\u6548\u7684 PKCS#8 PEM");
   const binary = atob(base64);
   return Uint8Array.from(binary, (char) => char.charCodeAt(0)).buffer;
@@ -26322,11 +27367,11 @@ var pemToPkcs8 = (raw) => {
 var requireFcmConfig = (env) => {
   const projectId = env.FCM_PROJECT_ID?.trim();
   const clientEmail = env.FCM_SERVICE_ACCOUNT_EMAIL?.trim();
-  const privateKey = env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.trim();
-  if (!projectId || !clientEmail || !privateKey) {
+  const privateKey2 = env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.trim();
+  if (!projectId || !clientEmail || !privateKey2) {
     throw new Error("FCM \u914D\u7F6E\u4E0D\u5B8C\u6574\uFF1A\u9700\u8981 FCM_PROJECT_ID / FCM_SERVICE_ACCOUNT_EMAIL / FCM_SERVICE_ACCOUNT_PRIVATE_KEY");
   }
-  return { projectId, clientEmail, privateKey };
+  return { projectId, clientEmail, privateKey: privateKey2 };
 };
 var fetchFcmAccessToken = async (env) => {
   const config = requireFcmConfig(env);
@@ -26349,7 +27394,7 @@ var fetchFcmAccessToken = async (env) => {
     false,
     ["sign"]
   );
-  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, utf84.encode(unsigned));
+  const signature = await crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, utf83.encode(unsigned));
   const assertion = `${unsigned}.${bytesToB64u(new Uint8Array(signature))}`;
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -26404,7 +27449,7 @@ var buildFcmMessage = (token, rawPayload) => {
       }
     }
   };
-  const bytes = utf84.encode(JSON.stringify(result)).byteLength;
+  const bytes = utf83.encode(JSON.stringify(result)).byteLength;
   if (bytes > 4e3) throw new Error(`FCM_PAYLOAD_TOO_LARGE: ${bytes} bytes\uFF08\u5B89\u5168\u4E0A\u9650 4000\uFF09`);
   return result;
 };
@@ -26426,11 +27471,129 @@ var sendFcmNotification = async (env, token, payload) => {
     throw new Error(`FCM_SEND_FAILED (${response.status}): ${detail.slice(0, 500)}`);
   }
 };
+var isSilentPushPayload = (payload) => {
+  const show = payload.notification?.show;
+  if (show === "never" || show === false) return true;
+  const kind = payload.messageKind;
+  if (kind === "reasoning" || kind === "tool-request") return true;
+  return false;
+};
+var buildThirdPartyPushRequest = (parsed, subscription, rawPayload) => {
+  let payload = {};
+  try {
+    payload = JSON.parse(rawPayload);
+  } catch {
+    payload = { body: rawPayload };
+  }
+  if (isSilentPushPayload(payload)) {
+    return null;
+  }
+  const title = String(
+    payload.notification?.title ?? payload.title ?? payload.contactName ?? payload.metadata?.charName ?? "\u4E3B\u52A8\u6D88\u606F"
+  ).trim() || "\u4E3B\u52A8\u6D88\u606F";
+  const actualBody = String(
+    payload.notification?.body ?? payload.message ?? payload.body ?? ""
+  ).trim();
+  const body = actualBody || "\u6709\u4E00\u6761\u65B0\u6D88\u606F";
+  const charId = String(payload.charId ?? payload.metadata?.charId ?? "").trim() || void 0;
+  const rawAvatarUrl = String(
+    payload.avatarUrl ?? payload.notification?.icon ?? payload.metadata?.avatarUrl ?? ""
+  ).trim();
+  const avatarUrl = /^https?:\/\//i.test(rawAvatarUrl) ? rawAvatarUrl : void 0;
+  const clickUrl = buildThirdPartyClickUrl(
+    typeof subscription?.clickUrl === "string" ? subscription.clickUrl : void 0,
+    charId
+  );
+  if (parsed.provider === "wxpusher") {
+    const summary = `${title}\uFF1A${body}`.slice(0, 96);
+    const content = `${title}
+
+${body}`;
+    return {
+      url: WXPUSHER_SIMPLE_PUSH_URL,
+      body: {
+        spt: parsed.token,
+        summary,
+        content,
+        contentType: 1,
+        ...clickUrl ? { url: clickUrl } : {}
+      }
+    };
+  }
+  if (parsed.provider === "bark") {
+    return {
+      url: `${parsed.serverOrigin}/push`,
+      body: {
+        device_key: parsed.token,
+        title,
+        body,
+        group: charId ? `amsg-${charId}` : "sullyos",
+        ...avatarUrl ? { icon: avatarUrl } : {},
+        ...clickUrl ? { url: clickUrl } : {}
+      }
+    };
+  }
+  return {
+    url: `${parsed.serverOrigin}/${encodeURIComponent(parsed.token)}`,
+    body: {
+      title,
+      msg: body,
+      ...clickUrl ? { url: clickUrl } : {}
+    }
+  };
+};
+var sendThirdPartyNotification = async (parsed, subscription, rawPayload) => {
+  const req = buildThirdPartyPushRequest(parsed, subscription, rawPayload);
+  if (!req) {
+    return { skipped: true, reason: "silent-payload" };
+  }
+  const response = await fetch(req.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json; charset=utf-8"
+    },
+    body: JSON.stringify(req.body)
+  });
+  const text3 = await response.text().catch(() => "");
+  let json = null;
+  try {
+    json = text3 ? JSON.parse(text3) : null;
+  } catch {
+    json = null;
+  }
+  if (parsed.provider === "wxpusher") {
+    const code2 = typeof json?.code === "number" ? json.code : void 0;
+    const ok2 = response.ok && (code2 === void 0 || code2 === 1e3) && json?.success !== false;
+    if (!ok2) {
+      const msg = String(json?.msg || text3 || `HTTP ${response.status}`).slice(0, 300);
+      throw new Error(`WXPUSHER_SEND_FAILED (${code2 ?? response.status}): ${msg}`);
+    }
+    return { ok: true, provider: "wxpusher" };
+  }
+  if (parsed.provider === "bark") {
+    const code2 = typeof json?.code === "number" ? json.code : void 0;
+    const ok2 = response.ok && (code2 === void 0 || code2 === 200);
+    if (!ok2) {
+      const msg = String(json?.message || text3 || `HTTP ${response.status}`).slice(0, 300);
+      throw new Error(`BARK_SEND_FAILED (${code2 ?? response.status}): ${msg}`);
+    }
+    return { ok: true, provider: "bark" };
+  }
+  const ok = response.ok && json?.status !== 500 && json?.status !== 400;
+  if (!ok) {
+    const msg = String(json?.message || json?.msg || text3 || `HTTP ${response.status}`).slice(0, 300);
+    throw new Error(`MEOW_SEND_FAILED (${response.status}): ${msg}`);
+  }
+  return { ok: true, provider: "meow" };
+};
 var createHybridPushTransport = (env, webPush) => ({
   async sendNotification(subscription, payload) {
-    const token = fcmTokenFromEndpoint(subscription?.endpoint);
+    const endpoint = subscription?.endpoint;
+    const token = fcmTokenFromEndpoint(endpoint);
     if (token) return sendFcmNotification(env, token, payload);
     if (isPollEndpoint(subscription?.endpoint)) return { statusCode: 200, poll: true };
+    const thirdParty = parseThirdPartyPushEndpoint(typeof endpoint === "string" ? endpoint : null);
+    if (thirdParty) return sendThirdPartyNotification(thirdParty, subscription, payload);
     return webPush.sendNotification(subscription, payload);
   }
 });
@@ -26442,6 +27605,8 @@ var isFcmConfigured = (env) => Boolean(
 installAnthropicFetch(false);
 var getFireStash = (scratch) => scratch?.fire;
 var REPLY_IN_FLIGHT_DEFER_MS = 45e3;
+var AWAY_DUE_TOLERANCE_MS = 6e4;
+var AWAY_MAX_DEFER_MS = 24 * 60 * 6e4;
 var laterOf = (a, b) => a == null ? b : b == null ? a : Math.max(a, b);
 var buildToolCtx = (pack, config) => {
   const char = {
@@ -26683,6 +27848,7 @@ var sendInstantErrorPush = async (args) => {
   }
 };
 var amsgFireSettled = async (info) => {
+  if (await settleReproduction(info)) return;
   const stash = getFireStash(info.scratch);
   if (!stash) return;
   const cancelled = info.status === "cancelled";
@@ -26801,6 +27967,10 @@ var amsgStaleSkip = async (task, info) => {
       kind: taskKind,
       action: info.action
     });
+    const diagnosticRun = diagnosticRunId(meta);
+    if (diagnosticRun) {
+      await writeDiagnosticStage(info.writeState, diagnosticRun, "fire-settled", { status: "skipped", reason: info.reason, staleAction: info.action });
+    }
     return;
   }
   const charId = typeof meta.charId === "string" && meta.charId ? meta.charId : null;
@@ -26955,6 +28125,9 @@ var runFireScheduleTool = async (stash, scheduleTask, args, nowMs) => {
       ...stash.scheduledTaskInput ? { taskInput: stash.scheduledTaskInput } : {},
       recurrenceType: parsed.recurrence,
       messageType: parsed.mode,
+      // 不写的话上游会继承当前任务的 subtype：即时对话里排的后续会带上 'instant-chat'，
+      // 列表投影里就被 classifyTaskRow 当成即时对话——前端看不见、取消不了它。
+      messageSubtype: "chat",
       uuid,
       // 角色自排的循环任务也按角色所在时区的墙钟推进，跟用户在面板排的同一套。
       tzId: stash.tz.tzId,
@@ -27196,6 +28369,7 @@ var amsgHooks = {
     const taskMeta = ctx.task.metadata ?? {};
     const taskPolicy = typeof taskMeta.amsgExpirePolicy === "string" ? taskMeta.amsgExpirePolicy : void 0;
     const selfScheduled = taskMeta.amsgSelfScheduled === true;
+    const away = taskMeta[AMSG_AWAY_MESSAGE_META] === true;
     const recurring = ctx.task.recurrenceType === "daily" || ctx.task.recurrenceType === "weekly";
     const emotionEvalSpec = takeEmotionEvalSpec(ctx.task.metadata);
     const taskKind = readTaskKind(taskMeta);
@@ -27305,6 +28479,15 @@ var amsgHooks = {
         presenceLastUserMessageAt
       });
     }
+    if (!instant && away) {
+      const delayMs = Number(taskMeta[AMSG_AWAY_DELAY_META]) * 6e4;
+      const dueAt = lastUserMessageAt != null && delayMs > 0 ? lastUserMessageAt + delayMs : null;
+      const waitMs = dueAt == null ? 0 : dueAt - ctx.now.getTime();
+      if (waitMs > AWAY_DUE_TOLERANCE_MS) {
+        console.log("[amsg:defer]", { taskId: ctx.task.id, reason: "away-not-due", dueAt });
+        return { defer: { afterMs: Math.min(waitMs, AWAY_MAX_DEFER_MS) } };
+      }
+    }
     if (!instant && typeof taskMeta.amsgTaskInstruction !== "string") {
       throw fail3("\u4EFB\u52A1 metadata \u7F3A amsgTaskInstruction\uFF08\u65E7\u683C\u5F0F\u4EFB\u52A1\uFF09");
     }
@@ -27355,7 +28538,7 @@ var amsgHooks = {
       return { skip: true };
     }
     const maxUnansweredSends = limits.maxUnansweredSends;
-    if (!instant && selfScheduled && countUnansweredSends(selfLog) >= maxUnansweredSends) {
+    if (!instant && (selfScheduled || away) && countUnansweredSends(selfLog) >= maxUnansweredSends) {
       console.log("[amsg:unanswered-limit-skip]", {
         taskId: ctx.task.id,
         charId,
@@ -27409,7 +28592,7 @@ var amsgHooks = {
         const page = await ctx.listTasks({ status: "pending", limit: 100, offset, includeMetadata: true });
         for (const row of page.tasks) {
           const meta = row.metadata ?? {};
-          if ((row.charId ?? meta.charId) !== charId || row.status !== "pending" || !row.uuid || !row.nextSendAt || meta.amsgInstantChat === true || meta.amsgKind || row.messageSubtype === "instant-chat") continue;
+          if ((row.charId ?? meta.charId) !== charId || row.status !== "pending" || !row.uuid || !row.nextSendAt || classifyTaskRow(row) !== "scheduled") continue;
           const old = known.get(row.uuid);
           live.push({
             ...old,
@@ -27537,6 +28720,9 @@ var amsgHooks = {
       ...canSelfSchedule && mcpNative ? [buildFireScheduleTool({ nowMs: ctx.now.getTime(), tz, abilities, context: instant ? "chat" : "fire" })] : [],
       ...canManageTasks && mcpNative ? [buildFireCancelTool(), buildFireRenewTool({ nowMs: ctx.now.getTime(), tz })] : []
     ];
+    const replyScopeBlock = fireTools.length > 0 || mcpBlock || scheduleBlock ? `
+${buildReplyScopeRule(instant ? "user" : "scheduled")}
+` : "";
     stash.fireToolNames = new Set(fireTools.map((t) => t?.function?.name).filter((n) => typeof n === "string" && !n.startsWith(MCP_FIRE_NAME_PREFIX)));
     stash.allowedToolNames = /* @__PURE__ */ new Set([
       ...DATA_TOOL_NAMES,
@@ -27561,9 +28747,13 @@ var amsgHooks = {
           renderSelfLogBlock(selfLog, ctx.now.getTime(), tz, maxUnansweredSends),
           taskListBlock,
           mcpBlock,
-          scheduleBlock
+          scheduleBlock,
+          replyScopeBlock
         ]
       });
+      const chatMessages = pack.chat.messages;
+      const insertAt = pack.chat.timelyInsertAt;
+      const timelyAt = Number.isInteger(insertAt) && insertAt >= 1 && insertAt <= chatMessages.length ? insertAt : chatMessages.length;
       const instantMessages = [
         // content 原样透传，一个字都不动：带图片的消息本地就是结构化分段
         // （`[{type:'text'},{type:'image_url'}]`），上游把这个数组整个丢进
@@ -27571,8 +28761,9 @@ var amsgHooks = {
         // `messages: llmMessages`，不看 content 的类型）。这里但凡 String() 一下，
         // 模型收到的就是「[object Object]」而不是那张图。
         // 每条重新包一层对象只是不把 pack 上那份交出去，content 仍是同一个引用。
-        ...pack.chat.messages.map((m) => ({ role: m.role, content: m.content })),
-        ...timelyBlock ? [{ role: "system", content: timelyBlock }] : []
+        ...chatMessages.slice(0, timelyAt).map((m) => ({ role: m.role, content: m.content })),
+        ...timelyBlock ? [{ role: "system", content: timelyBlock }] : [],
+        ...chatMessages.slice(timelyAt).map((m) => ({ role: m.role, content: m.content }))
       ];
       if (userHoliday) {
         const profileMessage = instantMessages.find((m) => m.role === "system" && typeof m.content === "string" && m.content.includes("### \u4E92\u52A8\u5BF9\u8C61 (User)\n"));
@@ -27617,8 +28808,9 @@ ${userHoliday}` });
       lastUserMessageAt,
       // 「此刻在做什么」里的钟点跟今日节日同一个开关：关掉时间感知的角色不该从日程块
       // 读到「23:00」——那正是这个开关要挡的东西。日程内容本身照给。
-      includeClock: toolPack.timeAwarenessEnabled
-    }), userHoliday) + mcpBlock + scheduleBlock;
+      includeClock: toolPack.timeAwarenessEnabled,
+      mustSpeak: away
+    }), userHoliday) + mcpBlock + scheduleBlock + replyScopeBlock;
     return {
       messages: [{ role: "user", content: prompt }],
       ...common
@@ -27634,7 +28826,7 @@ ${userHoliday}` });
       }
       return handler.llmOutput({ ctx, state: kindFire.state });
     }
-    const content = stripReasoningTags2(ctx.llmOutputText || "").trim();
+    const content = stripReasoningTags(ctx.llmOutputText || "").trim();
     const taskId = ctx.taskId != null ? String(ctx.taskId) : null;
     if (taskId == null) {
       console.warn("[amsg:agentic] ctx \u4E0A\u6CA1\u6709 taskId\uFF0C\u9001\u8FBE\u5F52\u5C5E\u4F1A\u5931\u6548", ctx.sessionId);
@@ -27955,7 +29147,7 @@ ${FINAL_ROUND_NOTICE}`;
     return results;
   }
 };
-var resolveVapidEmail = (raw) => raw?.trim() || "mailto:noreply@sullyos.app";
+var resolveVapidEmail = (raw2) => raw2?.trim() || "mailto:noreply@sullyos.app";
 var buildWorkerConfig = (env) => {
   const vapid = {
     email: resolveVapidEmail(env.VAPID_EMAIL),
@@ -27963,8 +29155,13 @@ var buildWorkerConfig = (env) => {
     privateKey: env.VAPID_PRIVATE_KEY
   };
   const nativeFcmReady = isFcmConfigured(env);
-  const effectiveVapid = nativeFcmReady && (!vapid.publicKey?.trim() || !vapid.privateKey?.trim()) ? { email: vapid.email, publicKey: "native-fcm", privateKey: "native-fcm" } : vapid;
-  const webpush = createHybridPushTransport(env, createWebCryptoWebPush(effectiveVapid));
+  const hasRealVapid = Boolean(vapid.publicKey?.trim() && vapid.privateKey?.trim());
+  const effectiveVapid = hasRealVapid ? vapid : {
+    email: vapid.email,
+    publicKey: nativeFcmReady ? "native-fcm" : "third-party-push",
+    privateKey: nativeFcmReady ? "native-fcm" : "third-party-push"
+  };
+  const webpush = traceDiagnosticTransport(createHybridPushTransport(env, createWebCryptoWebPush(vapid)), env);
   configureInstantErrorPush(env.DB && env.AMSG_MASTER_KEY ? { webpush, db: env.DB, masterKey: env.AMSG_MASTER_KEY } : null);
   configureSkipDiagnostics({ rawExcerpt: isDebugFlagOn(env.AMSG_DEBUG_LLM_RAW) });
   return {
@@ -27982,7 +29179,7 @@ var buildWorkerConfig = (env) => {
     // 命名空间下超过天数没更新的条目清掉。角色状态那个命名空间（amsg:char:<id>，
     // 装 fire_pack / tool_pack）不配 TTL——那些是要长期留着的，配了就等于定时把
     // 角色的云端状态抹掉。判据是行本来就有的 updated_at 列，不加列、不动表结构。
-    clientStateTtl: { [INSTANT_INPUT_NAMESPACE]: INSTANT_INPUT_TTL_DAYS, [AMSG_JOB_NAMESPACE]: AMSG_JOB_TTL_DAYS },
+    clientStateTtl: { [INSTANT_INPUT_NAMESPACE]: INSTANT_INPUT_TTL_DAYS, [AMSG_JOB_NAMESPACE]: AMSG_JOB_TTL_DAYS, [DIAGNOSTIC_NAMESPACE]: DIAGNOSTIC_RETENTION_DAYS },
     cloudData: { resolveOwner: resolveSullyCloudOwnership },
     // 满血 fire-time hooks（onBeforeFire 现场填槽 + onLLMOutput 分类 +
     // executeToolCalls 服务端工具循环）；总超时用库默认 240s，轮数由 onBeforeFire 按
@@ -27991,7 +29188,7 @@ var buildWorkerConfig = (env) => {
     leaseHeartbeatMs: 1e3,
     // 用户主动触发的即时对话：生成失败本轮就结束，由用户决定是否重发。
     // 策略由上游在 onBeforeFire 前解析，读取上下文失败也覆盖；整批入箱后仍可补推原文。
-    maxGenerationRetries: (task) => isInstantChatTask(task.metadata) ? 0 : void 0,
+    maxGenerationRetries: (task) => isInstantChatTask(task.metadata) || readTaskKind(task.metadata) === "diagnostic" ? 0 : void 0,
     // 取消通过租约心跳通知执行中的 Worker；1 秒检测一次，TTL 仍由上游管理。
     // 收尾回执 + 过期跳过回执（config 级 hook）。
     // onFireSettled: 无论这次 fire 是发出去了、跳过了还是抛错了都会调一次，self_log
@@ -28267,6 +29464,8 @@ var src_default = {
           // 正常，而门牌永远不更新。报的是**这份代码有没有**，不是版本号：自更新永远由
           // 旧代码执行，版本号对上了不代表新逻辑真的在跑。
           backgroundJobs: true,
+          thirdPartyPush: true,
+          diagnosticReproduction: 1,
           workerVersion: AMSG_BUNDLE_VERSION,
           // 自动更新：有没有这个能力（配没配 CF_API_TOKEN，不回值）+ 最近一次检查的结果。
           // 读的是诊断表，D1 没绑上时读不到就是 null，不影响上面那些照常回答。
@@ -28426,6 +29625,77 @@ var src_default = {
         });
       }
       return handleInstantChat({ request, env, upstream, json: jsonWithCors });
+    }
+    if (pathname.endsWith("/test-push")) {
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+      if (method !== "POST") {
+        return jsonWithCors(405, {
+          success: false,
+          error: { code: "METHOD_NOT_ALLOWED", message: "/test-push \u53EA\u63A5\u53D7 POST" }
+        });
+      }
+      const token = env.AMSG_SERVER_TOKEN?.trim() ?? "";
+      const clientToken = request.headers.get("X-Client-Token") ?? "";
+      if (token && (!clientToken || !await constantTimeEqual2(clientToken, token))) {
+        return jsonWithCors(401, {
+          success: false,
+          error: { code: "INVALID_CLIENT_TOKEN", message: "\u5171\u4EAB\u5BC6\u94A5\u65E0\u6548\u6216\u7F3A\u5931" }
+        });
+      }
+      try {
+        const reqUserId = request.headers.get("X-User-Id")?.trim() || "";
+        const db = env.DB;
+        const row = reqUserId ? await db.prepare("SELECT user_id, subscription FROM push_subscriptions WHERE user_id = ? LIMIT 1").bind(reqUserId).first() : await db.prepare("SELECT user_id, subscription FROM push_subscriptions LIMIT 1").first();
+        const stored2 = row?.subscription;
+        const userId = row?.user_id;
+        if (typeof stored2 !== "string" || !stored2 || typeof userId !== "string" || !userId) {
+          return jsonWithCors(404, {
+            success: false,
+            error: { code: "SUBSCRIPTION_NOT_FOUND", message: "\u4E91\u7AEF\u8FD8\u6CA1\u6709\u767B\u8BB0\u63A8\u9001\u8BA2\u9605\uFF0C\u8BF7\u5148\u4FDD\u5B58\u6216\u767B\u8BB0\u63A8\u9001\u914D\u7F6E\u3002" }
+          });
+        }
+        let subscription;
+        try {
+          const userKey = await deriveUserEncryptionKey(userId, env.AMSG_MASTER_KEY.trim());
+          subscription = JSON.parse(await decryptFromStorage(stored2, userKey));
+        } catch {
+          subscription = JSON.parse(stored2);
+        }
+        const payload = {
+          messageKind: "test-push",
+          messageType: "instant",
+          messageId: `test_${Date.now()}`,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          contactName: "SullyOS \u63A8\u9001\u6D4B\u8BD5",
+          message: "\u5982\u679C\u4F60\u5728\u624B\u673A\u901A\u77E5\u680F\u770B\u5230\u8FD9\u6761\u6D88\u606F\uFF0C\u8BF4\u660E\u4E3B\u52A8\u6D88\u606F\u63A8\u9001\u901A\u9053\u5DF2\u7ECF\u63A5\u901A\uFF01",
+          notification: {
+            title: "SullyOS \u63A8\u9001\u6D4B\u8BD5",
+            body: "\u5982\u679C\u4F60\u5728\u624B\u673A\u901A\u77E5\u680F\u770B\u5230\u8FD9\u6761\u6D88\u606F\uFF0C\u8BF4\u660E\u4E3B\u52A8\u6D88\u606F\u63A8\u9001\u901A\u9053\u5DF2\u7ECF\u63A5\u901A\uFF01",
+            show: "always",
+            tag: "sullyos-test-push",
+            renotify: true
+          }
+        };
+        const cfg = buildWorkerConfig(env);
+        await cfg.webpush.sendNotification(subscription, JSON.stringify(payload));
+        return jsonWithCors(200, {
+          success: true,
+          data: { sent: true }
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return jsonWithCors(502, {
+          success: false,
+          error: { code: "TEST_PUSH_FAILED", message }
+        });
+      }
+    }
+    if (pathname.endsWith("/vapid-public-key") && (!env.VAPID_PUBLIC_KEY?.trim() || !env.VAPID_PRIVATE_KEY?.trim())) {
+      if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
+      return jsonWithCors(503, {
+        success: false,
+        error: { code: "VAPID_NOT_CONFIGURED", message: "Worker \u672A\u914D\u7F6E VAPID \u5BC6\u94A5\u5BF9\uFF0C\u6D4F\u89C8\u5668 Web Push \u4E0D\u53EF\u7528\uFF08\u53EF\u4F7F\u7528\u7B2C\u4E09\u65B9\u63A8\u9001 App\uFF09\u3002" }
+      });
     }
     return upstream.fetch(request, env);
   },

@@ -92,6 +92,8 @@ export interface ScheduleCardAppearance {
   accentColor?: string;
   /** 仅允许 .sully-schedule-* 作用域的进阶美化。 */
   customCss?: string;
+  /** 非原版配色时，桌面小组件仍用毛玻璃透出壁纸、沿用桌面字色，只保留配色里的强调色。 */
+  desktopGlass?: boolean;
 }
 
 export type JournalAppearancePresetId =
@@ -420,6 +422,18 @@ export interface ActiveMsg2GlobalConfig {
   /** 上次「连接」（在 worker 端建表）成功的时间 */
   initializedAt?: number;
   /**
+   * 推送投递方式：
+   * - 'web-push'（缺省）：浏览器/PWA 原生 Web Push（或 APK 原生通道）
+   * - 'third-party'：通过第三方推送 App（WxPusher / Bark / MeoW）转发，绕过老 iOS 无 Web Push 限制与 Google FCM 连通性问题
+   */
+  pushMode?: 'web-push' | 'third-party';
+  /** 第三方推送 App 配置（属于个人连接信息，随 BACKEND_CONNECTION_KEYS 在不含后端连接的备份中剥离） */
+  thirdPartyPush?: {
+    provider: 'wxpusher' | 'bark' | 'meow';
+    token: string;
+    serverUrl?: string;
+  };
+  /**
    * 即时对话：聊天的每一轮都交给云端跑（POST /instant-chat），回复走推送回来。
    * 只在设置页那一处开关（开关本身还有连接 / 通知权限 / worker 能力三道门），
    * 关掉就是现在的本地直连生成。
@@ -507,6 +521,8 @@ export interface ActiveMsg2TaskRecord {
   status: ActiveMsg2TaskStatus;
   createdAt: number;
   lastError?: string;
+  /** 「离开后消息」的云端任务：每个角色最多一条，对方开口后往后推，见 docs/away-message.md。 */
+  away?: boolean;
 }
 
 export interface ActiveMsg2CharacterConfig {
@@ -2407,6 +2423,7 @@ export interface StoryTheaterEntry {
     archiveAfter: number;
     /** 归档时至少留在会话里的最近楼层数；旧数据默认 5。 */
     archiveKeepRecent?: number;
+    archiveMode?: 'auto' | 'manual';
     archiveStrategy: StoryTheaterArchiveStrategy;
     archives: StoryTheaterArchive[];
     /** 从演员挂载世界书去重得到；只影响本剧情，不改外部挂载。 */
@@ -3139,6 +3156,7 @@ export interface MemoryPalaceWaterlineConfig {
 }
 
 export interface CharacterProfile {
+  userPersona?: import('./utils/userPersona').CharacterUserPersona;
   /** Local default for this character's dialogue; absent means follow Settings. Never shared in cards. */
   dialogueApi?: DialogueApiConfig;
   id: string;
@@ -3597,6 +3615,11 @@ export interface CharacterProfile {
 
   // 情绪Buff系统
   activeMsg2Config?: ActiveMsg2CharacterConfig;
+  /**
+   * 离开后消息：对方多久没说话，角色就来找对方（见 docs/away-message.md）。
+   * 开着主动消息 2.0 的角色走云端推送，其余在下次打开页面时本地补上。
+   */
+  awayMessage?: { enabled: boolean; delayMinutes?: number };
   activeBuffs?: CharacterBuff[];
   buffInjection?: string;   // 注入到systemPrompt的叙事型情绪底色描述
   emotionConfig?: {
@@ -3745,7 +3768,6 @@ export interface CharacterProfile {
 
   /**
    * 虚拟世界「彼方」的个人状态：是否自主登入、登入间隔、各本小说的独立书签等。
-   * 独立于 proactiveConfig（主动发消息），互不挤占触发。
    */
   vrState?: VRWorldCharState;
 }

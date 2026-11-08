@@ -13,6 +13,7 @@ import { stripFishCuesForDisplay } from '../../utils/fishAudioTts';
 import { formatStatCount } from '../../utils/videoParser';
 import { trackEvent } from '../../utils/analytics';
 import { resolveBubbleCornerRadii, shouldHideBubbleTail } from '../../utils/bubbleAppearance';
+import { isReducedBlurActive } from '../../utils/blurPolicy';
 import { isImageValue, useBlobRefUrl } from '../../utils/blobRef';
 import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcessing';
 import { stripLeakedSourceTags } from '../../utils/sanitize';
@@ -2101,7 +2102,7 @@ const MessageItem = React.memo(({
                 )}
                 <div className="text-[10px] text-slate-400 mb-1 opacity-70">{formatTime(m.timestamp)}</div>
                 <div className="group relative cursor-pointer active:scale-95 transition-transform" {...interactionProps}>
-                        <div className="text-[11px] text-slate-500 bg-slate-200/50 backdrop-blur-sm px-4 py-1.5 rounded-full flex items-center gap-1.5 border border-white/40 shadow-sm select-none">
+                        <div className="text-[11px] text-slate-500 bg-white/60 px-4 py-1.5 rounded-full flex items-center gap-1.5 border border-slate-200/70 shadow-sm select-none">
                         <img src="https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72/1f449.png" alt="poke" className="w-4 h-4 group-hover:animate-bounce" />
                         <span className="font-medium opacity-80">{isUser ? '你' : charName}</span>
                         <span className="opacity-60">戳了戳</span>
@@ -2201,7 +2202,7 @@ const MessageItem = React.memo(({
                         className={`absolute -right-10 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full flex items-center justify-center pointer-events-none transition-all duration-150 ${isReplyReady ? 'bg-indigo-500 text-white shadow-md shadow-indigo-200' : 'bg-white/90 text-slate-400 shadow-sm'}`}
                         style={{
                             opacity: Math.min(1, Math.abs(replyOffset) / 36),
-                            transform: `translateY(-50%) scale(${isReplyReady ? 1 : 0.86})`,
+                            transform: replyOffset !== 0 ? `translateY(-50%) scale(${isReplyReady ? 1 : 0.86})` : undefined,
                         }}
                     >
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
@@ -2212,7 +2213,7 @@ const MessageItem = React.memo(({
                     <div
                         className={`relative flex flex-col ${isModuleCard && centerModules ? 'items-center' : (isUser ? 'items-end' : 'items-start')} min-w-0`}
                         style={{
-                            transform: `translateX(${replyOffset}px)`,
+                            transform: replyOffset !== 0 ? `translateX(${replyOffset}px)` : undefined,
                             transition: isReplyGestureActive ? 'none' : 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)',
                             touchAction: 'pan-y',
                             userSelect: 'none',
@@ -3718,7 +3719,13 @@ const MessageItem = React.memo(({
         ...(bubbleVariant === 'shadow' ? { boxShadow: '0 4px 12px rgba(0,0,0,0.12)' } : {}),
         ...(bubbleVariant === 'flat' ? { boxShadow: 'none' } : {}),
         ...(bubbleVariant === 'wechat' ? { boxShadow: 'none', border: '1px solid rgba(15,23,42,0.05)' } : {}),
-        ...(bubbleVariant === 'ios' ? { boxShadow: '0 10px 24px rgba(148,163,184,0.16)', border: '1px solid rgba(255,255,255,0.75)', backdropFilter: 'blur(12px)' } : {}),
+        ...(bubbleVariant === 'ios'
+            ? {
+                  boxShadow: '0 10px 24px rgba(148,163,184,0.16)',
+                  border: '1px solid rgba(255,255,255,0.75)',
+                  ...(isReducedBlurActive() ? {} : { backdropFilter: 'blur(12px)' }),
+              }
+            : {}),
     };
 
     // --- Inline formatting parser: code → bold → italic → plain ---
@@ -3849,7 +3856,8 @@ const MessageItem = React.memo(({
 
     // 语音文字（转文字面板 / 语音条预览）显示前：先洗 MiniMax 标记，再洗鱼声情绪 cue，
     // 两家服务商的演出标记都不会漏给用户看。
-    const cleanVoiceText = (t?: string | null) => stripFishCuesForDisplay(cleanVoiceMarkupForDisplay(t ?? ''));
+    // 旧数据里口播文本可能混着整块字幕（字幕曾写进语音标签里），字幕另有一行显示，这里剥掉。
+    const cleanVoiceText = (t?: string | null) => stripFishCuesForDisplay(cleanVoiceMarkupForDisplay((t ?? '').replace(/<字幕>[\s\S]*?<\/字幕>/g, '')));
 
     // 引用快照原样存着 %%BILINGUAL%% 等原始标记（双语消息），预览前先清洗。
     // 历史快照里还可能原样躺着图片令牌 / data: / 图床 URL（用户侧引用图片消息时曾直接落库），

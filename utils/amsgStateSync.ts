@@ -43,7 +43,9 @@ import {
   type LlmCredentialRow,
 } from './amsgLlmCredentials';
 import { trackEvent } from './analytics';
+import { AMSG_OWNER_CONFLICT_EVENT } from './amsgOwnerReconcile';
 import { DB } from './db';
+import { allSpaceCharacters } from './userSpaceCloudSettings';
 
 /** 失败重试的退避起点，逐次翻倍（30s → 60s → 120s）。 */
 const RETRY_BASE_MS = 30_000;
@@ -588,8 +590,8 @@ export const buildCredentialRowsToResync = async (
     .map(parseCharCredId)
     .filter((parsed): parsed is { charId: string; purpose: 'chat' | 'emotion' } =>
       !!parsed && (parsed.purpose === 'chat' || parsed.purpose === 'emotion'));
-  const all = characters ?? await DB.getAllCharacters();
-  // 备份恢复 / 换设备时可能没有本地凭据底账，仍为启用的角色补一份 chat 行。
+  const all = characters ?? await allSpaceCharacters();
+  // 备份恢复 / 换设备时可能没有本地凭据底账，仍为启用的角色补 chat 行，并覆盖云端旧副 API。
   for (const char of all) {
     if (char.activeMsg2Config?.enabled && !wanted.some((item) => item.charId === char.id && item.purpose === 'chat')) {
       wanted.push({ charId: char.id, purpose: 'chat' });
@@ -608,6 +610,38 @@ export const buildCredentialRowsToResync = async (
   return rows;
 };
 
+const isOwnerRetired = (error: unknown): boolean =>
+  (error as { code?: unknown } | null)?.code === 'CLOUD_OWNER_RETIRED';
+
+/**
+ * 上传凭据行。服务端整批放在一个事务里写，只要一个角色在云端已停用（或停用后在别处恢复、
+ * 本机代次对不上），整批都会被拒；这时按角色拆开重传，让其余角色的新凭据照常落地。
+ * 返回被拒的角色 ID。
+ */
+export const putCredentialRowsSkippingRetired = async (rows: LlmCredentialRow[]): Promise<string[]> => {
+  try {
+    await ActiveMsgClient.putLlmCredentials(rows);
+    return [];
+  } catch (error) {
+    if (!isOwnerRetired(error)) throw error;
+  }
+  const byChar = new Map<string, LlmCredentialRow[]>();
+  for (const row of rows) {
+    const charId = parseCharCredId(row.credId)?.charId ?? row.credId;
+    byChar.set(charId, [...(byChar.get(charId) ?? []), row]);
+  }
+  const retired: string[] = [];
+  for (const [charId, group] of byChar) {
+    try {
+      await ActiveMsgClient.putLlmCredentials(group);
+    } catch (error) {
+      if (!isOwnerRetired(error)) throw error;
+      retired.push(charId);
+    }
+  }
+  return retired;
+};
+
 const runLlmCredentialSync = async (reason: string): Promise<void> => {
   if (!hasPendingCredSync || credSyncing) return;
   credSyncing = true;
@@ -623,8 +657,16 @@ const runLlmCredentialSync = async (reason: string): Promise<void> => {
       return;
     }
     if (await isLlmCredentialsReady()) {
-      const rows = await buildCredentialRowsToResync(snapshot);
-      if (pickChangedCredRows(rows).length > 0) await ActiveMsgClient.putLlmCredentials(rows);
+      const characters = await allSpaceCharacters();
+      const rows = await buildCredentialRowsToResync(snapshot, characters);
+      const retired = pickChangedCredRows(rows).length > 0 ? await putCredentialRowsSkippingRetired(rows) : [];
+      if (retired.length > 0) {
+        // 重试也过不去，不留欠账；点名告诉用户是哪个角色、怎么处理。
+        const names = retired.map((id) => `${characters.find((char) => char.id === id)?.name ?? '未知角色'}（${id}）`).join('、');
+        console.warn(`${HEADER} 这些角色在云端已停用，凭据没有更新：${names}。其余角色已正常更新。`);
+        // 让对账弹窗出来问用户：继续使用还是删除本机。
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event(AMSG_OWNER_CONFLICT_EVENT));
+      }
     }
     // 老 Worker 的内联任务也要迁移；新 Worker 的引用任务只更新引用，不塞内联字段。
     const refresh = await ActiveMsgClient.refreshApiCredentialsForPendingTasks(snapshot);

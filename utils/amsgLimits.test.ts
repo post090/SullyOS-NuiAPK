@@ -134,6 +134,17 @@ describe('checkSelfScheduleRules', () => {
     }
   });
 
+  it('间隔设成 0 也不能在已排任务 2 分钟以内（含）再排一条', () => {
+    const limits = resolveAmsgLimits({ minSendGapMinutes: 0 });
+    for (const offset of [0, 1, 2, -2]) {
+      const out = checkSelfScheduleRules({ ...base, limits, busy: [(60 + offset) * MIN] });
+      expect(out).toMatchObject({ ok: false, reason: 'min_gap' });
+      if (!out.ok) expect(out.message).not.toContain('用户定了');
+    }
+    expect(checkSelfScheduleRules({ ...base, limits, busy: [57 * MIN] }).ok).toBe(true);
+    expect(checkSelfScheduleRules({ ...base, limits, busy: [63 * MIN] }).ok).toBe(true);
+  });
+
   it('到点必发没放开 → 不打回，按普通的排；放开了原样', () => {
     const locked = checkSelfScheduleRules({ ...base, limits: resolveAmsgLimits(undefined), expirePolicy: 'force' });
     expect(locked).toEqual({ ok: true, expirePolicy: 'expire' });
@@ -145,7 +156,7 @@ describe('checkSelfScheduleRules', () => {
 });
 
 describe('buildLimitsBrief', () => {
-  it('把额度说成事实：还能排几条、最早几点、今天还剩几条', () => {
+  it('把额度说成「已用/上限」：连发、最早几点、今天、任务名额', () => {
     const text = buildLimitsBrief({
       limits: resolveAmsgLimits({ dailySendCap: 5 }),
       committedSends: 1,
@@ -153,16 +164,18 @@ describe('buildLimitsBrief', () => {
       earliestText: '21:40',
       dailyRemaining: 3,
     });
-    expect(text).toContain('现在还能再排 2 次');
+    expect(text).toContain('已用 1/3 次');
+    expect(text).not.toContain('还能再排');
     expect(text).toContain('最早排到 21:40');
-    expect(text).toContain('今天还能再主动找对方 3 次');
-    expect(text).toContain('现在挂着 2 个');
+    expect(text).toContain('今天的主动联系：已用 2/5 次。');
+    expect(text).toContain('挂着 2/5 个');
     expect(text).toContain('只能排一次性的');
   });
 
   it('额度用完了直说；不限的项不出现', () => {
     const full = buildLimitsBrief({ limits: resolveAmsgLimits(undefined), committedSends: 3, activeTasks: 0 });
-    expect(full).toContain('一次都不能再排了');
+    expect(full).toContain('已用 3/3 次');
+    expect(full).toContain('已满，等对方回复后才能再排');
     const loose = buildLimitsBrief({
       limits: resolveAmsgLimits({ maxUnansweredSends: 0, minSendGapMinutes: 0, allowSelfRecurring: true, allowSelfForce: true }),
       committedSends: 9,

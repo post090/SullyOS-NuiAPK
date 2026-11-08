@@ -1,3 +1,4 @@
+import { resolveCharacterUser } from './userPersona';
 import {getDailyScheduleForChar} from './dailySchedule';
 import {getLastInnerState} from './emotionState';
 import { readableContextMemories } from './contextMemories';
@@ -32,11 +33,23 @@ import { buildSARModulePrompt } from './vrWorld/sarModuleRuntime';
  * 负责统一构建所有 App 共用的基础角色上下文 (System Prompt)。
  * 包含：身份设定、用户画像、世界观、核心记忆、详细记忆、以及角色内心看法。
  */
+/** 跳过时间感知时，抹掉已持久化或刚拼好的记忆宫殿注入文本里的现实日期与相对天数标注。 */
+const stripMemoryPalaceDateStamps = (text: string): string => text
+    .replace(/\(\d{4}年\d{1,2}月\d{1,2}日[^,\n)]*,\s*(重要性(?:\s+|[:：]))/g, '($1')
+    .replace(/^(\s*-\s*)\[\d{4}年\d{1,2}月\d{1,2}日[^\]]*\]\s*/gm, '$1')
+    .replace(/（对应日期：[^）]+）/g, '')
+    .replace(/（剩余 \d+ 天）/g, '');
+
 export interface EmotionContextOptions { surface?: 'chat' | 'home'; innerState?: string }
 export const ContextBuilder = {
     /** 所有入口共用：只读取现有日程，不触发生成；按角色当地日期读取。 */
-    buildCurrentScheduleContext: async (char: CharacterProfile, allowScheduleChange = false, snapshot?: Promise<DailySchedule | null>): Promise<string> => {
-        if (!isScheduleFeatureOn(char)) return '';
+    buildCurrentScheduleContext: async (
+        char: CharacterProfile,
+        allowScheduleChange = false,
+        snapshot?: Promise<DailySchedule | null>,
+        options?: { skipTimeAwareness?: boolean },
+    ): Promise<string> => {
+        if (options?.skipTimeAwareness || !isScheduleFeatureOn(char)) return '';
         const schedule = await (snapshot ?? getDailyScheduleForChar(char));
         if (!schedule) return '';
         return buildScheduleInjectionText(schedule, undefined, nowInTimeZone(resolveCharTimeZone(char)), {
@@ -577,6 +590,7 @@ const renderCoreContext = async (
             emotion?: EmotionContextOptions;
         },
     ): Promise<string> => {
+        user = resolveCharacterUser(user, char);
         let context = formatWorldbookSection(worldbookSections.beforeCharacter, '世界书 · 角色设定前');
         context += `${groupOptions?.headerOverride ?? '[System: Roleplay Configuration]'}\n\n`;
 
@@ -635,6 +649,9 @@ const renderCoreContext = async (
         context += buildHomeDefinitionContext(char.homeDefinition, user.name);
         context += buildHomePetContext(char.home3D);
 
+        if (groupOptions?.skipUserProfile && char.userPersona) {
+            context += `### 我所认识的同一个用户\n称呼：${user.name}\n${user.bio}\n\n`;
+        }
         // 4. [NEW] 印象档案 (Private Impression)
         // 这是角色对用户的私密看法，只有角色知道
         const imp = normalizeUserImpression(char.impression);
@@ -671,14 +688,18 @@ const renderCoreContext = async (
         if (readableMemories.monthly.length) {
             memoryContent += '**长期核心记忆 (Key Memories)**:\n';
             readableMemories.monthly.forEach(({ date, summary }) => {
-                memoryContent += `- [${date}]: ${summary}\n`;
+                memoryContent += timeOptions?.skipTimeAwareness ? `- ${summary}\n` : `- [${date}]: ${summary}\n`;
             });
         }
         let details = '';
         readableMemories.daily.forEach(({ month, entries }) => {
             if (entries.length) {
-                details += `\n> 详细回忆 [${month}]:\n`;
-                entries.forEach(m => { details += `  - ${m.date} (${m.mood || 'rec'}): ${m.summary}\n`; });
+                details += timeOptions?.skipTimeAwareness ? `\n> 详细回忆:\n` : `\n> 详细回忆 [${month}]:\n`;
+                entries.forEach(m => {
+                    details += timeOptions?.skipTimeAwareness
+                        ? `  - (${m.mood || 'rec'}): ${m.summary}\n`
+                        : `  - ${m.date} (${m.mood || 'rec'}): ${m.summary}\n`;
+                });
             }
         });
         if (details) memoryContent += `\n**当前激活的详细回忆 (Active Recall)**:${details}`;
@@ -696,7 +717,10 @@ const renderCoreContext = async (
         // 表现为"宫殿已关、后台无召回，角色却还在精准复述记忆"。与下方 Buff 注入同理。
         // deferVolatile：召回结果每轮都变 → 移交 buildVolatileCoreState。
         if (!layout?.deferVolatile && char.memoryPalaceEnabled) {
-            const mpContext = char.memoryPalaceInjection || memoryPalaceContext;
+            const rawMpContext = char.memoryPalaceInjection || memoryPalaceContext;
+            const mpContext = rawMpContext && timeOptions?.skipTimeAwareness
+                ? stripMemoryPalaceDateStamps(rawMpContext)
+                : rawMpContext;
             if (mpContext && mpContext.trim()) {
                 context += `${mpContext}\n\n`;
             }
@@ -745,7 +769,7 @@ const renderCoreContext = async (
             console.log(`✅ [Context] All fields present | context_chars=${context.length}`);
         }
 
-        if (!layout?.deferVolatile) context += await ContextBuilder.buildCurrentScheduleContext(char);
+        if (!layout?.deferVolatile) context += await ContextBuilder.buildCurrentScheduleContext(char, false, undefined, timeOptions);
         return context;
     };
 
@@ -766,7 +790,8 @@ export interface CharacterContextInput {
 }
 
 async function resolveCharacterContext(input: CharacterContextInput) {
-    const { char, user, history, groupOptions, timeOptions } = input;
+    const { char, history, groupOptions, timeOptions } = input;
+    const user = resolveCharacterUser(input.user, char);
     const entries = resolveWorldbookEntries(
         (char.mountedWorldbooks || []).filter(book => !groupOptions?.skipWorldbookIds?.has(book.id)),
         history ?? timeOptions?.worldbookMessages ?? [], char.name, user.name,

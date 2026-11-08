@@ -347,12 +347,6 @@ describe('当前功能启用 · 开关值的判定', () => {
         }));
         expect(flags['单独关了即时对话的角色数']).toBe('1');
     });
-
-    it('不上报已经全局下线的主动消息 Push 加速', () => {
-        // 那一层 FORCE_DISABLED 恒为关，报出来会被误读成「没人用」。
-        localStorage.setItem('proactive_push_enabled_v1', 'true');
-        expect(collectFeatureFlags(poisonedSources())).not.toHaveProperty('主动消息Push加速');
-    });
 });
 
 describe('当前外观 · 不泄漏用户自己捏的东西', () => {
@@ -406,6 +400,15 @@ describe('当前角色设置 · 不泄漏角色内容', () => {
             'c1',
         );
         expect(flags.记忆宫殿).toBe('有人开');
+    });
+
+    it('离开后消息只要一个角色开了就算', () => {
+        expect(collectCharSettings([poisonedChar()], 'c1').离开后消息).toBe('都没开');
+        const flags = collectCharSettings(
+            [poisonedChar(), poisonedChar({ awayMessage: { enabled: true, delayMinutes: 90 } })],
+            'c1',
+        );
+        expect(flags.离开后消息).toBe('有人开');
     });
 
     it('默认开的开关问「有没有人特意关掉」——否则答案永远是「有」', () => {

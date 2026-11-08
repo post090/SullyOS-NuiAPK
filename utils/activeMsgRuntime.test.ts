@@ -365,6 +365,15 @@ describe('shouldRenderInstantly（这条要不要跳过打字慢放）', () => {
  * 要看的东西全顶出缓冲区。
  */
 describe('本地收件箱守望', () => {
+  it('多用户时为其他空间保留本地收件，不误认领', async () => {
+    await ActiveMsgStore.consumeInboxMessages();
+    localStorage.setItem('sully_user_spaces_v1', JSON.stringify([{ id: 'default', name: '甲' }, { id: 'u_other', name: '乙' }]));
+    try {
+      await ActiveMsgStore.saveInboxMessage({ messageId: 'other-space-inbox', charId: 'only-in-other-space', charName: '乙的角色', body: '保留给乙', messageType: 'text', receivedAt: Date.now(), sentAt: Date.now() } as any);
+      await sweepLocalInbox();
+      expect((await ActiveMsgStore.consumeInboxMessages()).map(row => row.messageId)).toEqual(['other-space-inbox']);
+    } finally { localStorage.removeItem('sully_user_spaces_v1'); await ActiveMsgStore.consumeInboxMessages(); }
+  });
   it('库里没货：不动收件箱，也不留下冲刷记录', async () => {
     await ActiveMsgStore.consumeInboxMessages();  // 先清干净
     const before = readAllInstantTraces().length;
@@ -3124,5 +3133,27 @@ describe('停止的instant回程', () => {
     await flushInboxToChat('轮询补收');
     expect(await DB.getRecentMessagesByCharId(charId, 20)).toEqual([]);
     expect((await ActiveMsgStore.consumeInboxMessages()).filter(m => m.taskUuid === 'stopped-inbox-task')).toEqual([]);
+  });
+});
+
+describe('诊断消息隔离（真收件箱）', () => {
+  it('补收带来的诊断消息不写聊天、不触发角色事件，成功保存后可销账', async () => {
+    const { saveDiagnosticRun, listDiagnosticRuns } = await import('./amsgReproductionStore');
+    const runId = '44444444-4444-4444-8444-444444444444';
+    await saveDiagnosticRun({ runId, createdAt: Date.now(), dueAt: Date.now(), api: { host: 'test', model: 'cheap' }, status: 'scheduled' });
+    const save = vi.spyOn(DB, 'saveMessage');
+    const events: Event[] = [];
+    const oldWindow = globalThis.window;
+    (globalThis as any).window = { dispatchEvent: (event: Event) => { events.push(event); return true; } };
+    const ack = vi.spyOn(ActiveMsgClient, 'ackOutboxMessages').mockResolvedValue(undefined as any);
+    try {
+      await ActiveMsgStore.consumeInboxMessages();
+      await ActiveMsgStore.saveInboxMessage({ messageId: 'diagnostic-m1', charId: 'amsg-diagnostic', charName: '复现', body: '测试消息 [[ACTION:POKE]]', receivedAt: Date.now(), metadata: { amsgDiagnosticRunId: runId, amsgOutboxBackfill: true, amsgEmotionUpdate: '不应执行' } });
+      expect(await flushInboxToChat('上线补收')).toEqual([]);
+      expect(save).not.toHaveBeenCalled();
+      expect(events.some(e => e.type === 'active-msg-received')).toBe(false);
+      expect((await listDiagnosticRuns()).find(r => r.runId === runId)?.messages?.[0].text).toContain('测试消息');
+      expect(ack).toHaveBeenCalledWith(['diagnostic-m1']);
+    } finally { (globalThis as any).window = oldWindow; save.mockRestore(); ack.mockRestore(); }
   });
 });

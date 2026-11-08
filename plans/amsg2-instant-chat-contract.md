@@ -63,7 +63,7 @@
      `credentialsSynced:true`。之前落下但没有任务引用的输入由 TTL 清理。
   5. 唤醒按租户分组的 `InstantTickDO`，alarm 点名执行已落库的 uuid；每分钟 cron 继续兜底。
 
-  独立输入保留 30 天，按角色归属参与云端清理。大值继续走 client_state 的 5 MiB 分块能力，
+  独立输入保留 7 天，按角色归属参与云端清理。大值继续走 client_state 的 5 MiB 分块能力，
   不受任务行约 996 KB 明文容量限制，现有 `chat.messages` 2 MiB 预算保持不变。
   Worker 使用 `readState(namespace,{key})` 定点读取，不能扫描同命名空间下的全部历史输入。
 - `export default` 的 `fetch` / `scheduled` 签名补上第三个参数 `ctx`
@@ -96,6 +96,9 @@
     // 最新一条用户消息的图片永不降级，仍超预算则整轮明确报错。
     messages: { role: string; content: string | Array<{ type: string; [key: string]: unknown }> }[];
     builtAt: number;
+    // 本地「实时状态」段在 messages 里的下标。worker 时效块插在它前面，
+    // 缺省或越界（< 1 / > messages.length）时追加到末尾。
+    timelyInsertAt?: number;
   }
   ```
 
@@ -104,7 +107,7 @@
 - `onBeforeFire`（`index.ts:791`）新增 instant 分支：`metadata.amsgInstantChat`
   为真时——
   - 用 `pack.chat.messages` 组请求消息（不走 `renderFirePack` 模板渲染），
-    在末尾追加 system 块注入时效内容：当前时间（沿用角色时区约定）、
+    在 `timelyInsertAt` 处（缺省为末尾）插入 system 块注入时效内容：当前时间（沿用角色时区约定）、
     实时世界块（`buildRealtimeWorldBlock`）。
   - **跳过**：presence gate、expire guard（`shouldExpireFire`）、
     task-instruction 检查——这些是「主动消息到点还该不该发」的语义，对

@@ -1021,6 +1021,19 @@ describe('推送丢了的补收（服务端账本）', () => {
     vi.spyOn(ActiveMsgClient, 'listOutboxEntries').mockResolvedValue(entries as any);
   };
 
+  it('keeps another users reply in the global inbox without reading this users history or acknowledging it', async () => {
+    localStorage.setItem('sully_user_spaces_v1', JSON.stringify([{ id: 'default', name: 'A' }, { id: 'u_other', name: 'B' }]));
+    vi.spyOn(DB, 'getAllCharacters').mockResolvedValue([CHAR] as any);
+    const history = vi.spyOn(DB, 'findPersistedActiveMessageIds');
+    const push = outboxPush('other-space-reply', { metadata: { charId: 'other-char' } });
+    stubOutbox([entry('other-space-reply', push)]);
+    const result = await drainOutbox();
+    expect(history).not.toHaveBeenCalled();
+    expect(result.written).toBe(1); expect(result.ackNow).toEqual([]);
+    expect(storeState.saved[0].charId).toBe('other-char');
+    localStorage.removeItem('sully_user_spaces_v1');
+  });
+
   // 有旧接管标记时也走同一条补收和去重链。
   beforeEach(() => {
     localStorage.setItem(AMSG_OUTBOX_ADOPTED_LS_KEY, JSON.stringify({ at: Date.now() }));
@@ -1395,4 +1408,27 @@ it('停止待收轮立即解除占位；云端取消失败也只保留已显示�
     expect((await DB.getMessagesByCharId(charId)).map(message => message.content)).toEqual(['已经显示']);
     expect(write).toHaveBeenCalledWith(`amsg:char:${charId}`, `chat_stop:${uuid}`, JSON.stringify({ text: '已经显示' }));
   } finally { cancel.mockRestore(); write.mockRestore(); }
+});
+
+describe('AI 复现排程', () => {
+  it('使用本次 API 的加密任务、不登记或修复推送订阅，并保留延迟时间', async () => {
+    const runId = '55555555-5555-4555-8555-555555555555';
+    const calls: Array<{ url: string; init: RequestInit }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ success: true, data: url.endsWith('/config-check') ? { diagnosticReproduction: 1 } : { uuid: runId } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }));
+    const before = Date.now();
+    const result = await ActiveMsgClient.scheduleReproduction(runId, { ...API, apiKey: 'cheap-only', model: 'cheap-model' }, 120);
+    const request = calls.find(c => c.url.endsWith('/schedule-message'))!;
+    const task = JSON.parse(JSON.parse(String(request.init.body)).encryptedData);
+    expect(task).toMatchObject({ uuid: runId, apiKey: 'cheap-only', primaryModel: 'cheap-model', apiUrl: 'https://api.example.com/v1/chat/completions' });
+    expect(result.dueAt).toBeGreaterThanOrEqual(before + 120000);
+    expect(calls.some(c => /push-subscription|llm-credentials/.test(c.url))).toBe(false);
+  });
+  it('旧 Worker 不认识诊断协议时不创建任务、不烧模型额度', async () => {
+    const calls = mockInstantChatFetch(200, { success: true, data: { backgroundJobs: true } });
+    await expect(ActiveMsgClient.scheduleReproduction('55555555-5555-4555-8555-555555555555', API, 60)).rejects.toThrow('更新');
+    expect(calls.some(c => c.url.endsWith('/schedule-message'))).toBe(false);
+  });
 });

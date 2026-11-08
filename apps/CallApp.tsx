@@ -1,3 +1,4 @@
+import { resolveCharacterUser } from '../utils/userPersona';
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
 import { canAnalyzeVoiceSource, isVoiceAudioPriming, primeVoiceAudio, voicePlaybackErrorMessage } from '../utils/voicePlayback';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -532,7 +533,7 @@ ${currentVoiceActingGuide()}
   return [coreContext, timeContext, callPrompt, voiceLangPrompt].filter(Boolean).join('\n\n');
 };
 const CallApp: React.FC = () => {
-  const { closeApp, openApp, characters, activeCharacterId, addToast, logSystemError, apiConfig, updateApiConfig, userProfile, customThemes, suspendCall, suspendedCall, clearSuspendedCall, updateCharacter, characterGroups, groups, realtimeConfig, callAutoStart, consumeCallAutoStart, memoryPalaceConfig } = useOS();
+  const { closeApp, openApp, characters, activeCharacterId, addToast, logSystemError, apiConfig, updateApiConfig, userProfile: baseUserProfile, customThemes, suspendCall, suspendedCall, clearSuspendedCall, updateCharacter, characterGroups, groups, realtimeConfig, callAutoStart, consumeCallAutoStart, memoryPalaceConfig } = useOS();
 
   const [viewMode, setViewMode] = useState<ViewMode>('role-select');
   // 进正式通话（in-call）：把正在放的音乐淡出暂停；离开通话（挂断/返回）时之前在放就淡入恢复。
@@ -951,6 +952,7 @@ const CallApp: React.FC = () => {
   // VRM 模型的自定义表情名（加载时由画布回传），喂给基础版主模型或高质量导演。
   const vrmExpressionsRef = useRef<string[]>([]);
   const selectedChar = useMemo(() => characters.find(c => c.id === selectedCharId) || null, [characters, selectedCharId]);
+  const userProfile = useMemo(() => selectedChar ? resolveCharacterUser(baseUserProfile, selectedChar) : baseUserProfile, [baseUserProfile, selectedChar]);
   const selectedVisualSource = companionAvatarSource(selectedChar);
   const selectedDateOutfits = useMemo(() => listCompanionDateOutfits(selectedChar), [selectedChar]);
   const selectedDateOutfitId = normalizeCompanionSkinSetId(selectedChar?.companionAvatar?.skinSetId);

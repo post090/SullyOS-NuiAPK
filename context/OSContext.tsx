@@ -1,14 +1,15 @@
+import { mergePhoneGeneration, PHONE_GENERATION_COMMITTED, type PhoneGeneration } from '../utils/phoneGeneration';
+import { SESSION_SPACE_ID, DEFAULT_SPACE_ID, listUserSpaces, selectUserSpace } from '../utils/userSpaces';
 import { handleLocalBack } from '../utils/localBackHandlers';
+import { updateVirtualTimeIfChanged } from '../utils/blurPolicy';
 import {isHomeAssetDisposal,isHomeLeaveCancellation} from '../utils/homeAssetCancellation';
 import { processHomeMemoryAfterSave } from '../utils/homeMemoryPostHook';
 import { homeSharedRecipients } from '../utils/homeSharedEvents';
 import { homeRecords } from '../utils/homeRecords';
 import { readFriendFeed } from '../utils/friendFeed';
 import { collectFriendFeedMedia, exportActivityTextAsset, isActivityTextAsset } from '../utils/activityBackup';
-import { prepareFriendFeedMainTask, consumeFriendFeedMainReply } from '../utils/friendFeedMain';
-import { releaseFriendFeedEmotionTask } from '../utils/friendFeedEmotion';
 import { retireCloudCharacter } from '../utils/amsgCloudRetirement';
-import { resolveDialogueApi } from '../utils/characterApi';
+import { AMSG_OWNER_CHECK_AFTER_IMPORT_LS_KEY } from '../utils/amsgOwnerReconcile';
 import {isBuiltinAppearance, readBuiltinAppearance} from '../utils/builtinAppearance';
 import { sameSullyIconSnapshot, SULLY_BIBI_UPGRADE_KEY, upgradeBuiltinSullyBibiIcon } from '../utils/builtinAppearanceUpgrade';
 import { browserHolidayCache, deviceTimeZone, getUserHolidayReminder } from '../utils/userHolidays';
@@ -23,6 +24,18 @@ import { FEEDBACK_INVITATION_KEY, hasPriorFeedbackInstallEvidence, initializeFee
 import React, { createContext, useContext, useEffect, useState, useRef, useCallback } from 'react';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, CallAutoStartConfig, VRSARActivity, MemoryPalaceFeatureFlags } from '../types';
 import { DB } from '../utils/db';
+import { ChatPrompts } from '../utils/chatPrompts';
+import { ChatParser } from '../utils/chatParser';
+import { resolveDialogueApi } from '../utils/characterApi';
+import { buildChatRequestPayload } from '../utils/chatRequestPayload';
+import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
+import { prepareHomeSecretTask, failHomeSecretTask } from '../utils/homeSecrets';
+import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext } from '../utils/amsg2TaskContext';
+import { extractHtmlBlocks } from '../utils/htmlPrompt';
+import { markChatJobConsumed } from '../utils/runtime/chatJobs';
+import { getPendingTasks } from '../utils/amsg2Tasks';
+import { AMSG2_TOOL_NAMES, buildAmsg2Tools, createAmsg2ToolSession, executeAmsg2ToolWithOutcome, isAmsg2GlobalReady } from '../utils/amsg2ToolBridge';
+import { buildLimitsBrief, resolveAmsgLimits } from '../utils/amsgLimits';
 import { reportDatabaseFailure } from '../utils/databaseHealth';
 import type { AvatarTouchRecord } from '../utils/avatarTouch';
 import { clampClaudeTemperature, isSamplingParamError, modelRejectsSamplingParams, stripSamplingParams } from '../utils/samplingParamCompat';
@@ -30,6 +43,7 @@ import { buildMalformedImageDiagnostics, extractImagesInPlace, deepCloneForExpor
 import { isBlobRef, getBlobForRef, restoreBlobRef, migrateDataUrlToRef, migrateAppearancePresetBlobRefs, migrateChatThemeBlobRefs, resolveBlobRefsDeep, resolveRefToDataUrl, BLOBREF_PREFIX, deleteBlobRefIfUnreferenced, invalidateBlobRefUrlCache } from '../utils/blobRef';
 import { resolveBlobRefsInRequestBody } from '../utils/apiBlobRefs';
 import { collectBlobRefs, writeBlobsToZip, readBlobsIndex, restoreBlobsFromZip } from '../utils/backupBlobs';
+import { missingBackupAssetsSummary, writeMissingBackupAssets, type BackupExportOptions, type BackupMissingAsset } from '../utils/backupMissingAssets';
 import { initPwaIcon, clearPwaIcon } from '../utils/appIcon';
 import { LEGACY_DEFAULT_WALLPAPER, isLegacyDefaultWallpaper, shouldPreserveLegacyDefaultWallpaper } from '../utils/wallpaperCompat';
 import { migrateSharkpanAssets } from '../utils/sharkpanAssetMigration';
@@ -56,7 +70,6 @@ import { VR_DEFAULT_INTERVAL_MIN, getRoom } from '../utils/vrWorld/constants';
 import { WorldScheduler, toTickEntries } from '../utils/worldHome/scheduler';
 import { runWorldEpisode, rerollWorldCharBeat } from '../utils/worldHome/engine';
 import { migrateWorldDaySegs } from '../utils/worldHome/prompts';
-import { ChatParser } from '../utils/chatParser';
 import { safeFetchJson } from '../utils/safeApi';
 import { captureApiRequestOnce, getApiCallAmbientContext, recordApiCall, setApiCallAmbientContext, updateApiRequestCaptureUsage } from '../utils/apiCallLog';
 import { isUserLocationLookupUrl } from '../utils/userLocationPrivacy';
@@ -80,13 +93,14 @@ import {
   loadCharacterContextRange,
   migrateCharacterContextRange,
 } from '../utils/chatContextRange';
+import { loadMusicPlaybackSnapshot } from '../context/MusicContext';
+import { prepareFriendFeedMainTask, consumeFriendFeedMainReply } from '../utils/friendFeedMain';
+import { prepareFriendFeedEmotionTask, releaseFriendFeedEmotionTask, acknowledgeFriendFeedNotices, stageFriendFeedCloudTask } from '../utils/friendFeedEmotion';
 import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { evaluateEmotionBackground } from '../hooks/useChatAI';
 import {HOME_SECRETS_UPDATED} from '../utils/homeSecrets';
 import { CHAT_GEN_EVENTS, setChatViewSnapshot, isEmbeddedChatVisible } from '../utils/chatGenEvents';
-import { buildChatRequestPayload } from '../utils/chatRequestPayload';
-import { ChatPrompts } from '../utils/chatPrompts';
-import { extractHtmlBlocks } from '../utils/htmlPrompt';
+import { runLocalAwayMessages } from '../utils/awayMessage';
 import { mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
 import { applyLinkedArchiveDeletion, LINKED_ARCHIVE_DELETED, type LinkedArchiveDeletionDetail } from '../utils/memoryPalace/linkedArchiveDeletion';
 import {
@@ -101,7 +115,6 @@ import { charMayHaveCloudState, purgeCharCloudState, purgeCloudCharById } from '
 import { parseCharCredId } from '../utils/amsgLlmCredentials';
 import { SAR_MODULE_RUNTIME_CHANGED_EVENT, type SarModuleRuntimeChangedDetail } from '../utils/sarModuleRuntimeEvents';
 import { markAmsgStateDirty, markAmsgStateDirtyForAll, resumePendingAmsgStateSync, syncAmsgLlmCredentials, syncAmsgToolConfigAndPrompts, wipeAmsgCloudDataForReset } from '../utils/amsgStateSync';
-import { loadMusicPlaybackSnapshot } from './MusicContext';
 import { setCharNameRegistry } from '../utils/charNameRegistry';
 import { setMinimaxRegion } from '../utils/minimaxEndpoint';
 import { setElevenLabsModel, setTtsProvider, setVoicePromptOverrides } from '../utils/ttsProvider';
@@ -134,20 +147,6 @@ import { getNativeLaunchRoute, getPersistentNativeRuntimeUserEnabled, isNativeRu
 import { notifyRoleEvent } from '../utils/runtime/roleEventNotification';
 import { createBuiltinSullyLive2DConfig, isBuiltinSullyLive2D, upgradeBuiltinSullyLive2DDefaults } from '../utils/builtinSullyLive2D';
 import { normalizeCharacterRoomAssetsInPlace } from '../utils/roomTemplateAssets';
-
-interface ProactiveQueueEntry {
-  charId: string;
-}
-
-const normalizeProactiveAiContent = (raw: string): string => {
-  let cleaned = raw;
-  cleaned = cleaned.replace(/\[(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*(.*?)\]/g, '[[SEND_EMOJI: $1]]');
-  cleaned = cleaned.replace(
-    /(^|\n)\s*(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*([^\n]+?)(?=\s*(?:\n|$))/g,
-    (_match, lineStart: string, emojiName: string) => `${lineStart}[[SEND_EMOJI: ${emojiName.trim()}]]`
-  );
-  return cleaned;
-};
 
 
 type JSZipFileLike = {
@@ -348,6 +347,8 @@ export type DeleteCharacterResult = { status: 'deleted'; cloudPending?: boolean;
  */
 /** importSystem 的可选行为。 */
 export interface ImportSystemOptions {
+  /** 从其他网址/App 迁入：自动建立独立用户，保留经历并重新分配身份编号。 */
+  asNewUsers?: boolean;
   /**
    * 备份里带着 Worker 后端连接（地址 + 共享密钥 + 主密钥 + 用户 id）时问一句要不要连上。
    *
@@ -486,12 +487,8 @@ interface OSContextType {
   // Global Message Signal
   lastMsgTimestamp: number; // New: Signal for Chat to refresh
   unreadMessages: Record<string, number>; // New: Track unread counts per character
-  clearUnread: (charId: string) => void; // New: Method to clear unread
-
-  // Set of charIds whose proactive AI generation is currently in flight.
-  // Chat UI subscribes to this to render a soft "正在送达消息…" indicator
-  // instead of having the message just pop in.
   proactiveComposingChars: Record<string, true>;
+  clearUnread: (charId: string) => void; // New: Method to clear unread
 
   // Cloud Backup
   cloudBackupConfig: CloudBackupConfig;
@@ -501,7 +498,7 @@ interface OSContextType {
   listCloudBackups: () => Promise<CloudBackupFile[]>;
 
   // System
-  exportSystem: (mode: 'text_only' | 'media_only' | 'full', options?: { includeBackendConnection?: boolean }) => Promise<Blob>;
+  exportSystem: (mode: 'text_only' | 'media_only' | 'full', options?: BackupExportOptions) => Promise<Blob>;
   importSystem: (fileOrJson: File | string, options?: ImportSystemOptions) => Promise<void>; // Accept File or String
   resetSystem: (options?: { force?: boolean }) => Promise<ResetSystemResult>;
   sysOperation: { status: 'idle' | 'processing', message: string, progress: number }; // Progress state
@@ -934,6 +931,17 @@ const OSContext = import.meta.env.DEV
 // Static previews supply fictional state without mounting the live provider or its effects.
 export const OSPreviewProvider = OSContext.Provider;
 
+interface ProactiveQueueEntry { charId: string; }
+const normalizeProactiveAiContent = (raw: string): string => {
+  let cleaned = raw;
+  cleaned = cleaned.replace(/\[(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*(.*?)\]/g, '[[SEND_EMOJI: $1]]');
+  cleaned = cleaned.replace(
+    /(^|\n)\s*(?:(?:你|User|用户|System)\s*)?发送了表情包[:：]\s*([^\n]+?)(?=\s*(?:\n|$))/g,
+    (_match, lineStart: string, emojiName: string) => `${lineStart}[[SEND_EMOJI: ${emojiName.trim()}]]`
+  );
+  return cleaned;
+};
+
 export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // ... (State declarations same as before) ...
   const [activeApp, setActiveApp] = useState<AppID>(() => getRestorableActiveApp());
@@ -953,7 +961,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const [virtualTime, setVirtualTime] = useState<VirtualTime>(getRealTime());
   
-  // Real-time Clock Sync
+  // Real-time Clock Sync（仅当分钟或星期变化时更新状态引用，避免每秒触发无关子树重绘）
   useEffect(() => {
       let timer: ReturnType<typeof setTimeout> | null = null;
       const refresh = () => {
@@ -961,7 +969,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           timer = null;
           if (document.hidden) return;
           const next = getRealTime();
-          setVirtualTime(prev => prev.hours === next.hours && prev.minutes === next.minutes && prev.day === next.day ? prev : next);
+          setVirtualTime(prev => updateVirtualTimeIfChanged(prev, next));
           timer = setTimeout(refresh, 60_000 - Date.now() % 60_000 + 50);
       };
       refresh();
@@ -2195,9 +2203,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         const hadPriorFeedbackEvidence = hasPriorFeedbackInstallEvidence();
         if (healedKeys.length > 0) {
             console.warn('[lsMirror] localStorage 疑似被清除，已从 IndexedDB 镜像回填:', healedKeys);
-            if (healedKeys.includes('proactive_schedules')) {
-                ProactiveChat.resume();
-            }
             if (healedKeys.includes('vr_schedules')) {
                 VRScheduler.resume();
             }
@@ -2254,7 +2259,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
         let finalChars = dbChars;
 
         // A failed read is not an empty installation: never overwrite the saved Sully with defaults.
-        if (charactersReadSucceeded && !finalChars.some(c => c.id === sullyV2.id)) {
+        if (SESSION_SPACE_ID === DEFAULT_SPACE_ID && charactersReadSucceeded && !finalChars.some(c => c.id === sullyV2.id)) {
             await DB.saveCharacter(sullyV2);
             finalChars = [...finalChars, sullyV2];
         } else {
@@ -2348,10 +2353,13 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           } else {
             setActiveCharacterId(finalChars[0].id);
           }
-        } else if (charactersReadSucceeded) {
+        } else if (charactersReadSucceeded && SESSION_SPACE_ID === DEFAULT_SPACE_ID) {
           await DB.saveCharacter(initialCharacter);
           setCharacters([initialCharacter]);
           setActiveCharacterId(initialCharacter.id);
+        } else if (charactersReadSucceeded) {
+          setCharacters([]);
+          setActiveCharacterId('');
         } else {
           addToast('角色资料读取未完成，未写入默认角色。请重新打开应用重试，无需清理数据。', 'error');
         }
@@ -2555,66 +2563,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       });
   }, []);
 
-  // Listen for proactive messages to show unread red dot
-  useEffect(() => {
-      let awayProactiveCount = 0;
-
-      const handler = (e: Event) => {
-          const { charId, charName, body } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string };
-          // Only mark unread if user is NOT currently viewing this character's chat
-          // Always bump timestamp so Chat reloads messages if currently open
-          setLastMsgTimestamp(Date.now());
-
-          const isChattingWithThisChar = (activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId) || isEmbeddedChatVisible(charId);
-          if (!isChattingWithThisChar) {
-              const isVisible = document.visibilityState === 'visible';
-              if (isVisible) {
-                  addToast(`${charName} 主动发来了消息`, 'success');
-              } else {
-                  awayProactiveCount += 1;
-              }
-              setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
-              const preview = (body || `${charName} sent a proactive message`).replace(/\s+/g, ' ').trim() || `${charName} sent a proactive message`;
-              void sendProactiveNativeNotification(charId, charName, preview);
-
-              // Web Notification —— 走 Service Worker 的 showNotification（和"测试推送"
-              // 同一条链路）。页面级 `new Notification(...)` 在标签后台 / PWA / 移动端会
-              // 静默失败，必须走 SW registration 才稳定。
-              if (!Capacitor.isNativePlatform() && 'serviceWorker' in navigator && window.Notification && Notification.permission === 'granted') {
-                  const char = characters.find(c => c.id === charId);
-                  navigator.serviceWorker.ready.then(async reg => {
-                      // 同上：令牌是个非空字符串，`char?.avatar || 默认图标` 这种写法会让默认
-                      // 图标那条兜底永远轮不到，结果一个图标都没有还不报错。所以先解析成能
-                      // 加载的地址，拿到空串才用默认图标。
-                      const icon = (await resolveRefToDataUrl(char?.avatar || '')) || './icons/icon-192.png';
-                      reg.showNotification(charName, {
-                          body: preview,
-                          icon,
-                          badge: './icons/icon-192.png',
-                          tag: `proactive-${charId}`,
-                          data: { charId, kind: 'proactive-1.0' },
-                      }).catch(() => { /* notification failed */ });
-                  }).catch(() => { /* SW not ready */ });
-              }
-          }
-      };
-
-      const onVisible = () => {
-          if (document.visibilityState !== 'visible') return;
-          if (awayProactiveCount > 0) {
-              addToast(`你离开期间收到 ${awayProactiveCount} 条消息`, 'success');
-              awayProactiveCount = 0;
-          }
-      };
-
-      window.addEventListener('proactive-message-sent', handler);
-      document.addEventListener('visibilitychange', onVisible);
-      return () => {
-          window.removeEventListener('proactive-message-sent', handler);
-          document.removeEventListener('visibilitychange', onVisible);
-      };
-  }, [characters, sendProactiveNativeNotification]);
-
   // ─── Global Proactive Message Handler ───
   // Registered at OS level so it works even when Chat is not open.
   useEffect(() => {
@@ -2652,11 +2600,21 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
       };
 
-      const openHandler = (e: Event) => {
+      let openingNotification = false;
+      const openHandler = async (e: Event) => {
           const { charId } = (e as CustomEvent).detail as { charId?: string };
-          if (!charId) return;
-          setActiveApp(AppID.Chat);
-          setActiveCharacterId(charId);
+          if (!charId || openingNotification) return;
+          openingNotification = true;
+          try {
+              const { routeCharacterNotification } = await import('../utils/userSpaceNavigation');
+              const result = await routeCharacterNotification(charId);
+              if (result === 'current') {
+                  setActiveApp(AppID.Chat);
+                  setActiveCharacterId(charId);
+              } else if (result === 'missing') addToast('这条通知的角色已不在本机', 'info');
+          } catch (error) {
+              addToast(error instanceof Error ? error.message : '打开通知失败，请重试', 'error');
+          } finally { openingNotification = false; }
       };
 
       const onVisible = () => {
@@ -2845,13 +2803,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       };
   }, [sendProactiveNativeNotification]);
 
-  const proactiveRunningRef = useRef(false);
-  const proactiveQueueRef = useRef<ProactiveQueueEntry[]>([]);
-  // Per-character innerState cache for proactive turns — mirrors useChatAI's
-  // evolvedNarrative state so consecutive proactive triggers carry continuity.
-  const proactiveInnerStateRef = useRef<Map<string, string>>(new Map());
-
-  // Refs to avoid stale closures in proactive callback
+  // Refs to avoid stale closures in scheduler callbacks
   const charactersRef = useRef(characters);
   charactersRef.current = characters;
 
@@ -2871,6 +2823,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   }, [characters]);
   const apiConfigRef = useRef(apiConfig);
   apiConfigRef.current = apiConfig;
+  const proactiveQueueRef = useRef<ProactiveQueueEntry[]>([]);
+  const proactiveRunningRef = useRef(false);
+  const proactiveInnerStateRef = useRef<Map<string, string>>(new Map());
 
   // Keep the MiniMax endpoint module in sync with the user's region choice
   // so every minimaxFetch() call reads the latest preference.
@@ -3632,8 +3587,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           .catch(() => {});
 
       return () => {
-          // Cleanup: detach proactive listeners when OSContext unmounts (unlikely but safe)
-          ProactiveChat.onTrigger(() => {});
+          // Cleanup: detach scheduler listeners when OSContext unmounts (unlikely but safe)
           VRScheduler.onTrigger(() => {});
           WorldScheduler.onTrigger(() => {});
           window.removeEventListener('world-reroll-request', onRerollRequest as EventListener);
@@ -3766,6 +3720,17 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
       };
 
+      const phoneGenerationHandler = (event: Event) => {
+          const { charId, generation } = (event as CustomEvent<{ charId: string; generation: PhoneGeneration }>).detail;
+          setCharacters(previous => previous.map(character => {
+              if (character.id !== charId) return character;
+              const next = { ...character, phoneState: mergePhoneGeneration(character.phoneState, generation) };
+              markAmsgStateDirty({ char: next, userProfile: userProfileRef.current, groups: groupsRef.current, realtimeConfig: realtimeConfigRef.current });
+              return next;
+          }));
+          setLastMsgTimestamp(Date.now());
+      };
+      window.addEventListener(PHONE_GENERATION_COMMITTED, phoneGenerationHandler);
       window.addEventListener('amsg2-tasks-adopted', tasksAdoptedHandler);
       window.addEventListener(SAR_MODULE_RUNTIME_CHANGED_EVENT, sarModuleRuntimeChangedHandler);
       const linkedArchiveDeletedHandler = (event: Event) => {
@@ -3795,6 +3760,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       window.addEventListener('char-memos-updated', memosSyncHandler);
       return () => {
           window.removeEventListener('char-memos-updated', memosSyncHandler);
+          window.removeEventListener(PHONE_GENERATION_COMMITTED, phoneGenerationHandler);
           window.removeEventListener('amsg2-tasks-adopted', tasksAdoptedHandler);
           window.removeEventListener(SAR_MODULE_RUNTIME_CHANGED_EVENT, sarModuleRuntimeChangedHandler);
           window.removeEventListener(LINKED_ARCHIVE_DELETED, linkedArchiveDeletedHandler);
@@ -3828,6 +3794,28 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       return () => { cancelled = true; };
   // 只在本次数据初始化完成时执行；后续新数据走已修复的统一双写入口。
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDataLoaded]);
+
+  // 离开后消息（本地那条路）：打开页面和切回前台时，给超过等待时长没说话的角色补上
+  // 离开期间的消息。云端那条路在 useChatAI 每轮开场维护，见 utils/awayMessage.ts。
+  useEffect(() => {
+      if (!isDataLoaded) return;
+      const run = () => {
+          if (document.visibilityState !== 'visible') return;
+          void runLocalAwayMessages({
+              getCharacters: () => charactersRef.current,
+              getApiConfig: () => apiConfigRef.current,
+              getUserProfile: () => userProfileRef.current,
+              getGroups: () => groupsRef.current,
+              getRealtimeConfig: () => realtimeConfigRef.current,
+              isBusyWith: (charId) => suspendedCallRef.current?.charId === charId
+                  || ((activeAppRef.current === AppID.Date || activeAppRef.current === AppID.Call)
+                      && activeCharIdScheduleRef.current === charId),
+          });
+      };
+      run();
+      document.addEventListener('visibilitychange', run);
+      return () => document.removeEventListener('visibilitychange', run);
   }, [isDataLoaded]);
 
   const updateTheme = async (updates: Partial<OSTheme>) => {
@@ -3978,7 +3966,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const { uploadBackup, cleanupOldBackups } = await loadBackupProvider();
       try {
           setSysOperation({ status: 'processing', message: '正在打包备份数据...', progress: 0 });
-          const blob = await exportSystem(mode);
+          const blob = await exportSystem(mode, { userScope: 'all' });
 
           setSysOperation({ status: 'processing', message: '正在上传到云端...', progress: 50 });
           const filename = `Sully_Backup_${mode}_${formatBackupTimestamp()}.zip`;
@@ -4269,7 +4257,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       })();
     }
 
-    ProactiveChat.stop?.(id);
     VRScheduler.stop?.(id);
     setCharacters(prev => { const remaining = prev.filter(c => c.id !== id); if (remaining.length > 0 && activeCharacterId === id) { setActiveCharacterId(remaining[0].id); } return remaining; });
     await DB.deleteCharacter(id);
@@ -4771,15 +4758,26 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   // --- MODIFIED EXPORT SYSTEM WITH SEPARATED ASSETS ZIP ---
   const exportSystem = async (
       mode: 'text_only' | 'media_only' | 'full',
-      exportOptions: { includeBackendConnection?: boolean } = {},
+      exportOptions: BackupExportOptions = {},
   ): Promise<Blob> => {
       try {
           setSysOperation({ status: 'processing', message: '正在初始化打包引擎...', progress: 0 });
           
+          if (listUserSpaces().length > 1) {
+              const { exportUserSpaces } = await import('../utils/userSpaceBackup');
+              const result = await exportUserSpaces(mode, exportOptions.userScope || 'current', message => setSysOperation({ status: 'processing', message, progress: 30 }), exportOptions.includeBackendConnection, items => {
+                  exportOptions.onMissingAssets?.(items);
+                  if (items.length) addToast(missingBackupAssetsSummary(items), 'info');
+              });
+              setSysOperation({ status: 'idle', message: '', progress: 0 });
+              markBackupDone();
+              return result;
+          }
           const zip = createBackupArchive();
           const assetsFolder = zip.folder("assets");
           let assetCount = 0;
           let malformedImageCount = 0;
+          let missingAssets: BackupMissingAsset[] = [];
           const malformedImageDiagnostics: MalformedBackupImageDiagnostic[] = [];
           const maxMalformedImageDiagnostics = 100;
 
@@ -5495,8 +5493,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               );
               if (missing.length > 0) {
                   console.warn(`备份时 ${missing.length} 个图片令牌已无对应数据，已跳过:`, missing);
+                  missingAssets = missing.map(token => ({ id: token.slice('blobref:'.length), locations: [] }));
               }
           }
+          writeMissingBackupAssets(zip as unknown as ZipFileWriter, missingAssets);
 
           if (malformedImageCount > 0) {
               zip.file(
@@ -5530,6 +5530,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           setSysOperation({ status: 'idle', message: '', progress: 100 });
           // 备份成功 → 推进「该备份啦」提醒的计时（本地导出 / 云备份都走这里，一处覆盖两条路径）
           markBackupDone();
+          exportOptions.onMissingAssets?.(missingAssets);
+          if (missingAssets.length) addToast(missingBackupAssetsSummary(missingAssets), 'info');
           if (malformedImageCount > 0) {
               console.warn(`[Backup] 备份已完成，已从导出副本跳过 ${malformedImageCount} 处损坏图片`, malformedImageDiagnostics);
               addToast(`备份已生成，已跳过 ${malformedImageCount} 处无法恢复的损坏图片；其他数据已正常保存`, 'info');
@@ -5631,6 +5633,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               } else {
                   const JSZip = await loadJSZip();
                   const loadedZip = await JSZip.loadAsync(fileOrJson);
+                  if (loadedZip.file('user-spaces.json')) {
+                      const { importUserSpaces } = await import('../utils/userSpaceBackup');
+                      const spaceManifest = JSON.parse(await loadedZip.file('user-spaces.json')!.async('string'));
+                      const allowBackend = !importOptions.asNewUsers && backupHasBackendConnection(spaceManifest.backend) && importOptions.confirmBackendRestore
+                          ? await importOptions.confirmBackendRestore(String(spaceManifest.backend.workerUrl).trim()) : false;
+                      const imported = await importUserSpaces(loadedZip, allowBackend, { asNewUsers: importOptions.asNewUsers });
+                      if (importOptions.asNewUsers) selectUserSpace(imported[0].id);
+                      clearImportInProgress();
+                      setSysOperation({ status: 'idle', message: '', progress: 0 });
+                      window.location.reload();
+                      return;
+                  }
                   zip = loadedZip;
                   totalAssetFiles = countZipAssetFiles(loadedZip);
                   const manifestFile = loadedZip.file("manifest.json");
@@ -5669,6 +5683,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           // 必须发生在 restoreAssetsInPlace / DB.importFullData 之前：不受支持的第三方
           // 备份一旦命中特征就整包拒绝，不能出现“导入了一半才报错”的状态。
           assertSupportedSullyBackup(data);
+          if (importOptions.asNewUsers) {
+              showImportProgress('database', '正在迁入独立用户...', 30, { current: '整理聊天、记忆与素材关联' });
+              const { importLegacyAsIndependentUser } = await import('../utils/legacyIndependentUserImport');
+              const imported = await importLegacyAsIndependentUser(data, zip);
+              selectUserSpace(imported[0].id);
+              clearImportInProgress();
+              setSysOperation({ status: 'idle', message: '', progress: 0 });
+              window.location.reload();
+              return;
+          }
 
           // 在 importFullData 为释放内存逐项清空 data 字段前冻结“这是否是主历史替换”。
           // 新版 media_only 明确不动 SAR；旧备份没有 mode 时，只要带 characters/messages
@@ -5841,6 +5865,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           }
 
           showImportProgress('database', '正在写入数据库...', 50, { current: '准备写入数据库', currentFile: '' });
+          if (data.characters && listUserSpaces().length > 1) {
+              await (await import('../utils/userSpaceData')).assertUniqueSpaceCharacters(new Map([[SESSION_SPACE_ID, data.characters]]));
+          }
           suppressFeedbackInvitation();
           await DB.importFullData(data, {
               allowBackendConnection,
@@ -6138,6 +6165,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       data.realtimeConfig || realtimeConfig,
                       { characters: importedChars, userProfile: user || userProfile, groups: groupsList },
                   );
+                  // 备份里可能有在云端删过的角色；重启后的对账按「来自备份」的口径问用户要不要恢复。
+                  try { localStorage.setItem(AMSG_OWNER_CHECK_AFTER_IMPORT_LS_KEY, '1'); } catch { /* 写不进去就按普通口径提示 */ }
               }
           } catch (e) {
               console.warn('[amsg2] 导入后云端对账失败（本地数据已恢复，不受影响）', e);
@@ -6187,9 +6216,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (!options?.force && cleanup.status === 'failed') {
         return { status: 'cloud-cleanup-failed', workerUrl: cleanup.workerUrl, detail: cleanup.detail };
       }
-      await DB.deleteDB();
+      await (await import('../utils/userSpaceData')).resetAllUserSpaces();
       await ActiveMsgStore.deleteDB();
-      localStorage.clear();
       window.location.reload();
       return { status: 'done' };
     } catch (e) {
@@ -6330,8 +6358,8 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     resetAppearance,
     lastMsgTimestamp,
     unreadMessages,
-    clearUnread,
     proactiveComposingChars,
+    clearUnread,
     cloudBackupConfig,
     updateCloudBackupConfig,
     cloudBackupToWebDAV,

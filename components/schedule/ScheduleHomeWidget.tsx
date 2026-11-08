@@ -3,10 +3,11 @@ import { CharacterProfile, DailySchedule, ScheduleSlot } from '../../types';
 import ScheduleCard, { REVISION_SOURCE_ICON, revisionsForSlot } from './ScheduleCard';
 import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
 import { useOS } from '../../context/OSContext';
-import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
+import { resolveScheduleCardPalette, resolveScheduleDesktopPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
 import TokenImg from '../os/TokenImg';
 import { useBlobRefUrl } from '../../utils/blobRef';
+import { resolveReducedGlassCardStyle, useReducedBlur } from '../../utils/blurPolicy';
 
 // ⑦ 修订微角标：时段若被事件修订过，在活动名旁标注 ↷+来源icon（点开日程详情可看 diff）
 const RevBadge: React.FC<{ schedule: DailySchedule | null; slot: ScheduleSlot | null }> = ({ schedule, slot }) => {
@@ -195,11 +196,12 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
         ? schedule.slots[currentIdx + 1]
         : null;
 
-    const palette = resolveScheduleCardPalette(
+    const palette = resolveScheduleDesktopPalette(
         theme.scheduleCardAppearance,
         theme.hue ?? 260,
         inheritedContentColor,
     );
+    const reducedBlur = useReducedBlur();
     const effectivePaper = paper && palette.isOriginal;
     const effectiveAcnh = acnh && palette.isOriginal;
     const contentColor = palette.text;
@@ -322,6 +324,10 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                 border: `1px solid ${palette.line}`,
                 boxShadow: '0 8px 32px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.08)',
                 color: contentColor,
+            } : reducedBlur ? {
+                ...scheduleVars,
+                ...resolveReducedGlassCardStyle(contentColor),
+                color: contentColor,
             } : {
                 ...scheduleVars,
                 background: 'rgba(255,255,255,0.08)',
@@ -336,8 +342,8 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
             <div className="absolute right-3 top-3 z-20">
                 <ScheduleAppearanceButton compact />
             </div>
-            {/* Blurred avatar glow（动森奶油底下省略，避免糊脏） */}
-            {!effectivePaper && palette.isOriginal && avatarUrl && (
+            {/* Blurred avatar glow（动森与无实时模糊模式下省略） */}
+            {!effectivePaper && !reducedBlur && palette.isOriginal && avatarUrl && (
                 <div
                     className="absolute inset-0 opacity-25 pointer-events-none"
                     style={{
@@ -491,8 +497,10 @@ interface ScheduleFullscreenViewerProps {
     onSwitchCharacter: (id: string) => void;
     schedule: DailySchedule | null;
     activeCharacter: CharacterProfile | null;
-    contentColor?: string;
 }
+
+// 查看器底色固定为深色遮罩，字色不能跟桌面字色走（桌面配深色字时会深底深字）
+const VIEWER_TEXT_COLOR = '#ffffff';
 
 export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> = ({
     open,
@@ -502,8 +510,8 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
     onSwitchCharacter,
     schedule,
     activeCharacter,
-    contentColor = '#ffffff',
 }) => {
+    const contentColor = VIEWER_TEXT_COLOR;
     // Lock scroll of background
     useEffect(() => {
         if (!open) return;
@@ -522,6 +530,7 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
 
     // 这层全屏查看器不跟随卡片配色，固定用默认色相做强调色
     const accentHsl = 'hsl(260, 70%, 65%)';
+    const reducedBlur = useReducedBlur();
 
     if (!open) return null;
 
@@ -529,9 +538,9 @@ export const ScheduleFullscreenViewer: React.FC<ScheduleFullscreenViewerProps> =
         <div
             className="fixed inset-0 z-[200] flex flex-col animate-fade-in"
             style={{
-                background: 'rgba(6, 8, 16, 0.72)',
-                backdropFilter: 'blur(22px) saturate(1.2)',
-                WebkitBackdropFilter: 'blur(22px) saturate(1.2)',
+                background: reducedBlur ? 'rgba(6, 8, 16, 0.92)' : 'rgba(6, 8, 16, 0.72)',
+                backdropFilter: reducedBlur ? undefined : 'blur(22px) saturate(1.2)',
+                WebkitBackdropFilter: reducedBlur ? undefined : 'blur(22px) saturate(1.2)',
                 color: contentColor,
             }}
             onClick={onClose}

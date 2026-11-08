@@ -29,7 +29,7 @@ import { LUCKIN_PROPOSE_TOOL, autoFixProposalCodesByName as autoFixLuckinProposa
 import { callLuckinTool } from '../utils/luckinMcpClient';
 import { callMcpTool, getMcpUseNativeTools, hasWorkerUnreachableMcpServer } from '../utils/mcpClient';
 import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFallbackBody, extractTextFakedMcpCalls, formatMcpToolResult, MCP_CHAT_MAX_STALLED_ROUNDS, MCP_CHAT_MAX_TOOL_LOOPS, sanitizeMcpLeadInText, shouldRetryMcpWithoutTools, stripTextFakedMcpCalls, type FakedMcpCall } from '../utils/mcpToolBridge';
-import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/toolCallCompat';
+import { buildToolResultMessage, normalizeToolCallsForCompat, toolTurnContinuation } from '../utils/toolCallCompat';
 import { toolCallFingerprint } from '../utils/agenticToolFeedback';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
 import { acquireChatReply, isChatReplyActive, subscribeChatReplies } from '../utils/chatReplyLock';
@@ -46,6 +46,7 @@ import {
 import { ActiveMsgStore } from '../utils/activeMsgStore';
 import { markAmsgStateDirty, startAmsgChatPresence, stopAmsgChatPresence } from '../utils/amsgStateSync';
 import { getLastRealUserMessageAt } from '../utils/amsg2ExpireGuard';
+import { syncCloudAwayTask } from '../utils/awayMessage';
 import { getPendingTasks, hasActiveAiTask, isAmsg2EnabledForChar } from '../utils/amsg2Tasks';
 import { buildAmsg2NoticesText, buildAmsg2TaskContextText, collectAmsg2TaskContext, insertAmsg2TaskContextBlock } from '../utils/amsg2TaskContext';
 import { resolveCharTimeZone } from '../utils/timezone';
@@ -55,11 +56,11 @@ import { announceInstantChatRoute, getInstantChatPending, resolveInstantChatRead
 import { INSTANT_TOTAL_TIMEOUT_MS } from '../worker/amsg/src/instantChat';
 import { appendInstantTraceEntry } from '../utils/instantTraceLog';
 import { AMSG2_TOOL_NAMES, buildAmsg2Tools, createAmsg2ToolSession, executeAmsg2ToolWithOutcome, isAmsg2GlobalReady, type Amsg2ToolOutcome } from '../utils/amsg2ToolBridge';
+import { buildReplyScopeRule } from '../utils/replyScope';
 import { AMSG2_EMPTY_REPLY_PROMPT, AMSG2_WRAP_UP_PROMPT, createAmsg2StallTracker, extractToolRoundLeadIn, mergeToolRoundLeadIns } from '../utils/amsg2ToolLoop';
 import { buildLimitsBrief, resolveAmsgLimits } from '../utils/amsgLimits';
 import { shouldSendThinkingParams } from '../utils/thinkingGate';
 import { isAnthropicEndpoint } from '../utils/llmEndpoint';
-import { anthropicContinuation } from '../utils/anthropicApi';
 import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility } from '../utils/claudeProxyCompat';
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
@@ -828,6 +829,13 @@ export const useChatAI = ({
             }
             const fullHistory = contextRange?.messages || null;
             const contextMsgs = fullHistory || currentMsgs;
+            // 离开后消息（云端）：对方刚开过口，把那条任务往后推。不等它，失败只影响这一条。
+            const awayLastUserAt = getLastRealUserMessageAt(contextMsgs);
+            if (char.awayMessage?.enabled && awayLastUserAt != null) {
+                void syncCloudAwayTask({
+                    char, lastUserAt: awayLastUserAt, userProfile, groups, realtimeConfig, apiConfig, updateCharacter,
+                });
+            }
             // 空范围先报可操作的本地错误，避免继续识图/召回和发送 system-only 请求。
             // 原始消息可能是无文字图片或卡片，此处只判角色；正文有效性在格式化后校验。
             assertChatHasDialogue(contextMsgs.map(message => ({
@@ -1304,6 +1312,15 @@ export const useChatAI = ({
                 // 工具循环的 loopMessages 是 baseReqBody.messages 追加尾巴，前缀没动，下标照用。
                 return insertAmsg2TaskContextBlock(messages, block, payload.volatileTailIndex);
             };
+            // 带工具时说清「这次回复」从哪条消息算起，同样插在易变尾段之前。
+            // 即时对话上云用的是 fullMessages，worker 那边自己加，这里不会重复。
+            if (baseReqBody.tools?.length || mcpToolResolve) {
+                baseReqBody.messages = insertAmsg2TaskContextBlock(
+                    baseReqBody.messages,
+                    { role: 'system', content: buildReplyScopeRule('user') },
+                    payload.volatileTailIndex,
+                );
+            }
 
             // ─── 即时对话（主动消息 2.0 云端生成）分支 ───
             // 这一轮的上下文 + 任务一个 POST 上云，云端跑完走推送回来（收件箱同一条管线入库），
@@ -1338,9 +1355,12 @@ export const useChatAI = ({
                     signal: replyRun.signal,
                     char,
                     // 云端要发给模型的就是本地这一份，一个字不改（见 fire_pack 的 chat 段）。
+                    // 回执块和 worker 时效块都插在易变尾段之前，与本地 withAmsg2TaskContext 同位：
+                    // 「回到你自己」钢印留在模型开口前的最后一眼。
                     chatMessages: (amsg2NoticesBlock
-                        ? [...fullMessages, { role: 'system', content: amsg2NoticesBlock }]
+                        ? insertAmsg2TaskContextBlock(fullMessages, { role: 'system', content: amsg2NoticesBlock }, payload.volatileTailIndex)
                         : fullMessages) as Array<{ role: string; content: unknown }>,
+                    timelyInsertAt: payload.volatileTailIndex,
                     // 凭据用本地这一轮的那份：换成别的等于同一句话由不同模型来答，而用户看不出来。
                     // model / temperature 取 baseReqBody 的终值而不是 effectiveApi 的原始值：
                     // 上面那段已经按本地规则把 thinking 后缀（claude 系 -thinking）拼好、
@@ -1607,7 +1627,7 @@ export const useChatAI = ({
                         // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
                         content: data.choices[0].message.content || '(调用工具中)',
                         tool_calls: toolCalls,
-                        ...anthropicContinuation(data.choices[0].message),
+                        ...toolTurnContinuation(data.choices[0].message),
                     } as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
@@ -1720,7 +1740,7 @@ export const useChatAI = ({
                         // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
                         content: data.choices[0].message.content || '(调用工具中)',
                         tool_calls: toolCalls,
-                        ...anthropicContinuation(data.choices[0].message),
+                        ...toolTurnContinuation(data.choices[0].message),
                     } as any);
                     for (const tc of toolCalls) {
                         const fname: string = tc.function?.name || '';
@@ -1845,7 +1865,7 @@ export const useChatAI = ({
                         // 空 content + tool_calls 在 Gemini 兼容层会被判 INVALID_ARGUMENT, 给个占位
                         content: data.choices[0].message.content || '(调用工具中)',
                         tool_calls: toolCalls,
-                        ...anthropicContinuation(data.choices[0].message),
+                        ...toolTurnContinuation(data.choices[0].message),
                     } as any);
                     let mcpCallsThisRound = 0;
                     let mcpProgressThisRound = false;
@@ -1980,7 +2000,7 @@ export const useChatAI = ({
                             content: wrapUpKind === 'amsg2-stalled'
                                 || (wrapUpKind === 'hard-limit' && !mcpToolResolve && !payload.flags.luckinChatActive)
                                 ? AMSG2_WRAP_UP_PROMPT
-                                : `[系统消息：工具阶段${stalled ? '连续两轮没有产生新结果' : '已到本轮安全上限'}。请停止调用工具，基于已经拿到的结果直接用角色语气回复；如目标仍未完成，请如实说明卡在哪一步。不要输出工具名、参数或这条系统消息。]`,
+                                : `[系统消息：工具阶段${stalled ? '连续两轮没有产生新结果' : '已到这次回复的安全上限'}。请停止调用工具，基于已经拿到的结果直接用角色语气回复；如目标仍未完成，请如实说明卡在哪一步。不要输出工具名、参数或这条系统消息。]`,
                         });
                     }
                     const followBody = { ...baseReqBody, messages: followMessages };
@@ -2098,7 +2118,7 @@ export const useChatAI = ({
                     if (reachedHardLimit) {
                         textLoopMessages.push({
                             role: 'user',
-                            content: '[系统消息：工具阶段已到本轮安全上限。停止调用工具，基于已有结果直接回复；如目标未完成就如实说明。不要输出工具调用格式或提及本消息。]',
+                            content: '[系统消息：工具阶段已到这次回复的安全上限。停止调用工具，基于已有结果直接回复；如目标未完成就如实说明。不要输出工具调用格式或提及本消息。]',
                         });
                     }
                     setSearchStatus('正在整理 MCP 工具结果...');
@@ -2437,10 +2457,10 @@ export const useChatAI = ({
         tokenBreakdown,
         setLastTokenUsage, // Allow manual reset if needed
         triggerAI,
+        lastSystemPrompt,
+        evolvedNarrative,
         startProactiveChat,
         stopProactiveChat,
         isProactiveActive,
-        lastSystemPrompt,
-        evolvedNarrative,
     };
 };

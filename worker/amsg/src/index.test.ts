@@ -26,6 +26,7 @@ import {
   AMSG_LAST_SKIP_KEY,
   AMSG_SELF_LOG_KEY,
   AMSG_SILENT_MARK,
+  BEFORE_SPEAK_LINES,
   AMSG_SLOT_CURRENT_TIME,
   AMSG_SLOT_LIVE_CHAT,
   AMSG_SLOT_SELF_LOG,
@@ -711,6 +712,48 @@ describe('连发上限（到点兜底闸）', () => {
   });
 });
 
+// ─── 离开后消息：对方最后一次开口 + 等待时长，到点必发、计入连发上限 ───
+describe('离开后消息（到点）', () => {
+  const awayMeta = { amsgAwayMessage: true, amsgAwayDelayMinutes: 90, amsgExpirePolicy: 'force' };
+  const rows = (lastUserMessageAt: number | null, extra: Array<{ key: string; value: string }> = []) => [
+    { key: AMSG_FIRE_PACK_KEY, value: firePackValue(lastUserMessageAt, { template: `${BEFORE_SPEAK_LINES.join('\n')}\n${AMSG_SLOT_TASK_INSTRUCTION}` }) },
+    { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+    limitsRow({ minSendGapMinutes: 0 }),
+    ...extra,
+  ];
+
+  it('对方在等待时长内说过话 → 推迟到「最后开口 + 90 分钟」，不消费、不留痕', async () => {
+    const lastUser = NOW.getTime() - 30 * 60_000;
+    const { ctx, writeState } = makeCtx({ metadata: awayMeta, charRows: rows(lastUser) });
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ defer: { afterMs: 60 * 60_000 } });
+    expect(writeState).not.toHaveBeenCalled();
+  });
+
+  it('等待时长已满 → 照发，而且模板里没有【开口之前】，角色不能选择不说', async () => {
+    const { ctx } = makeCtx({ metadata: awayMeta, charRows: rows(NOW.getTime() - 91 * 60_000) });
+    const content = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
+    expect(content).not.toContain('【开口之前】');
+    expect(content).not.toContain(AMSG_SILENT_MARK);
+  });
+
+  it('普通任务照旧带着【开口之前】', async () => {
+    const { ctx } = makeCtx({ charRows: rows(NOW.getTime() - 91 * 60_000) });
+    expect(fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content).toContain('【开口之前】');
+  });
+
+  it('计入连发上限：这段沉默里已经连着找了 3 次 → 跳过', async () => {
+    const selfLog = JSON.stringify({
+      v: 4, basePackAt: PACK_BUILT_AT, anchorUserMsgAt: null,
+      entries: [], unansweredSends: 3, tasks: [],
+    });
+    const { ctx } = makeCtx({
+      metadata: awayMeta,
+      charRows: rows(null, [{ key: AMSG_SELF_LOG_KEY, value: selfLog }]),
+    });
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
+  });
+});
+
 // ─── 用户定的「频率与额度」：到点那几道闸 ───
 //
 // 每一项都是用户在面板上定的硬闸（见 utils/amsgLimits）。拦下来的一律 skip、在调模型之前，
@@ -917,8 +960,8 @@ describe('频率与额度（到点兜底闸）', () => {
     });
     ctx.scheduleTask = vi.fn();
     const prompt = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
-    expect(prompt).toContain('现在还能再排 2 次');
-    expect(prompt).toContain('现在挂着 0 个');
+    expect(prompt).toContain('已用 1/3 次');
+    expect(prompt).toContain('挂着 0/1 个');
   });
 
   it('「不停」（0）时重复任务一直照发', async () => {
@@ -996,9 +1039,25 @@ describe('频率与额度（到点兜底闸）', () => {
     ctx.scheduleTask = vi.fn();
     const prompt = fired(await amsgHooks.onBeforeFire(ctx)).messages[0].content;
     expect(prompt).toContain('用户给你定的规矩');
-    // 连发 3 次，正在发的这一次占 1 次 → 还能再排 2 次；今天发过 1 次 + 这一次 → 还剩 3 次。
-    expect(prompt).toContain('现在还能再排 2 次');
-    expect(prompt).toContain('今天还能再主动找对方 3 次');
+    // 连发 3 次，正在发的这一次占 1 次；今天发过 1 次 + 这一次 → 已用 2 次。
+    expect(prompt).toContain('已用 1/3 次');
+    expect(prompt).toContain('今天的主动联系：已用 2/5 次');
+  });
+
+  // 工具循环里每一步都是新请求，「本轮」会被当成眼下这一步；定时触发要从这份说明算起，
+  // 不能拿「用户最新发来的那条消息」划界——角色连着主动发的时候，用户可能根本没说话。
+  it('带工具的定时触发写明这次回复从到点这份说明算起，不带工具就不写', async () => {
+    const withTools = makeCtx({});
+    withTools.ctx.scheduleTask = vi.fn();
+    const fire = fired(await amsgHooks.onBeforeFire(withTools.ctx));
+    expect(fire.tools?.length).toBeGreaterThan(0);
+    const prompt = fire.messages[0].content;
+    expect(prompt).toContain('这次回复的范围：从你收到这份说明开始（你之前安排的主动消息到点了）');
+    expect(prompt).not.toContain('用户最新发来的那条消息');
+
+    const bare = fired(await amsgHooks.onBeforeFire(makeCtx({}).ctx));
+    expect(bare.tools ?? []).toHaveLength(0);
+    expect(bare.messages[0].content).not.toContain('这次回复的范围');
   });
 });
 
@@ -2885,7 +2944,7 @@ describe('自排后续任务', () => {
   it('单次 fire 排满就打回，不再调远端', async () => {
     const stash = makeStash();
     for (let i = 0; i < MAX_FIRE_SCHEDULES; i += 1) {
-      await runFireScheduleTool(stash, okSchedule, { send_at: new Date(NOW_MS + (90 + i) * 60_000).toISOString() }, NOW_MS);
+      await runFireScheduleTool(stash, okSchedule, { send_at: new Date(NOW_MS + (90 + i * 3) * 60_000).toISOString() }, NOW_MS);
     }
     okSchedule.mockClear();
     const out = await runFireScheduleTool(stash, okSchedule, { send_at: sendAt }, NOW_MS);
@@ -3550,6 +3609,23 @@ describe('stale 跳过留痕（onStaleSkip）', () => {
     expect(written!.skip.staleAction).toBe('expired');
   });
 
+  it('诊断任务过期跳过时留一条 fire-settled，不写主动消息的 last_skip', async () => {
+    const writeState = makeWriteState();
+    const runId = '11111111-1111-4111-8111-111111111111';
+    await amsgStaleSkip(
+      { id: 103, uuid: runId },
+      {
+        reason: 'stale', action: 'expired',
+        metadata: { charId: 'amsg-diagnostic', amsgKind: 'diagnostic', amsgDiagnosticRunId: runId },
+        occurrenceMs: Date.now(), skippedCount: 1, nextSendAt: null, writeState,
+      },
+    );
+    expect(lastSkipOf(writeState)).toBeNull();
+    const call = writeState.mock.calls.find(([namespace]) => namespace === 'amsg:diagnostic');
+    expect(call, '应该写过诊断记录').toBeTruthy();
+    expect(JSON.parse(String(call![1][0].value))).toMatchObject({ runId, event: 'fire-settled', status: 'skipped', reason: 'stale' });
+  });
+
   it('过期没补发的那次也回一条「这次没发」的结果', async () => {
     const emitResult = vi.fn(async (_payload: Record<string, unknown>) => ({ messageId: 'm', pushed: false }));
     const occurrenceMs = Date.parse('2026-07-25T09:00:00.000Z');
@@ -4169,6 +4245,49 @@ describe('onBeforeFire — 即时对话分支', () => {
     expect(appended.content).toContain('现在是');
     // 回归守卫：走模板渲染的话这里会出现主动消息那套措辞，用户刚说的话反而没人答
     expect(result.messages.map((m) => m.content).join('\n')).not.toContain('本次任务');
+  });
+
+  // 回归守卫：时效块（排程清单 + 额度 + 自主联系说明）曾一律贴在数组最末，压过本地放在
+  // 易变尾段末尾的「回到你自己」钢印，角色每轮都被最后一眼的排程说明牵着去排消息。
+  it('给了 timelyInsertAt 时，时效块插在本地实时状态段之前；越界退回末尾', async () => {
+    const withTail = [...CHAT_MESSAGES, { role: 'system', content: '[System: 实时状态] 回到你自己' }];
+    const runWith = async (timelyInsertAt: number) => {
+      const { ctx } = instantCtx({
+        charRows: [
+          { key: AMSG_FIRE_PACK_KEY, value: firePackValue(null, { chat: { messages: withTail, builtAt: PACK_BUILT_AT, timelyInsertAt } }) },
+          { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+        ],
+      });
+      return fired(await amsgHooks.onBeforeFire(ctx)).messages;
+    };
+
+    const placed = await runWith(2);
+    expect(placed).toHaveLength(withTail.length + 1);
+    expect(placed.slice(0, 2)).toEqual(CHAT_MESSAGES);
+    expect(placed[2].content).toContain('现在是');
+    expect(placed[3]).toEqual(withTail[2]);
+
+    for (const bad of [0, 99]) {
+      const appended = await runWith(bad);
+      expect(appended.slice(0, 3)).toEqual(withTail);
+      expect(appended[3].content).toContain('现在是');
+    }
+  });
+
+  it('即时对话带工具时写明这次回复从用户最新发来的那条消息算起', async () => {
+    const { ctx } = makeCtx({
+      charRows: [
+        { key: AMSG_FIRE_PACK_KEY, value: instantPack() },
+        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+      ],
+      globalRows: [{ key: AMSG_TOOL_CONFIG_KEY, value: mcpToolConfigValue({ mcpUseNativeTools: true }) }],
+      metadata: { amsgInstantChat: true, amsgTaskInstruction: undefined },
+    });
+    (ctx as any).scheduleTask = vi.fn();
+    const text = fired(await amsgHooks.onBeforeFire(ctx)).messages.map((m) => m.content).join('\n');
+    expect(text).toContain('这次回复的范围：从用户最新发来的那条消息开始');
+    expect(text.match(/这次回复的范围/g)).toHaveLength(1);
+    expect(text).not.toContain('主动消息到点了');
   });
 
   // 本地有常驻自主联系说明，云端以前只教「主动消息发完再接着说」。

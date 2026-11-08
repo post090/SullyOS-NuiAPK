@@ -214,11 +214,15 @@ const ActiveMsg2SettingsModal: React.FC<ActiveMsg2SettingsModalProps> = ({
         : pushStatus.transport === 'native-poll'
           ? '内置定时拉取'
           : 'Web Push';
-      setPushSummary(pushStatus.supported
-        ? `${channelLabel} · 权限：${permLabel} / 订阅：${pushStatus.hasSubscription ? '已就绪' : '未创建'}${pushStatus.detail && (pushStatus.transport === 'unified-push' || pushStatus.transport === 'native-poll') && !pushStatus.hasSubscription ? `（${pushStatus.detail}）` : ''}`
-        : pushStatus.detail || (pushStatus.transport === 'unified-push'
-          ? '还没有可用的 UnifiedPush 服务，请先安装 ntfy'
-          : pushStatus.transport === 'native-poll' ? '还没开启通知，点「开启通知与推送」即可' : '当前环境不支持 Web Push'));
+      setPushSummary(
+        pushStatus.transport === 'third-party'
+          ? `${pushStatus.detail || '第三方推送'} / 状态：${pushStatus.hasSubscription ? '已就绪' : '未配置'}`
+          : pushStatus.supported
+            ? `${channelLabel} · 权限：${permLabel} / 订阅：${pushStatus.hasSubscription ? '已就绪' : '未创建'}${pushStatus.detail && (pushStatus.transport === 'unified-push' || pushStatus.transport === 'native-poll') && !pushStatus.hasSubscription ? `（${pushStatus.detail}）` : ''}`
+            : pushStatus.detail || (pushStatus.transport === 'unified-push'
+              ? '还没有可用的 UnifiedPush 服务，请先安装 ntfy'
+              : pushStatus.transport === 'native-poll' ? '还没开启通知，点「开启通知与推送」即可' : '当前环境不支持 Web Push（可在全局设置改用第三方推送 App）'),
+      );
     })();
 
     // 防穿帮闸最近拦下了哪次触发、今天主动找了几次。闸是静默的，不说一声的话「让路了」

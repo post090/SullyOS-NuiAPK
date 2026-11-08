@@ -14,7 +14,7 @@ export function roomLightPhase(timeZone,base=new Date()){
  return hour>=5&&hour<8?'morning':hour>=8&&hour<16?'day':hour>=16&&hour<19?'sunset':'night';
 }
 export function resolveRoomLightPhase(mode,timeZone,base){
- return Object.hasOwn(ROOM_LIGHT_PHASES,mode)?mode:roomLightPhase(timeZone,base);
+ return Object.prototype.hasOwnProperty.call(ROOM_LIGHT_PHASES,mode)?mode:roomLightPhase(timeZone,base);
 }
 // 两档时段连续插值（换时段时 20 秒渐变过渡而非整点跳变）：
 // 颜色 lerp、数值 lerp；label 等非插值字段直接取目标档。

@@ -1,3 +1,6 @@
+import { listUserSpaces } from '../utils/userSpaces';
+import { BackupMissingAssetsNotice } from '../components/BackupMissingAssetsNotice';
+import type { BackupMissingAsset } from '../utils/backupMissingAssets';
 import {CharacterWeatherCities} from '../components/settings/CharacterAwarenessSettings';
 import {cleanCharacterWeatherCities} from '../utils/characterWeather';
 import NavigationBallSettings from '../components/settings/NavigationBallSettings';
@@ -18,7 +21,7 @@ import { nativeFetch } from '../utils/nativeFetch';
 import { extractModelIds, normalizeModelIds } from '../utils/modelList';
 import { formatBackupTimestamp } from '../utils/format';
 import { shareOrDownloadBlob } from '../utils/shareExport';
-import { bucketRetryCount, isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
+import { isAnalyticsConfigured, isAnalyticsEnabled, setAnalyticsEnabled, trackEvent } from '../utils/analytics';
 import Modal from '../components/os/Modal';
 import ApiConnectionPicker from '../components/os/ApiConnectionPicker';
 import UserHolidaySettings from '../components/settings/UserHolidaySettings';
@@ -45,10 +48,11 @@ import {
 import { getDateVoiceGuide } from '../utils/datePrompts';
 import { Sun, Newspaper, NotePencil, Notebook, Book, ForkKnife, Coffee, PlugsConnected } from '@phosphor-icons/react';
 import { loadMcpServers, saveMcpServers, createMcpServer, testMcpConnection, resetMcpSession, getMcpUseNativeTools, setMcpUseNativeTools, type McpServerConfig } from '../utils/mcpClient';
-import { loadPushConfig, savePushConfig, registerScheduleOnWorker, startHeartbeat, stopHeartbeat, isPushConfigAvailable, ensureSubscribed, sendTestPush, getPushDiagnostics, resetSubscription, deepResetSubscription, type PushDiagnostics } from '../utils/proactivePushConfig';
-import { ProactiveChat } from '../utils/proactiveChat';
 import { PushVapidSettingsModal } from '../components/settings/PushVapidSettingsModal';
 import AmsgCloudDataModal from '../components/settings/AmsgCloudDataModal';
+import { ProactiveChat } from '../utils/proactiveChat';
+import { loadPushConfig, isPushConfigAvailable, savePushConfig, ensureSubscribed, getPushDiagnostics, type PushDiagnostics, startHeartbeat, stopHeartbeat, registerScheduleOnWorker, sendTestPush, resetSubscription, deepResetSubscription } from '../utils/proactivePushConfig';
+import { bucketRetryCount } from '../utils/analytics';
 import PushSubscriptionPanel from '../components/settings/PushSubscriptionPanel';
 import ActiveMsgGlobalSettingsModal from '../components/settings/ActiveMsgGlobalSettingsModal';
 import { syncAmsgLlmCredentials, syncAmsgToolConfig, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
@@ -344,7 +348,7 @@ const McpServersCard: React.FC<{
                         <button className="flex-1 text-left min-w-0" onClick={() => setExpandedId(expandedId === server.id ? null : server.id)}>
                             <div className="text-xs font-bold text-slate-700 truncate">{server.name || '(未命名)'}</div>
                             <div className="text-[10px] text-slate-400 truncate">
-                                {server.url || '未填 URL'}{server.tools?.length ? ` · ${server.tools.length} 个工具` : ' · 未获取工具'}{server.charIds?.length ? ` · 绑定 ${server.charIds.length} 个聊天` : ''}
+                                {server.url || '未填 URL'}{server.tools?.length ? ` · ${server.tools.length} 个工具` : ' · 未获取工具'}{server.charIds?.length ? (server.charIds.filter(id => id !== '__space_unselected__').length ? ` · 绑定 ${server.charIds.filter(id => id !== '__space_unselected__').length} 个聊天` : ' · 未选择聊天') : ''}
                             </div>
                         </button>
                         <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -429,7 +433,8 @@ const McpServersCard: React.FC<{
                                         type="button"
                                         onClick={() => update(server.id, { charIds: [] })}
                                         className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${!server.charIds?.length ? 'bg-violet-500 text-white' : 'bg-white/80 border border-violet-200 text-slate-500'}`}
-                                    >通用（所有私聊和群聊）</button>
+                                    >通用（当前用户的所有聊天）</button>
+                                    <button type="button" onClick={() => update(server.id, { charIds: ['__space_unselected__'] })} className="px-2.5 py-1 rounded-lg text-[11px] border border-violet-200">暂不分配</button>
                                 </div>
                                 {characters.length > 0 && <div className="text-[10px] text-slate-400 mt-2 mb-1">角色</div>}
                                 <div className="flex flex-wrap gap-1.5">
@@ -440,8 +445,9 @@ const McpServersCard: React.FC<{
                                                 key={c.id}
                                                 type="button"
                                                 onClick={() => {
-                                                    const cur = server.charIds || [];
-                                                    update(server.id, { charIds: bound ? cur.filter(id => id !== c.id) : [...cur, c.id] });
+                                                    const cur = (server.charIds || []).filter(id => id !== '__space_unselected__');
+                                                    const next = bound ? cur.filter(id => id !== c.id) : [...cur, c.id];
+                                                    update(server.id, { charIds: next.length ? next : ['__space_unselected__'] });
                                                 }}
                                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${bound ? 'bg-violet-500 text-white' : 'bg-white/80 border border-violet-200 text-slate-500'}`}
                                             >{c.name}</button>
@@ -457,8 +463,9 @@ const McpServersCard: React.FC<{
                                                 key={group.id}
                                                 type="button"
                                                 onClick={() => {
-                                                    const cur = server.charIds || [];
-                                                    update(server.id, { charIds: bound ? cur.filter(id => id !== group.id) : [...cur, group.id] });
+                                                    const cur = (server.charIds || []).filter(id => id !== '__space_unselected__');
+                                                    const next = bound ? cur.filter(id => id !== group.id) : [...cur, group.id];
+                                                    update(server.id, { charIds: next.length ? next : ['__space_unselected__'] });
                                                 }}
                                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-colors ${bound ? 'bg-violet-500 text-white' : 'bg-white/80 border border-violet-200 text-slate-500'}`}
                                             >{group.name}</button>
@@ -468,7 +475,7 @@ const McpServersCard: React.FC<{
                                 <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
                                     通用 = 所有私聊和群聊都能用；绑定后只有选中的角色或群聊能看到这批工具。
                                 </p>
-                                {!!server.charIds?.length && server.charIds.some(id => !characters.some(c => c.id === id) && !groups.some(g => g.id === id)) && (
+                                {!!server.charIds?.length && server.charIds.some(id => id !== '__space_unselected__' && !characters.some(c => c.id === id) && !groups.some(g => g.id === id)) && (
                                     <p className="text-[10px] text-amber-600 mt-1">
                                         ⚠️ 绑定里有已删除的角色或群聊，对应绑定不再生效，可重新点选清理。
                                     </p>
@@ -618,6 +625,7 @@ const Settings: React.FC = () => {
   const [showVisionModelModal, setShowVisionModelModal] = useState(false);
   const [visionModelFilter, setVisionModelFilter] = useState('');
   const [showExportModal, setShowExportModal] = useState(false); // Used for completion now
+  const [exportMissingAssets, setExportMissingAssets] = useState<BackupMissingAsset[]>([]);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetting, setResetting] = useState(false);
   /** 云端没清干净时停在这里：本地还一个字节都没动，等用户决定重试还是照样重置。 */
@@ -833,7 +841,6 @@ const Settings: React.FC = () => {
   const [luckinTestStatus, setLuckinTestStatus] = useState('');
   const [luckinTesting, setLuckinTesting] = useState(false);
 
-  // Proactive Push 加速器（Worker URL / VAPID 公钥写死在 proactivePushConfig.ts 常量里）
   const initialPushCfg = loadPushConfig();
   const ppAvailable = isPushConfigAvailable();
   const [ppEnabled, setPpEnabled] = useState(initialPushCfg.enabled);
@@ -856,6 +863,7 @@ const Settings: React.FC = () => {
    * 对方的 App 会静默连上来，把 ta 的 API 凭据和聊天上下文写进你的 D1，而 ta 手里的
    * 主密钥能解开你那台机器上所有的密文。换设备恢复自己的备份才需要它。
    */
+  const [exportUserScope, setExportUserScope] = useState<'current' | 'all'>('current');
   const [exportBackendConnection, setExportBackendConnection] = useState(false);
   const [showVapidModal, setShowVapidModal] = useState(false);
   const [vapidReadyTick, setVapidReadyTick] = useState(0); // 关闭 VAPID 弹窗后刷新顶层徽标
@@ -1049,6 +1057,7 @@ const Settings: React.FC = () => {
   const [testingApi, setTestingApi] = useState(false);
   const [testApiResult, setTestApiResult] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const independentImportInputRef = useRef<HTMLInputElement>(null);
   const avatarModelBackupInputRef = useRef<HTMLInputElement>(null);
   const refreshAvatarModelInventory = useCallback(async () => {
       try {
@@ -1781,7 +1790,8 @@ const Settings: React.FC = () => {
           }
 
           // Trigger export (Context handles loading state UI)
-          const blob = await exportSystem(mode, { includeBackendConnection: exportBackendConnection });
+          setExportMissingAssets([]);
+          const blob = await exportSystem(mode, { includeBackendConnection: exportBackendConnection, userScope: exportUserScope, onMissingAssets: setExportMissingAssets });
           
           const fileName = `Sully_Backup_${mode}_${formatBackupTimestamp()}.zip`;
           if (!Capacitor.isNativePlatform()) {
@@ -1814,12 +1824,13 @@ const Settings: React.FC = () => {
       }
   };
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>, asNewUsers = false) => {
       const file = e.target.files?.[0];
       if (!file) return;
 
       // Pass the File object directly to importSystem
       importSystem(file, {
+          asNewUsers,
           // 备份里带着 Worker 后端连接时问一句。程序分不清这份文件是自己的还是别人的
           // （换新设备时用户 id 本来就对不上），只有拿着文件的人知道，所以把话问出去。
           confirmBackendRestore: (workerUrl) => window.confirm(
@@ -1847,9 +1858,11 @@ const Settings: React.FC = () => {
       });
       
       if (importInputRef.current) importInputRef.current.value = '';
+      if (independentImportInputRef.current) independentImportInputRef.current.value = '';
   };
 
   const deliverStandaloneBackup = async (blob: Blob, fileName: string, shareTitle: string) => {
+      setExportMissingAssets([]);
       if (!Capacitor.isNativePlatform()) {
           if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
           const url = URL.createObjectURL(blob);
@@ -2524,8 +2537,10 @@ const Settings: React.FC = () => {
                 </div>
             }
         >
+            {listUserSpaces().length > 1 && <fieldset className="mb-4 p-3 bg-white border border-slate-200 rounded-xl"><legend className="text-xs font-bold">先选择导出范围</legend><div className="flex gap-4 text-sm">{(['current', 'all'] as const).map(scope => <label key={scope} className="flex gap-2 items-center"><input type="radio" name="user-export-scope" checked={exportUserScope === scope} onChange={() => setExportUserScope(scope)} />{scope === 'current' ? '当前用户' : '所有用户'}</label>)}</div><p className="text-xs text-slate-400 mt-2">再选择下面的导出样式。共享素材只打包一次。</p></fieldset>}
             <StorageUsagePanel />
             <WebCacheControl />
+            <BackupMissingAssetsNotice items={exportMissingAssets} />
 
             <label className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 cursor-pointer">
                 <input
@@ -2571,10 +2586,15 @@ const Settings: React.FC = () => {
                     <span>导入备份 (.zip / .json)</span>
                 </div>
                 <input type="file" ref={importInputRef} className="hidden" accept=".json,.zip" onChange={handleImport} />
+                <button onClick={() => independentImportInputRef.current?.click()} className="py-4 px-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 active:scale-95 transition-all">
+                    从其他网址 / App 迁入独立用户
+                    <span className="block mt-2 text-[11px] font-normal leading-relaxed">建议使用整合备份，自动新建用户并保留聊天、记忆和素材。共用当前系统设置，主动消息和离开后消息需重新开启。</span>
+                </button>
+                <input type="file" ref={independentImportInputRef} aria-label="迁入独立用户备份" className="hidden" accept=".json,.zip" onChange={event => handleImport(event, true)} />
             </div>
 
             <p className="text-[10px] text-slate-400 px-1 mb-4 leading-relaxed">
-                • <b>整合导出</b>: 一次性导出文字与图片媒体；VRM / Live2D 模型请使用下方独立备份。<br/>
+                • <b>整合导出</b>: {listUserSpaces().length > 1 ? '导出所选用户的文字、图片与引用的模型，共享文件只保存一份。' : '一次性导出文字与图片媒体；VRM / Live2D 模型请使用下方独立备份。'}<br/>
                 • <b>纯文字备份</b>: 包含所有聊天记录、角色设定、剧情数据。所有图片会被移除（减小体积）。<br/>
                 • <b>媒体与美化素材</b>: 导出相册、表情包、聊天图片、头像、主题气泡、壁纸、图标等图片资源和外观配置。<br/>
                 • <b>活动与哔哔</b>: 万圣节收集、装扮选择、恐龙箱庭、哔哔正文与设置、家园串门和秘密记录随纯文字/整合备份保存；哔哔上传配图随媒体/整合备份保存，补导媒体不覆盖正文或活动进度。<br/>
@@ -2588,7 +2608,7 @@ const Settings: React.FC = () => {
                 <div className="mb-2 flex items-center justify-between gap-3">
                     <div>
                         <h3 className="text-xs font-bold text-slate-700">视频模型 · 单独备份</h3>
-                        <p className="mt-0.5 text-[10px] text-slate-400">VRM / Live2D 不再混进普通数据包</p>
+                        <p className="mt-0.5 text-[10px] text-slate-400">{listUserSpaces().length > 1 ? '也可单独备份当前用户的 VRM / Live2D' : 'VRM / Live2D 不再混进普通数据包'}</p>
                     </div>
                     <span className="shrink-0 rounded-full bg-violet-50 px-2.5 py-1 text-[10px] font-bold text-violet-600">
                         {avatarModelInventory
@@ -4299,7 +4319,6 @@ const Settings: React.FC = () => {
             <PushSubscriptionPanel addToast={addToast} />
         </SettingsSection>
 
-        {/* ───────── 主动消息 Push 加速器（开关） ───────── */}
         {SHOW_PROACTIVE_PUSH_ACCEL_UI && ppAvailable && (
         <SettingsSection
             title="主动消息 Push 加速"
@@ -4624,7 +4643,6 @@ const Settings: React.FC = () => {
 
       </div>
 
-      {/* 主动消息 Push 加速 · 启用前确认 */}
       <Modal
           isOpen={showPpConfirm}
           title="启用 Push 加速？"
@@ -5346,6 +5364,7 @@ const Settings: React.FC = () => {
                   <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
               </div>
               <p className="text-sm font-bold text-slate-700">备份文件已生成！</p>
+              <div className="text-left"><BackupMissingAssetsNotice items={exportMissingAssets} /></div>
               <p className="text-xs text-slate-500">如果浏览器没有自动下载，请点击下方链接。</p>
               {downloadUrl && <a href={downloadUrl} download={downloadFileName} className="text-primary text-sm underline block py-2">点击手动下载 .zip</a>}
           </div>
@@ -6078,7 +6097,7 @@ const Settings: React.FC = () => {
           <div className="flex flex-col items-center gap-3 py-2">
               <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-12 h-12 text-red-500"><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" /></svg>
               <p className="text-center text-sm text-slate-600 font-medium">
-                  这将<span className="text-red-500 font-bold">永久删除</span>所有角色、聊天记录和设置，且无法恢复！
+                  这将<span className="text-red-500 font-bold">永久删除所有用户空间</span>的角色、聊天记录、共享素材和系统设置，且无法恢复！
               </p>
               <p className="text-center text-xs text-slate-400">
                   主动消息 2.0 在云端存的定时任务、角色上下文和 API 凭据也会一起清掉。

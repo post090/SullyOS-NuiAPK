@@ -1,3 +1,6 @@
+import { diagnosticRunId } from './amsgReproduction';
+import { listUserSpaces } from './userSpaces';
+import { recordDiagnosticInbox } from './amsgReproductionStore';
 import { createReplyRun, isReplyStopped, withReplyCancellation, type ReplyRun } from './chatReplyCancellation';
 import { loadCharacterContextMessages } from './chatContextRange';
 import { ActiveMsg2InboxMessage, ActiveMsg2TaskRecord, APIConfig, RealtimeConfig, UserProfile } from '../types';
@@ -1523,8 +1526,9 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger, charId?: string): Pro
   try {
     // 生成前收件不碰正在等重试 / 等前段的消息：它们按自己的定时器再处理，
     // 每次点发送都重跑一遍会把重试次数和等齐次数提前耗光。
+    const localIds = listUserSpaces().length > 1 ? new Set((await DB.getAllCharacters()).map(c => c.id)) : null;
     pendingMessages = await ActiveMsgStore.consumeInboxMessages(
-      charId, trigger === '生成前收件' ? isAwaitingInboxTimer : undefined,
+      charId, message => !!localIds && !localIds.has(message.charId) && !diagnosticRunId(message.metadata) || (trigger === '生成前收件' && isAwaitingInboxTimer(message)),
     );
   } finally {
     inboxClaimsInProgress -= 1;
@@ -1569,6 +1573,15 @@ const flushInboxToChatImpl = async (trigger: FlushTrigger, charId?: string): Pro
   // 降级回原来的 "原文一次性 saveMessage" 防止消息丢失。dispatchEvent 始终 fire 一次,
   // 保证 toast / 未读 / 通知语义不变。
   for (const message of pendingMessages) {
+    // 包括重启后的补收与重复推送：任何诊断消息都不能进入角色业务。
+    if (diagnosticRunId(message.metadata)) {
+      try { await recordDiagnosticInbox(message, trigger); }
+      catch {
+        retainedInboxMessageIds.add(message.messageId);
+        try { await ActiveMsgStore.saveInboxMessage(message); } catch { /* 云端账不销，下次补收 */ }
+      }
+      continue;
+    }
     if (isReplyStopped(message.taskUuid)) {
       if (message.taskUuid && (message.metadata as any)?.amsgUsage) {
         settleInstantChatApiLog(message.taskUuid, message.metadata);
@@ -2603,14 +2616,17 @@ export const refreshPushSubscriptionIfMarked = async (): Promise<'no-marker' | '
   }
 };
 
-const handleDeepLink = () => {
+const handleDeepLink = async () => {
+  const { takeSpaceNotificationTarget } = await import('./userSpaceNavigation');
+  const pendingCharId = takeSpaceNotificationTarget();
   const currentUrl = new URL(window.location.href);
   const charId = currentUrl.searchParams.get('activeMsgCharId');
   const openApp = currentUrl.searchParams.get('openApp');
 
-  if (openApp === 'chat' && charId) {
+  const destination = openApp === 'chat' && charId ? charId : pendingCharId;
+  if (destination) {
     window.dispatchEvent(new CustomEvent('active-msg-open', {
-      detail: { charId },
+      detail: { charId: destination },
     }));
   }
 
@@ -2779,6 +2795,6 @@ export const ActiveMsgRuntime = {
     });
     // 收件箱守望开跑。放在最后：上面那趟启动冲刷已经把积压清干净了，这里接管后续。
     scheduleLocalInboxWatch();
-    handleDeepLink();
+    await handleDeepLink();
   },
 };

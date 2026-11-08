@@ -1,3 +1,4 @@
+import UserSpaceNotice from './components/user/UserSpaceNotice';
 
 import React from 'react';
 import { OSProvider } from './context/OSContext';
@@ -10,6 +11,7 @@ import VRBroadcast from './components/VRBroadcast';
 import WorldBroadcast from './components/WorldBroadcast';
 import ChatBroadcast from './components/ChatBroadcast';
 import WebUpdateNotice from './components/WebUpdateNotice';
+import AmsgOwnerConflictNotice from './components/AmsgOwnerConflictNotice';
 import { isIOSStandaloneWebApp } from './utils/iosStandalone';
 import { installDevDebugLifecycleCapture } from './utils/devDebug';
 
@@ -45,6 +47,8 @@ const App: React.FC = () => {
                 面板自身用 portal 渲染到 body，绕开上面那层 transform 对 fixed 定位的影响。 */}
             <Amsg2DebugPanel />
             <WebUpdateNotice />
+            <AmsgOwnerConflictNotice />
+            <UserSpaceNotice />
           </OSProvider>
         </div>
       </div>

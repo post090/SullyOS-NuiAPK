@@ -17,6 +17,8 @@ import Launcher from '../apps/Launcher';
 import CompanionLockChrome from './os/CompanionLockChrome';
 import { loadCompanionFrameStyle } from './os/companionFrameStyles';
 import { createPreloadableLazy, type PreloadableLazy } from './os/preloadableLazy';
+import { setVisibleTimeout } from '../utils/visibleTimeout';
+import { isUserSpaceArrival, finishUserSpaceTransition, cancelUserSpaceTransition } from '../utils/userSpaceTransition';
 
 // 按需懒加载各 App —— 切到对应 App 时才下载/解析其代码块，首屏只加载 Launcher 与外壳，
 // 大体积 App（MemoryPalace / VRWorld / Songwriting 等）不再压在主包里。
@@ -124,6 +126,7 @@ import { StatusBar as CapStatusBar, Style as StatusBarStyle } from '@capacitor/s
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
 import { isIOSStandaloneWebApp, resolveStatusBarMode } from '../utils/iosStandalone';
+import { canHideShellBackdropWhenSettled, useReducedBlur } from '../utils/blurPolicy';
 import AppErrorBoundary from './os/AppErrorBoundary';
 import GlobalMiniPlayer from './os/GlobalMiniPlayer';
 import ApiFloatBall from './ApiFloatBall';
@@ -409,20 +412,20 @@ const ImportRecoveryPopup: React.FC<{
 // （loading spinner 闪烁反模式）。所以前 ~220ms 一律渲染空（无感），只有真的慢才浮现。
 // 刻意「零动画开销」：之前那套呼吸/涟漪/上升微尘的持续动画在 iOS 上会引起卡顿，且预热命中后
 // 这屏几乎不出现 —— 收益小、代价大。现在只一次性淡入一个静态柔光点（无 infinite 动画），
-// 透明底让外壳虚化壁纸透出来。真卡住（>15s）才换成可点的刷新/返回兜底，避免低端设备
-// 仍在正常解析单个大模块时被 7 秒阈值过早判死。
+// 透明底让外壳虚化壁纸透出来。前台累计等待 >15s 才显示刷新/返回兜底；
+// 这只是慢加载提示，不代表 import 已经失败或死锁。
 const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: boolean }> = ({ onReturn, animationEnabled = true }) => {
   const [show, setShow] = useState(false);
   const [stalled, setStalled] = useState(false);
   useEffect(() => {
     const t = animationEnabled ? setTimeout(() => setShow(true), 220) : null;
-    // 卡死逃生口：iOS standalone PWA 从后台恢复 / 弱网时，动态 import 可能既不 resolve 也不 reject，
-    // Suspense 会永远停在这一屏（不报错 → 错误边界不触发 → 不会自动刷新），用户狂点中心光点却毫无反应。
-    // 超过 STALL_MS 仍未加载完 → 把「看着像按钮其实不是」的光点换成真正可点的「刷新/返回」按钮，
-    // 既明确告诉用户该点哪里，又把静默卡死变成一键可恢复。只动占位 UI，不碰 import 逻辑。
-    const stall = setTimeout(() => { setStalled(true); trackEvent('App 加载卡死超时'); }, 15_000);
-    return () => { if (t) clearTimeout(t); clearTimeout(stall); };
+    return () => { if (t) clearTimeout(t); };
   }, [animationEnabled]);
+  useEffect(() => setVisibleTimeout(() => {
+    setStalled(true);
+    // 保留历史事件名，但只计前台等待；切后台/锁屏时间不再算作加载卡死。
+    trackEvent('App 加载卡死超时');
+  }, 15_000), []);
   if (stalled) {
     return (
       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-900/95 text-white p-6 text-center space-y-4" style={{ animation: 'appLoadIn 320ms ease-out both' }}>
@@ -439,6 +442,11 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
           >
             刷新恢复
           </button>
+          {import.meta.env.MODE !== 'capacitor' && (
+            <a href={`${import.meta.env.BASE_URL}recover.html`} className="w-full px-4 py-2 bg-slate-700 rounded-full text-xs font-bold">
+              检查更新并修复
+            </a>
+          )}
           {onReturn && (
             <button
               type="button"
@@ -467,10 +475,46 @@ const AppLoadingFallback: React.FC<{ onReturn?: () => void; animationEnabled?: b
   );
 };
 
+const AppEnterStage: React.FC<{
+  appId: AppID;
+  onSettled: (appId: AppID) => void;
+  children: React.ReactNode;
+}> = ({ appId, onSettled, children }) => {
+  useEffect(() => {
+    if (appId === AppID.Launcher) {
+      onSettled(AppID.Launcher);
+      return;
+    }
+    const timer = window.setTimeout(() => onSettled(appId), 260);
+    return () => window.clearTimeout(timer);
+  }, [appId, onSettled]);
+
+  return (
+    <div
+      className="w-full h-full"
+      style={{ animation: 'appEnterFade 200ms ease-out both' }}
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget) onSettled(appId);
+      }}
+    >
+      <style>{`@keyframes appEnterFade{from{opacity:0}to{opacity:1}}`}</style>
+      {children}
+    </div>
+  );
+};
+
 const PhoneShell: React.FC = () => {
-  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation } = useOS();
+  const { theme, isLocked, unlock, activeApp, closeApp, openApp, virtualTime, isDataLoaded, toasts, unreadMessages, characters, groups, handleBack, suspendedCall, resumeCall, activeCharacterId, errorDialog, dismissError, sysOperation } = useOS();
   const useIOSStandaloneLayout = isIOSStandaloneWebApp();
+  const reducedBlur = useReducedBlur();
   const deploymentNotice = useDeploymentNotice();
+  const [settledApp, setSettledApp] = useState<AppID>(activeApp);
+
+  useEffect(() => {
+    if (activeApp === AppID.Launcher) {
+      setSettledApp(AppID.Launcher);
+    }
+  }, [activeApp]);
 
   // 三档顶部状态栏：安全显示 / 紧凑显示 / 隐藏。旧存档仍由 hideStatusBar 兼容解析。
   // compact 把时间放进 safe-area，本体顶栏只让出 max(safe-area, 1.5rem)，避免顶部再多一整行。
@@ -481,7 +525,18 @@ const PhoneShell: React.FC = () => {
   }, [statusBarMode]);
 
   // 冷启动「世界入场」是否已结束。结束前由 BootSequence 接管整屏（同时取代旧的黑屏 spinner）。
-  const [bootDone, setBootDone] = useState(false);
+  const [spaceArrival] = useState(isUserSpaceArrival);
+  const [bootDone, setBootDone] = useState(spaceArrival);
+  useEffect(() => {
+    if (!spaceArrival) return;
+    if (deploymentNotice.blocked) {
+      if (deploymentNotice.source !== 'checking') cancelUserSpaceTransition();
+      return;
+    }
+    if (!isDataLoaded) return;
+    if (isLocked) unlock();
+    else finishUserSpaceTransition();
+  }, [spaceArrival, isDataLoaded, isLocked, deploymentNotice.blocked, deploymentNotice.source, unlock]);
   const bootAnimationEnabled = theme.bootAnimationEnabled !== false;
   useEffect(() => {
     // 本次启动一旦选择跳过，就记为已经完成；用户稍后重新打开开关时不在桌面中途补播。
@@ -941,7 +996,7 @@ const PhoneShell: React.FC = () => {
 
         {!companionLockFrame && unreadCount > 0 && (
             <div className="absolute top-[40%] left-4 right-4 animate-slide-up">
-                <div className="bg-white/20 backdrop-blur-md rounded-2xl p-4 shadow-lg border border-white/10 flex items-center gap-4">
+                <div className={`rounded-2xl p-4 shadow-lg border flex items-center gap-4 ${reducedBlur ? 'bg-slate-900/70 border-white/20' : 'bg-white/20 backdrop-blur-md border-white/10'}`}>
                     <div className="w-10 h-10 rounded-xl bg-green-500 flex items-center justify-center text-white shrink-0 shadow-sm">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6"><path fillRule="evenodd" d="M4.804 21.644A6.707 6.707 0 0 0 6 21.75a6.721 6.721 0 0 0 3.583-1.029c.774.182 1.584.279 2.417.279 5.322 0 9.75-3.97 9.75-9 0-5.03-4.428-9-9.75-9s-9.75 3.97-9.75 9c0 2.409 1.025 4.587 2.674 6.192.232.226.277.428.254.543a3.73 3.73 0 0 1-.814 1.686.75.75 0 0 0 .44 1.223ZM8.25 10.875a1.125 1.125 0 1 0 0 2.25 1.125 1.125 0 0 0 0-2.25ZM10.875 12a1.125 1.125 0 1 1 2.25 0 1.125 1.125 0 0 1-2.25 0Zm4.875-1.125a1.125 1.125 0 1 0 0 2.25 1.125 1.125 0 0 0 0-2.25Z" clipRule="evenodd" /></svg>
                     </div>
@@ -1020,24 +1075,48 @@ const PhoneShell: React.FC = () => {
   // 自理名单见 utils/safeAreaApps.ts（迁移一个 App = 把它加进名单 + 顶栏用 --chrome-top 自己让位）。
   // TODO(safe-area-A): 把剩余「未迁移」App 逐个改为自理安全区后，移除外壳这层兜底，实现全屏无色条。
   const shellPadsSafeArea = shellHandlesSafeArea(activeApp);
+  const activeCharacter = characters.find(c => c.id === activeCharacterId);
+  const hasCustomChatChromeCss = Boolean(
+    theme.chatChromeCustomCss ||
+      (activeApp === AppID.Chat && activeCharacter?.chromeCustomCss) ||
+      (activeApp === AppID.GroupChat && groups.some(g => Boolean(g.chromeCustomCss))),
+  );
+  const shellBackdropHidden =
+    activeApp !== AppID.Launcher &&
+    settledApp === activeApp &&
+    canHideShellBackdropWhenSettled(activeApp, {
+      hasCustomChatChromeCss,
+      iosStandalone: useIOSStandaloneLayout,
+    });
 
   return (
     <div className="sully-phone-shell relative w-full h-full overflow-hidden bg-gradient-to-br from-pink-200 via-purple-200 to-indigo-200 text-slate-900 font-sans select-none overscroll-none">
        {/* Optimized Background Layer */}
        {/* 壁纸底层：进 App 时只柔和虚化/压暗作背景，不再做缩放「过场」——
-          进 App 的过渡感统一交给 App 容器的淡入（见下方 animate-fade-in 包裹层）。 */}
+          进 App 的过渡感统一交给 App 容器的淡入（见下方 animate-fade-in 包裹层）。
+          虚化直接落在静态壁纸层上，上层叠纯色柔光遮罩；不透明全屏 App 淡入稳定后隐藏底层纹理。 */}
        <div
-         className="absolute inset-0 bg-cover bg-center transition-all duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
+         className="sully-shell-wallpaper absolute inset-0 bg-cover bg-center transition-opacity duration-500 ease-[cubic-bezier(0.25,0.1,0.25,1)]"
          style={{
              backgroundImage: bgImageValue,
-             filter: activeApp !== AppID.Launcher ? 'blur(10px)' : 'none',
-             opacity: activeApp !== AppID.Launcher ? 0.6 : 1,
+             filter: activeApp === AppID.Launcher || reducedBlur || shellBackdropHidden ? 'none' : 'blur(24px)',
+             opacity: activeApp === AppID.Launcher ? 1 : reducedBlur ? 0.25 : 0.6,
+             visibility: shellBackdropHidden ? 'hidden' : undefined,
              backfaceVisibility: 'hidden',
              contain: useIOSStandaloneLayout ? undefined : 'strict'
          }}
        />
        
-       <div className={`absolute inset-0 transition-all duration-500 ${activeApp === AppID.Launcher ? 'bg-transparent' : 'bg-white/50 backdrop-blur-3xl'}`} />
+       <div
+         className={`sully-shell-wash absolute inset-0 transition-colors duration-500 ${
+           activeApp === AppID.Launcher
+             ? 'bg-transparent'
+             : reducedBlur
+               ? 'bg-slate-50/95'
+               : 'bg-white/55'
+         }`}
+         style={shellBackdropHidden ? { visibility: 'hidden' } : undefined}
+       />
        
        {/* 外壳安全区两种策略：
           - 未迁移 App：外壳铺满 body（含 --app-height 多出的 +safe-bottom 溢出区），用 padding 让位安全区，
@@ -1055,29 +1134,19 @@ const PhoneShell: React.FC = () => {
           <FirstUseGuide />
           {/* App Container */}
           <div className="flex-1 relative overflow-hidden" style={{ contain: useIOSStandaloneLayout ? undefined : 'layout style paint' }}>
-            {/* Launcher 永远保留在底层：进 App 时只隐藏（visibility）不卸载，回桌面瞬间到位，
-                避免每次回桌面 WidgetsPage 重新 mount 导致小组件加载跳动。
-                ⚠ 显隐只能用 visibility，绝不能用常驻 opacity/transition：那会让这层变成
-                backdrop root，桌面小组件的 backdrop-filter 采样不到外层壁纸，透明柔光玻璃会糊成白底毛玻璃。 */}
+            {/* Launcher 常驻但只用 visibility 隐藏，避免重建壁纸和桌面小组件。 */}
             <div
               className="absolute inset-0"
               style={activeApp !== AppID.Launcher ? { visibility: 'hidden' as const } : undefined}
             >
               <Launcher />
             </div>
-            {/* 非 Launcher App 叠在上层 */}
             {activeApp !== AppID.Launcher && (
               <AppErrorBoundary onCloseApp={closeApp} resetKey={`${activeApp}:${activeCharacterId || 'none'}`}>
-                <Suspense fallback={<AppLoadingFallback onReturn={closeApp} animationEnabled={theme.appLoadingAnimationEnabled !== false} />}>
-                  {/* 统一「淡入」过渡：每次切换 App 时 key 变化 → 重新挂载并淡入，
-                      让所有 App 都像个人档案那样「渐变进去」，而非瞬间咚一下。
-                      关键：只动 opacity、不做 scale/translate —— 否则会把整棵（常含大量头像图片的）
-                      App 子树栅格化进 transform 图层，角色列表类 App 首帧会卡顿一下（停顿一秒）。
-                      时长也压短，进重 App 时不至于多等。 */}
-                  <div key={activeApp} className="absolute inset-0 w-full h-full" style={{ animation: 'appEnterFade 200ms ease-out both' }}>
-                    <style>{`@keyframes appEnterFade{from{opacity:0}to{opacity:1}}`}</style>
+                <Suspense fallback={<AppLoadingFallback key={activeApp} onReturn={closeApp} animationEnabled={theme.appLoadingAnimationEnabled !== false} />}>
+                  <AppEnterStage key={activeApp} appId={activeApp} onSettled={setSettledApp}>
                     {renderApp()}
-                  </div>
+                  </AppEnterStage>
                 </Suspense>
               </AppErrorBoundary>
             )}

@@ -224,7 +224,7 @@ export function collectCharSettings(
         见面轻阅读: anyOn(x => x.dateLightReading),
         观测协议: anyOn(x => x.dateObserve?.enabled),
         彼方自主登入: anyOn(x => x.vrState?.enabled),
-        提示音绑白框: anyOn(x => x.chatSoundBound),
+        离开后消息: anyOn(x => x.awayMessage?.enabled),
         // ── 开关：默认开的，问有没有人特意关掉 ──
         时间感知: anyOn(x => x.timeAwarenessEnabled, true),
         见面时间感知: anyOn(x => x.dateTimeAwarenessEnabled, true),
@@ -540,10 +540,6 @@ export function collectFeatureFlags(src: FeatureSources): Record<string, string>
         彼方独立线路: src.vrIndependentApi ? '配了' : '没配',
 
         // ── 主动消息 2.0 ──
-        // 没报「主动消息 Push 加速」：那一层已经全局下线（proactivePushConfig.ts 的
-        // FORCE_DISABLED，设置面板也藏了），loadPushConfig() 恒返回 enabled=false。
-        // 报出来只会是一片「关」，看着像没人用，其实是被下掉了——这种数据比没有更坏。
-        //
         // 四态（见 amsg2Stage）：三关里卡在哪一关，要修的引导完全不是一回事。
         '主动消息2.0': amsg2Stage(
             Boolean(src.amsg2Global.workerUrl?.trim()),

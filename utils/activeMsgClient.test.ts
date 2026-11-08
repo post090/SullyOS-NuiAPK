@@ -615,6 +615,14 @@ describe('ActiveMsgClient.listRemoteTasksForChar 的版本护栏', () => {
     vi.spyOn(ActiveMsgClient, 'listAllTasks').mockResolvedValue([]);
     await expect(ActiveMsgClient.listRemoteTasksForChar('char-1')).resolves.toEqual([]);
   });
+
+  it('任务全是解不开的（换了 Master Key）→ 不当成老 worker，别劝人重新部署', async () => {
+    vi.spyOn(ActiveMsgClient, 'listAllTasks').mockResolvedValue([
+      { uuid: 'task-a', status: 'pending', error: { code: 'STORED_DATA_UNDECRYPTABLE', message: 'x' } },
+      { uuid: 'task-b', status: 'pending', error: { code: 'STORED_DATA_UNDECRYPTABLE', message: 'x' } },
+    ]);
+    await expect(ActiveMsgClient.listRemoteTasksForChar('char-1')).resolves.toEqual([]);
+  });
 });
 
 // 回归守卫：删角色 / 关闭 2.0 都要把该角色的远端任务清干净——worker 上的任务不随本地
@@ -1398,6 +1406,18 @@ describe('ActiveMsgClient.registerPushSubscription（② 订阅按用户登记�
 
     await expect(ActiveMsgClient.registerPushSubscription()).rejects.toThrow('worker 拒绝了订阅');
   });
+
+  // 真实的 amsg-client 碰到 4xx 只把信封还回来、不抛。之前没看 success，Worker 拒收
+  // （比如订阅地址格式不认）也当登记成功，用户之后一条推送都收不到。
+  it('Worker 回失败信封时同样往外抛，不当成登记成功', async () => {
+    vi.spyOn(ActiveMsgClient, 'ensurePushSubscription').mockResolvedValue(SUB_JSON as any);
+    reiClient.putPushSubscription.mockResolvedValue({
+      success: false,
+      error: { code: 'INVALID_PUSH_SUBSCRIPTION', message: '订阅地址不被接受' },
+    });
+
+    await expect(ActiveMsgClient.registerPushSubscription()).rejects.toThrow('订阅地址不被接受');
+  });
 });
 
 // 回归守卫：换一台 worker 就是换一个空的 D1，而浏览器这侧的订阅一个字都没变——
@@ -2027,6 +2047,49 @@ describe('formatAmsgServerError — 通用后端错误细节透传', () => {
       },
     }, '操作失败');
     expect(text).toBe('服务器内部错误：CLOUD_OWNER_RETIRED: 角色已停用，不能继续写入云端数据');
+  });
+
+  it.each([
+    ['D1_STORAGE_FULL', '云端数据库满了'],
+    ['D1_DAILY_READ_LIMIT', '今天的数据库读取额度用完了'],
+    ['D1_DAILY_WRITE_LIMIT', '今天的数据库写入额度用完了'],
+  ])('%s 换成能照着做的说明，并留下代码方便排查', (code, expected) => {
+    const text = formatAmsgServerError({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: '服务器内部错误',
+        cause: { code, message: 'raw D1 error' },
+      },
+    }, '操作失败');
+    expect(text).toContain(expected);
+    expect(text).toContain(`（${code}）`);
+    expect(text).not.toContain('raw D1 error');
+  });
+
+  it('Worker 解不开旧数据时说清是密钥换了、该点哪个按钮，不甩 WebCrypto 原文', () => {
+    const text = formatAmsgServerError({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: '服务器内部错误',
+        cause: {
+          stage: 'request',
+          name: 'OperationError',
+          message: 'Decryption failed. This could be due to a ciphertext authentication failure, bad padding, incorrect CryptoKey, or another algorithm-specific reason. Input length was 113, output length expected to be 113 for AES-GCM',
+        },
+      },
+    }, '操作失败');
+    expect(text).toContain('Master Key');
+    expect(text).toContain('清空云端数据');
+    expect(text).not.toContain('ciphertext authentication failure');
+  });
+
+  it('新版 Worker 的 STORED_DATA_UNDECRYPTABLE 也给出同一套能照着做的说明', () => {
+    const text = formatAmsgServerError({
+      success: false,
+      error: { code: 'STORED_DATA_UNDECRYPTABLE', message: 'Stored data could not be decrypted with the current AMSG_MASTER_KEY' },
+    }, '操作失败');
+    expect(text).toContain('清空云端数据');
+    expect(text).toContain('（STORED_DATA_UNDECRYPTABLE）');
   });
 
   it('客户端体积预检无 message、只有 code 与 bytes/maxBytes 时也能拼出可读报错', () => {

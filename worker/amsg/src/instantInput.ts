@@ -1,6 +1,7 @@
 /** 一轮即时对话的不可变输入，单独存放以保留 client_state 的大值分块能力。 */
 export const INSTANT_INPUT_NAMESPACE = 'amsg:instant-input';
-export const INSTANT_INPUT_TTL_DAYS = 30;
+// 单条可达数百 KB，保留太久会撑满免费版 D1 的 500 MB；7 天与已结束任务行的保留期一致。
+export const INSTANT_INPUT_TTL_DAYS = 7;
 
 export interface InstantInputRef { namespace: typeof INSTANT_INPUT_NAMESPACE; key: string }
 export interface InstantInputEnvelope { v: 1; charId: string; packedFirePack: string }

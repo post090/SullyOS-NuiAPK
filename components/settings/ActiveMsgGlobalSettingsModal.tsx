@@ -30,6 +30,12 @@ import {
 } from '../../utils/cfProvision';
 import { isAmsgServerVersionAtLeast } from '../../utils/amsgWorkerVersion';
 import { trackEvent } from '../../utils/analytics';
+import {
+  getThirdPartyPushProviderMeta,
+  THIRD_PARTY_PUSH_PROVIDERS,
+  validateThirdPartyPushConfig,
+  type ThirdPartyPushProvider,
+} from '../../utils/amsgThirdPartyPush';
 
 // 满血链路吃满这些 worker 特性（amsg-server 2.6.0-next.4+）。探测不到端点（老部署
 // 404 → null）或缺任何一项，就亮「重新部署」提示——worker 跑在用户自己的账号里，
@@ -146,8 +152,14 @@ const REQUIRED_WORKER_FEATURES = [
 //            定时消息靠它等那一轮结束再生成。
 // 不比版本的话，旧粘贴部署会被误判为最新，问题全在 worker 侧静默发生。
 //
-// 3.1.0-next.1 修复云端数据清单与清理在分块大值与海量收件箱下的内存/CPU 耗尽。
-const REQUIRED_WORKER_VERSION = '3.1.0-next.1';
+// 3.1.0 修复云端数据清单与清理在分块大值与海量收件箱下的内存/CPU 耗尽；投递或某项清理出错时，
+// 其余库存清理照跑；D1 存储满与每日额度用完的报错带机读代码，界面能说清楚原因。
+const REQUIRED_WORKER_VERSION = '3.1.0';
+// 3.2.0-next 给任务占位加了租约令牌，并收紧了入参校验。前端没有用到新能力，门槛保持 3.1.0；
+// Worker 自动更新会带上新版，不必让旧部署重新粘贴。
+// 3.2.0-next.2 把解不开的旧数据报成 STORED_DATA_UNDECRYPTABLE。前端对新旧两种报法都认得，
+// 门槛同样不动。
+const WORKER_VERSION_LAG_ACK = '3.2.0-next.2';
 
 /** 装着打包好的 worker 代码的部署仓库：fork 它 → 在 Cloudflare 连上 → 以后点 Sync fork 更新。 */
 const WORKERS_REPO_URL = 'https://github.com/Tosd0/sullyos-workers';
@@ -246,6 +258,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const [needsSubdomain, setNeedsSubdomain] = useState(false);
   const [desiredSubdomain, setDesiredSubdomain] = useState('');
   const [provisionError, setProvisionError] = useState('');
+  /** 账号里的同名库有旧数据、本机又没旧钥匙：记下是哪个账号，等用户确认清空后接着装。 */
+  const [staleDatabase, setStaleDatabase] = useState<{ accountId?: string } | null>(null);
 
   // 补装更新能力：老办法装的后端里没有 CF_API_TOKEN，点更新会被顶回来。
   // 粘一枚 token 就能就地补上，不用去 Cloudflare 面板。只在真的缺钥匙时才露出来。
@@ -513,6 +527,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
       workerUrl: config.workerUrl,
       serverToken: config.serverToken,
       instantChatEnabled: config.instantChatEnabled,
+      pushMode: config.pushMode,
+      thirdPartyPush: config.thirdPartyPush,
       // 一键部署生成的 Master Key 也要跟着存：这是本地唯一的一份，Worker 那边读不回来。
       masterKey: config.masterKey,
     });
@@ -530,6 +546,82 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
       ...(prev || { userId: '', workerUrl: '' }),
       ...updates,
     }));
+  };
+
+  const handleSwitchPushMode = async (nextMode: 'web-push' | 'third-party') => {
+    if (!config) return;
+    const nextThirdParty = config.thirdPartyPush || { provider: 'wxpusher' as const, token: '' };
+    patchConfig({ pushMode: nextMode, thirdPartyPush: nextThirdParty });
+    await ActiveMsgStore.saveGlobalConfig({
+      instantChatEnabled: config.instantChatEnabled,
+      pushMode: nextMode,
+      thirdPartyPush: nextThirdParty,
+    });
+    if (nextMode === 'web-push' && config.initializedAt) {
+      void ActiveMsgClient.reconcilePushSubscription().catch(() => {});
+    }
+    await refreshPushStatus({ ...config, pushMode: nextMode, thirdPartyPush: nextThirdParty });
+  };
+
+  const handleSelectThirdPartyProvider = async (nextProvider: ThirdPartyPushProvider) => {
+    if (!config) return;
+    const prevTp = config.thirdPartyPush || { provider: 'wxpusher' as const, token: '' };
+    const nextThirdParty = {
+      ...prevTp,
+      provider: nextProvider,
+    };
+    patchConfig({ pushMode: 'third-party', thirdPartyPush: nextThirdParty });
+    await ActiveMsgStore.saveGlobalConfig({
+      instantChatEnabled: config.instantChatEnabled,
+      pushMode: 'third-party',
+      thirdPartyPush: nextThirdParty,
+    });
+    await refreshPushStatus({ ...config, pushMode: 'third-party', thirdPartyPush: nextThirdParty });
+  };
+
+  const handleSaveThirdPartyPush = async () => {
+    if (!config) return;
+    const tp = config.thirdPartyPush || { provider: 'wxpusher' as const, token: '' };
+    const validation = validateThirdPartyPushConfig(tp);
+    if (!validation.ok) {
+      addToast(validation.error || '请填写有效的第三方推送配置。', 'error');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await ActiveMsgStore.saveGlobalConfig({
+        instantChatEnabled: config.instantChatEnabled,
+        pushMode: 'third-party',
+        thirdPartyPush: tp,
+      });
+      if (config.workerUrl?.trim()) {
+        await ActiveMsgClient.registerPushSubscription();
+        await refresh();
+        addToast('第三方推送通道已保存并登记到 Worker。', 'success');
+      } else {
+        await refreshPushStatus({ ...config, pushMode: 'third-party', thirdPartyPush: tp });
+        addToast('第三方推送配置已保存，连接 Worker 后会自动登记。', 'success');
+      }
+      trackEvent('开启通知与推送订阅', { result: 'ok' });
+    } catch (error: any) {
+      addToast(error?.message || '登记第三方推送失败。', 'error');
+      trackEvent('开启通知与推送订阅', { result: readAmsgFailKind(error) });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSendTestPush = async () => {
+    setLoading(true);
+    try {
+      await ActiveMsgClient.sendTestPush();
+      addToast('测试通知已发出，请看手机通知栏是否收到！', 'success');
+    } catch (error: any) {
+      addToast(error?.message || '发送测试通知失败。', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreateSubscription = async () => {
@@ -561,7 +653,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
    * Token 只在这次操作期间留在内存里，成功与否都不落盘。需要长期留着的那一份已经作为
    * secret 写进用户自己的 Worker 了（以后「更新后端」用的就是它）。
    */
-  const handleOneClickDeploy = async (accountId?: string) => {
+  const handleOneClickDeploy = async (accountId?: string, resetExistingDatabase = false) => {
     const token = cfToken.trim();
     if (!token) {
       addToast('先把 Cloudflare API Token 填进来。', 'error');
@@ -571,6 +663,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     setProvisioning(true);
     setProvisionError('');
     setProvisionStep('');
+    setStaleDatabase(null);
     try {
       const vapid = loadPushVapid();
       const result = await provisionAmsgBackend({
@@ -584,6 +677,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
           VAPID_EMAIL: vapid.vapidEmail || undefined,
           AMSG_SERVER_TOKEN: config?.serverToken || undefined,
         },
+        resetExistingDatabase,
         onProgress: (p: ProvisionProgress) => setProvisionStep(p.message),
       });
 
@@ -599,6 +693,12 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
           setNeedsSubdomain(true);
           setProvisionError(result.message);
           trackEvent('一键部署 2.0 后端', { result: '要起子域名' });
+          return;
+        }
+        if (result.code === 'DATABASE_KEY_MISSING') {
+          setStaleDatabase({ accountId });
+          setProvisionError(result.message);
+          trackEvent('一键部署 2.0 后端', { result: '旧库缺密钥' });
           return;
         }
         setProvisionError(result.message);
@@ -620,6 +720,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
         serverToken: secrets.AMSG_SERVER_TOKEN,
         masterKey: secrets.AMSG_MASTER_KEY,
         instantChatEnabled: config?.instantChatEnabled,
+        pushMode: config?.pushMode,
+        thirdPartyPush: config?.thirdPartyPush,
       });
       patchConfig({
         workerUrl: result.workerUrl,
@@ -672,6 +774,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
         workerUrl: config.workerUrl,
         serverToken: config.serverToken,
         instantChatEnabled: config.instantChatEnabled,
+        pushMode: config.pushMode,
+        thirdPartyPush: config.thirdPartyPush,
       });
       const { warnings } = await ActiveMsgClient.connect();
       await refresh();
@@ -960,6 +1064,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
       probe: diagnosticsProbe,
       localPushSubscribed: Boolean(pushStatus?.hasSubscription),
       pushTransport: pushStatus?.transport,
+      pushMode: config.pushMode,
       // 跟任务卡片同一种写法：cron 一分钟一跳，秒位没有意义。
       formatTime: (atMs) => formatTaskTime(atMs),
       tickReport: tickReportResult,
@@ -1187,6 +1292,20 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
           {provisionError ? (
             <p className="text-[11px] leading-relaxed text-rose-600 whitespace-pre-line">{provisionError}</p>
+          ) : null}
+
+          {staleDatabase ? (
+            <button
+              type="button"
+              disabled={provisioning || !cfToken.trim()}
+              onClick={() => {
+                if (!confirm('旧数据库里的数据会全部清掉（已排的主动消息、云端保存的角色状态和凭据），清了找不回来。\n\n确定清空并继续部署吗？')) return;
+                void handleOneClickDeploy(staleDatabase.accountId, true);
+              }}
+              className="w-full py-2.5 rounded-xl text-xs font-bold bg-white border border-rose-300 text-rose-600 active:scale-95 transition-transform disabled:opacity-50"
+            >
+              清空旧数据并继续部署
+            </button>
           ) : null}
 
           <p className="text-[10px] leading-relaxed text-slate-400">
@@ -1681,60 +1800,239 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
         <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3">
           <div className="flex items-center justify-between gap-3">
             <span className="font-bold text-slate-700">
-              {pushStatus?.transport === 'unified-push' ? 'UnifiedPush 通知' : pushStatus?.transport === 'native-poll' ? '内置拉取通知' : '通知权限'}
+              {config.pushMode === 'third-party'
+                ? '第三方推送 App'
+                : pushStatus?.transport === 'unified-push'
+                  ? 'UnifiedPush 通知'
+                  : pushStatus?.transport === 'native-poll'
+                    ? '内置拉取通知'
+                    : '通知与推送通道'}
             </span>
             <span className={`text-xs font-bold ${pushStatus?.hasSubscription ? 'text-emerald-600' : 'text-amber-600'}`}>
               {checkingPush ? '检查中…' : pushCheckError ? '暂时无法检查' : pushStatus?.hasSubscription ? '已开启' : '未开启'}
             </span>
           </div>
-          <p className="text-xs leading-relaxed text-slate-500">
-            这是第二步。只有你真的想让角色在后台主动推送消息时，才需要点。
-          </p>
-          {pushStatus?.transport === 'unified-push' ? (
-            <p className="text-xs leading-relaxed text-slate-500">
-              Android App 通过开放的 UnifiedPush 收消息，不依赖 Firebase 或 Google 服务。
-              ntfy 只负责在后台唤醒本 App，AMSG Worker 仍是你自己部署的那一台。
-            </p>
-          ) : pushStatus?.transport === 'native-poll' ? (
-            <p className="text-xs leading-relaxed text-slate-500">
-              App 没检测到 ntfy，走的是内置定时拉取：每隔约 15 分钟自己去 Worker 取一次主动消息，
-              消息可能晚到十几分钟（系统省电时更久）。推送跟着「排程时所在的设备」走，换了设备要重新保存排程。
-              想即时收到，装一个 ntfy 再点下面的按钮就能切过去。
-            </p>
-          ) : (
-            <p className="text-xs leading-relaxed text-slate-500">
-              推送跟着「排程时所在的设备」走：每条任务到点后，推给保存这条排程时用的那台设备。
-              换了设备（或者换了浏览器）之后，在新设备上把排程重新保存一次，之后的推送就发到这台。
-            </p>
-          )}
-          {pushStatus?.needsDistributor ? (
-            <a
-              href="https://docs.ntfy.sh/subscribe/phone/"
-              target="_blank"
-              rel="noreferrer"
-              className="block text-xs font-bold text-violet-600 underline"
+
+          <div className="grid grid-cols-2 gap-1.5 bg-slate-200/70 p-1 rounded-xl">
+            <button
+              type="button"
+              onClick={() => void handleSwitchPushMode('web-push')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-colors ${
+                config.pushMode !== 'third-party'
+                  ? 'bg-white text-slate-800 shadow-sm'
+                  : 'text-slate-500'
+              }`}
             >
-              想即时收到？安装并打开 ntfy（选择无 Firebase 版本）
-            </a>
-          ) : null}
-          {pushStatus?.detail ? (
-            <p className="text-xs leading-relaxed text-amber-600">{pushStatus.detail}</p>
-          ) : null}
-          {pushCheckError ? (
-            <div role="alert" className="space-y-2 text-xs text-amber-600">
-              <p>{pushCheckError}</p>
-              <button type="button" onClick={() => void refreshPushStatus(config)} className="font-bold underline">
-                重试推送检查
-              </button>
-            </div>
-          ) : null}
-          <button
-            onClick={handleCreateSubscription}
-            disabled={loading}
-            className="w-full py-3 bg-violet-500 text-white font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50"
-          >
-            {loading ? '处理中...' : pushStatus?.transport === 'unified-push' ? '连接 ntfy 并开启通知' : '开启通知与推送'}
-          </button>
+              {pushStatus?.transport === 'unified-push' ? '系统 / ntfy 推送' : pushStatus?.transport === 'native-poll' ? '系统 / 内置拉取' : '网页 / 系统原生推送'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleSwitchPushMode('third-party')}
+              className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-colors ${
+                config.pushMode === 'third-party'
+                  ? 'bg-white text-violet-700 shadow-sm'
+                  : 'text-slate-500'
+              }`}
+            >
+              第三方推送 App
+            </button>
+          </div>
+
+          {config.pushMode === 'third-party' ? (
+            (() => {
+              const tp = config.thirdPartyPush || { provider: 'wxpusher' as const, token: '' };
+              const providerMeta = getThirdPartyPushProviderMeta(tp.provider);
+              const liveValidation = validateThirdPartyPushConfig(tp);
+              const savedAndMatched = Boolean(
+                liveValidation.ok
+                && pushStatus?.hasSubscription
+                && pushStatus?.thirdPartyProvider === providerMeta.id,
+              );
+              const liveDetail = !liveValidation.ok
+                ? liveValidation.error
+                : !config.workerUrl?.trim()
+                  ? '请先填写 Worker 地址。'
+                  : savedAndMatched
+                    ? `第三方推送：${providerMeta.shortLabel}`
+                    : `已填写 ${providerMeta.shortLabel} 配置，请点击下方「保存并登记推送」生效。`;
+              return (
+                <div className="space-y-3">
+                  <p className="text-xs leading-relaxed text-slate-500">
+                    通过手机上的第三方推送 App 转发系统级通知，可绕过老版本 iOS 不支持网页推送（Web Push）的限制，
+                    也不受 Google 推送服务器在国内网络波动的影响。打开 SullyOS 时会自动从云端收件箱拉取完整角色消息。
+                  </p>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block pl-1">
+                      选择推送平台
+                    </label>
+                    <div className="space-y-1.5">
+                      {THIRD_PARTY_PUSH_PROVIDERS.map((item) => {
+                        const selected = providerMeta.id === item.id;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => void handleSelectThirdPartyProvider(item.id as ThirdPartyPushProvider)}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-colors flex items-center justify-between gap-2 ${
+                              selected
+                                ? 'bg-violet-50 border-violet-300 text-violet-900'
+                                : 'bg-white border-slate-200 text-slate-700'
+                            }`}
+                          >
+                            <span className="text-xs font-bold">{item.label}</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                              selected ? 'bg-violet-200/70 text-violet-800' : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {item.badge}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p className="text-[11px] leading-relaxed text-slate-500 bg-white border border-slate-200 rounded-xl px-3 py-2.5">
+                    {providerMeta.helpText}
+                  </p>
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block pl-1">
+                      {providerMeta.tokenLabel}
+                    </label>
+                    <input
+                      type="text"
+                      value={tp.token || ''}
+                      onChange={(e) => patchConfig({
+                        pushMode: 'third-party',
+                        thirdPartyPush: {
+                          ...tp,
+                          provider: providerMeta.id,
+                          token: e.target.value,
+                        },
+                      })}
+                      placeholder={providerMeta.tokenPlaceholder}
+                      autoComplete="off"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-mono"
+                    />
+                  </div>
+
+                  {providerMeta.supportsCustomServer ? (
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block pl-1">
+                        自定义服务器地址（可选，留空用官方服务器）
+                      </label>
+                      <input
+                        type="text"
+                        value={tp.serverUrl || ''}
+                        onChange={(e) => patchConfig({
+                          pushMode: 'third-party',
+                          thirdPartyPush: {
+                            ...tp,
+                            provider: providerMeta.id,
+                            serverUrl: e.target.value,
+                          },
+                        })}
+                        placeholder={providerMeta.defaultServerOrigin || 'https://'}
+                        autoComplete="off"
+                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-mono"
+                      />
+                    </div>
+                  ) : null}
+
+                  {liveDetail ? (
+                    <p className={`text-xs leading-relaxed ${savedAndMatched ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {liveDetail}
+                    </p>
+                  ) : null}
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveThirdPartyPush()}
+                      disabled={loading}
+                      className="flex-1 py-3 bg-violet-500 text-white font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50 text-xs"
+                    >
+                      {loading ? '处理中...' : '保存并登记推送'}
+                    </button>
+                    {isConnected && pushStatus?.hasSubscription ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleSendTestPush()}
+                        disabled={loading}
+                        className="shrink-0 px-3.5 py-3 bg-white border border-slate-300 text-slate-700 font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50 text-xs"
+                      >
+                        发送测试通知
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })()
+          ) : (
+            <>
+              <p className="text-xs leading-relaxed text-slate-500">
+                这是第二步。只有你真的想让角色在后台主动推送消息时，才需要点。
+              </p>
+              {pushStatus?.transport === 'unified-push' ? (
+                <p className="text-xs leading-relaxed text-slate-500">
+                  Android App 通过开放的 UnifiedPush 收消息，不依赖 Firebase 或 Google 服务。
+                  ntfy 只负责在后台唤醒本 App，AMSG Worker 仍是你自己部署的那一台。你也可以切换到上方的「第三方推送 App」使用 WxPusher（推荐）。
+                </p>
+              ) : pushStatus?.transport === 'native-poll' ? (
+                <p className="text-xs leading-relaxed text-slate-500">
+                  App 没检测到 ntfy，走的是内置定时拉取：每隔约 15 分钟自己去 Worker 取一次主动消息，
+                  消息可能晚到十几分钟（系统省电时更久）。推送跟着「排程时所在的设备」走，换了设备要重新保存排程。
+                  想即时收到，装一个 ntfy 再点下面的按钮就能切过去，也可以切换到上方的「第三方推送 App」。
+                </p>
+              ) : (
+                <p className="text-xs leading-relaxed text-slate-500">
+                  推送跟着「排程时所在的设备」走：每条任务到点后，推给保存这条排程时用的那台设备。
+                  换了设备（或者换了浏览器）之后，在新设备上把排程重新保存一次，之后的推送就发到这台。若你的 iOS 版本不支持网页推送，或受网络影响收不到通知，可切换到上方的「第三方推送 App」。
+                </p>
+              )}
+              {pushStatus?.needsDistributor ? (
+                <a
+                  href="https://docs.ntfy.sh/subscribe/phone/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block text-xs font-bold text-violet-600 underline"
+                >
+                  安装并打开 ntfy（选择无 Firebase 版本）
+                </a>
+              ) : null}
+              {pushStatus?.detail ? (
+                <p className="text-xs leading-relaxed text-amber-600">{pushStatus.detail}</p>
+              ) : null}
+              {pushCheckError ? (
+                <div role="alert" className="space-y-2 text-xs text-amber-600">
+                  <p>{pushCheckError}</p>
+                  <button type="button" onClick={() => void refreshPushStatus(config)} className="font-bold underline">
+                    重试推送检查
+                  </button>
+                </div>
+              ) : null}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCreateSubscription}
+                  disabled={loading}
+                  className="flex-1 py-3 bg-violet-500 text-white font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50"
+                >
+                  {loading ? '处理中...' : pushStatus?.transport === 'unified-push' ? '连接 ntfy 并开启通知' : '开启通知与推送'}
+                </button>
+                {isConnected && pushStatus?.hasSubscription ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleSendTestPush()}
+                    disabled={loading}
+                    className="shrink-0 px-3.5 py-3 bg-white border border-slate-300 text-slate-700 font-bold rounded-2xl active:scale-95 transition-transform disabled:opacity-50 text-xs"
+                  >
+                    发送测试通知
+                  </button>
+                ) : null}
+              </div>
+            </>
+          )}
         </div>
 
         {/* 即时对话：聊天本身也交给云端跑。四道门缺一不可，缺哪道就把哪道写出来——
