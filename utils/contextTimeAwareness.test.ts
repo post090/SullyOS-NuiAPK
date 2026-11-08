@@ -63,6 +63,7 @@ describe('时间块的分寸框定', () => {
                 date: '2026-11-03',
                 slots: [{ id: 's1', startTime: '08:00', activity: '晨跑', completed: false }],
                 createdAt: 1,
+                generatedAt: 1,
             }),
             { skipTimeAwareness: true },
         );

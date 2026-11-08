@@ -2,7 +2,6 @@ import React,{useEffect,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import Home3DView from '../../apps/room3d/Home3DView';
 import {createHome} from '../../apps/room3d/model.js';
-// @ts-expect-error Runtime showroom fixture helper.
 import {furnishShowroom} from '../../apps/room3d/showrooms.js';
 import {testCharacter} from './room3d-test-character';
 import {DB} from '../../utils/db';

@@ -1,21 +1,17 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {stubLocalWardrobeAssets} from '../test/fixtures/localWardrobeAssets';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
 import {dressApprovedWardrobe,prepareApprovedWardrobe} from '../apps/room3d/chibi/approvedClothing';
 import {prepareHoodie} from '../apps/room3d/chibi/hoodieClothes';
 
 function setup(){
- vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{
-  const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);
-  return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
- });
+ stubLocalWardrobeAssets();
  const root=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group();root.add(body,hair);
  return {root,rig:bindBlankBody(body,hair,true)};
 }
-afterEach(()=>vi.restoreAllMocks());
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 describe('wardrobe preparation on a live body',()=>{
  it('keeps the visible outfit, pose, skin and shoe support until an explicit swap',async()=>{
   const {rig,root}=setup(),base=rig.baseGeometry,index=Array.from(base.index!.array);
@@ -47,7 +43,7 @@ describe('wardrobe preparation on a live body',()=>{
  });
  it('leaves the live outfit intact when a new asset fails to load',async()=>{
   const {rig,root}=setup(),old=await dressApprovedWardrobe(rig,{top:'stand-collar'}),skin=rig.mesh.geometry,children=[...root.children];
-  vi.mocked(GLTFLoader.prototype.loadAsync).mockRejectedValueOnce(new Error('asset unavailable'));
+  vi.mocked(fetch).mockRejectedValueOnce(new Error('asset unavailable'));
   await expect(prepareApprovedWardrobe(rig,{top:'basic-tee'})).rejects.toThrow('asset unavailable');
   expect(rig.mesh.geometry).toBe(skin);expect(root.children).toEqual(children);old.dispose();
  });

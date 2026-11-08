@@ -61,7 +61,7 @@ it('standing rhythm alternates independent heights quickly and lights only conta
  const room={id:'r',items:gamingPreset('rhythm',catalog),walls:[],doors:[]},acts=gamingActivities(room,catalog,{body2:true});
  for(const act of acts){let staggered=0;const lit=new Set<string>();
  for(let i=0;i<120;i++){const beat=rhythmFrame(act,i*.025)!;if(Math.abs(beat.hands[0][1]-beat.hands[1][1])>.2)staggered++;
- for(const key of beat.keys){lit.add(key);const entry=act.rhythmStanding!.flat().find(p=>p.key===key)!;expect(Math.min(...beat.hands.map(p=>Math.hypot(...p.map((v,k)=>v-entry.point[k]))))).toBeLessThan(.001);}}
+ for(const key of beat.keys.map(key=>String(key))){lit.add(key);const entry=act.rhythmStanding!.flat().find(p=>p.key===key)!;expect(Math.min(...beat.hands.map(p=>Math.hypot(...p.map((v,k)=>v-entry.point[k]))))).toBeLessThan(.001);}}
  expect(staggered).toBeGreaterThan(30);expect(lit.size).toBeGreaterThanOrEqual(4);
  }
 });

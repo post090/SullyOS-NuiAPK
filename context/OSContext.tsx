@@ -715,6 +715,7 @@ const defaultApiConfig: APIConfig = {
     baseUrl: '',
     apiKey: '',
     model: '',
+    imageQuality: 'original',
   },
   audioApi: {
     enabled: false,

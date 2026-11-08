@@ -1,6 +1,7 @@
 import {expect,it} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
-import {createHome} from '../apps/room3d/model.js';
+import catalogData from '../public/room3d/catalog.json';
+import {createHome,type HomeAsset} from '../apps/room3d/model.js';
+const catalog=catalogData as HomeAsset[];
 import {createPetLife} from '../apps/room3d/petLife.js';
 import {petHomeRecord} from './homePetRecords';
 import {ContextBuilder} from './context';
@@ -9,7 +10,7 @@ import {loadCharacterContextMessages} from './chatContextRange';
 import {buildChatRequestPayload} from './chatRequestPayload';
 import type {CharacterProfile,UserProfile} from '../types';
 const user={name:'小雨'} as UserProfile;
-function setup(){const home=createHome(catalog);home.rooms[0].items=[];home.rooms[0].name='宠物活动室';home.records=[];const life=createPetLife({home:()=>home,catalog,onEvent:(event:any)=>{const record=petHomeRecord(event,home,user.name);if(record)home.records.push(record);}});life.data.autonomy=false;return {home,life};}
+function setup(){const home=createHome(catalog);home.rooms[0].items=[];home.rooms[0].name='宠物活动室';home.records=[];const life=createPetLife({home:()=>home,catalog,onEvent:(event:any)=>{const record=petHomeRecord(event,home,user.name);if(record){const records=home.records;if(!records)throw new Error('missing home records');records.push(record);}}});life.data.autonomy=false;return {home,life};}
 it('injects current pet names and species through the shared ContextBuilder, without leaking other homes',async ()=>{
  const {home,life}=setup();const p=life.adopt('pet_cat','年糕');life.adopt('pet_dog','布丁');const char={id:'pet-owner',name:'Sully',home3D:home,timeAwarenessEnabled:false} as CharacterProfile;
  const build=async ()=>(await ContextBuilder.buildCoreContext(char,user));

@@ -28,7 +28,7 @@ export function choosePetAction(candidates,pet,random=Math.random){
  let ticket=random()*weighted.reduce((n,c)=>n+c.score,0);return weighted.find(c=>(ticket-=c.score)<=0)||weighted.at(-1);
 }
 
-export function createPetLife({home,catalog,changed=()=>{},random=Math.random,actors=()=>[],onEvent=()=>{},getHour=()=>new Date().getHours()}){
+export function createPetLife({home,catalog,changed=()=>{},random=Math.random,actors=()=>[],onEvent=(event)=>{},getHour=()=>new Date().getHours()}){
  const sleepCooldown=new Map(),removedPets=[];
  const data=normalizePetLife(home().petLife,home(),catalog),runtime=new Map(),maps=new Map();let clock=0,lastSave=0;
  const roomFor=p=>home().rooms.find(r=>r.id===p.roomId);

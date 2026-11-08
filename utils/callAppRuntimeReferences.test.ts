@@ -48,7 +48,7 @@ describe('CallApp runtime references', () => {
     const preferenceSource = readFileSync(path.resolve(__dirname, './callPreferences.ts'), 'utf8');
     const preferenceSheetSource = readFileSync(path.resolve(__dirname, '../components/call/CallPreferencesSheet.tsx'), 'utf8');
 
-    expect(source).toContain("onFinal: (t) => {");
+    expect(source).toContain("onFinal: (t: string) => {");
     expect(source).toContain("await requestAssistantReply(modelInput, userDbId, pendingTouchesForTurn, true, userCameraSnapshotForTurn, audioBlob)");
     expect(source).toContain("{sendingBusy ? '…' : '说'}");
     expect(source).toMatch(/const beginSelectedCall[\s\S]*?setViewMode\('in-call'\);\s+setCallStartedAt\(Date\.now\(\)\);\s+setCallState\('listening'\);/);

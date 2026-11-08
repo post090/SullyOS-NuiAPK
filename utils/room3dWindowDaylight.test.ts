@@ -1,5 +1,7 @@
 import {describe,it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {createHome,addRoom} from '../apps/room3d/model.js';
 import {snapToWall} from '../apps/room3d/wallMount.js';
 import {windowDaylightSources} from '../apps/room3d/windowDaylight.js';

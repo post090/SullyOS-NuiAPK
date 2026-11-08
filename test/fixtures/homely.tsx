@@ -27,7 +27,7 @@ const home=createStarterHome(catalog,'sage');
 home.rooms.forEach((room,index)=>{room.id=`qa-homely-room-${index}`;});
 home.activeRoomId=home.rooms[0].id;
 home.records=[{id:'homely-qa-u',at:Date.now()-3000,kind:'message',source:'user',actor:'user',text:'我回来啦。',roomId:home.activeRoomId,roomName:'客厅'}, {id:'homely-qa-a',at:Date.now()-2000,kind:'message',source:'model',actor:'character',text:'欢迎回来。\n今天过得怎么样？',replyTo:'homely-qa-u',roomId:home.activeRoomId,roomName:'客厅'}];
-const initial={id:'qa-homely-preview',name:'Sully',avatar:'',systemPrompt:'自然地聊天。',scheduleFeatureEnabled:true,timeAwarenessEnabled:false,homeDefinition:{kind:'virtual',notes:''},chibiStudio:{home3D:{state:testCharacter.state,hair:{bodyShape:'blank',layers:{},extras:[]}}},home3D:home} as CharacterProfile;
+const initial={id:'qa-homely-preview',name:'Sully',avatar:'',description:'',memories:[],systemPrompt:'自然地聊天。',scheduleFeatureEnabled:true,timeAwarenessEnabled:false,homeDefinition:{kind:'virtual',notes:''},chibiStudio:{home3D:{state:testCharacter.state,hair:{bodyShape:'blank',layers:{},extras:[]}}},home3D:home} as CharacterProfile;
 await DB.saveCharacter(initial);
 const date=getLocalDateKey(new Date());
 await DB.saveDailySchedule({id:initial.id+'_'+date,charId:initial.id,date,generatedAt:Date.now(),slots:[{startTime:'00:00',activity:'在家自由活动',homePosition:{kind:'home',roomId:home.activeRoomId}}]} as any);
@@ -64,7 +64,7 @@ function Preview(){
   return()=>clearInterval(timer);
  },[editor]);
  useEffect(()=>{if(!qa||!editor)return;const timer=setInterval(()=>{const s=editor.inspect?.() as {homelyAttention?:unknown;musicSway?:number;zoom?:number}|undefined;setPresence(JSON.stringify({attention:s?.homelyAttention,sway:s?.musicSway,zoom:s?.zoom}));},500);return()=>clearInterval(timer);},[qa,editor]);
- const inspect=()=>{const s=editor?.inspect();setReport(JSON.stringify({scene:editor?.getHomeScene(),companion:editor?.getCompanionSnapshot?.(),autonomy:editor?.getState().autonomy,gestures:s?.cameraGestures,residents:s?.social,position:s?.chibiPosition,posture:s?.chibiPosture,responseMotion:s?.responseMotion,touch:s?.lastHomelyTouch}));};
+ const inspect=()=>{const s=editor?.inspect?.() as {cameraGestures?:unknown;social?:unknown;chibiPosition?:unknown;chibiPosture?:unknown;responseMotion?:unknown;lastHomelyTouch?:unknown}|undefined;setReport(JSON.stringify({scene:editor?.getHomeScene(),companion:editor?.getCompanionSnapshot?.(),autonomy:editor?.getState().autonomy,gestures:s?.cameraGestures,residents:s?.social,position:s?.chibiPosition,posture:s?.chibiPosture,responseMotion:s?.responseMotion,touch:s?.lastHomelyTouch}));};
  const updateCharacter=(id:string,updates:any)=>{if(id!==initial.id)return;setCharacter(previous=>{const next={...previous,...(typeof updates==='function'?updates(previous):updates)};void DB.saveCharacter(next);return next;});};
  return <OSPreviewProvider value={{...os,characters:[character],activeCharacterId:character.id,setActiveCharacterId:()=>{},updateCharacter,activeApp,openApp:setActiveApp,closeApp:()=>setActiveApp(AppID.Launcher),isLocked:false,isDataLoaded:true,apiConfig:mockApi,customIcons:{},theme:previewTheme,updateTheme:async updates=>{setPreviewTheme(previous=>({...previous,...updates}));},userProfile:{...os.userProfile,name:'你'},groups:[]}}>
   {activeApp===AppID.Launcher?<HomelyHome key={entryKey} onEditor={setEditor}/>:<PhoneShell/>}

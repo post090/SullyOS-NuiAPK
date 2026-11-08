@@ -1,7 +1,6 @@
 import {afterEach,describe,it,expect,vi} from 'vitest';
-import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {stubLocalWardrobeAssets} from '../test/fixtures/localWardrobeAssets';
 import {fitGarmentHem} from '../apps/room3d/chibi/garmentHem';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
@@ -69,7 +68,7 @@ describe('upper hem waistband clearance',()=>{
  });
  it.each(['sailor-skirt','lower-long-skirt','lower-shorts'])('preserves the roomy cardigan corners over %s in the complete layering pipeline',async bottom=>{
   vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const root=new T.Group(),hair=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial());root.add(body,hair);const rig=bindBlankBody(body,hair,true),items={top:'sailor-short',outer:'slouch-cardigan',bottom};
   const original=await dressApprovedWardrobe(rig,items),source=original.meshes.filter(m=>m.userData.garmentId===items.outer).map(m=>m.geometry.clone());original.dispose();
   const fitted=await dressApprovedWardrobe(rig,items,{},{},true);let hemVertices=0,moved=0,preservedCorners=0,cornerVertices=0;
@@ -88,7 +87,7 @@ describe('upper hem waistband clearance',()=>{
  });
  it('does not turn the short sailor hem into a wide shelf over straight trousers',async()=>{
   vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const root=new T.Group(),hair=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial());root.add(body,hair);const rig=bindBlankBody(body,hair,true),items={top:'sailor-short',bottom:'lower-straight'};
   const original=await dressApprovedWardrobe(rig,items),source=original.meshes.map(m=>m.geometry.clone());original.dispose();
   const fitted=await dressApprovedWardrobe(rig,items,{},{},true);let maxSideMovement=0;
@@ -101,7 +100,7 @@ describe('upper hem waistband clearance',()=>{
  });
  it('uses the saved pairing in the shared runtime clothing loader',async()=>{
   vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const root=new T.Group(),hair=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial());root.add(body,hair);const rig=bindBlankBody(body,hair,true);
   for(const [bottom,opening] of [['lower-long-skirt',40],['lower-straight',0]] as const){
    const items={top:'basic-tee',bottom},expected=await dressApprovedWardrobe(rig,items,{'basic-tee':{hemOpening:opening}});
@@ -119,7 +118,7 @@ describe('upper hem waistband clearance',()=>{
  });
  it.each(['sailor-skirt','lower-long-skirt','lower-cargo'])('fits a real T-shirt over %s and restores exactly when disabled',async bottom=>{
   vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const root=new T.Group(),hair=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial());root.add(body,hair);const rig=bindBlankBody(body,hair,true),items={top:'basic-tee',bottom};
   const original=await dressApprovedWardrobe(rig,items),source=original.meshes.map(m=>m.geometry.clone());original.dispose();
   const fitted=await dressApprovedWardrobe(rig,items,{},{},true);expect(fitted.layeringReport!.hemAdjustedGarments).toBe(1);

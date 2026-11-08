@@ -1,5 +1,4 @@
 import type {IncomingMessage, ServerResponse} from 'node:http';
-// @ts-expect-error Shared runtime entry is JavaScript.
 import {handleTikHub} from '../worker/index.js';
 
 /** Dev uses exactly the same allowlist/timeout/redaction as the production Worker. */

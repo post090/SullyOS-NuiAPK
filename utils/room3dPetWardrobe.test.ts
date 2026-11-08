@@ -2,14 +2,17 @@ import {describe,it,expect} from 'vitest';
 import * as T from 'three';
 import fs from 'node:fs';
 import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
-import catalog from '../public/room3d/catalog.json';
+import catalogData from '../public/room3d/catalog.json';
 import {createHome} from '../apps/room3d/model.js';
+import type {HomeAsset} from '../apps/room3d/model.js';
+import type {HomePet} from '../apps/room3d/types';
+const catalog=catalogData as HomeAsset[];
 import {createPetLife,normalizePetLife} from '../apps/room3d/petLife.js';
 import {attachPetHat} from '../apps/room3d/petHatModel.js';
 describe('pet wardrobe',()=>{
  it('keeps hats independent, persists through restore/undo, and rejects unknown imported hats',()=>{
-  const home=createHome(catalog),life=createPetLife({home:()=>home,catalog}),a=life.adopt('pet_hamster','圆圆'),b=life.adopt('pet_jellyfish','啵啵');
-  a.hat='witch';b.hat='pumpkin';life.save();const saved=JSON.parse(JSON.stringify(home.petLife));life.restore(saved);expect(life.data.pets.map(p=>p.hat)).toEqual(['witch','pumpkin']);
+  const home=createHome(catalog),life=createPetLife({home:()=>home,catalog}),a=life.adopt('pet_hamster','圆圆') as HomePet,b=life.adopt('pet_jellyfish','啵啵') as HomePet;
+  a.hat='witch';b.hat='pumpkin';life.save();const saved=JSON.parse(JSON.stringify(home.petLife));life.restore(saved);expect(life.data.pets.map((p:HomePet)=>p.hat)).toEqual(['witch','pumpkin']);
   life.remove(a.id);expect(life.undoRemove().hat).toBe('witch');saved.pets[0].hat='remote-url';expect(normalizePetLife(saved,home,catalog).pets[0].hat).toBeNull();delete saved.pets[1].hat;expect(normalizePetLife(saved,home,catalog).pets[1].hat).toBeNull();
  });
  it('fits both hats above every real pet face and follows parent motion without altering source geometry',async()=>{

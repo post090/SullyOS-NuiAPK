@@ -1,6 +1,8 @@
 import {describe,it,expect} from 'vitest';
 import fs from 'node:fs';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {createHome,validateHome,moveFurniture} from '../apps/room3d/model.js';
 import {addShowroom} from '../apps/room3d/showrooms.js';
 import {USE_BY_ID} from '../apps/room3d/furnitureCatalog.js';
@@ -13,7 +15,7 @@ describe('reference living room',()=>{
   for(const a of assets){expect(USE_BY_ID[a.id]).toBeTruthy();const b=fs.readFileSync('public/room3d/'+a.url),g=JSON.parse(b.subarray(20,20+b.readUInt32LE(12)).toString());
    expect(g.images?.length||0).toBe(0);expect(g.textures?.length||0).toBe(0);let n=0;
    for(const m of g.meshes)for(const p of m.primitives){n+=g.accessors[p.indices].count/3;expect(Object.keys(p.attributes).sort()).toEqual(['NORMAL','POSITION']);}
-   expect(n,a.id).toBeLessThan(4000);for(const name of a.paintMaterials)expect(g.materials.some(m=>m.name===name)).toBe(true);
+   expect(n,a.id).toBeLessThan(4000);for(const name of a.paintMaterials!)expect(g.materials.some((m:{name:string})=>m.name===name)).toBe(true);
   }
  });
  it('keeps sofa seats, supported television and outward-wall daylight through saves',()=>{

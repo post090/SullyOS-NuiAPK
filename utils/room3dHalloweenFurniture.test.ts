@@ -1,7 +1,10 @@
 import {describe,it,expect} from 'vitest';
 import fs from 'node:fs';
 import {createHash} from 'node:crypto';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+type HalloweenAsset=HomeAsset&{textureSource?:string;materialStyle?:string};
+const catalog = catalogJson as HalloweenAsset[];
 import {createHome,placementError,validateHome} from '../apps/room3d/model.js';
 import {addShowroom} from '../apps/room3d/showrooms.js';
 import {USE_BY_ID} from '../apps/room3d/furnitureCatalog.js';
@@ -22,14 +25,14 @@ describe('Halloween furniture',()=>{
    expect(a.textureSource).toBe('meshy-reference');expect(a.materialStyle).toBe('pbr');
    for(const sampler of g.samplers)expect(sampler.minFilter,a.id).toBe(9729);
    for(const mesh of g.meshes)for(const p of mesh.primitives){triangles+=g.accessors[p.indices].count/3;expect(p.attributes.TEXCOORD_0,a.id).toBeDefined();expect(p.attributes.COLOR_0,a.id).toBeUndefined();expect(g.materials[p.material].pbrMetallicRoughness.baseColorTexture,a.id).toBeDefined();}
-   expect(triangles,a.id).toBeLessThanOrEqual(8000);for(const name of a.paintMaterials)expect(g.materials.some(m=>m.name===name),a.id+name).toBe(true);
+   expect(triangles,a.id).toBeLessThanOrEqual(8000);for(const name of a.paintMaterials!)expect(g.materials.some((m:{name:string})=>m.name===name),a.id+name).toBe(true);
   }
   expect(totalBytes).toBeLessThan(5_000_000);
  });
  it('adds a complete room atomically and preserves independent lantern support through save/load',()=>{
   const home=createHome(catalog),before=structuredClone(home.rooms[0]),room=addShowroom(home,'halloween',catalog);expect(home.rooms[0]).toEqual(before);expect(room.items).toHaveLength(12);
   for(const i of room.items)expect(placementError(i,room,catalog),i.assetId).toBe('');
-  const lamp=room.items.find(i=>i.assetId==='halloween_pumpkin_lantern');expect(room.items.find(i=>i.id===lamp.supportId)?.assetId).toBe('halloween_haunted_fireplace');
+  const lamp=room.items.find(i=>i.assetId==='halloween_pumpkin_lantern');expect(room.items.find(i=>i.id===lamp!.supportId)?.assetId).toBe('halloween_haunted_fireplace');
   expect(validateHome(JSON.parse(JSON.stringify(home)),catalog)).toEqual(home);
  });
  it('leaves a standing entry in front of every seat for the large body',()=>{

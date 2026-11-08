@@ -1,9 +1,10 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
 import * as T from 'three';
 import pairs from '../apps/room3d/chibi/photoPairCatalog.json';
-const mocks=vi.hoisted(()=>({load:vi.fn(),create:vi.fn()}));
+const mocks=vi.hoisted(()=>({load:vi.fn(),create:vi.fn(),social:vi.fn()}));
 vi.mock('../apps/room3d/chibi/photoPairPose',async()=>({photoPairs:(await import('../apps/room3d/chibi/photoPairCatalog.json')).default,createPhotoPairPose:mocks.create}));
-vi.mock('../apps/room3d/photoLibrary',()=>({photoLibrary:[],loadPhotoClip:mocks.load}));
+vi.mock('../apps/room3d/chibi/selectedSocial',()=>({createSocialScene:mocks.social}));
+vi.mock('../apps/room3d/photoLibrary',()=>({photoLibrary:[{id:'social-wave',duration:2,participants:1}],loadPhotoClip:mocks.load}));
 import {createPhotoSession} from '../apps/room3d/photoSession.js';
 afterEach(()=>vi.clearAllMocks());
 function fixture(){
@@ -22,6 +23,13 @@ describe('photo-only pair lifetime',()=>{
   await session.pose('0','idle');expect(roots.map(r=>r.position.toArray())).toEqual(before.map(p=>p.toArray()));
   const calls=pose.mock.calls.length;session.camera({yaw:45});expect(pose).toHaveBeenCalledTimes(calls);
   session.restore();expect(camera.position.toArray()).toEqual([3,4,8]);expect(actors[0].person.setPhotoExpression).toHaveBeenLastCalledWith('open','base');
+ });
+ it('shares a pending social start and applies the last requested action time',async()=>{
+  let resolve!:()=>void;const start=vi.fn(()=>new Promise<void>(r=>resolve=r)),seek=vi.fn(),cancel=vi.fn();
+  mocks.social.mockReturnValue({start,seek,cancel,inspect:()=>({session:{duration:10}})});
+  const {session}=fixture(),first=session.interaction('social-wave','0','1',.5),second=session.interaction('social-wave','0','1',1.5);
+  expect(start).toHaveBeenCalledOnce();expect(seek).not.toHaveBeenCalled();resolve();await Promise.all([first,second]);
+  expect(start).toHaveBeenCalledOnce();expect(seek).toHaveBeenCalledTimes(2);expect(seek.mock.calls[0][0]).toBeCloseTo(7.9);expect(seek.mock.calls[1][0]).toBeCloseTo(8.9);
  });
  it('cannot resurrect a delayed loaded pair after exit or a newer single action',async()=>{
   for(const exit of [false,true]){

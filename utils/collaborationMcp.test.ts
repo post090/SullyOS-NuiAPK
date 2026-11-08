@@ -1,4 +1,4 @@
-import {beforeEach,afterEach,expect,it,vi} from 'vitest';
+import {beforeEach,afterEach,expect,it,vi,type MockInstance} from 'vitest';
 import * as mcp from './mcpClient';
 import * as api from './safeApi';
 import {runCollaborationTurn} from '../features/collaboration/engine';
@@ -9,11 +9,11 @@ const messages=[{id:'u',sessionId:'s',role:'user' as const,content:'查看仓库
 const server=(id:string,charIds?:string[]):mcp.McpServerConfig=>({id,name:id,url:'https://tools.example/'+id,enabled:true,charIds,token:'tool-secret',updatedAt:1,tools:[{name:'read.file',description:'读取文件',inputSchema:{type:'object',properties:{path:{type:'string'}},required:['path']}}]});
 const answer=(content:string)=>({choices:[{message:{role:'assistant',content}}]});
 const native=(name:string,args='{"path":"README.md"}')=>({choices:[{message:{content:'我看看仓库。',tool_calls:[{id:'',type:'function',function:{name,arguments:args}}]}}]});
-let request:ReturnType<typeof vi.spyOn>,tool:ReturnType<typeof vi.spyOn>;
+let request:MockInstance<typeof api.safeFetchJson>,tool:MockInstance<typeof mcp.callMcpTool>;
 beforeEach(()=>{localStorage.removeItem('aetheros.mcp.servers');mcp.setMcpUseNativeTools(true);mcp.saveMcpServers([server('github',['char-a'])]);request=vi.spyOn(api,'safeFetchJson');tool=vi.spyOn(mcp,'callMcpTool').mockResolvedValue({success:true,data:{text:'README 内容来自工具'}});});
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 const turn=(extra={})=>runCollaborationTurn({profile,contextSnapshot:'当前协同任务',messages,characterId:'char-a',userName:'用户',...extra});
-const body=(index:number)=>JSON.parse(request.mock.calls[index][1].body);
+const body=(index:number)=>JSON.parse(String(request.mock.calls[index]![1].body));
 const name=()=>buildMcpOpenAITools('char-a').tools[0].function.name;
 
 it('executes real mapped tools, returns linked results, and only exposes the final reply',async()=>{
@@ -23,7 +23,7 @@ it('executes real mapped tools, returns linked results, and only exposes the fin
  expect(reply.content).toBe('读到了 README。');expect(body(0).tools).toHaveLength(1);expect(body(0).thinking).toBeUndefined();expect(JSON.stringify(body(0))).not.toContain('tool-secret');
  expect(tool).toHaveBeenCalledWith(expect.objectContaining({id:'github'}),'read.file',{path:'README.md'},abort.signal);
  const history=body(1).messages,result=history.find((m:any)=>m.role==='tool');expect(result.name).toBe(name());expect(result.tool_call_id).toBeTruthy();expect(result.content).toContain('README 内容来自工具');
- expect(delta.mock.calls).toEqual([['读到了 README。']]);expect(request.mock.calls[0][5]).toBeUndefined();expect(status).toHaveBeenCalledWith(expect.stringContaining('github'));
+ expect(delta.mock.calls).toEqual([['读到了 README。']]);expect(request.mock.calls[0]?.[5]).toBeUndefined();expect(status).toHaveBeenCalledWith(expect.stringContaining('github'));
 });
 it('supports text compatibility mode without probing native tools first',async()=>{
  mcp.setMcpUseNativeTools(false);request.mockResolvedValueOnce(answer(`${name()}({"path":"README.md"})`)).mockResolvedValueOnce(answer('读取成功。'));
@@ -51,7 +51,7 @@ it('does not reexecute identical requests in stalled rounds',async()=>{
 });
 it('preserves ordinary streaming and thinking when no tools are available for the character',async()=>{
  request.mockResolvedValueOnce(answer('正常回复'));const delta=vi.fn();await turn({characterId:'char-b',thinkingEnabled:true,onDelta:delta});
- expect(body(0).tools).toBeUndefined();expect(body(0).thinking).toBeTruthy();expect(request.mock.calls[0][5]).toBeTruthy();expect(tool).not.toHaveBeenCalled();
+ expect(body(0).tools).toBeUndefined();expect(body(0).thinking).toBeTruthy();expect(request.mock.calls[0]?.[5]).toBeTruthy();expect(tool).not.toHaveBeenCalled();
 });
 it('caps progressing calls and refuses to deliver another call as a completed answer',async()=>{
  let index=0;request.mockImplementation(async()=>native(name(),JSON.stringify({path:`file-${index++}`})));

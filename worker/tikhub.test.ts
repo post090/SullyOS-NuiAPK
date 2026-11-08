@@ -1,5 +1,4 @@
 import {afterEach, expect, it, vi} from 'vitest';
-// @ts-expect-error Plain JavaScript Worker runtime.
 import worker from './index.js';
 afterEach(() => vi.unstubAllGlobals());
 it('retires the paid route for old clients without forwarding any request or credential', async () => {

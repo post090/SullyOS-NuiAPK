@@ -1,5 +1,7 @@
 import {describe,it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {createHome,addRoom,validateHome} from '../apps/room3d/model.js';
 import {wallFinishPanels} from '../apps/room3d/finishes.js';
 import {setBoundary} from '../apps/room3d/topology.js';

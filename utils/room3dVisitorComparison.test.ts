@@ -14,7 +14,7 @@ describe('Waiting actor clearance',()=>{
   for(const parent of [waiting,active,waiting]){parent.add(root);expect(visitorFootprintWidth(visitor)).toBeCloseTo(1.68,5);}
   geometry.dispose();mesh.material.dispose();skeleton.dispose();
  });
- const base={offset:[10,20],width:1.8,activeWidth:1.6,active:[0,.18,2]};
+ const base={offset:[10,20] as [number,number],width:1.8,activeWidth:1.6,active:[0,.18,2]};
  it('reserves a separate footprint and checks furniture in world coordinates',()=>{
   const calls:number[][]=[];
   const map={free:(x:number,z:number)=>{calls.push([x,z]);return x>9&&z>19;}};
@@ -25,7 +25,7 @@ describe('Waiting actor clearance',()=>{
   expect(Math.abs(point[0])+base.width/2).toBeLessThan(ROOM_HALF.x);
  });
  it('keeps a valid waiting position, relocates a blocked one, and never forces a placement',()=>{
-  const preferred=[-2,.18,0],free={free:()=>true};
+  const preferred:[number,number,number]=[-2,.18,0],free={free:()=>true};
   expect(comparisonSpot(free,{...base,preferred})).toBe(preferred);
   expect(comparisonSpot(free,{...base,preferred:[0,.18,2]})).not.toEqual([0,.18,2]);
   expect(comparisonSpot({free:()=>false},{...base,preferred})).toBeNull();

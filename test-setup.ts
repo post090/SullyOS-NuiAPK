@@ -9,6 +9,26 @@
  */
 
 import 'fake-indexeddb/auto';
+import { Blob as NodeBlob, File as NodeFile } from 'node:buffer';
+
+// Node's structuredClone (used by fake-indexeddb) cannot clone jsdom Blobs.
+// Keep binary storage on Node Blobs; bridge FileReader back to jsdom so its
+// native event/result semantics remain available to component tests.
+if (typeof window !== 'undefined') {
+  const DomBlob = globalThis.Blob;
+  const DomFileReader = globalThis.FileReader;
+  class StorageFileReader extends DomFileReader {
+    private readBlob(blob: Blob, read: (value: Blob) => void): void {
+      if (DomBlob.prototype.isPrototypeOf(blob)) { read(blob); return; }
+      void blob.arrayBuffer().then(bytes => read(new DomBlob([bytes], { type: blob.type })));
+    }
+    override readAsDataURL(blob: Blob): void { this.readBlob(blob, value => super.readAsDataURL(value)); }
+    override readAsArrayBuffer(blob: Blob): void { this.readBlob(blob, value => super.readAsArrayBuffer(value)); }
+    override readAsText(blob: Blob, encoding?: string): void { this.readBlob(blob, value => super.readAsText(value, encoding)); }
+    override readAsBinaryString(blob: Blob): void { this.readBlob(blob, value => super.readAsBinaryString(value)); }
+  }
+  Object.assign(globalThis, { Blob: NodeBlob, File: NodeFile, FileReader: StorageFileReader });
+}
 
 // jsdom does not implement native dialog methods. Match the open/close contract
 // for component tests; real top-layer layout/focus is verified in browser fixtures.

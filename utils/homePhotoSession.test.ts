@@ -7,7 +7,7 @@ describe('temporary photo staging',()=>{
   const controls={target:new THREE.Vector3(1,2,3)};
   const a=new THREE.Group(),b=new THREE.Group(),bone=new THREE.Object3D();a.add(bone);a.position.set(-1,.18,2);b.position.set(2,.18,4);bone.rotation.x=.3;
   const person={animate:vi.fn(()=>{bone.rotation.x=2;}),finishPose:vi.fn()};
-  const session=createPhotoSession({actors:[{id:'a',label:'A',root:a,person},{id:'b',label:'B',root:b,person}],camera,controls,invalidate:vi.fn()});
+  const session=createPhotoSession({actors:[{id:'a',label:'A',root:a,person},{id:'b',label:'B',root:b,person}],camera,controls,invalidate:vi.fn(),canInteract:()=>true});
   session.together(.9);expect(a.position.distanceTo(b.position)).toBeCloseTo(.9);session.pose('a','wave',2);session.turn('a',90);session.camera({yaw:50,zoom:2});
   session.restore();expect(a.position.toArray()).toEqual([-1,.18,2]);expect(b.position.toArray()).toEqual([2,.18,4]);expect(bone.rotation.x).toBeCloseTo(.3);expect(camera.position.toArray()).toEqual([2,4,8]);expect(camera.zoom).toBe(1.4);expect(controls.target.toArray()).toEqual([1,2,3]);
  });
@@ -16,7 +16,7 @@ describe('temporary photo staging',()=>{
   const original=head.quaternion.clone(),setPhotoExpression=vi.fn();
   const person={rig:{bones:{head}},faceState:{eyes:'closed',mouth:'base'},setPhotoExpression,finishPose:vi.fn()};
   const camera=new THREE.OrthographicCamera();camera.position.set(3,2,8);
-  const session=createPhotoSession({actors:[{id:'a',root,person}],camera,controls:{target:new THREE.Vector3()},invalidate:vi.fn()});
+  const session=createPhotoSession({actors:[{id:'a',root,person}],camera,controls:{target:new THREE.Vector3()},invalidate:vi.fn(),canInteract:()=>true});
   session.face('a',{expression:'happy',lookCamera:true});const reset=session.prepare();
   expect(setPhotoExpression).toHaveBeenLastCalledWith('happy','smile');expect(head.quaternion.equals(original)).toBe(false);
   reset();expect(head.quaternion.equals(original)).toBe(true);
@@ -24,7 +24,7 @@ describe('temporary photo staging',()=>{
   session.restore();expect(setPhotoExpression).toHaveBeenLastCalledWith('closed','base');
  });
  it('does not stage absent residents or execute arbitrary action names',()=>{
-  const root=new THREE.Group();root.visible=false;const person={animate:vi.fn()};const s=createPhotoSession({actors:[{id:'away',root,person}],camera:new THREE.OrthographicCamera(),controls:{target:new THREE.Vector3()},invalidate:vi.fn()});
+  const root=new THREE.Group();root.visible=false;const person={animate:vi.fn()};const s=createPhotoSession({actors:[{id:'away',root,person}],camera:new THREE.OrthographicCamera(),controls:{target:new THREE.Vector3()},invalidate:vi.fn(),canInteract:()=>true});
   expect(s.actors).toEqual([]);s.pose('away','anything',1);expect(person.animate).not.toHaveBeenCalled();s.restore();expect(root.visible).toBe(false);
  });
 });

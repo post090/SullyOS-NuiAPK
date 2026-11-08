@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ check: vi.fn(), register: vi.fn(), scheduler: vi.fn(), active: vi.fn(), render: vi.fn(), release: vi.fn() }));
+const mocks = vi.hoisted(() => ({ check: vi.fn(), restore: vi.fn(async () => {}), register: vi.fn(), scheduler: vi.fn(), active: vi.fn(), render: vi.fn(), release: vi.fn() }));
+vi.mock('./userSpaceData', () => ({ restoreSpaceCatalog: mocks.restore }));
 vi.mock('../App', () => ({ default: () => null }));
 vi.mock('../components/DatabaseGuard', () => ({ default: () => null }));
 vi.mock('react-dom/client', () => ({ default: { createRoot: () => ({ render: mocks.render }) } }));
@@ -37,13 +38,18 @@ it.each(['database', 'SW'])('prepares in parallel when %s is slow, renders immed
   expect(mocks.check).toHaveBeenCalledOnce();
   expect(mocks.register).toHaveBeenCalledOnce();
   expect(mocks.render).toHaveBeenCalledOnce();
-  // The guard receives the same promise; it has no dependency on SW readiness.
-  expect(mocks.render.mock.calls[0][0].props.children.props.readiness).toBe(readiness);
+  // Guard readiness includes catalog restoration, independently of the SW.
+  const guardReady: Promise<unknown> = mocks.render.mock.calls[0][0].props.children.props.readiness;
+  let guardSettled = false;
+  void guardReady.then(() => { guardSettled = true; });
+  expect(guardSettled).toBe(false);
   if (slow === 'database') registered(); else readable();
   await Promise.resolve();
   expect(mocks.scheduler).not.toHaveBeenCalled();
   if (slow === 'database') readable(); else registered();
-  await Promise.resolve(); await Promise.resolve();
+  await guardReady;
+  await vi.waitFor(() => expect(mocks.scheduler).toHaveBeenCalledOnce());
+  expect(mocks.restore).toHaveBeenCalledOnce();
   expect(mocks.scheduler).toHaveBeenCalledOnce();
   expect(mocks.active).toHaveBeenCalledOnce();
   expect(mocks.release).toHaveBeenCalledOnce();
@@ -67,4 +73,24 @@ it('does not make rendering wait for a failed SW initializer', async () => {
   await boot();
   expect(mocks.render).toHaveBeenCalledOnce();
   expect(mocks.scheduler).not.toHaveBeenCalled();
+});
+
+it('keeps the guard and background writers waiting until the user-space catalog is restored', async () => {
+  let restore!: () => void;
+  mocks.check.mockResolvedValue(undefined);
+  mocks.register.mockResolvedValue(undefined);
+  mocks.restore.mockReturnValue(new Promise<void>(resolve => { restore = resolve; }));
+  await boot();
+  expect(mocks.render).toHaveBeenCalledOnce();
+  const guardReady: Promise<unknown> = mocks.render.mock.calls[0][0].props.children.props.readiness;
+  let settled = false;
+  void guardReady.then(() => { settled = true; });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  expect(mocks.scheduler).not.toHaveBeenCalled();
+  expect(mocks.active).not.toHaveBeenCalled();
+  restore();
+  await guardReady;
+  await vi.waitFor(() => expect(mocks.scheduler).toHaveBeenCalledOnce());
+  expect(mocks.active).toHaveBeenCalledOnce();
 });

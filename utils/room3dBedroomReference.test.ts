@@ -1,6 +1,8 @@
 import {describe,it,expect} from 'vitest';
 import fs from 'node:fs';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {addShowroom} from '../apps/room3d/showrooms.js';
 import {createHome,placementError,validateHome,moveFurniture,findResidentSpot} from '../apps/room3d/model.js';
 import {walkingMap,findWalkPath,doorTarget} from '../apps/room3d/navigation.js';
@@ -17,7 +19,7 @@ describe('reference bedroom',()=>{
    expect(g.images?.length||0,a.id).toBe(0);expect(g.textures?.length||0,a.id).toBe(0);
    let triangles=0;for(const m of g.meshes)for(const p of m.primitives){triangles+=g.accessors[p.indices].count/3;expect(Object.keys(p.attributes).sort(),a.id).toEqual(['NORMAL','POSITION']);}
    expect(triangles,a.id).toBeLessThan(4000);expect(USE_BY_ID[a.id],a.id).toBeTruthy();
-   for(const name of a.paintMaterials)expect(g.materials.some(m=>m.name===name),a.id).toBe(true);
+   for(const name of a.paintMaterials!)expect(g.materials.some((m:{name:string})=>m.name===name),a.id).toBe(true);
   }
  });
  it('keeps a valid entry, reachable floor plant and supported tabletop arrangements',()=>{
@@ -26,7 +28,7 @@ describe('reference bedroom',()=>{
   for(const i of room.items)expect(placementError(i,room,catalog),i.assetId).toBe('');
   expect(validateHome(h,catalog)).toEqual(h);
   const spot=findResidentSpot(room,catalog),map=walkingMap(h,0,catalog,{headWidth:1.8});
-  expect(findWalkPath(map,[room.x*9.3+spot[0],room.z*7.95+spot[2]],doorTarget(h,room,'front'))).toBeTruthy();
+  expect(findWalkPath(map,[room.x*9.3+spot![0],room.z*7.95+spot![2]],doorTarget(h,room,'front'))).toBeTruthy();
   expect(roomPlants(room,catalog)[0].spot).toBeTruthy();
   expect(room.items.filter(i=>i.supportId)).toHaveLength(7);
   expect(room.trim).toBe('#eacba8');

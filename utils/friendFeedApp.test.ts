@@ -31,6 +31,7 @@ const m = vi.hoisted(() => ({close: vi.fn(), open:vi.fn(), chars: [
     {id: 'feed-ui-c', name: '小绿', avatar: '', description: '', systemPrompt: '', memories: []},
 ]}));
 vi.mock('../context/OSContext', () => ({useOS: () => ({characters: m.chars, userProfile: {name: '小雨'}, closeApp: m.close, openApp:m.open,
+    registerBackHandler: vi.fn<(handler: () => boolean) => () => void>(() => vi.fn()),
     apiPresets:[{id:'bibi-test',name:'哔哔测试预设',config:{baseUrl:'https://bibi.invalid/v1',apiKey:'test-only',model:'test-bibi'}}]})}));
 vi.mock('../utils/homeAnalytics', () => ({trackHomeFeature: vi.fn()}));
 vi.mock('./friendFeedReplies', () => ({runImmediateFriendReplies: vi.fn()}));
@@ -163,7 +164,7 @@ it('automatically reads identity and the home timeline immediately after QR conf
             :action==='profile'?{session:account,profile:{uid:account.uid,name:'真实登录者',description:''}}
             :{session:account,posts:[],nextCursor:null});
     });vi.stubGlobal('fetch',fetcher);
-    const host=await render(React.createElement(FriendFeedWeiboConnection,{circleId}));
+    const host=await render(React.createElement<{circleId?:string;onTimeline?:()=>void}>(FriendFeedWeiboConnection,{circleId}));
     await act(async()=>{host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();});await click(host,'扫码连接微博');
     await act(async()=>{await new Promise(r=>setTimeout(r,2650));});
     expect(fetcher.mock.calls.map(([,o])=>JSON.parse(o.body).action).sort()).toEqual(['home','poll','posts','profile','start']);

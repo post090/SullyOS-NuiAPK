@@ -1,11 +1,16 @@
 import {describe,it,expect} from 'vitest';
 import fs from 'node:fs';
-import catalog from '../public/room3d/catalog.json';
+import catalogData from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+type PetAsset=HomeAsset&{petSpecies?:string;colorPresets?:Array<{id:string;colors:Record<string,string>}>};
+type PaintItem={color:string|null;materialColors?:Record<string,string>};
+const catalog=catalogData as PetAsset[];
+const applyPreset=applyFurnitureColorPreset as (item:PaintItem,asset:PetAsset,presetId:string)=>boolean;
 import {applyFurnitureColorPreset,setFurniturePrimaryColor,resetFurnitureColors,furniturePartColor} from '../apps/room3d/furniturePaint.js';
 import {createHome,validateHome} from '../apps/room3d/model.js';
 import {paintPanel} from '../apps/room3d/paintPanel.js';
 const pets=catalog.filter(a=>'petSpecies' in a);
-const read=(a:any)=>{const b=fs.readFileSync('public/room3d/'+a.url);return JSON.parse(b.subarray(20,20+b.readUInt32LE(12)).toString());};
+const read=(a:PetAsset)=>{const b=fs.readFileSync('public/room3d/'+a.url);return JSON.parse(b.subarray(20,20+b.readUInt32LE(12)).toString());};
 describe('nine solid-color pet assets',()=>{
  it('ships a compact round hamster and a jellyfish without a mouth material',()=>{
   const hamster=pets.find(p=>p.id==='pet_hamster')!,jelly=pets.find(p=>p.id==='pet_jellyfish')!;
@@ -26,27 +31,27 @@ describe('nine solid-color pet assets',()=>{
   }
  });
  it('authors exactly two named eyes on the repaired turtle',()=>{
-  const g=read(pets.find(p=>p.id==='pet_turtle'));
+  const g=read(pets.find(p=>p.id==='pet_turtle')!);
   expect(g.nodes.filter((n:any)=>/^Eye /.test(n.name)).map((n:any)=>n.name).sort()).toEqual(['Eye left','Eye right']);
  });
  it('preserves per-instance colors through save/import and keeps cloned palettes independent',()=>{
   const a=pets.find(p=>p.id==='pet_cat')!,home=createHome(catalog),room=home.rooms[0];
   const item={id:'pet-instance',assetId:a.id,x:0,y:.15,z:0,rotation:0,color:null,stored:false};
-  room.items=[item];expect(applyFurnitureColorPreset(item,a,a.colorPresets![1].id)).toBe(true);
+  room.items=[item];expect(applyPreset(item,a,a.colorPresets![1].id)).toBe(true);
   const loaded=validateHome(JSON.parse(JSON.stringify(home)),catalog).rooms[0].items[0];expect(loaded).toEqual(item);
   const other=structuredClone(loaded);setFurniturePrimaryColor(other,a,'#123456');
-  expect(loaded.materialColors['pet-body']).toBe('#383b40');expect(other.materialColors['pet-body']).toBeUndefined();
-  expect(other.materialColors['pet-eyes']).toBe(loaded.materialColors['pet-eyes']);
+  expect(loaded.materialColors!['pet-body']).toBe('#383b40');expect(other.materialColors!['pet-body']).toBeUndefined();
+  expect(other.materialColors!['pet-eyes']).toBe(loaded.materialColors!['pet-eyes']);
   expect(furniturePartColor(other,a,a.colorParts![0])).toBe('#123456');
   expect(a.colorPresets![1].colors['pet-body']).toBe('#383b40');
   resetFurnitureColors(other);expect(other.color).toBeNull();expect(other.materialColors).toBeUndefined();
  });
  it('rejects foreign preset colors and exposes accurate controls after a preset',()=>{
   const a=pets[0],item={color:null};
-  expect(applyFurnitureColorPreset(item,a,'no-such-preset')).toBe(false);
+  expect(applyPreset(item,a,'no-such-preset')).toBe(false);
   const bad={...a,colorPresets:[{id:'bad',colors:{'not-a-material':'#aabbcc'}}]};
-  expect(applyFurnitureColorPreset(item,bad,'bad')).toBe(false);expect(item).toEqual({color:null});
-  applyFurnitureColorPreset(item,a,a.colorPresets![1].id);
+  expect(applyPreset(item,bad,'bad')).toBe(false);expect(item).toEqual({color:null});
+  applyPreset(item,a,a.colorPresets![1].id);
   const html=paintPanel(item,a,'#ffffff');expect(html).toContain('value="#a6a9ad"');expect(html).toContain('全部恢复原色');expect(html).not.toContain('枕头');
  });
 });

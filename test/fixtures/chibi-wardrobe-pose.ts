@@ -2,15 +2,15 @@ import * as T from 'three';
 import {createBlankBody} from '../../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../../apps/room3d/chibi/blankRig';
 import {dressHoodie} from '../../apps/room3d/chibi/hoodieClothes';
-import {createWardrobePose,createWardrobeEntrance,type WardrobeStyle} from '../../experiments/chibi/wardrobePose';
+import {createWardrobePose} from '../../experiments/chibi/wardrobePose';
 
 const scene=new T.Scene();scene.background=new T.Color('#eee9e3');
 scene.add(new T.HemisphereLight('#fff9ef','#aa98b3',2.1));const light=new T.DirectionalLight('#fff',2.2);light.position.set(3,6,5);scene.add(light);
 const root=new T.Group(),hair=new T.Group();
 const mesh=new T.Mesh(createBlankBody('skin'),Array.from({length:6},()=>new T.MeshStandardMaterial({color:'#eed5c4',roughness:1})));
 root.add(mesh,hair);const rig=bindBlankBody(mesh,hair,true),outfit=dressHoodie(rig);
-let style:WardrobeStyle=new URLSearchParams(location.search).get('style')==='boy'?'boy':new URLSearchParams(location.search).get('style')==='normal'?'normal':'cute';
-let clip=createWardrobePose(rig,style),entrance=createWardrobeEntrance(rig,clip),total=entrance.duration+clip.duration;
+let style=new URLSearchParams(location.search).get('style')==='boy'?'boy':new URLSearchParams(location.search).get('style')==='normal'?'normal':'cute';
+let clip=createWardrobePose(rig,style),entrance=createWardrobePose(rig,'normal'),total=entrance.duration+clip.duration;
 const mixer=new T.AnimationMixer(root);let action=mixer.clipAction(clip),entryAction=mixer.clipAction(entrance);
 action.play();entryAction.play();action.paused=true;entryAction.paused=true;
 function sample(t:number){
@@ -28,7 +28,7 @@ const facePosition=new T.Vector3(),faceForward=new T.Vector3(),faceRotation=new 
 function draw(){
  const width=innerWidth,height=Math.min(620,Math.max(340,innerWidth*.5));renderer.setSize(width,height,false);renderer.domElement.style.height=`${height}px`;
  camera.aspect=(width/4)/height;camera.updateProjectionMatrix();root.updateMatrixWorld(true);rig.skeleton.update();
- for(const m of [rig.mesh,...outfit.meshes]){m.frustumCulled=false;m.boundingBox=null;m.boundingSphere=null;}
+ for(const m of [rig.mesh,...outfit.meshes])m.frustumCulled=false;
  const close=new URLSearchParams(location.search).has('close');
  const distance=close?4.2:standing?6.5:8.5;
  rig.bones.head.getWorldPosition(facePosition);rig.bones.head.getWorldQuaternion(faceRotation);
@@ -48,7 +48,7 @@ const slider=document.querySelector<HTMLInputElement>('#time')!;
 const styleSelect=document.querySelector<HTMLSelectElement>('#style')!;styleSelect.value=style;
 styleSelect.addEventListener('change',()=>{
  mixer.stopAllAction();mixer.uncacheClip(clip);mixer.uncacheClip(entrance);rig.setPose('bind');
- style=styleSelect.value as WardrobeStyle;clip=createWardrobePose(rig,style);entrance=createWardrobeEntrance(rig,clip);total=entrance.duration+clip.duration;
+ style=styleSelect.value;clip=createWardrobePose(rig,style);entrance=createWardrobePose(rig,'normal');total=entrance.duration+clip.duration;
  action=mixer.clipAction(clip);entryAction=mixer.clipAction(entrance);action.play();entryAction.play();action.paused=true;entryAction.paused=true;
  time=0;standing=true;playing=true;slider.value='0';sample(0);document.querySelector('#play')!.textContent='暂停动画';document.querySelector('#pose')!.textContent='查看 T 姿势';draw();
 });

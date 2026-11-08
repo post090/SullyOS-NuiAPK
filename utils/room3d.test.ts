@@ -1,7 +1,11 @@
 import {describe,it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
+import catalogData from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
 import {createHome,addRoom,validateHome,placementError,findPlace,clone,moveFurniture,snapToSupport,findResidentSpot} from '../apps/room3d/model.js';
 import {stripSensitiveCardFields} from './characterCard';
+const tuple2=(position:number[]):[number,number]=>[position[0],position[1]];
+const tuple3=(position:number[]):[number,number,number]=>[position[0],position[1],position[2]];
+const catalog:HomeAsset[]=catalogData.map((asset):HomeAsset=>({...asset,seats:asset.seats?.map(seat=>({...seat,position:tuple3(seat.position)})),support:asset.support?{...asset.support,center:asset.support.center?tuple2(asset.support.center):undefined,areas:asset.support.areas?.map(area=>({...area,center:area.center?tuple2(area.center):undefined}))}:undefined,contact:asset.contact?{...asset.contact,center:asset.contact.center?tuple2(asset.contact.center):undefined}:undefined,appliance:asset.appliance==='fridge'?'fridge':undefined}));
 describe('modular homes',()=>{
  it('finds resident floor space in the furnished starter without changing the layout',()=>{
   const r=createHome(catalog).rooms[0],before=clone(r);

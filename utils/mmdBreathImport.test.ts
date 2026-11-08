@@ -1,6 +1,6 @@
 import {describe,expect,it} from 'vitest';
 // Offline JavaScript importer; deliberately not part of the browser bundle.
-// @ts-expect-error Offline script has no declaration file.
+// Offline JavaScript module.
 import {rotationEase,sampleRotation} from '../art/chibi/import-mmd-breath.mjs';
 describe('VMD rotation timing',()=>{
  it('uses destination-key Bezier timing rather than a linear blend',()=>{

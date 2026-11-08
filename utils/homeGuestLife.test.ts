@@ -1,8 +1,6 @@
 import {it,expect,vi} from 'vitest';
 import {Group} from 'three';
-// @ts-expect-error Runtime JS module.
 import {findWalkPath} from '../apps/room3d/navigation.js';
-// @ts-expect-error Runtime JS module.
 import {createGuestLife} from '../apps/room3d/guestLife.js';
 const seat={roomId:'r',itemId:'chair',seatId:'one',label:'椅子'};
 vi.mock('../apps/room3d/seating.js',()=>({roomSeats:()=>[seat],seatTransform:()=>({position:[2,.7,0],rotation:0,pose:'chair',height:.7})}));

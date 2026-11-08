@@ -6,7 +6,7 @@ import {buildToolConfig,parseToolConfig} from './amsgToolPack';
 // 那份裸 fetch 版），所以这里用 global.fetch 打桩驱动，断言按城市 + apiKey 隔离缓存。
 beforeEach(()=>{vi.clearAllMocks();RealtimeContextManager.clearCache();});
 it('resolves by stable ID and preserves default city for new characters',()=>{
-    const cfg={...defaultRealtimeConfig,weatherEnabled:true,weatherCity:'北京',weatherCities:{a:' 上海 ',b:'London'}};
+    const cfg={...defaultRealtimeConfig,weatherEnabled:true,weatherCity:'北京',weatherCities:{a:' 上海 ',b:'London'},feishuEnabled:false,feishuAppId:'',feishuAppSecret:'',feishuBaseId:'',feishuTableId:'',xhsEnabled:false};
     expect(weatherForCharacter(cfg,'a').weatherCity).toBe('上海');expect(weatherForCharacter(cfg,'b').weatherCity).toBe('London');
     expect(weatherForCharacter(cfg,'new').weatherCity).toBe('北京');expect(cfg.weatherCity).toBe('北京');
     expect(cleanCharacterWeatherCities({a:' 上海 ',b:' ',c:2})).toEqual({a:'上海'});

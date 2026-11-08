@@ -31,10 +31,10 @@ export async function prepareApprovedWardrobe(rig:Rig,value:ApprovedWardrobe,fit
    const g=o.geometry.clone();
    // Fitting and clipping edit packed arrays. Decode normalized/interleaved
    // glTF attributes into independent values before those operations.
-   for(const [name,attribute] of Object.entries(g.attributes))if(attribute.normalized||attribute instanceof T.InterleavedBufferAttribute){
+   for(const name of Object.keys(g.attributes)){const attribute=g.getAttribute(name);if(attribute.normalized||attribute instanceof T.InterleavedBufferAttribute){
     const values=Array.from({length:attribute.count*attribute.itemSize},(_,i)=>attribute.getComponent(Math.floor(i/attribute.itemSize),i%attribute.itemSize));
     g.setAttribute(name,name==='skinIndex'?new T.Uint16BufferAttribute(values,attribute.itemSize):new T.Float32BufferAttribute(values,attribute.itemSize));
-   }
+   }}
    if(d.collection==='halloween'&&d.slot==='shoes')splitHalloweenShoeSeam(g,o.skeleton.bones);
    const p=g.attributes.position,n=g.attributes.normal,si=g.attributes.skinIndex,sw=g.attributes.skinWeight;
    const morphIndex=o.morphTargetDictionary?.VNeck;

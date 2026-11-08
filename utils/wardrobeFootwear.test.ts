@@ -1,7 +1,6 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {MeshBVH} from 'three-mesh-bvh';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
@@ -11,7 +10,8 @@ import {dressApprovedWardrobe} from '../apps/room3d/chibi/approvedClothing';
 // Load the shipped geometry, skin and scene placement in Node. Image decoding
 // is irrelevant to this regression; replace materials, not the real mesh data.
 function loadLocalAssets(){
- vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{
+ vi.stubGlobal('location',{href:'https://example.test/'});
+ vi.stubGlobal('fetch',vi.fn(async (url:string|URL)=>{
   const file=String(url).split('/').pop()!.split('?')[0];
   const bytes=readFileSync(`public/room3d/wardrobe/${file}`),oldLength=bytes.readUInt32LE(12);
   const doc=JSON.parse(bytes.subarray(20,20+oldLength).toString()),binary=bytes.subarray(28+oldLength);
@@ -19,15 +19,15 @@ function loadLocalAssets(){
   for(const mesh of doc.meshes)for(const primitive of mesh.primitives)primitive.material=0;
   const json=Buffer.from(JSON.stringify(doc)),length=Math.ceil(json.length/4)*4,out=Buffer.alloc(28+length+binary.length);
   out.writeUInt32LE(0x46546c67,0);out.writeUInt32LE(2,4);out.writeUInt32LE(out.length,8);out.writeUInt32LE(length,12);out.writeUInt32LE(0x4e4f534a,16);out.fill(32,20,20+length);json.copy(out,20);out.writeUInt32LE(binary.length,20+length);out.writeUInt32LE(0x004e4942,24+length);binary.copy(out,28+length);
-  return new GLTFLoader().parseAsync(out.buffer.slice(out.byteOffset,out.byteOffset+out.length),'');
- });
+  return {ok:true,arrayBuffer:async()=>out.buffer.slice(out.byteOffset,out.byteOffset+out.length)};
+ }));
 }
 function makeRig(height=1){
  const root=new T.Group(),hair=new T.Group(),body=new T.Mesh(createBlankBody('skin',{bodyHeight:height,headSize:1.04}),Array(6).fill(new T.MeshBasicMaterial()));root.add(body,hair);
  return {root,rig:bindBlankBody(body,hair,true)};
 }
 const referenced=(g:T.BufferGeometry)=>new Set(Array.from(g.index!.array));
-afterEach(()=>vi.restoreAllMocks());
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 describe('footwear on the current body',()=>{
  it.each([.8,1,1.25])('keeps the school sock rim outside skin after lengthening at height %s',async height=>{

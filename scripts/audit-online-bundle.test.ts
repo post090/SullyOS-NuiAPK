@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest';
-// @ts-expect-error JavaScript helper has no type declarations.
 import { collectSiteScripts, auditTrackerFootprint } from './audit-online-bundle.mjs';
 
 const SITE = 'https://example.test/SullyOS/';
@@ -171,7 +170,7 @@ describe('线上产物审计 · 断言', () => {
     const scan = await collectSiteScripts({ baseUrl: SITE, fetchText });
     const result = auditTrackerFootprint({ scan, websiteId: WEBSITE_ID, scriptUrl: SCRIPT_URL });
 
-    expect(scan.stats.unreachable).toBe(1);
+    expect(scan.stats).toHaveProperty('unreachable', 1);
     expect(failedNames(result)).toContain('引用到的文件都取到了');
   });
 

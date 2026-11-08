@@ -7,17 +7,19 @@ import {BED_LEISURE} from '../apps/room3d/chibi/bedLeisure';
 import {furniturePalm} from '../apps/room3d/chibi/furnitureMotion';
 import {furnitureInteractions} from '../apps/room3d/furnitureInteractions.js';
 import catalog from '../public/room3d/catalog.json';
+type BedInteraction={action:string;id:string;kind:string;label:string;reason:string;mode?:string;seat?:string};
 
 it('offers bed leisure only after lying in the selected bed, without mutating furniture',()=>{
  const room={id:'r',items:[{id:'bed',assetId:'bedroom_single_bed',x:0,y:.15,z:0,rotation:0}]},saved=JSON.stringify(room);
- const initial=furnitureInteractions(room,catalog,'bed',{body2:true});
+ const interactions=furnitureInteractions as (roomArg:typeof room,catalogArg:typeof catalog,itemId:string,options?:{body2?:boolean;seat?:{bed:boolean;itemId:string;seatId:string};transitioning?:boolean})=>BedInteraction[];
+ const initial=interactions(room,catalog,'bed',{body2:true});
  expect(initial.some(a=>a.mode)).toBe(false);
- const seat={bed:true,itemId:'bed',seatId:initial.find(a=>a.action==='chibi-bed').seat};
- const actions=furnitureInteractions(room,catalog,'bed',{body2:true,seat});
- expect(furnitureInteractions(room,catalog,'bed',{body2:true,seat,transitioning:true}).some(a=>a.mode)).toBe(false);
- expect(furnitureInteractions(room,catalog,'bed',{body2:true,seat:{...seat,itemId:'other'}}).some(a=>a.mode)).toBe(false);
+ const seat={bed:true,itemId:'bed',seatId:initial.find(a=>a.action==='chibi-bed')!.seat!};
+ const actions=interactions(room,catalog,'bed',{body2:true,seat});
+ expect(interactions(room,catalog,'bed',{body2:true,seat,transitioning:true}).some(a=>a.mode)).toBe(false);
+ expect(interactions(room,catalog,'bed',{body2:true,seat:{...seat,itemId:'other'}}).some(a=>a.mode)).toBe(false);
  expect(actions.filter(a=>a.mode).map(a=>a.mode)).toEqual(BED_LEISURE.map(([id])=>id));
- expect(furnitureInteractions(room,catalog,'bed').some(a=>a.mode)).toBe(false);
+ expect(interactions(room,catalog,'bed').some(a=>a.mode)).toBe(false);
  expect(JSON.stringify(room)).toBe(saved);
 });
 

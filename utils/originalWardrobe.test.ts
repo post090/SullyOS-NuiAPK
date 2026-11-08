@@ -1,7 +1,6 @@
 import {it,expect,vi,afterEach} from 'vitest';
-import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {stubLocalWardrobeAssets} from '../test/fixtures/localWardrobeAssets';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
 import {prepareHoodie} from '../apps/room3d/chibi/hoodieClothes';
@@ -9,10 +8,10 @@ import {dressApprovedWardrobe} from '../apps/room3d/chibi/approvedClothing';
 import {approvedPresets} from '../apps/room3d/chibi/approvedWardrobe';
 import {garmentColorRegions} from '../apps/room3d/chibi/wardrobeColors';
 function setup(){
- vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+ stubLocalWardrobeAssets();
  const root=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group();root.add(body,hair);return bindBlankBody(body,hair,true);
 }
-afterEach(()=>vi.restoreAllMocks());
+afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 it('publishes exactly the original hoodie and two shoe/sock groups with the original skinning',async()=>{
  const rig=setup(),legacy=prepareHoodie(rig),outfit=await dressApprovedWardrobe(rig,approvedPresets.original.items);
  for(const [id,part,group] of [['original-hoodie',0,-1],['original-socks',1,0],['original-shoes',1,1]] as const){

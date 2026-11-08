@@ -1,4 +1,4 @@
-import type { APIConfig, ApiPreset, AudioApiSongQuality } from '../types';
+import type { APIConfig, ApiPreset, AudioApiSongQuality, VisionImageQuality } from '../types';
 import { normalizeLlmBaseUrl } from './llmEndpoint';
 
 // Clipboard contents can carry zero-width characters that String.trim() does not
@@ -16,6 +16,9 @@ export const normalizeApiCredential = (value: unknown): string =>
 
 export const normalizeApiModel = (value: unknown): string =>
   cleanEdgeCharacters(value);
+
+export const normalizeVisionImageQuality = (value: unknown): VisionImageQuality =>
+  value === 'high' || value === 'compressed' ? value : 'original';
 
 const AUDIO_SONG_QUALITIES = ['standard', 'exhigh', 'lossless'] as const;
 
@@ -38,6 +41,7 @@ export function normalizeApiConfig(config: APIConfig): APIConfig {
         baseUrl: normalizeApiBaseUrl(visionApi.baseUrl),
         apiKey: normalizeApiCredential(visionApi.apiKey),
         model: normalizeApiModel(visionApi.model),
+        imageQuality: normalizeVisionImageQuality(visionApi.imageQuality),
       },
     } : {}),
     ...(audioApi ? {

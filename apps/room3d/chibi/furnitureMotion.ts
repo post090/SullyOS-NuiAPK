@@ -44,7 +44,7 @@ export function createFurnitureContact(rig:ReturnType<typeof bindBlankBody>,body
     // Fingers wrap outward over the rim; +Z in both authored hands is the thumb.
     // Pointing fingers inward rolls both thumbs underneath the wheel.
     handRotation=furnitureHandRotation(side,[side==='L'?1:-1,0,0],activity.wheel.axis).premultiply(turn);
-   }else if(beat?.directions)handRotation=furnitureHandRotation(side,beat.directions[i],beat.normal);
+   }else if(beat?.directions&&beat.normal)handRotation=furnitureHandRotation(side,beat.directions[i],beat.normal);
    p.fromArray(hands[i]);if(beat)p.add(new T.Vector3().fromArray(beat.offset));
    p.multiplyScalar(scale);
    if(handRotation)p.sub(furniturePalm(side,!!activity.wheel).applyQuaternion(handRotation));

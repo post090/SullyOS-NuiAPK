@@ -19,6 +19,7 @@ export function createHome(catalog:HomeAsset[]):Home3DState;
 export function validateHome(raw:unknown,catalog:HomeAsset[]):Home3DState;
 export function addRoom(home:Home3DState,direction:string):Home3DRoom;
 export function placementError(item:Home3DItem,room:Home3DRoom,catalog:HomeAsset[]):string;
+export function boxes(item:Home3DItem,asset:HomeAsset):number[][];
 export function findPlace(asset:HomeAsset,room:Home3DRoom,catalog:HomeAsset[],itemId?:string,length?:number):Home3DItem;
 
 export function findResidentSpot(room:Home3DState['rooms'][number],catalog:any[]):[number,number,number]|null;

@@ -210,7 +210,7 @@ const PersonaSim: React.FC<Props> = ({ targetChar, onExit, openLifeLog, sim, onS
                     ...log,
                     // 旧版记录第一次重播时补齐「曾经完成」标记。
                     completedAt: hasCompletedPersonaSim(log) ? (log.completedAt ?? log.timestamp) : undefined,
-                    playback: { beatIndex: idx, status: 'playing' },
+                    playback: { beatIndex: idx, status: 'playing' as const },
                 } : log),
             },
         }));
@@ -247,7 +247,7 @@ const PersonaSim: React.FC<Props> = ({ targetChar, onExit, openLifeLog, sim, onS
                 simLogs: (cur.phoneState?.simLogs || []).map(log => log.id === logId ? {
                     ...log,
                     completedAt: log.completedAt ?? (hasCompletedPersonaSim(log) ? log.timestamp : Date.now()),
-                    playback: { beatIndex: idx, status: 'completed' },
+                    playback: { beatIndex: idx, status: 'completed' as const },
                     ...(applyBuff && newBuff ? { buff: { label: newBuff.label, emoji: newBuff.emoji, color: newBuff.color } } : {}),
                 } : log),
             };

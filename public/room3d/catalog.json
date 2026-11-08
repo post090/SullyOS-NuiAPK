@@ -17328,6 +17328,7 @@
     ],
     "collection": "living",
     "revision": "ec934812ac8a",
+    "daylight": true,
     "paintMaterials": [
       "halloween_texture_0"
     ],

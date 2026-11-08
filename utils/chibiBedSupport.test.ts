@@ -17,6 +17,7 @@ it('matches the shipped curved foot surface in both sleeping lanes',async()=>{
  const bytes=readFileSync('public/room3d/show_bed.glb');
  const {scene}=await new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');scene.updateMatrixWorld(true);
  const ray=new T.Raycaster(),seat=seatTransform(room,catalog,selection,true);
+ if(!seat)throw new Error('missing bed seat');
  for(const x of [-.7,.7])for(const [z,y] of seat.bed.footSurface){
   ray.set(new T.Vector3(x,2,z),new T.Vector3(0,-1,0));
   expect(Math.abs(ray.intersectObject(scene,true)[0].point.y-y)).toBeLessThan(.012);

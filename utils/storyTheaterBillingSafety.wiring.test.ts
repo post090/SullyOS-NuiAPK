@@ -19,11 +19,12 @@ const sliceBetween = (source: string, startAnchor: string, endAnchor: string): s
 describe('story theater billing safety wiring', () => {
     it('uses a synchronous mutex instead of React state as the send guard', () => {
         const sendSource = sliceBetween(storySource, 'const send = useCallback', 'const archivedCount =');
-        const guard = sendSource.indexOf('if (sendLock.current || actors.length === 0) return;');
+        const guard = sendSource.indexOf('if (sendLock.current || !canStart) return;');
         const acquire = sendSource.indexOf('sendLock.current = true;');
         const release = sendSource.indexOf('sendLock.current = false;');
 
         expect(storySource).toContain('const sendLock = useRef(false);');
+        expect(storySource).toContain('const canStart = hasStoryTheaterParticipant(entry, characters);');
         expect(guard).toBeGreaterThanOrEqual(0);
         expect(acquire).toBeGreaterThan(guard);
         expect(release).toBeGreaterThan(acquire);
@@ -33,7 +34,9 @@ describe('story theater billing safety wiring', () => {
     it('does not silently issue a second physical chat completion request', () => {
         const interceptorSource = sliceBetween(osContextSource, 'const patchedFetch = async', 'window.fetch = patchedFetch;');
 
-        expect(interceptorSource.match(/await originalFetch\(/g) || []).toHaveLength(4);
+        expect(interceptorSource.match(/await originalFetch\(/g) || []).toHaveLength(3);
+        expect(interceptorSource.match(/await fetchLlm\(/g) || []).toHaveLength(1);
+        expect(interceptorSource).toContain('await fetchLlm(sendArgs[0], sendArgs[1], originalFetch, true)');
         expect(interceptorSource).toContain('await originalFetch(...sendArgs)');
         // fork 有采样参数自愈 + stream 升级回退，这些是有日志的显式重试，不是 billing safety 问题
     });

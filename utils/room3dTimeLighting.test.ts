@@ -22,7 +22,7 @@ describe('home daylight follows the owner clock',()=>{
   expect(uniforms.roomShadeSoftness.value).toBeGreaterThan(0);
   updateRoomLightUniforms(uniforms,ROOM_LIGHT_PHASES.night);
   expect(uniforms.roomShadeSoftness.value).toBe(0);
-  for(const key of Object.keys(original))expect(uniforms[key]).toBe(original[key]);
+  for(const key of Object.keys(original) as (keyof typeof original)[])expect(uniforms[key]).toBe(original[key]);
   expect(uniforms.skyTop.value).toBe(sky);expect(sky.getHex()).not.toBe(day);expect(uniforms.skyNight.value).toBe(1);
  });
 });

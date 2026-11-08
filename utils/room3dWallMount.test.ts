@@ -5,9 +5,14 @@ import {BUILDING_ASSETS} from '../apps/room3d/building.js';
 import {snapToWall,wallPlacementError} from '../apps/room3d/wallMount.js';
 import {createHome,validateHome,findPlace,moveFurniture,placementError,furnitureType,isWaterablePlant} from '../apps/room3d/model.js';
 import {roomPlants} from '../apps/room3d/watering.js';
-const catalog=[...catalogData,...BUILDING_ASSETS],windowAsset=catalog.find(a=>a.id==='wooden_window')!;
+import type {HomeAsset} from '../apps/room3d/model.js';
+import type {Home3DItem,Home3DRoom} from '../apps/room3d/types';
+const tuple2=(position:number[]):[number,number]=>[position[0],position[1]];
+const tuple3=(position:number[]):[number,number,number]=>[position[0],position[1],position[2]];
+const catalog:HomeAsset[]=[...catalogData,...BUILDING_ASSETS].map((asset):HomeAsset=>({...asset,id:String(asset.id),name:String(asset.name),size:asset.size.map(Number),boxes:asset.boxes.map(box=>box.map(Number)),seats:'seats' in asset?asset.seats?.map(seat=>({...seat,position:tuple3(seat.position)})):undefined,support:'support' in asset&&asset.support?{...asset.support,center:asset.support.center?tuple2(asset.support.center):undefined,areas:asset.support.areas?.map(area=>({...area,center:area.center?tuple2(area.center):undefined}))}:undefined,contact:'contact' in asset&&asset.contact?{...asset.contact,center:asset.contact.center?tuple2(asset.contact.center):undefined}:undefined,appliance:'appliance' in asset&&asset.appliance==='fridge'?'fridge':undefined}));
+const windowAsset=catalog.find(a=>a.id==='wooden_window')!;
 const windowItem={id:'win',assetId:'wooden_window',x:0,y:2,z:0,rotation:0,color:'#91C9F4',stored:false};
-const room=(items:any[]=[])=>({id:'room',items});
+const room=(items:Home3DItem[]=[]):Home3DRoom=>({id:'room',name:'测试房',x:0,z:0,level:0,wall:'#FFF2E3',items});
 describe('plant category and shared watering contract',()=>{
  it('requires both floor placement and watering capability',()=>{
   expect(furnitureType(catalog.find(a=>a.id==='monstera')!)).toBe('plants');

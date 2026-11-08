@@ -7,6 +7,9 @@ import {seatTransform} from '../apps/room3d/seating.js';
 import {body2BedTransform,bedEntry,bedChangeFrame,bedEdge} from '../apps/room3d/bedMotion.js';
 import {seatChangeDuration} from '../apps/room3d/chibi/roomMotionFrame';
 import {seatChangePose} from '../apps/room3d/seatChange.js';
+type SeatChange={pose:string;front:number[];seat:number[];edge:{position:number[];rotation:number};rotation:number;startRotation?:number;rising?:boolean;sleepStart?:number[]};
+type BedPose=ReturnType<typeof bedChangeFrame>&{position:number[];rotation:number};
+const bedSeatChangePose=seatChangePose as (change:SeatChange,time:number)=>BedPose;
 import {createBlankBody,BLANK_SCALE} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
 import {createBlankMotion} from '../apps/room3d/chibi/blankMotion';
@@ -69,11 +72,11 @@ describe('Body 2 bedroom rest',()=>{
   // A left slot cannot fall back to the right edge and slide across the bed.
   expect(bedEntry(seat,{free:(x:number,z:number)=>z<3})).toBeNull();
   const change={front:front!,seat:[2,.96,3],edge:bedEdge({...seat,position:[2,.96,3]},front!),rotation:Math.PI/2,startRotation:0,rising:false,pose:'bed'};
-  expect(seatChangePose(change,0).position).toEqual(front);expect(seatChangePose(change,duration).position).toEqual(change.seat);
-  expect(seatChangePose({...change,rising:true},duration).position).toEqual(front);
+  expect(bedSeatChangePose(change,0).position).toEqual(front);expect(bedSeatChangePose(change,duration).position).toEqual(change.seat);
+  expect(bedSeatChangePose({...change,rising:true},duration).position).toEqual(front);
   expect(bedChangeFrame(.6).recline).toBe(0);expect(bedChangeFrame(duration).recline).toBe(1);
   for(const t of [.1,.8,1.6,2.3]){
-   const a=seatChangePose(change,t),b=seatChangePose({...change,rising:true},duration-t);
+   const a=bedSeatChangePose(change,t),b=bedSeatChangePose({...change,rising:true},duration-t);
    for(const key of ['weight','legLift','inboard','rotation','recline'] as const)expect(a[key]).toBeCloseTo(b[key]);
    a.position.forEach((v:number,i:number)=>expect(v).toBeCloseTo(b.position[i]));
   }
@@ -84,12 +87,12 @@ describe('Body 2 bedroom rest',()=>{
    const seat={position:local(side*.94,.96,-.1),bed:{center,halfWidth:1.825,edgeX:1.3,edgeY:.85,itemRotation:rotation}},front=local(side*2.375,.18,.7);
    const edge=bedEdge(seat,front),change={front,edge,seat:seat.position,rotation,startRotation:rotation,rising:false,pose:'bed'};
    for(let t=0;t<=duration;t+=.04){
-    const f=seatChangePose(change,t),x=c*(f.position[0]-2)-s*(f.position[2]-3);
+    const f=bedSeatChangePose(change,t),x=c*(f.position[0]-2)-s*(f.position[2]-3);
     if(f.weight===1)expect(Math.abs(x)).toBeLessThanOrEqual(1.3+1e-6);
     if(f.inboard>0)expect(f.legLift).toBe(1);
     if(f.recline>0){expect(f.inboard).toBe(1);expect(f.position).toEqual(seat.position);}
    }
-   const seated=seatChangePose(change,2.1);
+   const seated=bedSeatChangePose(change,2.1);
    expect(seated.position).toEqual(edge.position);expect(seated.weight).toBe(1);expect(seated.legLift).toBe(0);expect(seated.recline).toBe(0);
   }
  });
@@ -101,7 +104,7 @@ describe('Body 2 bedroom rest',()=>{
   const rig=bindBlankBody(mesh,hair,true),animate=createBlankMotion(rig,body);
   let previous:T.Vector3|undefined;
   for(let t=0;t<4;t+=.01){
-   const f=seatChangePose(change,t);
+   const f=bedSeatChangePose(change,t);
    if(f.weight>0)expect(f.edgeTravel).toBe(1);
    if(f.weight===1&&f.inboard===0){expect(f.position[0]).toBeCloseTo(edge.position[0]);expect(f.position[2]).toBeCloseTo(edge.position[2]);}
    if(f.weight===0)expect(Math.abs(f.position[0])).toBeGreaterThan(1.825);

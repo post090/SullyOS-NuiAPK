@@ -25,7 +25,7 @@ describe('furniture-local seating',()=>{
   expect(seatTransform(room,catalog,{...selection,seatId:'missing'})).toBeNull();
  });
  it('only offers explicitly reviewed seats on placed furniture, including duplicate instances',()=>{
-  const seats=roomSeats({...room,items:[item,{...item,id:'two'},{...item,id:'stored',stored:true},{...item,id:'unknown',assetId:'chair'}]},catalog);
+  const seats:{itemId:string;seatId:string}[]=roomSeats({...room,items:[item,{...item,id:'two'},{...item,id:'stored',stored:true},{...item,id:'unknown',assetId:'chair'}]},catalog);
   expect(seats.map(s=>s.itemId)).toEqual(['one','two']);expect(seats.every(s=>s.seatId==='center')).toBe(true);
  });
 });

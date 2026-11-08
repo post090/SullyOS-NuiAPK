@@ -12,7 +12,7 @@ export function waterGrip(visitors:ChibiVisitor[],cup:T.Group){
  return (time:number,weight:number)=>{
   const transfer=T.MathUtils.smootherstep(time,2.04,2.48);
   const poses=visitors.slice(0,2).map((visitor,i)=>{
-   const side=i===0?'L':'R',hand=visitor.rig?.bones[side+'_hand'];
+   const side:'L'|'R'=i===0?'L':'R',hand=visitor.rig?.bones[side+'_hand'];
    if(!hand)return null;
    const scale=hand.getWorldScale(new T.Vector3()).y;
    const palm=hand.localToWorld(furniturePalm(side));

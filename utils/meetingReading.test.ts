@@ -58,6 +58,16 @@ it('reading shows previous encounters, prepends without jumping to the bottom, a
     };
     const height = vi.spyOn(HTMLElement.prototype,'scrollHeight','get').mockImplementation(function(this:HTMLElement){return this.querySelectorAll('[data-date-message-id]').length*100;});
     const viewport = vi.spyOn(HTMLElement.prototype,'clientHeight','get').mockReturnValue(500);
+    // jsdom has no layout. Model row geometry as well as scrollHeight so the
+    // visible-message anchor can be captured and restored after prepending.
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+        const page = this.closest('.meeting-reading-page');
+        const rows = page ? [...page.querySelectorAll('[data-date-message-id]')] : [];
+        const index = rows.indexOf(this);
+        const top = index < 0 ? 0 : index * 100 - page!.scrollTop;
+        const height = index < 0 ? 500 : 100;
+        return { x: 0, y: top, top, bottom: top + height, left: 0, right: 400, width: 400, height, toJSON() { return {}; } };
+    });
     let beforePaint=0;
     function Reading({messages}:{messages:any[]}){
         React.useLayoutEffect(()=>{beforePaint=host.querySelector<HTMLDivElement>('.meeting-reading-page')?.scrollTop??0;});
@@ -81,5 +91,5 @@ it('reading shows previous encounters, prepends without jumping to the bottom, a
         expect(page.scrollTop).toBe(5040);
         // Current encounter has no reply: old history must not enable reroll.
         expect(host.querySelector('button[title="重新生成"]')).toBeNull();
-    } finally { await act(async()=>root.unmount()); host.remove(); height.mockRestore(); viewport.mockRestore(); }
+    } finally { await act(async()=>root.unmount()); host.remove(); height.mockRestore(); viewport.mockRestore(); bounds.mockRestore(); }
 });

@@ -1,5 +1,7 @@
 import {it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {createHome,moveFurniture} from '../apps/room3d/model.js';
 import {addShowroom} from '../apps/room3d/showrooms.js';
 import {windowOpenings,subtractOpenings} from '../apps/room3d/windowOpenings.js';
@@ -11,7 +13,7 @@ it('moves and removes the aperture with its window, leaving ordinary windows unt
  expect(windowOpenings(addShowroom(h,'study',catalog),'back',catalog)).toHaveLength(0);
 });
 it('cuts a true opening, preserving only the remaining wall area',()=>{
- const p={lo:-5,hi:5,bottom:.15,top:4.7},hole={lo:-2,hi:3,bottom:.5,top:4.3},parts=subtractOpenings(p,[hole]);
+ const p={lo:-5,hi:5,bottom:.15,top:4.7},hole={lo:-2,hi:3,bottom:.5,top:4.3},parts:(typeof p)[]=subtractOpenings(p,[hole]);
  expect(parts.reduce((sum,p)=>sum+(p.hi-p.lo)*(p.top-p.bottom),0)).toBeCloseTo(45.5-19);
  for(const p of parts)expect(p.hi<=hole.lo||p.lo>=hole.hi||p.top<=hole.bottom||p.bottom>=hole.top).toBe(true);
 });

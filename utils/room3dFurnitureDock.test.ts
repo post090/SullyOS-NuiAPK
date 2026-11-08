@@ -6,7 +6,10 @@ import {dockCandidates,dockSlots,furnitureGroup} from '../apps/room3d/furnitureD
 import {moveInHome} from '../apps/room3d/layout.js';
 import {setBoundary} from '../apps/room3d/topology.js';
 import {ROOM_STEP} from '../apps/room3d/dimensions.js';
-const catalog=data;
+import type {HomeAsset} from '../apps/room3d/model.js';
+const tuple2=(position:number[]):[number,number]=>[position[0],position[1]];
+const tuple3=(position:number[]):[number,number,number]=>[position[0],position[1],position[2]];
+const catalog:HomeAsset[]=data.map((asset):HomeAsset=>({...asset,seats:asset.seats?.map(seat=>({...seat,position:tuple3(seat.position)})),support:asset.support?{...asset.support,center:asset.support.center?tuple2(asset.support.center):undefined,areas:asset.support.areas?.map(area=>({...area,center:area.center?tuple2(area.center):undefined}))}:undefined,contact:asset.contact?{...asset.contact,center:asset.contact.center?tuple2(asset.contact.center):undefined}:undefined,appliance:asset.appliance==='fridge'?'fridge':undefined}));
 function setup(){const h=createHome(catalog),r=h.rooms[0];r.items=gamingPreset('computer',catalog);return {h,r,desk:r.items.find(i=>i.assetId==='gaming_desk')!,chair:r.items.find(i=>i.assetId==='gaming_chair')!};}
 describe('table and chair magnetic grouping',()=>{
  it('snaps near the calibrated computer slot, then moves and rotates the full group',()=>{

@@ -1,6 +1,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
-import {createHome} from '../apps/room3d/model.js';
+import catalogData from '../public/room3d/catalog.json';
+import {createHome,type HomeAsset} from '../apps/room3d/model.js';
+const catalog=catalogData as HomeAsset[];
 import {createPetLife} from '../apps/room3d/petLife.js';
 import {makeHomeRecord} from './homeRecords';
 afterEach(()=>vi.unstubAllGlobals());

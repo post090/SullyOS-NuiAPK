@@ -1,6 +1,9 @@
 import {describe,it,expect} from 'vitest';
 import fs from 'node:fs';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+import {Mesh,MeshStandardMaterial} from 'three';
+const catalog = catalogJson as HomeAsset[];
 import {createHome,validateHome,moveFurniture} from '../apps/room3d/model.js';
 import {SHOWROOMS,addShowroom,applyShowroomStyle} from '../apps/room3d/showrooms.js';
 import {createDoor} from '../apps/room3d/doorMeshes.js';
@@ -21,11 +24,11 @@ describe('finished showroom architecture and decor',()=>{
  });
  it('ships seventeen small geometry-only decor pieces and three animated door styles',()=>{
   const assets=catalog.filter(a=>a.id.startsWith('suite_'));expect(assets).toHaveLength(17);
-  for(const a of assets){const b=fs.readFileSync('public/room3d/'+a.url),g=JSON.parse(b.subarray(20,20+b.readUInt32LE(12)).toString());expect(g.images?.length||0).toBe(0);expect(g.textures?.length||0).toBe(0);let n=0;for(const m of g.meshes)for(const p of m.primitives){n+=g.accessors[p.indices].count/3;expect(Object.keys(p.attributes).sort()).toEqual(['NORMAL','POSITION']);}expect(n,a.id).toBeLessThan(4000);for(const m of a.paintMaterials)expect(g.materials.some(v=>v.name===m),a.id).toBe(true);}
-  for(const kind of ['oak','walnut','lattice']){const root=createDoor({kind,width:2.2});let n=0;root.traverse(o=>{if(o.isMesh){n+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;expect(o.material.map).toBeNull();}});expect(n).toBeLessThan(4000);expect(root.userData.doorLeaf.children.length).toBeGreaterThan(0);expect(root.userData.doorKind).toBe(kind==='lattice'?'sliding':'door');}
+  for(const a of assets){const b=fs.readFileSync('public/room3d/'+a.url),g=JSON.parse(b.subarray(20,20+b.readUInt32LE(12)).toString());expect(g.images?.length||0).toBe(0);expect(g.textures?.length||0).toBe(0);let n=0;for(const m of g.meshes)for(const p of m.primitives){n+=g.accessors[p.indices].count/3;expect(Object.keys(p.attributes).sort()).toEqual(['NORMAL','POSITION']);}expect(n,a.id).toBeLessThan(4000);for(const m of a.paintMaterials!)expect(g.materials.some((v:{name:string})=>v.name===m),a.id).toBe(true);}
+  for(const kind of ['oak','walnut','lattice']){const root=createDoor({kind,width:2.2});let n=0;root.traverse(o=>{if(o instanceof Mesh){n+=(o.geometry.index?.count??o.geometry.attributes.position.count)/3;expect((o.material as MeshStandardMaterial).map).toBeNull();}});expect(n).toBeLessThan(4000);expect(root.userData.doorLeaf.children.length).toBeGreaterThan(0);expect(root.userData.doorKind).toBe(kind==='lattice'?'sliding':'door');}
  });
  it('gives every showroom walls, a window and attached tabletop decor within phone capacity',()=>{
-  for(const key of Object.keys(SHOWROOMS)){const h=createHome(catalog),r=addShowroom(h,key,catalog,{compact:true});expect(r.items.length).toBeLessThanOrEqual(20);expect(r.items.some(i=>catalog.find(a=>a.id===i.assetId)?.daylight===true)).toBe(true);expect(r.items.some(i=>i.assetId.startsWith('suite_art_')||i.assetId==='suite_wall_shelf'||i.assetId==='kitchen_ref_hood')).toBe(true);expect(r.items.filter(i=>i.supportId).length).toBeGreaterThan(0);expect(validateHome(h,catalog)).toEqual(h);}
+  for(const key of Object.keys(SHOWROOMS)){const h=createHome(catalog),r=addShowroom(h,key,catalog,{compact:true});expect(r.items.length).toBeLessThanOrEqual(20);expect(r.items.some(i=>catalog.find(a=>a.id===i.assetId)?.daylight===true)).toBe(true);expect(r.items.some(i=>i.assetId.startsWith('suite_art_')||i.assetId==='suite_wall_shelf'||i.assetId==='kitchen_ref_hood'||i.assetId==='halloween_bat_pumpkin_clock'||i.assetId==='halloween_cat_ear_mirror')).toBe(true);expect(r.items.filter(i=>i.supportId).length).toBeGreaterThan(0);expect(validateHome(h,catalog)).toEqual(h);}
  });
  it('all five windows give daylight on each of the four exterior wall faces',()=>{
   for(const a of catalog.filter(a=>a.id.startsWith('suite_window_')))for(const [x,z]of [[0,-4],[-4.7,0],[0,4],[4.7,0]]){const h=createHome(catalog),r=h.rooms[0];r.items=[];r.items.push(snapToWall({id:'w',assetId:a.id,x,y:2,z,rotation:0,color:null,stored:false},a,r,catalog));const sources=windowDaylightSources(h,r,catalog,new Set([r.id]));expect(sources,a.id).toHaveLength(1);expect(sources[0].target[1]).toBeLessThan(sources[0].position[1]);}

@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error Worker entry is plain runtime JavaScript.
 import worker from './index.js';
 
 const expand = (url: string) => worker.fetch(new Request('https://local.test/expand-url', {

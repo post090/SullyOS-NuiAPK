@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error Worker entry is plain runtime JavaScript.
+// Worker entry is plain runtime JavaScript.
 import worker from './index.js';
 
 describe('ElevenLabs proxy streaming', () => {

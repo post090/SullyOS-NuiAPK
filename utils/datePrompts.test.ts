@@ -600,7 +600,7 @@ describe('DatePrompts.buildPeekPayload', async () => {
     it('关闭线下时间感知时，感知与会话都不泄漏今日日程、神经链接记忆日期或记忆宫殿现实日期标注', async () => {
         const char = makeChar({
             dateTimeAwarenessEnabled: false,
-            scheduleConfig: { enabled: true, style: 'conscious' },
+            scheduleFeatureEnabled: true,
             refinedMemories: { '2026-10': '一起在旧书店躲雨' },
             activeMemoryMonths: ['2026-10'],
             memories: [{ id: 'm1', date: '2026-10-14', summary: '借走了一本诗集', mood: 'warm' }],

@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-// @ts-expect-error jsdom is installed without its separate declaration package.
 import { JSDOM } from 'jsdom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
@@ -15,16 +14,20 @@ function boot(record?: unknown, active = 'u_b', reduced = false) {
     const { window } = dom;
     window.localStorage.setItem('sully_active_user_space_v1', active);
     if (record) window.sessionStorage.setItem(key, JSON.stringify(record));
-    window.matchMedia = () => ({ matches: reduced });
+    window.matchMedia = (media: string): MediaQueryList => ({
+        matches: reduced, media, onchange: null,
+        addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {},
+        dispatchEvent: () => false,
+    });
     runInNewContext(source, { window, document: window.document, Date, setTimeout, clearTimeout });
-    return { window, api: window.__sullySpaceTransition, cover: () => window.document.getElementById('sully-space-transition') };
+    return { window, api: window.__sullySpaceTransition!, cover: () => window.document.getElementById('sully-space-transition') };
 }
 it('hands a matching transition across reload once, without changing storage ownership', async () => {
     const first = boot(undefined, 'default');
     const pending = first.api.begin('u_b', '<b>小雨</b>');
     expect(first.cover()?.textContent).toContain('<b>小雨</b>');
     expect(first.cover()?.querySelector('b')).toBeNull();
-    const record = JSON.parse(first.window.sessionStorage.getItem(key));
+    const record = JSON.parse(first.window.sessionStorage.getItem(key)!);
     expect(first.window.localStorage.getItem('sully_active_user_space_v1')).toBe('default');
     await vi.advanceTimersByTimeAsync(280); await pending;
     const second = boot(record);

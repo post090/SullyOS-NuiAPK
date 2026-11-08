@@ -1,7 +1,8 @@
 import {describe,it,expect} from 'vitest';
 import * as T from 'three';
-import catalog from '../public/room3d/catalog.json';
-import {createHome} from '../apps/room3d/model.js';
+import catalogData from '../public/room3d/catalog.json';
+import {createHome,type HomeAsset} from '../apps/room3d/model.js';
+const catalog=catalogData as HomeAsset[];
 import {furnishShowroom} from '../apps/room3d/showrooms.js';
 import {planKitchenAction,kitchenActions,kitchenFingerprint} from '../apps/room3d/kitchenActivities.js';
 import {createKitchenWorkEffects} from '../apps/room3d/kitchenWorkEffects.js';
@@ -10,7 +11,8 @@ function setup(){const h=createHome(catalog),r=h.rooms[0];r.items=[];furnishShow
 describe('kitchen work routes and lifecycle',()=>{
  it.each(['kitchenware_coffee','kitchen_ref_prep','kitchen_ref_breakfast','show_kitchen_range'])('plans a reachable activity for %s',id=>{
   const {h,r,get}=setup(),plan=planKitchenAction(h,r,catalog,get(id).id,[0,2.9],1.8);
-  expect(plan.reason).toBeUndefined();expect(plan.source.path.length).toBeGreaterThan(0);
+  expect(plan.reason).toBeUndefined();if(!plan.source)throw new Error(plan.reason??'missing kitchen source');
+  expect(plan.source.path.length).toBeGreaterThan(0);
   if(plan.kind==='wash'){expect(plan.sink.id).toBe(get('show_kitchen_counter').id);expect(plan.sink.path.length).toBeGreaterThan(0);}
  });
  it('requires a present sink in the same room and detects changed dependencies',()=>{

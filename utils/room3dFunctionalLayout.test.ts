@@ -1,12 +1,13 @@
 import {describe,it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
-import {createHome,boxes} from '../apps/room3d/model.js';
+import catalogData from '../public/room3d/catalog.json';
+import {createHome,boxes,type HomeAsset} from '../apps/room3d/model.js';
+const catalog=catalogData as HomeAsset[];
 import {furnishShowroom} from '../apps/room3d/showrooms.js';
 import {setBoundary} from '../apps/room3d/topology.js';
 import {walkingMap,findWalkPath,doorTarget} from '../apps/room3d/navigation.js';
 
 function setup(key:string){const home=createHome(catalog),room=home.rooms[0];room.items=[];furnishShowroom(room,key,catalog);setBoundary(home,room.id,'front',{kind:'wall_high',door:{kind:'oak',at:0,width:2.2}},catalog);return {home,room,get:(id:string)=>room.items.find(i=>i.assetId===id)!};}
-const bounds=(item:any)=>boxes(item,catalog.find(a=>a.id===item.assetId))[0];
+const bounds=(item:any)=>{const asset=catalog.find(a=>a.id===item.assetId);if(!asset)throw new Error('missing catalog asset');return boxes(item,asset)[0];};
 const front=(item:any)=>[Math.sin(item.rotation*Math.PI/180),Math.cos(item.rotation*Math.PI/180)];
 function faces(a:any,b:any){const f=front(a),dx=b.x-a.x,dz=b.z-a.z;return (f[0]*dx+f[1]*dz)/Math.hypot(dx,dz);}
 

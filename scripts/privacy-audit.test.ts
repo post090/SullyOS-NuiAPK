@@ -3,8 +3,9 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { testBash } from '../test/bash';
 
-const audit = readFileSync(new URL('../infra/assert-privacy.sh', import.meta.url), 'utf8');
+const audit = readFileSync(new URL('../infra/assert-privacy.sh', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const workflow = readFileSync(new URL('../.github/workflows/privacy-audit.yml', import.meta.url), 'utf8');
 const directories: string[] = [];
 const eventIds = "'11111111-1111-4111-8111-111111111111','22222222-2222-4222-8222-222222222222'";
@@ -26,7 +27,7 @@ function cleanup(mode = 'success') {
   const end = audit.indexOf('\necho\nif (( ${#fails[@]} == 0 ))', start);
   expect(start).toBeGreaterThan(0);
   expect(end).toBeGreaterThan(start);
-  const result = spawnSync('bash', ['-c', `
+  const result = spawnSync(testBash(), ['-c', `
 set -uo pipefail
 NONCE=12345
 probe_sids="'33333333-3333-4333-8333-333333333333'"
@@ -95,7 +96,7 @@ describe('隐私审计 SSH 日志', () => {
     const path = join(directory(), 'audit.out');
     writeFileSync(path, input);
     for (const command of printers) {
-      const result = spawnSync('bash', ['-c', command.replace('/tmp/audit.out', '"$AUDIT_OUTPUT"')], {
+      const result = spawnSync(testBash(), ['-c', command.replace('/tmp/audit.out', '"$AUDIT_OUTPUT"')], {
         encoding: 'utf8', env: { ...process.env, AUDIT_OUTPUT: path },
       });
       expect(result.status, result.stderr).toBe(0);

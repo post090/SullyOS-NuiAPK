@@ -14,7 +14,7 @@ const event=(id:string,at:number,kind:HomeRecord['kind']='action',actor:HomeReco
 let seq=0;
 const character=(records:HomeRecord[]):CharacterProfile=>({id:'segment-integration-'+(++seq),name:'C',contextRangePolicyVersion:1,contextRangeMode:'adaptive',autoArchiveEnabled:true,home3D:{records}} as CharacterProfile);
 const user:any={name:'U'},scene:any={roomId:'r',roomName:'客厅',present:true,busy:false,actions:[]};
-const args=(char:CharacterProfile,records=char.home3D!.records)=>({char,user,api:{} as any,scene,records,signal:new AbortController().signal,context:{groups:[],emojis:[],categories:[],realtimeConfig:{weatherEnabled:false,newsEnabled:false} as any}});
+const args=(char:CharacterProfile,records=char.home3D!.records??[])=>({char,user,api:{} as any,scene,records,signal:new AbortController().signal,context:{groups:[],emojis:[],categories:[],realtimeConfig:{weatherEnabled:false,newsEnabled:false} as any}});
 const range=(char:CharacterProfile)=>loadCharacterContextRange(char);
 const body=(rows:Message[],char:CharacterProfile)=>ChatPrompts.buildMessageHistory(rows,rows.length,char,user,[],undefined,{contextHighWaterMark:0}).apiMessages;
 beforeEach(()=>{localStorage.clear();inbox.mockReset();inbox.mockResolvedValue('completed');});
@@ -23,7 +23,7 @@ afterEach(()=>{vi.restoreAllMocks();localStorage.clear();});
 it('persists the user example as six segments with independent speaker roles',async()=>{
  const records=[event('事1',1),event('事2',2),event('事3',3),event('用户发言',4,'message','user'),event('角色回复',5,'message'),event('事4',6),event('事5',7,'action','user'),event('角色主动开口',8,'message'),event('用户接话',9,'message','user')];
  const char=character([]);await DB.saveCharacter(char);
- for(const record of records){char.home3D!.records.push(record);await DB.saveCharacter(char);}
+ for(const record of records){char.home3D!.records!.push(record);await DB.saveCharacter(char);}
  const rows=(await range(char)).messages;
  expect(rows.map(row=>row.metadata.homeRecordIds)).toEqual([['事1','事2','事3'],['用户发言'],['角色回复'],['事4','事5'],['角色主动开口'],['用户接话']]);
  expect(rows.map(row=>row.role)).toEqual(['user','user','assistant','user','assistant','user']);
@@ -34,7 +34,7 @@ it('persists the user example as six segments with independent speaker roles',as
 it('a private-chat message seals the action span, and delayed replies retain their actual time',async()=>{
  const char=character([event('动作1',1)]);await DB.saveCharacter(char);
  await DB.saveMessage({charId:char.id,role:'user',type:'text',timestamp:2,content:'私聊2'});
- char.home3D!.records.push(event('动作3',3),event('家园回复4',4,'message','character','old-user'));
+ char.home3D!.records!.push(event('动作3',3),event('家园回复4',4,'message','character','old-user'));
  await DB.saveCharacter(char);
  const rows=(await range(char)).messages;
  expect(rows.map(row=>row.timestamp)).toEqual([1,2,3,4]);
@@ -42,27 +42,27 @@ it('a private-chat message seals the action span, and delayed replies retain the
 });
 it.each(['watermark','snapshot'])('new actions stay outside the %s archive boundary',async boundary=>{
  const char=character([event('旧动作',1)]);await DB.saveCharacter(char);
- const old=(await range(char)).messages[0];
+ const old=(await range(char)).messages[0]!;
  if(boundary==='snapshot')await DB.getMessagesByCharId(char.id,true,true);
  else localStorage.setItem('mp_lastMsgId_'+char.id,String(old.id));
- char.home3D!.records.push(event('新动作',2));await DB.saveCharacter(char);
+ char.home3D!.records!.push(event('新动作',2));await DB.saveCharacter(char);
  // Simulate the in-flight archive committing its original snapshot afterward.
  localStorage.setItem('mp_lastMsgId_'+char.id,String(old.id));
  const rows=(await range(char)).messages;
- expect(rows).toHaveLength(1);expect(rows[0].content).toContain('新动作');expect(rows[0].content).not.toContain('旧动作');
- expect(rows[0].id).toBeGreaterThan(old.id);
+ expect(rows).toHaveLength(1);expect(rows[0]!.content).toContain('新动作');expect(rows[0]!.content).not.toContain('旧动作');
+ expect(rows[0]!.id).toBeGreaterThan(old.id);
  expect((await DB.getMessageById(old.id))?.content).not.toContain('新动作');
 });
 it('new model replies no longer inherit the archived user message ID',async()=>{
  const char=character([event('旧问题',1,'message','user')]);await DB.saveCharacter(char);
- const old=(await range(char)).messages[0];localStorage.setItem('mp_lastMsgId_'+char.id,String(old.id));
- char.home3D!.records.push(event('新回复',2,'message','character','旧问题'));await DB.saveCharacter(char);
+ const old=(await range(char)).messages[0]!;localStorage.setItem('mp_lastMsgId_'+char.id,String(old.id));
+ char.home3D!.records!.push(event('新回复',2,'message','character','旧问题'));await DB.saveCharacter(char);
  const rows=(await range(char)).messages;
- expect(rows).toHaveLength(1);expect(rows[0].role).toBe('assistant');expect(rows[0].content).toContain('新回复');
+ expect(rows).toHaveLength(1);expect(rows[0]!.role).toBe('assistant');expect(rows[0]!.content).toContain('新回复');
 });
 it.each(['archive','breakpoint'])('old reply retries cannot bypass the %s range',async boundary=>{
  const char=character([event('范围外问题',1,'message','user')]);await DB.saveCharacter(char);
- const old=(await range(char)).messages[0];
+ const old=(await range(char)).messages[0]!;
  if(boundary==='archive')localStorage.setItem('mp_lastMsgId_'+char.id,String(old.id));
  else char.contextUserStartMessageId=await DB.saveMessage({charId:char.id,role:'user',type:'text',timestamp:2,content:'范围起点'});
  await expect(buildHomeConversationPayload(args(char))).rejects.toThrow('已不在当前上下文范围内');
@@ -85,8 +85,8 @@ it('legacy migration preserves IDs, archive boundaries, original events, and cro
  const manual={...char,contextRangeMode:'manual' as const,contextLimit:50};
  const messages=body((await range(manual)).messages,manual);
  expect(messages.map(row=>row.role)).toEqual(['user','assistant','assistant']);
- expect(messages[0].content).toContain('旧用户');expect(messages[1].content).toContain('中途私聊');expect(messages[2].content).toContain('旧角色');
- char.home3D!.records.push(event('新的回复',4,'message','character','旧用户'));await DB.saveCharacter(char);
+ expect(messages[0]!.content).toContain('旧用户');expect(messages[1]!.content).toContain('中途私聊');expect(messages[2]!.content).toContain('旧角色');
+ char.home3D!.records!.push(event('新的回复',4,'message','character','旧用户'));await DB.saveCharacter(char);
  expect((await range(char)).messages.at(-1)?.content).toContain('新的回复');
  expect((await DB.getMessageById(id))?.content).not.toContain('新的回复');
 });
@@ -106,7 +106,7 @@ it('migration rollback preserves both old character and messages, then retry is 
 it('recall consumes the same expanded speakers and chronological events as outgoing history',async()=>{
  const {char}=await legacyCharacter();
  const input=event('新问题',4,'message','user');
- char.home3D!.records.push(input);
+ char.home3D!.records!.push(input);
  await DB.ensureHomeContextMessages(char.id);
  await DB.saveCharacter(char);
  const recall=vi.spyOn(palace,'injectMemoryPalace').mockResolvedValue({stages:[]} as any);
@@ -117,7 +117,7 @@ it('recall consumes the same expanded speakers and chronological events as outgo
   expect(call[1]!.map(m=>m.timestamp)).toEqual([1,2,3,4]);
   expect(call[1]!.map(m=>m.role)).toEqual(['user','assistant','assistant','user']);
  }
- expect(recall.mock.calls[0][1]).toEqual(recall.mock.calls[1][1]);
+ expect(recall.mock.calls[0]![1]).toEqual(recall.mock.calls[1]![1]);
  expect(home.slice(1,-1)).toEqual(chat.cleanedApiMessages);
 });
 it('deleting or editing the first action retains the segment ID and remaining originals',async()=>{
@@ -125,8 +125,8 @@ it('deleting or editing the first action retains the segment ID and remaining or
  const original=(await range(char)).messages[0];
  char.home3D!.records=[{...event('b',2),text:'修改后的动作'}];await DB.saveCharacter(char);
  const rows=(await range(char)).messages;
- expect(rows).toHaveLength(1);expect(rows[0].id).toBe(original.id);expect(rows[0].metadata.homeRecordIds).toEqual(['b']);
- expect(rows[0].content).toContain('修改后的动作');
+ expect(rows).toHaveLength(1);expect(rows[0]!.id).toBe(original.id);expect(rows[0]!.metadata.homeRecordIds).toEqual(['b']);
+ expect(rows[0]!.content).toContain('修改后的动作');
 });
 it('flushes already-arrived inbox messages before reading shared history',async()=>{
  const char=character([event('家园问题',1,'message','user')]);await DB.saveCharacter(char);

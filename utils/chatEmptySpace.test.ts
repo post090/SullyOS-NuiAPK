@@ -7,12 +7,15 @@ import { AppID } from '../types';
 import { DB } from './db';
 
 const state = vi.hoisted(() => ({ characters: [] as any[], close: vi.fn(), open: vi.fn() }));
+// Layout is outside this empty-space regression; jsdom has no ResizeObserver.
+vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
 vi.mock('../context/OSContext', () => { const context = {
     activeApp: 'chat', activeCharacterId: 'missing',
     theme: {}, userProfile: { name: '测试用户', avatar: '', bio: '' },
     apiConfig: {}, apiPresets: [], availableModels: [], customThemes: [], groups: [], characterGroups: [],
     unreadMessages: {}, realtimeConfig: {}, memoryPalaceConfig: {}, remoteVectorConfig: {},
     closeApp: state.close, openApp: state.open, clearUnread: vi.fn(), setActiveCharacterId: vi.fn(),
+    registerBackHandler: vi.fn< (handler: () => boolean) => () => void >(() => vi.fn()),
     addToast: vi.fn(), updateCharacter: vi.fn(), updateUserProfile: vi.fn(),
 }; return { useOS: () => ({ ...context, characters: state.characters }) }; });
 vi.mock('../hooks/useChatAI', () => ({ useChatAI: () => ({

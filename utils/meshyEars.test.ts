@@ -2,12 +2,13 @@ import {readFileSync} from 'node:fs';
 import {expect,it} from 'vitest';
 import catalog from '../apps/room3d/chibi/approvedWardrobe.json';
 import colors from '../apps/room3d/chibi/wardrobeColorRegions.json';
+type Gltf={images?:unknown[];textures?:unknown[];nodes:Array<{name?:string;skin:number;mesh:number}>;skins:Array<{joints:number[]}>;meshes:Array<{primitives:Array<{indices:number;attributes:{TEXCOORD_0?:number;COLOR_0?:number;JOINTS_0?:number}}>}>;accessors:Array<{count:number}>};
 
 it('publishes each pair below 4000 triangles, with head binding and hand-authored color regions',()=>{
  const bytes=readFileSync('public/room3d/wardrobe/meshy-ears.glb');
- const gltf=JSON.parse(bytes.subarray(20,20+bytes.readUInt32LE(12)).toString());
+ const gltf=JSON.parse(bytes.subarray(20,20+bytes.readUInt32LE(12)).toString()) as Gltf;
  expect(gltf.images??[]).toHaveLength(0);expect(gltf.textures??[]).toHaveLength(0);
- for(const id of ['cat-ears','dog-ears','fox-ears','rabbit-ears']){
+ for(const id of ['cat-ears','dog-ears','fox-ears','rabbit-ears'] as const){
   const def=catalog.find(d=>d.id===id)!;expect(def.asset).toBe('meshy-ears.glb');
   const nodes=gltf.nodes.filter(n=>n.name?.startsWith(def.prefix));expect(nodes.length).toBeGreaterThan(0);
   let triangles=0;

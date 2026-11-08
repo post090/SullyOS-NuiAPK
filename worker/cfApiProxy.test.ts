@@ -9,7 +9,7 @@
  *   - 日志里不许出现 token
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-// @ts-expect-error 中心 worker 是纯 JS 单文件，仓库没开 allowJs
+// 中心 worker 的 JS 实现由 TypeScript 直接读取。
 import worker from './index.js';
 
 const TOKEN = 'Bearer cf-token-must-not-leak';

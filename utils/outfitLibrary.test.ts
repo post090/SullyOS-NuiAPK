@@ -1,8 +1,8 @@
 import {it,expect,afterEach,vi} from 'vitest';
 import * as T from 'three';
 import {readFileSync} from 'node:fs';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {makeOutfit,applyOutfit,exportOutfit,importOutfit} from '../apps/room3d/chibi/outfitLibrary';
+import {defaultFace} from '../apps/room3d/chibi/faceAppearance';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
 import {dressApprovedWardrobe} from '../apps/room3d/chibi/approvedClothing';
@@ -19,7 +19,7 @@ it('round trips outfits including independent ears/tails, colors, fitting and la
  const hair={layers:{},extras:[],wardrobe:{top:'sailor-long',ears:'fox-ears',tail:'fox-tail',headwear:'bow-headband'},wardrobeColors:{'fox-tail':{fur:'#abc'}},wardrobeFits:{'fox-tail':{scale:125,offsetZ:-12}},wardrobeLayering:true};
  const original=makeOutfit('狐狸出门',hair),restored=importOutfit(exportOutfit(original));
  expect(restored.clothes).toEqual(original.clothes);expect(restored.id).not.toBe(original.id);
- const face={enabled:true},target={layers:{},extras:[],headSize:1.2,face};
+ const face={...defaultFace},target={layers:{},extras:[],headSize:1.2,face};
  expect(applyOutfit(target,restored)).toMatchObject({headSize:1.2,face,wardrobe:hair.wardrobe});
  expect(exportOutfit(original)).not.toContain('headSize');expect(restored.clothes.wardrobeColors['fox-tail'].fur).toBe('#aabbcc');
 });
@@ -40,7 +40,10 @@ it('atomically saves the shared wardrobe without stale profile forms erasing it'
  expect((await DB.exportFullData()).userProfile?.wardrobeOutfits).toEqual(saved?.wardrobeOutfits);
 });
 it('binds every animal accessory to the live head or hips and restores the body when removed',async()=>{
- vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const b=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength),'');});
+ // 换装现在走 loadHomeGLTF（fetch + parseAsync），mock 掉 location 与 fetch，
+ // 让真实解析器直接读本地 wardrobe 素材。
+ vi.stubGlobal('location',{href:'https://example.test/'});
+ vi.stubGlobal('fetch',vi.fn(async url=>{const b=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return {ok:true,arrayBuffer:async()=>b.buffer.slice(b.byteOffset,b.byteOffset+b.byteLength)};}));
  for(const animal of ['cat','dog','fox'])for(const height of [.8,1.25]){
   const root=new T.Group(),body=new T.Mesh(createBlankBody('skin',{bodyHeight:height,headSize:1.2}),new T.MeshStandardMaterial()),hair=new T.Group();root.add(body,hair);const rig=bindBlankBody(body,hair,true),index=Array.from(rig.baseGeometry.index!.array);
   const outfit=await dressApprovedWardrobe(rig,{ears:`${animal}-ears`,tail:`${animal}-tail`});

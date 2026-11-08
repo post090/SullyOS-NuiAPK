@@ -304,12 +304,16 @@ export interface CallAutoStartConfig {
 // 语音转文字（STT）服务商。电话麦克风收音可选任意已配置 Key 的平台（与 TTS 独立），或浏览器自带免费识别。
 export type SttProvider = 'minimax' | 'fishaudio' | 'elevenlabs' | 'browser';
 
+export type VisionImageQuality = 'original' | 'high' | 'compressed';
+
 export interface VisionApiConfig {
   /** 开启后，聊天图片先由独立视觉模型转成文字，再交给主对话模型。 */
   enabled: boolean;
   baseUrl: string;
   apiKey: string;
   model: string;
+  /** 聊天图片发送画质；不依赖独立识图开关，缺省保留原图。 */
+  imageQuality?: VisionImageQuality;
 }
 
 export type AudioApiSongQuality = 'standard' | 'exhigh' | 'lossless';

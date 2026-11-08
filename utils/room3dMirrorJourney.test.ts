@@ -3,7 +3,7 @@ import {createMirrorJourney,mirrorJourneyFrame} from '../apps/room3d/mirrorJourn
 const activity={position:[0,.18,0],rotation:Math.PI,wardrobePose:{position:[0,.18,-3.4],rotation:0}};
 describe('outfit trips',()=>{
  it('walks two round trips, pauses at each destination and finishes at the mirror',()=>{
-  const j=createMirrorJourney(activity,activity.position,(a,b)=>[a,b]);
+  const j=createMirrorJourney(activity,activity.position,(a:number[],b:number[])=>[a,b]);
   expect(j.phases.filter(p=>p.motion==='walk')).toHaveLength(4);
   expect(j.phases.filter(p=>p.motion!=='walk').map(p=>p.destination)).toEqual(['wardrobe','mirror','wardrobe','mirror']);
   const moving=mirrorJourneyFrame(j,1);expect(moving.position[2]).toBeCloseTo(-1.7);expect(moving.motion).toBe('walk');
@@ -19,7 +19,7 @@ describe('outfit trips',()=>{
   expect(mirrorJourneyFrame(j,j.duration).done).toBe(true);
  });
  it('follows all detour segments rather than crossing obstacles',()=>{
-  const j=createMirrorJourney(activity,activity.position,(a,b)=>[a,[2,.18,a[2]],[2,.18,b[2]],b]);
+  const j=createMirrorJourney(activity,activity.position,(a:number[],b:number[])=>[a,[2,.18,a[2]],[2,.18,b[2]],b]);
   const f=mirrorJourneyFrame(j,2);expect(f.position[0]).toBe(2);expect(f.position[2]).toBeCloseTo(-1.4);
  });
 });

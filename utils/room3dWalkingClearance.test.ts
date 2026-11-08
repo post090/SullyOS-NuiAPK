@@ -1,5 +1,7 @@
 import {describe,it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {createHome} from '../apps/room3d/model.js';
 import {walkingMap,findWalkPath} from '../apps/room3d/navigation.js';
 
@@ -9,7 +11,7 @@ function maps(){
 }
 describe('walking clearance and ground click tolerance',()=>{
  it('allows landing on a rug while furniture above it still blocks walking',()=>{
-  const home=createHome(catalog);home.rooms[0].items=[{id:'walk-rug',assetId:'bedroom_ref_rug',x:0,y:.15,z:0,rotation:0,stored:false}];
+  const home=createHome(catalog);home.rooms[0].items=[{id:'walk-rug',assetId:'bedroom_ref_rug',x:0,y:.15,z:0,rotation:0,color:null,stored:false}];
   const map=walkingMap(home,0,catalog,{walkClearance:true});
   expect(findWalkPath(map,[0,2.5],[0,1])).not.toBeNull();
   map.obstacles.push([-.5,.2,.5,.5,2,1.5]);

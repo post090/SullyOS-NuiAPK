@@ -6,6 +6,7 @@ import {useHomeSchedule} from '../apps/room3d/useHomeSchedule';
 const mocks=vi.hoisted(()=>({read:vi.fn(),position:vi.fn()}));
 vi.mock('./dailySchedule',()=>({getDailyScheduleForChar:mocks.read}));
 vi.mock('./homePresence',()=>({homePresence:mocks.position}));
+vi.mock('./homeVisits',async original=>({...await original<typeof import('./homeVisits')>(),readHomeVisits:vi.fn(async()=>[])}));
 vi.mock('./scheduleTime',()=>({getCurrentScheduleSlotIndex:()=>0}));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 let root:ReturnType<typeof createRoot>,host:HTMLDivElement;

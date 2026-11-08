@@ -65,7 +65,7 @@ describe('song lyric prompt context', () => {
     });
 
     it('injects the selected co-writing grammar into the system prompt', () => {
-        vi.spyOn(ContextBuilder, 'buildCoreContext').mockReturnValue('CHARACTER CONTEXT');
+        vi.spyOn(ContextBuilder, 'buildCoreContext').mockResolvedValue('CHARACTER CONTEXT');
         const song = makeSong({ lyricCoWritingStyle: 'vocaloid' });
         const prompt = SongPrompts.buildMentorSystemPrompt(
             { id: 'char-1', name: 'C' } as any,

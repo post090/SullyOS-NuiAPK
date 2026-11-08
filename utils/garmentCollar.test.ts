@@ -1,7 +1,6 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {stubLocalWardrobeAssets} from '../test/fixtures/localWardrobeAssets';
 import {MeshBVH} from 'three-mesh-bvh';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
@@ -12,7 +11,7 @@ import {garmentLayeringAssignments} from '../apps/room3d/chibi/wardrobeLayering'
 
 function fixture(standing:'normal'|'boy'|'cute'='normal'){
  vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
- vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+ stubLocalWardrobeAssets();
  const root=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group();root.add(body,hair);
  const rig=bindBlankBody(body,hair,true),mixer=new T.AnimationMixer(root);mixer.clipAction(createWardrobePose(rig,standing)).play();mixer.setTime(.7);
  const snapshot=(meshes:T.SkinnedMesh[])=>{root.updateMatrixWorld(true);rig.skeleton.update();return meshes.filter(m=>m.geometry.index!.count).map(m=>{

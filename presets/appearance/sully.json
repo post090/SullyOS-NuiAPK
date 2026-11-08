@@ -28,7 +28,7 @@
     "check_phone": "/themes/sully/icon-check_phone.webp",
     "date": "/themes/sully/icon-date.webp",
     "faq": "/themes/sully/icon-faq.webp",
-    "friend_feed": "/themes/sully/icon-friend_feed.png",
+    "friend_feed": "/themes/sully/icon-friend_feed.webp",
     "gallery": "/themes/sully/icon-gallery.webp",
     "game": "/themes/sully/icon-game.webp",
     "group_chat": "/themes/sully/icon-group_chat.webp",
@@ -52,6 +52,6 @@
     "xhs_free_roam": "/themes/sully/icon-xhs_free_roam.webp",
     "xhs_stock": "/themes/sully/icon-xhs_stock.webp",
     "hot_news": "/themes/sully/icon-hot_news.webp",
-    "vrworld": "/themes/sully/icon-vrworld.png"
+    "vrworld": "/themes/sully/icon-vrworld-lossless.webp"
   }
 }

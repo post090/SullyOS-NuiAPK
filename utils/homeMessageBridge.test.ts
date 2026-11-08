@@ -81,6 +81,6 @@ it('updates only the changed home turn and makes it visible to the next queued c
  expect(rows.some(m=>m.content.includes('刚改好的内容'))).toBe(true);
  expect(rows.some(m=>m.content.includes('旧内容'))).toBe(false);
  expect(rows.some(m=>m.content==='普通私聊保留')).toBe(true);
- const writes=scan.mock.contexts.filter(index=>index.objectStore.transaction.mode==='readwrite');
+ const writes=(scan.mock.contexts as IDBIndex[]).filter(index=>index.objectStore.transaction.mode==='readwrite');
  expect(writes.map(index=>index.name)).toEqual(['charId','charId_homeTurn']);
 });

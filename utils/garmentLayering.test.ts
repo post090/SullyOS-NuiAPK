@@ -1,7 +1,6 @@
 import {describe,it,expect,vi,afterEach} from 'vitest';
-import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {stubLocalWardrobeAssets} from '../test/fixtures/localWardrobeAssets';
 import {createLayeredClothingMasks} from '../apps/room3d/chibi/garmentLayering';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
@@ -129,7 +128,7 @@ describe('bone-directed layering masks',()=>{
 describe('shipped wardrobe layering integration',()=>{
  it('keeps the actual long skirt continuous outside the cardigan silhouette in the standing pose',async()=>{
   vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group(),root=new T.Group();root.add(body,hair);const rig=bindBlankBody(body,hair,true),items={top:'sailor-short',outer:'slouch-cardigan',bottom:'lower-long-skirt'};
   const mixer=new T.AnimationMixer(root);mixer.clipAction(createWardrobePose(rig,'normal')).play();mixer.setTime(.7);
   const snapshot=(meshes:T.SkinnedMesh[])=>{root.updateMatrixWorld(true);rig.skeleton.update();return meshes.map(m=>{const g=m.geometry.clone(),p=g.attributes.position,v=new T.Vector3();for(let i=0;i<p.count;i++){m.applyBoneTransform(i,v.fromBufferAttribute(p,i));p.setXYZ(i,v.x,v.y,v.z);}return {g,tree:new MeshBVH(g,{indirect:true})};});};
@@ -141,7 +140,7 @@ describe('shipped wardrobe layering integration',()=>{
   [...skirt,...coat,...after].forEach(q=>q.g.dispose());next.dispose();mixer.stopAllAction();
  });
  it.each(['basic-tee','fitted-sweater','fitted-turtleneck'])('does not expose new shoulder/chest skin through %s in the approved standing pose',async top=>{
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group(),root=new T.Group();root.add(body,hair);const rig=bindBlankBody(body,hair,true);
   const mixer=new T.AnimationMixer(root);mixer.clipAction(createWardrobePose(rig,'normal')).play();mixer.setTime(.7);
   const snapshot=(meshes:T.SkinnedMesh[])=>{root.updateMatrixWorld(true);rig.skeleton.update();return meshes.filter(m=>m.geometry.index!.count>0).map(mesh=>{const g=mesh.geometry.clone(),p=g.attributes.position,v=new T.Vector3();for(let i=0;i<p.count;i++){mesh.getVertexPosition(i,v).applyMatrix4(mesh.matrixWorld);p.setXYZ(i,v.x,v.y,v.z);}return {g,tree:new MeshBVH(g,{indirect:true})};});};
@@ -154,7 +153,7 @@ describe('shipped wardrobe layering integration',()=>{
   [...before,...after,skin].forEach(t=>t.g.dispose());layered.dispose();mixer.stopAllAction();
  });
  it('tucks the stand-collar torso without changing its cuff, the outer shell or cached source, and restores it exactly',async()=>{
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+  stubLocalWardrobeAssets();
   const body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group(),root=new T.Group();root.add(body,hair);const rig=bindBlankBody(body,hair,true);
   const items={top:'stand-collar',outer:'slouch-cardigan'},base=await dressApprovedWardrobe(rig,items),source=base.meshes.map(m=>m.geometry.clone());base.dispose();
   const next=await dressApprovedWardrobe(rig,items,{},{},true);expect(next.layeringReport!.tuckedVertices).toBeGreaterThan(20);
@@ -168,10 +167,7 @@ describe('shipped wardrobe layering integration',()=>{
  });
  it('keeps the sailor cuffs and clears the middle of both sleeves under the folded cardigan',async()=>{
   vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async function(url){
-   const file=String(url).split('/').pop()!.split('?')[0],bytes=readFileSync(`public/room3d/wardrobe/${file}`);
-   return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
-  });
+  stubLocalWardrobeAssets();
   const body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group(),root=new T.Group();root.add(body,hair);const rig=bindBlankBody(body,hair,true);
   const items={top:'sailor-long',outer:'slouch-cardigan'},base=await dressApprovedWardrobe(rig,items,{}, {},false);
   const inner=base.meshes.filter(m=>m.userData.garmentId===items.top),outer=base.meshes.filter(m=>m.userData.garmentId===items.outer);
@@ -191,10 +187,7 @@ describe('shipped wardrobe layering integration',()=>{
   result.masks.forEach(m=>m.geometry.dispose());base.dispose();
  });
  it.each(['school-blazer','hood-parka','slouch-cardigan','belt-coat'])('masks a real shirt under %s, restores on removal, and preserves every outer vertex',async outerId=>{
-  vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async function(url){
-   const file=String(url).split('/').pop()!.split('?')[0],bytes=readFileSync(`public/room3d/wardrobe/${file}`);
-   return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');
-  });
+  stubLocalWardrobeAssets();
   const body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group(),root=new T.Group();root.add(body,hair);const rig=bindBlankBody(body,hair,true);
   const items={top:'fitted-sweater',outer:outerId},base=await dressApprovedWardrobe(rig,items,{}, {},false);
   const counts=base.meshes.filter(m=>m.userData.garmentId===items.top).map(m=>m.geometry.index!.count);

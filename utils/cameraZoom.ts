@@ -3,7 +3,7 @@ export function cameraZoomRange(track: MediaStreamTrack): CameraZoom {
     try {
         const caps = track.getCapabilities?.() as MediaTrackCapabilities & { zoom?: { min: number; max: number; step?: number } };
         const range = caps?.zoom;
-        if (range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min > 0 && range.max > range.min && track.applyConstraints) {
+        if (range && Number.isFinite(range.min) && Number.isFinite(range.max) && range.min > 0 && range.max > range.min && typeof track.applyConstraints === 'function') {
             return { min: range.min, max: range.max, step: range.step || 0.1, value: Math.max(range.min, Math.min(range.max, 1)), hardware: true };
         }
     } catch {}

@@ -43,6 +43,37 @@ async function openVision() {
 afterEach(async () => { await act(async () => { root.render(null); }); vi.restoreAllMocks(); });
 
 describe('识图设置开关', () => {
+    it('defaults to original and saves quality independently of the vision API connection', async () => {
+        saved = { baseUrl: 'https://main.test/v1', apiKey: 'main-key', model: 'main' };
+        await act(async () => root.render(createElement(Harness)));
+        await openVision();
+        const select = visionSection().querySelector<HTMLSelectElement>('#chat-image-quality')!;
+        expect(select.value).toBe('original');
+        await act(async () => { select.value = 'compressed'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+        expect(saved.visionApi).toEqual({ enabled: false, baseUrl: '', apiKey: '', model: '', imageQuality: 'compressed' });
+        expect(saved.model).toBe('main');
+        await act(async () => root.render(null));
+        await act(async () => root.render(createElement(Harness)));
+        await openVision();
+        expect(visionSection().querySelector<HTMLSelectElement>('#chat-image-quality')!.value).toBe('compressed');
+        expect(visionSection().querySelector('[role="switch"]')!.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('keeps the chosen quality and credentials when saving or disabling a connected vision API', async () => {
+        saved = { baseUrl: '', apiKey: '', model: '', visionApi: { enabled: true, baseUrl: 'https://vision.test/v1', apiKey: 'vision-key', model: 'vl' } };
+        await act(async () => root.render(createElement(Harness)));
+        await openVision();
+        const select = visionSection().querySelector<HTMLSelectElement>('#chat-image-quality')!;
+        await act(async () => { select.value = 'high'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+        const expected = { enabled: true, baseUrl: 'https://vision.test/v1', apiKey: 'vision-key', model: 'vl', imageQuality: 'high' };
+        expect(saved.visionApi).toEqual(expected);
+        const save = [...visionSection().querySelectorAll('button')].find(button => button.textContent?.trim() === '保存识图 API')!;
+        await act(async () => save.click());
+        expect(saved.visionApi).toEqual(expected);
+        await act(async () => visionSection().querySelector<HTMLButtonElement>('[role="switch"]')!.click());
+        expect(saved.visionApi).toEqual({ ...expected, enabled: false });
+    });
+
     it('首次配置未填完整时不接入，关闭也保留尚未保存的选择', async () => {
         saved = { baseUrl: 'https://main.test/v1', apiKey: 'main-key', model: 'main' };
         presets = [{ id: 'p-vision', name: '视觉站（看图）', config: { baseUrl: 'https://draft.test/v1', apiKey: 'draft-key', model: 'draft-vl' } }];

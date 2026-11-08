@@ -2,7 +2,6 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {Group,OrthographicCamera,Vector3} from 'three';
 import {hasRomanticPair,homeSocialActionAllowed,isRomanticMotion,normalizeRomanticPairs,updateRomanticPair,updateHomeRomanticRelation} from '../apps/room3d/homeRomance';
 import {createSocialScene} from '../apps/room3d/chibi/selectedSocial';
-// @ts-expect-error Runtime JS module.
 import {createPhotoSession} from '../apps/room3d/photoSession.js';
 import {createHome,validateHome} from '../apps/room3d/model.js';
 import catalog from '../public/room3d/catalog.json';

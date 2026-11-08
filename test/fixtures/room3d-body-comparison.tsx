@@ -1,7 +1,5 @@
 import React,{useEffect,useRef,useState} from 'react';
-// @ts-expect-error Shared runtime JS helpers have no declaration files.
 import {seatTransform} from '../../apps/room3d/seating.js';
-// @ts-expect-error Shared runtime JS helpers have no declaration files.
 import {body2BedTransform,bedFootSurface} from '../../apps/room3d/bedMotion.js';
 import {createRoot} from 'react-dom/client';
 import {CreatorRollBridge} from '../../apps/room3d/chibi/CreatorRollBridge';
@@ -38,10 +36,10 @@ function Comparison(){
   const release=()=>{e?.dispose();if(!owned)visitors.forEach(v=>v.dispose());};
   void(async()=>{
    try{
-    const catalog=await fetch('/room3d/catalog.json',{signal:abort.signal}).then(r=>r.json());
+    const catalog:NonNullable<Parameters<typeof createHome>[0]>=await fetch('/room3d/catalog.json',{signal:abort.signal}).then(r=>r.json());
     setCatalogAssets(catalog);
     const home=kind==='bathroom'?bathroomHome(catalog):createHome(catalog),room=home.rooms[0];
-    if(kind!=='bathroom'){room.items=[];if(['race','rhythm'].includes(kind))room.items=gamingPreset(kind,catalog);else if(kind==='dining')room.items=diningPreset(catalog);else if(['beds','seats'].includes(kind))room.items=[{id:'bed-review',assetId:assetId||(kind==='beds'?'bedroom_single_bed':'show_living_pouf'),x:0,y:.15,z:0,rotation:0,color:null,stored:false}];else if(kind==='plush')room.items=catalog.filter((a,i)=>a.holdable).map((a,i)=>({id:'plush-'+i,assetId:a.id,x:-2.4+i*1.6,y:.15,z:-1.6,rotation:0,color:null,stored:false}));else if(kind!=='motion')furnishShowroom(room,kind,catalog);setBoundary(home,room.id,'front',{kind:'wall_high',door:{kind:(SHOWROOMS[kind]??SHOWROOMS.living).door,at:0,width:2.2}},catalog);}
+    if(kind!=='bathroom'){room.items=[];if(['race','rhythm'].includes(kind))room.items=gamingPreset(kind,catalog);else if(kind==='dining')room.items=diningPreset(catalog);else if(['beds','seats'].includes(kind))room.items=[{id:'bed-review',assetId:assetId||(kind==='beds'?'bedroom_single_bed':'show_living_pouf'),x:0,y:.15,z:0,rotation:0,color:null,stored:false}];else if(kind==='plush')room.items=catalog.filter((a,i)=>a.holdable).map((a,i)=>({id:'plush-'+i,assetId:a.id,x:-2.4+i*1.6,y:.15,z:-1.6,rotation:0,color:null,stored:false}));else if(kind!=='motion')furnishShowroom(room,kind,catalog);setBoundary(home,room.id,'front',{kind:'wall_high',door:{kind:(SHOWROOMS[kind as keyof typeof SHOWROOMS]??SHOWROOMS.living).door,at:0,width:2.2}},catalog);}
     if(kind==='motion'){room.name='动作练习区';room.wall='#f4f4ec';room.trim='#586653';room.floor='#d7d6cb';}
     const hair:HairSettings={layers:{},extras:[],assets:selectedHairAssets(testCharacter.state),headSize:1.04,bodyHeight:1,face:{...defaultFace,irisColor:'#5e8068'}};
     bedLayout.current={catalog,room};

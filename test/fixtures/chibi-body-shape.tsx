@@ -29,7 +29,7 @@ function Bridge(){const [request,setRequest]=React.useState(0);return <CreatorRo
   scene.add(body.root);return body;
  });
  const outfit=dressHoodie(bodies[0].rig!);bodies[0].resources.push(...outfit.resources);
- const skeletons=bodies.map(b=>{const helper=new T.SkeletonHelper(b.rig!.mesh);helper.visible=false;helper.material.depthTest=false;helper.renderOrder=10;scene.add(helper);return helper;});
+ const skeletons=bodies.map(b=>{const helper=new T.SkeletonHelper(b.rig!.mesh);helper.visible=false;for(const material of Array.isArray(helper.material)?helper.material:[helper.material])material.depthTest=false;helper.renderOrder=10;scene.add(helper);return helper;});
  let currentYaw=0,currentPose='relaxed';
  let poseEditor:ReturnType<typeof createPoseEditor>|undefined;
  let poseHandles:ReturnType<typeof createPoseHandles>|undefined;
@@ -78,7 +78,8 @@ function Bridge(){const [request,setRequest]=React.useState(0);return <CreatorRo
   const p=mesh.geometry.getAttribute('position');let finite=true;
   for(let i=0;i<p.count;i++)finite&&=Number.isFinite(p.getX(i)+p.getY(i)+p.getZ(i));
   const face=bodies[0].root.getObjectByName('chibi-body') as T.Mesh;const faceTexture=(face.material as T.MeshStandardMaterial[])[0].map!;
-  return {finite,rig:bodies[1].rig!.inspect(),faceTextureSize:[faceTexture.image.width,faceTexture.image.height],vertices:p.count,triangles:mesh.geometry.index!.count/3,onePiece:true};
+  const faceImage=faceTexture.image;if(!(faceImage instanceof HTMLCanvasElement))throw new Error('Expected the generated face texture canvas');
+  return {finite,rig:bodies[1].rig!.inspect(),faceTextureSize:[faceImage.width,faceImage.height],vertices:p.count,triangles:mesh.geometry.index!.count/3,onePiece:true};
  };
  draw();w.bodyReady=true;
 }}/>;}

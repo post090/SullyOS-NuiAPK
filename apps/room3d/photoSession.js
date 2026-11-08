@@ -13,8 +13,8 @@ export function createPhotoSession({actors,camera,controls,invalidate,canInterac
   return {...a,transforms,faceBefore:{...a.person.faceState},expression:'original',lookCamera:false};
  });
  const center=entries.length?entries.reduce((p,e)=>p.add(e.root.position),new THREE.Vector3()).multiplyScalar(1/entries.length):controls.target.clone();
- let closed=false,pair=null,pairKey='',pairGeneration=0,pairRestore=null,portrait=null,portraitTime=0,portraitIds=[];const revisions=new Map();
- const cancelPair=()=>{pairGeneration++;pair?.cancel();pair=null;portrait=null;portraitIds=[];pairKey='';pairRestore?.();pairRestore=null;};
+ let closed=false,pair=null,pairKey='',pairGeneration=0,pairRestore=null,pairPending=null,portrait=null,portraitTime=0,portraitIds=[];const revisions=new Map();
+ const cancelPair=()=>{pairGeneration++;pair?.cancel();pair=null;pairPending=null;portrait=null;portraitIds=[];pairKey='';pairRestore?.();pairRestore=null;};
  let yaw=0,pitch=4,zoom=1,height=1.2,pan=0,roll=0;
  const aim=()=>{controls.target.set(center.x+Math.cos(yaw*Math.PI/180)*pan,center.y+height,center.z-Math.sin(yaw*Math.PI/180)*pan);camera.position.copy(controls.target).add(new THREE.Vector3(Math.sin(yaw*Math.PI/180)*20,Math.tan(pitch*Math.PI/180)*20,Math.cos(yaw*Math.PI/180)*20));camera.zoom=(camera.top-camera.bottom)/5.2*zoom;camera.lookAt(controls.target);camera.rotateZ(roll*Math.PI/180);camera.updateProjectionMatrix();invalidate(false);};
  const restoreActors=()=>{for(const e of entries){for(const t of e.transforms){t.o.position.copy(t.p);t.o.quaternion.copy(t.q);t.o.scale.copy(t.s);t.o.visible=t.visible;}e.person.finishPose?.();}};
@@ -64,8 +64,13 @@ export function createPhotoSession({actors,camera,controls,invalidate,canInterac
    if(pairKey!==key){cancelPair();for(const e of entries)revisions.set(e.id,(revisions.get(e.id)||0)+1);const version=pairGeneration;
     const staged=[];for(const e of entries)e.root.traverse(o=>staged.push({o,p:o.position.clone(),q:o.quaternion.clone(),s:o.scale.clone()}));pairRestore=()=>{for(const t of staged){t.o.position.copy(t.p);t.o.quaternion.copy(t.q);t.o.scale.copy(t.s);}for(const e of entries)e.person.finishPose?.();};
     const runtime=createSocialScene(chosen.map(e=>({id:e.id,visitor:{...e.person,root:e.root}})),{canInteract});pair=runtime;pairKey=key;
-    try{await runtime.start(action,a,b);}catch(error){if(pair===runtime)cancelPair();throw error;}
+    const pending={key,version,promise:runtime.start(action,a,b)};pairPending=pending;
+    try{await pending.promise;}catch(error){if(pair===runtime)cancelPair();throw error;}
+    if(pairPending===pending)pairPending=null;
     if(closed||version!==pairGeneration)return;
+   }else if(pairPending?.key===key){
+    const pending=pairPending;await pending.promise;
+    if(closed||pending.version!==pairGeneration)return;
    }
    const info=pair?.inspect().session,entry=photoLibrary.find(p=>p.id===action);if(info&&entry)pair.seek(Math.max(0,info.duration-entry.duration-1.2)+.6+Math.min(time,entry.duration));invalidate();
   },

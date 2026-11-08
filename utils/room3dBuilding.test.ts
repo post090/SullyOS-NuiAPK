@@ -5,7 +5,10 @@ import {BUILDING_ASSETS,ROOM_EDGES,placeBuildingOnEdge,snapBuildingToEdge,exteri
 import {createBuildingTemplates} from '../apps/room3d/buildingMeshes.js';
 import {createHome,findPlace,placementError,moveFurniture,validateHome,clone} from '../apps/room3d/model.js';
 import * as T from 'three';
-const catalog=[...furniture,...BUILDING_ASSETS];
+import type {HomeAsset} from '../apps/room3d/model.js';
+const tuple2=(position:number[]):[number,number]=>[position[0],position[1]];
+const tuple3=(position:number[]):[number,number,number]=>[position[0],position[1],position[2]];
+const catalog:HomeAsset[]=[...furniture,...BUILDING_ASSETS].map((asset):HomeAsset=>({...asset,id:String(asset.id),name:String(asset.name),size:asset.size.map(Number),boxes:asset.boxes.map(box=>box.map(Number)),seats:'seats' in asset?asset.seats?.map(seat=>({...seat,position:tuple3(seat.position)})):undefined,support:'support' in asset&&asset.support?{...asset.support,center:asset.support.center?tuple2(asset.support.center):undefined,areas:asset.support.areas?.map(area=>({...area,center:area.center?tuple2(area.center):undefined}))}:undefined,contact:'contact' in asset&&asset.contact?{...asset.contact,center:asset.contact.center?tuple2(asset.contact.center):undefined}:undefined,appliance:'appliance' in asset&&asset.appliance==='fridge'?'fridge':undefined}));
 const high=catalog.find(a=>a.id==='wall_high')!;
 describe('room building segments',()=>{
  it('places walls on all four outer edges while furniture stays on the floor',()=>{
@@ -14,7 +17,7 @@ describe('room building segments',()=>{
    const next=placeBuildingOnEdge(wall,key);expect(next[edge.axis]).toBe(edge.at);expect(next.rotation).toBe(edge.rotation);expect(placementError(next,r,catalog)).toBe('');
    const near={...next,[edge.axis]:edge.at*.96};expect(snapBuildingToEdge(near)).toEqual(next);
   }
-  const table=findPlace(furniture.find(a=>a.id==='table')!,r,catalog);expect(placementError({...table,z:ROOM_HALF.z},r,catalog)).toContain('地板');
+  const table=findPlace(catalog.find(a=>a.id==='table')!,r,catalog);expect(placementError({...table,z:ROOM_HALF.z},r,catalog)).toContain('地板');
  });
  it('replaces only the occupied exterior interval and restores it when moved or stored',()=>{
   const r=createHome(catalog).rooms[0];r.items=[];
@@ -30,7 +33,7 @@ describe('room building segments',()=>{
   const wall={...findPlace(high,r,catalog),x:0,z:0,length:4};r.items.push(wall);
   expect(placementError({...wall,x:ROOM_HALF.x-1.5},r,catalog)).toContain('四周');
   expect(placementError({...wall,rotation:90,z:ROOM_HALF.z-1.5},r,catalog)).toContain('四周');
-  const table={...findPlace(furniture.find(a=>a.id==='table')!,{...r,items:[]},catalog),x:1.6,z:0};
+  const table={...findPlace(catalog.find(a=>a.id==='table')!,{...r,items:[]},catalog),x:1.6,z:0};
   expect(placementError(table,r,catalog)).toContain('碰到');
   expect(placementError(table,{...r,items:[{...wall,length:1.2}]},catalog)).toBe('');
  });

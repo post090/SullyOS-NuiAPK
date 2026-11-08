@@ -94,7 +94,7 @@ describe('page-scoped build metadata', () => {
     try {
       const page = await server.transformIndexHtml('/index.html', '<html><head></head><body></body></html>');
       expect(page).toContain(`data-sully-build="${first.buildId}"`);
-      expect(server.config.define.__APP_BUILD_ID__).toBe(pageBuildDefines.__APP_BUILD_ID__);
+      expect(server.config.define?.__APP_BUILD_ID__).toBe(pageBuildDefines.__APP_BUILD_ID__);
     } finally { await server.close(); }
   });
 });

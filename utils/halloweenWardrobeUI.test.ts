@@ -20,7 +20,7 @@ it('shows one tile per style, then changes color without resetting tailoring or 
  const color=(text:string)=>[...host.querySelectorAll('button')].find(b=>b.textContent===text)!;
  expect(color('绯红夜宴').getAttribute('aria-pressed')).toBe('true');
  await act(async()=>color('月光蓝').click());
- expect(hair.wardrobeColors['halloween-witch-dress']).toEqual(approvedPresets['halloween-witch-moonlight'].clothes!.wardrobeColors['halloween-witch-dress']);
+ expect(hair.wardrobeColors?.['halloween-witch-dress']).toEqual(approvedPresets['halloween-witch-moonlight'].clothes!.wardrobeColors['halloween-witch-dress']);
  expect(hair.wardrobeFits['halloween-witch-hat'].scale).toBe(135);expect(hair.skinColor).toBe('#abcdef');
  await act(async()=>color('经典万圣节').click());expect(hair.wardrobeColors).toEqual({});
 });

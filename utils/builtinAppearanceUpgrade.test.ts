@@ -5,7 +5,7 @@ import { getBlobForRef, putImageBlob } from './blobRef';
 import { sameSullyIconSnapshot, SULLY_BIBI_UPGRADE_KEY, upgradeBuiltinSullyBibiIcon } from './builtinAppearanceUpgrade';
 
 const bytes = (name: string) => readFileSync(new URL('../public/themes/sully/' + name, import.meta.url));
-const iconResponse = () => new Response(bytes('icon-friend_feed.png'), { headers: { 'Content-Type': 'image/png' } });
+const iconResponse = () => new Response(bytes('icon-friend_feed.webp'), { headers: { 'Content-Type': 'image/webp' } });
 const fetchMock = vi.fn();
 beforeEach(async () => {
     const db = await openDB();
@@ -29,7 +29,7 @@ it('recognizes stored original image bytes, persists the new portable icon once,
     const before = await DB.getAllAssets();
     const added = await upgradeBuiltinSullyBibiIcon(icons);
     expect(added).toMatch(/^blobref:/);expect(await DB.getAsset('icon_friend_feed')).toBe(added);
-    expect(Buffer.from(await (await getBlobForRef(added!))!.arrayBuffer())).toEqual(bytes('icon-friend_feed.png'));
+    expect(Buffer.from(await (await getBlobForRef(added!))!.arrayBuffer())).toEqual(bytes('icon-friend_feed.webp'));
     expect(await DB.getAsset(SULLY_BIBI_UPGRADE_KEY)).toBe('1');
     for (const row of before) expect(await DB.getAsset(row.id)).toBe(row.data);
     expect(icons.friend_feed).toBeUndefined();
@@ -40,7 +40,7 @@ it('recognizes stored original image bytes, persists the new portable icon once,
 it('allows one customised anchor but requires two original icons, without fetching custom URLs', async () => {
     const icons = await oldIcons();icons.appearance = 'https://private.invalid/image';await DB.saveAsset('icon_appearance', icons.appearance);
     expect(await upgradeBuiltinSullyBibiIcon(icons)).toBeTruthy();
-    expect(fetchMock).toHaveBeenCalledTimes(1);expect(fetchMock.mock.calls[0][0]).toBe('/themes/sully/icon-friend_feed.png');
+    expect(fetchMock).toHaveBeenCalledTimes(1);expect(fetchMock.mock.calls[0][0]).toBe('/themes/sully/icon-friend_feed.webp');
 });
 it('does not alter another theme or an existing customised Bibi icon', async () => {
     expect(await upgradeBuiltinSullyBibiIcon({ chat: '/other-theme/chat.png', character: 'https://private.invalid/character' })).toBeNull();

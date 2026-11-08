@@ -12,10 +12,16 @@ export function cleanApprovedWardrobe(value:unknown):ApprovedWardrobe{
  if(result.onepiece){delete result.top;delete result.bottom;}
  return result;
 }
+function builtinClothes(value:typeof builtinOutfits[number]['clothes']):SavedOutfit['clothes']{
+ const wardrobeFits:SavedOutfit['clothes']['wardrobeFits']={},wardrobeColors:SavedOutfit['clothes']['wardrobeColors']={};
+ for(const [id,fit] of Object.entries(value.wardrobeFits))if(fit)wardrobeFits[id]=fit;
+ for(const [id,colors] of Object.entries(value.wardrobeColors))if(colors)wardrobeColors[id]=colors;
+ return {wardrobe:value.wardrobe as ApprovedWardrobe,wardrobeFits,wardrobeColors,wardrobeLayering:value.wardrobeLayering};
+}
 export const approvedPresets:Record<string,{label:string;items:ApprovedWardrobe;clothes?:SavedOutfit['clothes'];collection?:string}>={
  ...Object.fromEntries(halloweenOutfits.map(p=>[p.id,{...p,items:p.items as ApprovedWardrobe,clothes:p.clothes as SavedOutfit['clothes']}])),
  original:{label:'初始卫衣搭配',items:{top:'original-hoodie',socks:'original-socks',shoes:'original-shoes'}},
  sailor:{label:'长袖水手服',items:{top:'sailor-long',bottom:'sailor-shorts',socks:'school-socks',shoes:'school-loafers'}},
  summer:{label:'短袖水手服',items:{top:'sailor-short',bottom:'sailor-skirt',socks:'school-socks',shoes:'school-loafers'}},
- ...Object.fromEntries(builtinOutfits.map((outfit,index)=>[`curated-${index+1}`,{label:outfit.name,items:outfit.clothes.wardrobe as ApprovedWardrobe,clothes:outfit.clothes as SavedOutfit['clothes']} ])),
+ ...Object.fromEntries(builtinOutfits.map((outfit,index)=>[`curated-${index+1}`,{label:outfit.name,items:outfit.clothes.wardrobe as ApprovedWardrobe,clothes:builtinClothes(outfit.clothes)} ])),
 };

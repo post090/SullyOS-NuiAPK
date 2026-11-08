@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-// @ts-expect-error The deployed Worker entry is intentionally plain runtime JavaScript.
 import worker, { __xhsLiteTest } from '../index.js';
 
 const COOKIE = `a1=${'a'.repeat(52)}; web_session=test-session`;

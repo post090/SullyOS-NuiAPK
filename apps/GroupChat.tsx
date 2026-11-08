@@ -18,6 +18,7 @@ import { ContextBuilder } from '../utils/context';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
 import { deleteGroupMemoriesByGroupId } from '../utils/memoryPalace/groupPipeline';
 import { processImage } from '../utils/file';
+import { prepareChatImage } from '../utils/chatImageQuality';
 import { stickerNameFromUrl } from '../utils/messageFormat';
 import { PRESET_THEMES } from '../components/chat/ChatConstants';
 import { resolveChatTheme, scopeBubbleThemeCss } from '../utils/groupChat/theme';
@@ -45,7 +46,7 @@ import { useChatAutoReply } from '../hooks/useChatAutoReply';
 import TokenImg from '../components/os/TokenImg';
 import NetImg from '../components/os/NetImg';
 import { ImageViewer } from '../components/chat/ChatImage';
-import { useBlobRefUrl, migrateDataUrlToRef } from '../utils/blobRef';
+import { useBlobRefUrl, migrateDataUrlToRef, putImageBlobDeduped } from '../utils/blobRef';
 import { buildReplySnapshotContent } from '../utils/applyAssistantPostProcessing';
 import ChromeCssEditor from '../components/chat/ChromeCssEditor';
 import WhiteboxSoundEditor from '../components/chat/WhiteboxSoundEditor';
@@ -1002,10 +1003,9 @@ const GroupChat: React.FC = () => {
     const handleImageFile = async (file: File) => {
         const finishImage = autoReply.beginSend(activeGroup?.id || null);
         try {
-            const base64 = await processImage(file, { maxWidth: 600, quality: 0.7, forceJpeg: true });
-            // 群聊图消息存令牌，二进制单独躺在 blob_assets 里（省掉 base64 那 ~33% 的膨胀）。
-            // 同一张图之前存过就复用它的令牌；转不动时原样还回这条 data URL，图不会丢。
-            await handleSendMessage(await migrateDataUrlToRef(base64), 'image');
+            const blob = await prepareChatImage(file, apiConfig.visionApi);
+            const { token } = await putImageBlobDeduped(blob);
+            await handleSendMessage(token, 'image');
         } catch (err) {
             addToast('图片发送失败', 'error');
         } finally {

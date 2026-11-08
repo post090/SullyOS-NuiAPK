@@ -1,5 +1,7 @@
 import {describe,it,expect} from 'vitest';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+const catalog = catalogJson as HomeAsset[];
 import {createStarterHome,defaultRoomLayout} from '../apps/room3d/starterHome.js';
 import {addActivityRoom} from '../apps/room3d/activityRooms.js';
 import {applyRoomPalette,ROOM_PALETTES} from '../apps/room3d/roomPalettes.js';
@@ -39,7 +41,7 @@ describe('optional Halloween annex',()=>{
   const shared=parseRoomLayout(JSON.stringify(exportRoomLayout(annex,catalog)),catalog),copy=structuredClone(shared);
   applyRoomPalette(shared,'blush',catalog);expect(shared).toEqual(copy);
   const reset=applyRoomLayout(home,annex.id,defaultRoomLayout(home,annex,catalog),catalog);
-  expect(reset.rooms.at(-1).activityRoom).toBe('halloween');expect(reset.rooms.at(-1).fixedPalette).toBe('halloween');
+  expect(reset.rooms.at(-1)!.activityRoom).toBe('halloween');expect(reset.rooms.at(-1)!.fixedPalette).toBe('halloween');
  });
  it('fails atomically if the annex cannot be furnished or has no side space',()=>{
   const home=createStarterHome(catalog),before=structuredClone(home);

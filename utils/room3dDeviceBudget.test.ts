@@ -1,9 +1,10 @@
 import {describe,it,expect} from 'vitest';
 import {furnishingCounts,phoneBudgetError,isPhoneBrowser,PHONE_BUDGET} from '../apps/room3d/deviceBudget.js';
 import {ROOM_STEP} from '../apps/room3d/dimensions.js';
+import type {Home3DItem,Home3DRoom} from '../apps/room3d/types';
 const catalog=[{id:'chair'},{id:'wall_high',building:true}];
-const piece=(id,x=0)=>({id,assetId:'chair',x,z:0,stored:false});
-const room=(id,x,items=[])=>({id,name:id,x,z:0,level:0,items});
+const piece=(id:string,x=0):Home3DItem=>({id,assetId:'chair',x,y:0,z:0,rotation:0,color:null,stored:false});
+const room=(id:string,x:number,items:Home3DItem[]=[]):Home3DRoom=>({id,name:id,x,z:0,level:0,wall:'#fff',items});
 describe('phone construction limits',()=>{
  it('detects phones without treating a small desktop window as a phone',()=>{expect(isPhoneBrowser({coarse:true,width:390,height:844})).toBe(true);expect(isPhoneBrowser({userAgent:'Mozilla iPhone'})).toBe(true);expect(isPhoneBrowser({mobile:true,width:900,height:400})).toBe(true);expect(isPhoneBrowser({width:390,height:844})).toBe(false);expect(isPhoneBrowser({coarse:true,width:1024,height:768})).toBe(false);});
  it('counts original tiles and each group member by physical center, excluding stored pieces and structure',()=>{const a=room('a',0,[piece('table'),{...piece('prop',ROOM_STEP.x),supportId:'table'}, {...piece('stored'),stored:true},{...piece('wall'),assetId:'wall_high'}]),b=room('b',1);const h={rooms:[a,b]};expect(Object.fromEntries(furnishingCounts(h,catalog))).toEqual({a:1,b:1});});

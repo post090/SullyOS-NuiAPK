@@ -19,13 +19,27 @@ it('offers image tiles for every outfit and applies its complete items',async()=
  const change=vi.fn();root=createRoot(host);act(()=>root.render(React.createElement(WardrobePicker,{hair:{layers:{},extras:[],bodyShape:'blank'},onChange:change})));
  for(const seasonal of [false,true]){
  act(()=>[...host.querySelectorAll<HTMLButtonElement>('nav button')].find(b=>b.textContent===(seasonal?'万圣节专属衣柜':'套装'))!.click());
- const grid=host.querySelector('[aria-label="套装款式"]')!;
- const presets=Object.entries(approvedPresets).filter(([,p])=>(p.collection==='halloween')===seasonal);
+ const grid=host.querySelector(seasonal?'[aria-label="万圣节套装款式"]':'[aria-label="套装款式"]')!;
+ const presets=Object.entries(approvedPresets).filter(([id,p])=>seasonal?p.collection==='halloween'&&id.endsWith('-original'):p.collection!=='halloween');
  expect(grid.querySelectorAll('button')).toHaveLength(presets.length);
  for(const [id,p] of presets){
-  const tile=grid.querySelector<HTMLButtonElement>(`[aria-label="${p.label}"]`)!;
-  expect(tile.querySelector(`[aria-label="${p.label}整套穿着预览"]`)).not.toBeNull();
+  const label=seasonal?p.label.split(' · ')[0]:p.label;
+  const tile=grid.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
+  expect(tile.querySelector(`[aria-label="${label}整套穿着预览"]`)).not.toBeNull();
   await act(async()=>tile.click());expect(change.mock.lastCall![0].wardrobe).toEqual(p.items);
+  if(seasonal){
+   // Color variants live below the selected style rather than as duplicate tiles.
+   await act(async()=>root.render(React.createElement(WardrobePicker,{hair:change.mock.lastCall![0],onChange:change})));
+   const colors=host.querySelector('[aria-label="套装配色"]')!;
+   const keys=['original','midnight','crimson','moonlight'];
+   expect(colors.querySelectorAll('button')).toHaveLength(keys.length);
+   for(const [index,button] of [...colors.querySelectorAll<HTMLButtonElement>('button')].entries()){
+    await act(async()=>button.click());
+    const variant=approvedPresets[id.replace(/original$/,keys[index])];
+    expect(change.mock.lastCall![0].wardrobe).toEqual(variant.items);
+    for(const item of Object.values(variant.items))expect(change.mock.lastCall![0].wardrobeColors?.[item]??{}).toEqual(variant.clothes!.wardrobeColors[item]??{});
+   }
+  }
  }
  }
 });

@@ -18,7 +18,8 @@ describe('bundled SULLY desktop theme', () => {
     expect(bundled.customIcons).toHaveProperty('hot_news');
     expect(bundled.chatThemes).toBeUndefined();
     expect(Object.keys(bundled.theme).filter(key => key.startsWith('chat'))).toEqual([]);
-    const paths = [bundled.theme.wallpaper, ...Object.values(bundled.theme.launcherWidgets!), ...Object.values(bundled.customIcons!)];
+    // Several app entries share one image. The shipped byte budget counts files once.
+    const paths = [...new Set([bundled.theme.wallpaper, ...Object.values(bundled.theme.launcherWidgets!), ...Object.values(bundled.customIcons!)])];
     expect(paths.reduce((total, path) => {
       expect(path).toMatch(/^\/themes\/sully\/[^/]+\.(webp|png)$/);
       const bytes = readFileSync('public' + path);
@@ -32,7 +33,7 @@ describe('bundled SULLY desktop theme', () => {
     const preset = await readBuiltinAppearance(bundled.id, current);
     expect(preset.theme.wallpaper).toMatch(/^data:image\/webp;base64,/);
     expect(Object.values(preset.customIcons!).every(image => /^data:image\/(webp|png);base64,/.test(image))).toBe(true);
-    expect(preset.customIcons!.vrworld).toMatch(/^data:image\/png;base64,/);
+    expect(preset.customIcons!.vrworld).toMatch(/^data:image\/webp;base64,/);
     expect(preset.theme.launcherWidgets!.dsq).toMatch(/^data:image\/webp;base64,/);
     expect(preset.theme.chatAvatarShape).toBe('square');
     expect(preset.theme.scheduleCardAppearance).toEqual(current.scheduleCardAppearance);

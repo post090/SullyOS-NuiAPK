@@ -91,7 +91,7 @@ it.each([false,true])('blocks non-selected characters before device access in lo
 it('uses the selected city in local chat without changing the global default',async()=>{
     const weather=vi.spyOn(RealtimeContextManager,'fetchWeather').mockResolvedValue(null);
     try {
-        const realtimeConfig={...defaultRealtimeConfig,weatherEnabled:true,weatherCity:'北京',weatherCities:{[char.id]:'London'}};
+        const realtimeConfig={...defaultRealtimeConfig,weatherEnabled:true,weatherCity:'北京',weatherCities:{[char.id]:'London'},feishuEnabled:false,feishuAppId:'',feishuAppSecret:'',feishuBaseId:'',feishuTableId:'',xhsEnabled:false};
         await buildChatRequestPayload({char,userProfile:user,groups:[],emojis:[],categories:[],realtimeConfig,recallEntryPoint:'chat_app',contextLimit:10,historyMsgs:[]});
         expect(weather).toHaveBeenCalledWith(expect.objectContaining({weatherCity:'London'}));expect(realtimeConfig.weatherCity).toBe('北京');
     } finally {weather.mockRestore();}

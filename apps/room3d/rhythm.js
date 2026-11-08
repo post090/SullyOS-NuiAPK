@@ -1,5 +1,6 @@
 // One shared beat clock for rigid-body hops, hand contact and the struck keys.
 // The apex targets are reviewed in gamingActivities; no limb scaling or IK stretch.
+/** @returns {{offset:number[],hands:number[][],keys:Array<{t:number,value:number}>,phase:number,lift:number,directions?:number[][],normal?:number[]}|null} */
 export function rhythmFrame(activity,time){
  if(activity?.rhythmStanding)return standingRhythmFrame(activity,time);
  const beats=activity?.rhythm;if(!beats?.length)return null;

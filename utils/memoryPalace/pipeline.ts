@@ -265,7 +265,7 @@ export function buildAutoArchiveFragments(
  */
 export function mergePalaceFragmentsIntoMemories(
     existing: import('../../types').MemoryFragment[],
-    incoming: { id: string; date: string; summary: string; mood: string; palaceMemoryId?: string }[],
+    incoming: import('../../types').MemoryFragment[],
 ): import('../../types').MemoryFragment[] {
     if (incoming.length === 0) return existing;
 

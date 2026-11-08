@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import GuidebookApp from '../apps/GuidebookApp';
 import { DB } from './db';
 
-const state = vi.hoisted(() => ({ characters:[{id:'guide-char',name:'角色',avatar:''}],userProfile:{name:'小明'},apiConfig:{},addToast:vi.fn(),closeApp:vi.fn(),updateCharacter:vi.fn() }));
+const state = vi.hoisted(() => ({ characters:[{id:'guide-char',name:'角色',avatar:''}],userProfile:{name:'小明'},apiConfig:{},addToast:vi.fn(),closeApp:vi.fn(),updateCharacter:vi.fn(),registerBackHandler:vi.fn<(handler: () => boolean) => () => void>(()=>vi.fn()) }));
 vi.mock('../context/OSContext', () => ({useOS:()=>state}));
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;

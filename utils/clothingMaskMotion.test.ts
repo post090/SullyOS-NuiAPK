@@ -1,7 +1,6 @@
 import {afterEach,expect,it,vi} from 'vitest';
-import {readFileSync} from 'node:fs';
 import * as T from 'three';
-import {GLTFLoader} from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {stubLocalWardrobeAssets} from '../test/fixtures/localWardrobeAssets';
 import {createBlankBody} from '../apps/room3d/chibi/blankBody';
 import {bindBlankBody} from '../apps/room3d/chibi/blankRig';
 import {dressApprovedWardrobe} from '../apps/room3d/chibi/approvedClothing';
@@ -10,7 +9,7 @@ import {createWardrobePose} from '../experiments/chibi/wardrobePose';
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 it('keeps exposed skin on its original animated surface across shorts and sock mask boundaries',async()=>{
  vi.stubGlobal('self',globalThis);vi.stubGlobal('createImageBitmap',async()=>({width:1,height:1,close(){}}));
- vi.spyOn(GLTFLoader.prototype,'loadAsync').mockImplementation(async url=>{const bytes=readFileSync(`public/room3d/wardrobe/${String(url).split('/').pop()!.split('?')[0]}`);return new GLTFLoader().parseAsync(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength),'');});
+ stubLocalWardrobeAssets();
  const root=new T.Group(),body=new T.Mesh(createBlankBody('skin'),new T.MeshStandardMaterial()),hair=new T.Group();root.add(body,hair);
  const rig=bindBlankBody(body,hair,true),original=rig.baseGeometry;
  const outfit=await dressApprovedWardrobe(rig,{bottom:'sailor-shorts',socks:'original-socks',shoes:'original-shoes'});

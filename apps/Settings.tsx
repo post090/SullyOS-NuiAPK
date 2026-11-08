@@ -78,7 +78,7 @@ import {
     type AvatarModelBackupInventory,
     type AvatarModelBackupProgress,
 } from '../utils/avatarModelBackup';
-import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel } from '../utils/apiConfigNormalize';
+import { normalizeApiBaseUrl, normalizeApiCredential, normalizeApiModel, normalizeVisionImageQuality } from '../utils/apiConfigNormalize';
 import { configFromPreset, findActivePresetId, presetDiffersFromConfig, type PresetSwitchPatch } from '../utils/apiPresetSwitch';
 import type { APIConfig, AudioApiConfig, AudioApiSongQuality, TtsProvider, SttProvider } from '../types';
 import {
@@ -1461,6 +1461,7 @@ const Settings: React.FC = () => {
       baseUrl: normalizeApiBaseUrl(localVisionUrl),
       apiKey: normalizeApiCredential(localVisionKey),
       model: normalizeApiModel(localVisionModel),
+      imageQuality: normalizeVisionImageQuality(apiConfig.visionApi?.imageQuality),
     };
     if (nextVisionApi.enabled && (!nextVisionApi.baseUrl || !nextVisionApi.apiKey || !nextVisionApi.model)) {
       addToast('开启识图 API 前，请填写完整的 URL、Key 和 Model', 'error');
@@ -3405,6 +3406,26 @@ const Settings: React.FC = () => {
             }
         >
             <div className="space-y-4">
+                <div className="rounded-2xl border border-slate-100 bg-white/60 p-3.5 space-y-2">
+                    <label htmlFor="chat-image-quality" className="block text-xs font-bold text-slate-600">聊天图片画质</label>
+                    <select
+                        id="chat-image-quality"
+                        value={normalizeVisionImageQuality(apiConfig.visionApi?.imageQuality)}
+                        onChange={event => updateApiConfig({ visionApi: {
+                            enabled: false, baseUrl: '', apiKey: '', model: '', ...apiConfig.visionApi,
+                            imageQuality: normalizeVisionImageQuality(event.target.value),
+                        } })}
+                        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
+                    >
+                        <option value="original">原图（默认，不压缩）</option>
+                        <option value="high">高清（最长边 1600 像素）</option>
+                        <option value="compressed">省流（最长边 600 像素）</option>
+                    </select>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                        选择后立即保存，私聊和群聊共用，未接入独立识图 API 时也生效。原图保留文件画质与格式；高清和省流会缩图并转成 JPEG，GIF 保留动画。
+                        只影响之后发送的图片，已压缩的旧图需要重新发送。原图会占用更多存储和上传流量，仍受模型的图片大小限制。
+                    </p>
+                </div>
                 <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-3.5">
                     <div className="flex items-center justify-between gap-3">
                         <div>
@@ -3428,7 +3449,7 @@ const Settings: React.FC = () => {
                 <p className="text-[10px] text-slate-400 leading-relaxed px-1">
                     开启后，每张聊天图片只会先交给这里的视觉模型识别一次，并把结果写成
                     <span className="font-semibold text-violet-600"> [图片：模型看到的内容] </span>
-                    再发给主 API；之后聊天和重 roll 都直接复用，不会重复识图扣费。关闭时完全沿用原来的图片发送逻辑。
+                    再发给主 API；之后聊天和重 roll 都直接复用，不会重复识图扣费。关闭时图片直接交给主 API，仍使用上方选择的画质。
                 </p>
 
                 <div className={`transition-opacity ${localVisionEnabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>

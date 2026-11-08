@@ -16,7 +16,12 @@ export function visitorFootprintWidth(visitor){
 
 // A waiting test actor uses the same furniture clearance as the active actor.
 // Keep an existing valid spot instead of moving it whenever the camera redraws.
-export function comparisonSpot(map,{offset=[0,0],width,activeWidth,active,preferred,reserved=[]}){
+/**
+ * @param {{free:(x:number,z:number)=>boolean}} map
+ * @param {{offset?:number[],width:number,activeWidth:number,active:number[],preferred?:number[],reserved?:number[][]}} options
+ */
+export function comparisonSpot(map,options){
+ const {offset=[0,0],width,activeWidth,active,preferred,reserved=[]}=options;
  const gap=(width+activeWidth)/2+.12;
  const valid=([x,y,z])=>Math.abs(x)<=ROOM_HALF.x-width/2-.1&&Math.abs(z)<=ROOM_HALF.z-width/2-.1&&
   [active,...reserved].every(p=>Math.abs(x-p[0])>=gap||Math.abs(z-p[2])>=gap)&&map.free(x+offset[0],z+offset[1]);

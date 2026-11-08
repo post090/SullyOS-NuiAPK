@@ -106,9 +106,10 @@ describe('便利贴与窗台期盼的分寸措辞', () => {
             compressionCount: 1,
             createdAt,
             updatedAt: createdAt,
+            lastCompressedAt: createdAt,
         });
 
-        const out = await expandAndFormat(
+        const out = (await expandAndFormat(
             [
                 { node: standalone, finalScore: 0.9, similarity: 0.9, bm25Score: 0, roomScore: 0.9 },
                 { node: liveNode, finalScore: 0.85, similarity: 0.85, bm25Score: 0, roomScore: 0.85 },
@@ -118,7 +119,7 @@ describe('便利贴与窗台期盼的分寸措辞', () => {
             '小明',
             15,
             { omitDates: true },
-        );
+        )).text;
 
         expect(out).toContain('明天去车站接人');
         expect(out).toContain('昨晚在天台吹风');

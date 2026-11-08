@@ -1,6 +1,9 @@
 import {it,expect} from 'vitest';
 import fs from 'node:fs';
-import catalog from '../public/room3d/catalog.json';
+import catalogJson from '../public/room3d/catalog.json';
+import type {HomeAsset} from '../apps/room3d/model.js';
+type PaletteAsset=HomeAsset&{paletteMaterials:string[]};
+const catalog = catalogJson as PaletteAsset[];
 import {ROOM_PALETTES,applyRoomPalette} from '../apps/room3d/roomPalettes.js';
 import {SHOWROOMS,addShowroom} from '../apps/room3d/showrooms.js';
 import {createHome,validateHome} from '../apps/room3d/model.js';
@@ -15,13 +18,13 @@ it('applies each theme without moving furniture or changing other rooms, and pre
 });
 it('uses neutral furniture instead of wood in cyber, and restores wood in pastel themes',()=>{
  const h=createHome(catalog),r=addShowroom(h,'living',catalog),cab=r.items.find(i=>i.assetId==='living_ref_console')!;
- applyRoomPalette(r,'cyber',catalog);expect(cab.materialColors.woodLight).toBe('#f0eff4');expect(r.wall).toBe('#eeedf2');
- applyRoomPalette(r,'blush',catalog);expect(cab.materialColors.woodLight).toBeUndefined();
+ applyRoomPalette(r,'cyber',catalog);expect(cab.materialColors!.woodLight).toBe('#f0eff4');expect(r.wall).toBe('#eeedf2');
+ applyRoomPalette(r,'blush',catalog);expect(cab.materialColors!.woodLight).toBeUndefined();
 });
 it('only registers real material names, leaving foliage unchanged',()=>{
  for(const a of catalog.filter(a=>a.paletteMaterials?.length)){
-  const b=fs.readFileSync('public/room3d/'+a.url),g=JSON.parse(b.subarray(20,20+b.readUInt32LE(12)));
-  for(const name of a.paletteMaterials!){expect(g.materials.some(m=>m.name===name),a.id+' '+name).toBe(true);expect(/leaf|earth|glass/i.test(name)).toBe(false);expect(a.colorParts?.some(p=>p.material===name)).toBe(true);}
+  const b=fs.readFileSync('public/room3d/'+a.url),g=JSON.parse(b.subarray(20,20+b.readUInt32LE(12)).toString());
+  for(const name of a.paletteMaterials!){expect(g.materials.some((m:{name:string})=>m.name===name),a.id+' '+name).toBe(true);expect(/leaf|earth|glass/i.test(name)).toBe(false);expect(a.colorParts?.some(p=>p.material===name)).toBe(true);}
  }
 });
 
@@ -29,7 +32,7 @@ it('includes restored kitchen appliances, coffee props and fabric accents in eve
  for(const key of Object.keys(ROOM_PALETTES)){
   const h=createHome(catalog),r=addShowroom(h,'kitchen',catalog),p=ROOM_PALETTES[key];
   applyRoomPalette(r,key,catalog);
-  const colors=(id:string)=>r.items.find(i=>i.assetId===id)!.materialColors;
+  const colors=(id:string)=>r.items.find(i=>i.assetId===id)!.materialColors!;
   expect(colors('kitchenware_coffee').porcelain).toBe(p.body);
   expect(colors('kitchenware_coffee').charcoal).toBe(p.dark);
   expect(colors('kitchen_fridge')['kitchen-cream']).toBe(p.body);

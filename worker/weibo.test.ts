@@ -1,6 +1,6 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {readFileSync} from 'node:fs';
-// @ts-expect-error Worker runtime JavaScript.
+// Worker runtime JavaScript.
 import {handleWeibo,readWeiboSession,weiboPageUid,normalizeWeiboPost,weiboImages,handleWeiboImage} from './weibo.js';
 const origin='https://app.test';
 const env={};

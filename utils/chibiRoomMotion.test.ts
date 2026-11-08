@@ -8,8 +8,9 @@ import {BLANK_SCALE} from '../apps/room3d/chibi/blankBody';
 import {seatEntry,seatChangePose} from '../apps/room3d/seatChange.js';
 import {createWateringEffect} from '../apps/room3d/wateringEffect.js';
 import {walkingMap} from '../apps/room3d/navigation.js';
-import {createHome} from '../apps/room3d/model.js';
-import catalog from '../public/room3d/catalog.json';
+import {createHome,type HomeAsset} from '../apps/room3d/model.js';
+import catalogData from '../public/room3d/catalog.json';
+const catalog=catalogData as HomeAsset[];
 
 describe('Body 2 living-room motion',()=>{
  it('keeps the cushion contact and narrow knees through sit, wave, stand and interruption at three heights',()=>{

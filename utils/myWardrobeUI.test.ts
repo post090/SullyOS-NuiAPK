@@ -5,11 +5,12 @@ import {afterEach,it,expect,vi} from 'vitest';
 import {MyWardrobe} from '../experiments/chibi/MyWardrobe';
 import {DB} from './db';
 import {makeOutfit} from '../apps/room3d/chibi/outfitLibrary';
+import {defaultFace} from '../apps/room3d/chibi/faceAppearance';
 (globalThis as any).IS_REACT_ACT_ENVIRONMENT=true;
 const host=document.createElement('div');document.body.appendChild(host);let root:ReturnType<typeof createRoot>;
 afterEach(()=>{act(()=>root?.unmount());vi.restoreAllMocks();});
 it('saves, reopens and wears a personal outfit without changing the face',async()=>{
- const hair={layers:{},extras:[],face:{enabled:true},wardrobe:{ears:'cat-ears',tail:'cat-tail'}};let rows:any[]=[];
+ const hair={layers:{},extras:[],face:{...defaultFace,enabled:true},wardrobe:{ears:'cat-ears',tail:'cat-tail'}};let rows:any[]=[];
  vi.spyOn(DB,'getUserProfile').mockImplementation(async()=>({name:'QA',avatar:'',bio:'',wardrobeOutfits:rows}));
  vi.spyOn(DB,'updateWardrobeOutfits').mockImplementation(async update=>rows=update(rows));const change=vi.fn();
  root=createRoot(host);await act(async()=>root.render(React.createElement(MyWardrobe,{hair,onChange:change})));

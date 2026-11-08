@@ -17,7 +17,6 @@ import {
   resolveElevenLabsApiKey,
   resolveElevenLabsModel,
   stripElevenLabsMarkupForDisplay,
-  supportsElevenLabsAudioTags,
   synthesizeSpeechElevenLabsDetailed,
 } from './elevenLabsTts';
 import { cleanTextForTts, cleanVoiceMarkupForDisplay } from './minimaxTts';

@@ -10,7 +10,7 @@ const anchors = {
     character: '36359153b51e0e9e59e1e11a7fffb9c106c984f92ef28b91bb305ee550fd0722',
     appearance: '05513bb64cc802fe7a0ca756e1840f4d31b09422d63218a828215298e50afa9a',
 } as const;
-const iconHash = '6468315afb1c7e66766f4e4015896bc7bf876ee095e35551c0f3aa0770ea8633';
+const iconHash = '59607160fcf94d927f3473b828e30b49c05735da6e49b5e4503b5d420dc52c6d';
 const assetUrl = (path: string) => import.meta.env.BASE_URL + path.replace(/^\//, '');
 async function fingerprint(blob: Blob) {
     const bytes = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());

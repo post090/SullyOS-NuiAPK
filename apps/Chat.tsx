@@ -18,6 +18,7 @@ import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { chatCharacterDisplayName } from '../utils/characterRemark';
 import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot, TaskV2 } from '../types';
 import { processImageToBlob } from '../utils/file';
+import { prepareChatImage } from '../utils/chatImageQuality';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { resilientFetch } from '../utils/resilientFetch';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
@@ -1960,7 +1961,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const handleImageSelect = async (file: File) => {
         const finishImage = autoReply.beginSend(char?.id || null);
         try {
-            const blob = await processImageToBlob(file, { maxWidth: 600, quality: 0.6, forceJpeg: true });
+            const blob = await prepareChatImage(file, apiConfig.visionApi);
             const { token } = await putImageBlobDeduped(blob);
             if (!inputPreferences.autoReply) setShowPanel('none');
             await handleSendText(token, 'image');

@@ -8,7 +8,11 @@ import {gamingPreset,gamingActivities} from '../apps/room3d/gaming.js';
 import {layoutRoom} from '../apps/room3d/layout.js';
 import {walkingMap,findWalkPath} from '../apps/room3d/navigation.js';
 import {wallPlacementError} from '../apps/room3d/wallMount.js';
-const catalog=[...data,...BUILDING_ASSETS];
+import type {HomeAsset} from '../apps/room3d/model.js';
+import type {Home3DRoom} from '../apps/room3d/types';
+const tuple2=(position:number[]):[number,number]=>[position[0],position[1]];
+const tuple3=(position:number[]):[number,number,number]=>[position[0],position[1],position[2]];
+const catalog:HomeAsset[]=[...data,...BUILDING_ASSETS].map((asset):HomeAsset=>({...asset,id:String(asset.id),name:String(asset.name),size:asset.size.map(Number),boxes:asset.boxes.map(box=>box.map(Number)),seats:'seats' in asset?asset.seats?.map(seat=>({...seat,position:tuple3(seat.position)})):undefined,support:'support' in asset&&asset.support?{...asset.support,center:asset.support.center?tuple2(asset.support.center):undefined,areas:asset.support.areas?.map(area=>({...area,center:area.center?tuple2(area.center):undefined}))}:undefined,contact:'contact' in asset&&asset.contact?{...asset.contact,center:asset.contact.center?tuple2(asset.contact.center):undefined}:undefined,appliance:'appliance' in asset&&asset.appliance==='fridge'?'fridge':undefined}));
 const piece=(assetId:string,patch={})=>({id:crypto.randomUUID(),assetId,x:0,y:.15,z:0,rotation:0,color:null,stored:false,...patch});
 describe('larger room footprint and visible neighbors',()=>{
  it('enlarges both floor axes by 1.5 and allows furniture/walking in the new space',()=>{
@@ -21,7 +25,7 @@ describe('larger room footprint and visible neighbors',()=>{
  });
  it('shows closed adjacent rooms without merging them or allowing passage, excluding other floors',()=>{
   const h=createHome(catalog),a=h.rooms[0];a.items=[];const b=addRoom(h,'right');addRoom(h,'up');
-  expect(displayRooms(h,a).map(r=>r.id)).toEqual([a.id,b.id]);expect(roomGroups(h,catalog)).toHaveLength(3);
+  expect(displayRooms(h,a).map((r:Home3DRoom)=>r.id)).toEqual([a.id,b.id]);expect(roomGroups(h,catalog)).toHaveLength(3);
   expect(findWalkPath(walkingMap(h,0,catalog),[0,0],[ROOM_STEP.x,0])).toBeNull();
   setBoundary(h,a.id,'right',{kind:'open'},catalog);expect(findWalkPath(walkingMap(h,0,catalog),[0,0],[ROOM_STEP.x,0])).not.toBeNull();
  });
