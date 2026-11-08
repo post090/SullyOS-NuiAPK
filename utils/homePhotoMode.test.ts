@@ -25,8 +25,10 @@ afterEach(()=>{act(()=>root.unmount());vi.restoreAllMocks();vi.unstubAllGlobals(
 async function setup(actors:Array<{id:string;label:string}>=[]){const editor={beginPhotoMode:vi.fn(()=>actors),endPhotoMode:vi.fn(),setPhotoCamera:vi.fn(),setPhotoTogether:vi.fn(),setPhotoPose:vi.fn(),setPhotoInteraction:vi.fn(),setPhotoFace:vi.fn(),setPhotoTurn:vi.fn(),setPhotoDof:vi.fn(),setPhotoFocusAt:vi.fn((_x:number,_y:number)=>true),setPhotoFocusPart:vi.fn(),setPhotoLighting:vi.fn(),setPhotoLampColor:vi.fn(),getLightingMode:vi.fn(()=>'day'),canPlaySocial:vi.fn(()=>true),renderPhoto:vi.fn(),subscribePhoto:vi.fn(()=>()=>{})};const close=vi.fn();await act(async()=>{root.render(React.createElement(HomePhotoMode,{editor:editor as any,onClose:close}));});await act(async()=>{await new Promise(r=>setTimeout(r,10));});return {editor,close};}
 async function click(label:string){const button=[...host.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')===label||b.textContent===label)!;expect(button).toBeTruthy();await act(async()=>button.click());}
 it('opens the lens controls in portrait and exports the chosen aspect',async()=>{
- const {editor}=await setup();expect(editor.renderPhoto.mock.calls.at(-1)?.[2]).toMatchObject({aspect:3/4,quality:'preview'});
- await click('镜头');await click('电影 2.39:1');await click('拍下合影');
+ const {editor}=await setup();expect(editor.renderPhoto.mock.calls.at(-1)?.[2]).toMatchObject({aspect:390/844,quality:'preview'});
+ expect(host.querySelector<HTMLElement>('.photo-stage')?.style.inset).toBe('0px');
+ await click('镜头');await click('竖幅 3:4');expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBe(3/4);
+ await click('电影 2.39:1');await click('拍下合影');
  const call=editor.renderPhoto.mock.calls.find(c=>c[2]?.quality==='export')!;expect(call[2].aspect).toBe(2.39);expect(call[0]).not.toBe(host.querySelector('.photo-view'));expect(host.querySelector('img[alt="拍好的合影"]')).toBeTruthy();
 });
 it.each(['奶油拍立得','爱心大头贴','四格贴纸'])('exports %s with the same photo windows as its preview',async label=>{
@@ -48,7 +50,7 @@ it('maps sideways drags into camera coordinates and leaves the shared applicatio
  expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({yaw:-14,pitch:4}));await click('竖屏');expect(host.querySelector('.home-photo-mode')?.getAttribute('data-sideways')).toBe('false');
 });
 it('requests real negative space through camera pan and preserves the existing exit path',async()=>{
- const {editor,close}=await setup();await click('镜头');await click('左侧留白');expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({pan:-2,zoom:.78}));expect(host.querySelector('.photo-format-label')?.textContent).toBe('竖幅 3:4');await click('退出拍照');expect(close).toHaveBeenCalledOnce();
+ const {editor,close}=await setup();await click('镜头');await click('左侧留白');expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({pan:-2,zoom:.78}));expect(host.querySelector('.photo-format-label')?.textContent).toBe('全屏');await click('退出拍照');expect(close).toHaveBeenCalledOnce();
 });
 async function edit(label:string,value:string){
  const input=host.querySelector(`[aria-label="${label}"]`) as HTMLInputElement|HTMLSelectElement;

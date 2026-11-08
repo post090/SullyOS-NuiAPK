@@ -29,14 +29,14 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  const [gap,setGap]=useState(.85),[poses,setPoses]=useState<Record<string,{motion:string;time:number;turn:number}>>({}),[revision,refresh]=useState(0),[shot,setShot]=useState(''),[error,setError]=useState(''),[saving,setSaving]=useState(false),[hidden,setHidden]=useState(false);
  const [compactActions,setCompactActions]=useState(false),[panelOpen,setPanelOpen]=useState(false),[advanced,setAdvanced]=useState(false);
  const shell=useRef<HTMLDivElement>(null),stage=useRef<HTMLDivElement>(null),[bounds,setBounds]=useState({w:0,h:0}),[stageBounds,setStageBounds]=useState({w:0,h:0}),[sideways,setSideways]=useState(false);
- const [format,setFormat]=useState<PhotoFrame>('portrait'),[shotFormat,setShotFormat]=useState<PhotoFrame>('portrait'),[grid,setGrid]=useState(false),[moving,setMoving]=useState(false),[shooting,setShooting]=useState(false);
+ const [format,setFormat]=useState<PhotoFrame>('screen'),[shotFormat,setShotFormat]=useState<PhotoFrame>('screen'),[shotAspect,setShotAspect]=useState(3/4),[grid,setGrid]=useState(false),[moving,setMoving]=useState(false),[shooting,setShooting]=useState(false);
  const [letteringLibrary,setLetteringLibrary]=useState(readPhotoLettering);
  const lettering=letteringLibrary[format]||defaultPhotoLettering(format);
  const changeLettering=(value:PhotoLettering)=>{const next={...letteringLibrary,[format]:value};setLetteringLibrary(next);try{writePhotoLettering(next);}catch{setError('文字已应用，但未能记住，下次打开需要重新设置');}};
  const applyLook=(value:PhotoLook)=>{setLook(value);setOriginal(false);};
  const previewSource=useRef<HTMLCanvasElement>();
  const settle=useRef<ReturnType<typeof setTimeout>>();
- const rotated=sideways&&bounds.h>bounds.w,viewW=rotated?bounds.h:bounds.w,viewH=rotated?bounds.w:bounds.h,aspect=photoFrames[format].aspect;
+ const rotated=sideways&&bounds.h>bounds.w,viewW=rotated?bounds.h:bounds.w,viewH=rotated?bounds.w:bounds.h,frameAspect=photoFrames[format].aspect,aspect=format==='screen'&&viewW>0&&viewH>0?viewW/viewH:frameAspect;
  const sidePanel=viewW>=800||viewW>viewH,stageW=stageBounds.w||viewW,stageH=stageBounds.h||viewH;
  const frameW=Math.max(1,Math.min(stageW,stageH*aspect)),frameH=frameW/aspect;
  const frameStyle={width:frameW,height:frameH};
@@ -75,8 +75,8 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  useEffect(()=>{if(shot||hidden)pointers.current.clear();},[shot,hidden]);
  useEffect(()=>{const frame=requestAnimationFrame(()=>{if(canvas.current)try{
   const source=previewSource.current ||= document.createElement('canvas'),quality=moving?'moving':'preview';
-  editor.renderPhoto(source,original?photoLooks.natural:look,{aspect:photoCaptureAspect(format),quality});composePhoto(source,canvas.current,format,quality,lettering);
- }catch{setError('取景暂时失败，请调整镜头重试');}});return()=>cancelAnimationFrame(frame);},[editor,look,camera,revision,original,format,moving,letteringLibrary]);
+  editor.renderPhoto(source,original?photoLooks.natural:look,{aspect:photoCaptureAspect(format,aspect),quality});composePhoto(source,canvas.current,format,quality,lettering,aspect);
+ }catch{setError('取景暂时失败，请调整镜头重试');}});return()=>cancelAnimationFrame(frame);},[editor,look,camera,revision,original,format,aspect,moving,letteringLibrary]);
  useEffect(()=>{if(!isPhotoPaper(format))return;let active=true;loadPhotoFont(lettering).then(()=>{if(active)refresh(n=>n+1);}).catch(()=>{if(active)setError('所选字体未能加载，请换一种字体重试');});return()=>{active=false;};},[format,letteringLibrary]);
  useEffect(()=>{const resize=()=>refresh(n=>n+1);window.addEventListener('resize',resize);const esc=(e:KeyboardEvent)=>{if(e.key==='Escape'){e.preventDefault();e.stopPropagation();handleBack();}};window.addEventListener('keydown',esc);return()=>{window.removeEventListener('resize',resize);window.removeEventListener('keydown',esc);};},[handleBack]);
  const pose=poses[actor]||{motion:'original',time:1,turn:0};
@@ -89,23 +89,23 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  const chooseFormat=(value:PhotoFrame)=>{setFormat(value);if(value==='sticker'||value==='collage')applyCamera({...cameraRef.current,pan:0,zoom:1.65,pitch:2,height:1.75});else if(value==='tall'||format==='sticker'||format==='collage')applyCamera({...cameraRef.current,pan:0,zoom:1,pitch:4,height:1.2});};
  const moveCamera=(e:React.PointerEvent<HTMLCanvasElement>)=>{const old=pointers.current.get(e.pointerId);if(!old)return;const next={x:e.clientX,y:e.clientY},delta=photoDrag(next.x-old.x,next.y-old.y,rotated),others=[...pointers.current.entries()].filter(([id])=>id!==e.pointerId);let c={...cameraRef.current};if(others.length){const other=others[0][1],before=Math.hypot(old.x-other.x,old.y-other.y),after=Math.hypot(next.x-other.x,next.y-other.y);if(before>1)c.zoom=Math.max(.4,Math.min(3,c.zoom*after/before));}else if(dragMode==='pan'){c.pan=Math.max(-5,Math.min(5,c.pan-delta.dx*.012/c.zoom));c.height=Math.max(.2,Math.min(3,c.height+delta.dy*.008/c.zoom));}else{c.yaw=((c.yaw-delta.dx*.35+540)%360)-180;c.pitch=Math.max(-20,Math.min(55,c.pitch+delta.dy*.2));}pointers.current.set(e.pointerId,next);movingPreview();applyCamera(c);};
  const shoot=async()=>{
-  const request=++shotRequest.current,captureFormat=format,captureLook=original?photoLooks.natural:{...look},captureLettering={...lettering};
+  const request=++shotRequest.current,captureFormat=format,captureFrameAspect=aspect,captureLook=original?photoLooks.natural:{...look},captureLettering={...lettering};
   setError('');setShooting(true);const output=document.createElement('canvas'),source=document.createElement('canvas');
   try{
    // 先同步定格场景，再等待字体，避免等待期间的操作混入这张照片。
-   editor.renderPhoto(source,captureLook,{aspect:photoCaptureAspect(captureFormat),quality:'export'});
+   editor.renderPhoto(source,captureLook,{aspect:photoCaptureAspect(captureFormat,captureFrameAspect),quality:'export'});
    if(isPhotoPaper(captureFormat))await loadPhotoFont(captureLettering);
    if(!alive.current||request!==shotRequest.current){source.width=source.height=1;return;}
-   composePhoto(source,output,captureFormat,'export',captureLettering);source.width=source.height=1;
-   output.toBlob(blob=>{output.width=output.height=1;if(!alive.current||request!==shotRequest.current)return;setShooting(false);if(!blob){setError('照片生成失败，请重试');return;}if(shotRef.current)URL.revokeObjectURL(shotRef.current);shotRef.current=URL.createObjectURL(blob);setShotFormat(captureFormat);setShot(shotRef.current);},'image/png');
+   composePhoto(source,output,captureFormat,'export',captureLettering,captureFrameAspect);source.width=source.height=1;
+   output.toBlob(blob=>{output.width=output.height=1;if(!alive.current||request!==shotRequest.current)return;setShooting(false);if(!blob){setError('照片生成失败，请重试');return;}if(shotRef.current)URL.revokeObjectURL(shotRef.current);shotRef.current=URL.createObjectURL(blob);setShotFormat(captureFormat);setShotAspect(captureFrameAspect);setShot(shotRef.current);},'image/png');
   }catch{output.width=output.height=source.width=source.height=1;if(alive.current&&request===shotRequest.current){setShooting(false);setError('照片生成失败，请检查字体或调整镜头重试');}}
  };
  const selectTab=(next:PhotoTab)=>{setAdvanced(false);if(next!==tab){setTab(next);setPanelOpen(true);setCompactActions(false);}else setPanelOpen(open=>!open);};
  const toggleHidden=()=>{pointers.current.clear();setPanelOpen(false);setAdvanced(false);setHidden(value=>!value);};
  const slider=(label:string,value:number,min:number,max:number,step:number,onChange:(v:number)=>void,disabled=false)=><label className="photo-slider" data-disabled={disabled}><span>{label}</span><input aria-label={label} type="range" disabled={disabled} min={min} max={max} step={step} value={value} onChange={e=>{movingPreview();onChange(Number(e.target.value));}}/><output>{value.toFixed(step<1?2:0)}</output></label>;
  return <div ref={shell} className="photo-shell"><section className="home-photo-mode" data-sideways={rotated} data-wide={sidePanel} data-short={viewH<520} data-clean={hidden} aria-label="合影模式" style={{'--photo-height':`${viewH}px`,...(rotated?{width:bounds.h,height:bounds.w,left:'50%',top:'50%',right:'auto',bottom:'auto',transform:'translate(-50%, -50%) rotate(90deg)'}:{})} as React.CSSProperties}>
-  <div ref={stage} className="photo-stage" aria-hidden={!!shot}>
-   <div className="photo-frame" style={frameStyle}>
+  <div ref={stage} className="photo-stage" aria-hidden={!!shot} style={format==='screen'?{inset:0}:undefined}>
+   <div className="photo-frame" data-fullscreen={format==='screen'} style={frameStyle}>
     <canvas ref={canvas} className="photo-view" aria-label="照片取景画面" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);pointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY});}} onPointerMove={moveCamera} onPointerUp={e=>pointers.current.delete(e.pointerId)} onPointerCancel={e=>pointers.current.delete(e.pointerId)} onLostPointerCapture={e=>pointers.current.delete(e.pointerId)} onWheel={e=>{cameraChange('zoom',Math.max(.4,Math.min(3,cameraRef.current.zoom*Math.exp(-e.deltaY*.001))));}}/>
     {dof.enabled&&focusMode==='free'&&focusDot&&!shot&&<div className="photo-focus-dot" role="slider" aria-label="对焦位置" style={{left:`${focusDot.x*100}%`,top:`${focusDot.y*100}%`}} onPointerDown={e=>{e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);focusDrag.current=true;applyFocus(e);}} onPointerMove={e=>{if(focusDrag.current)applyFocus(e);}} onPointerUp={()=>{focusDrag.current=false;}} onPointerCancel={()=>{focusDrag.current=false;}} onLostPointerCapture={()=>{focusDrag.current=false;}}/>}
     {grid&&photoWindows(format).map((r,i)=><div key={i} className="photo-thirds" style={{left:r.x*100+'%',top:r.y*100+'%',width:r.w*100+'%',height:r.h*100+'%'}} aria-hidden="true"/>)}
@@ -117,7 +117,7 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
    <div className="photo-title"><small>HOME / PHOTO</small><strong>{shot?'这一刻，已收藏':'把此刻留下'}</strong></div>
    <div className="photo-header-actions">{!shot&&!hidden&&<button className="photo-original" aria-pressed={original} onClick={()=>{setOriginal(!original);refresh(n=>n+1);}}>{original?'原片已开':'暂看原片'}</button>}</div>
   </header>
-  {shot&&<div className="photo-result" data-orientation={photoFrames[shotFormat].aspect>=1?'landscape':'portrait'}>
+  {shot&&<div className="photo-result" data-orientation={shotAspect>=1?'landscape':'portrait'}>
    <div className="photo-result-media"><img src={shot} alt="拍好的合影"/></div>
    <div className="photo-result-caption"><strong>{photoFrames[shotFormat].label}</strong><span>PNG · 保留原始比例</span></div>
    <div className="photo-result-actions">

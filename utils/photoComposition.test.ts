@@ -12,6 +12,13 @@ it.each(Object.keys(photoFrames) as PhotoFrame[])('%s keeps its framing and all 
  expect(Math.max(output.width,output.height)).toBe(2560);
  expect(ctx.drawImage).toHaveBeenCalledTimes(photoWindows(format).length*2);
 });
+it('uses the current viewport ratio for full-screen previews and exports',()=>{
+ const source=document.createElement('canvas'),output=document.createElement('canvas'),aspect=390/844;
+ vi.spyOn(output,'getContext').mockReturnValue({fillRect:vi.fn(),drawImage:vi.fn(),save:vi.fn(),restore:vi.fn(),translate:vi.fn(),scale:vi.fn()} as any);
+ composePhoto(source,output,'screen','export',undefined,aspect);
+ expect(photoCaptureAspect('screen',aspect)).toBe(aspect);
+ expect(output.width).toBe(Math.round(2560*aspect));expect(output.height).toBe(2560);
+});
 it('fits long custom captions within decorations and follows the uploaded system font',()=>{
  const source=document.createElement('canvas'),output=document.createElement('canvas'),draws:Array<{font:string;text:string;width:number}>=[];
  const ctx={font:'',fillRect:vi.fn(),drawImage:vi.fn(),save:vi.fn(),restore:vi.fn(),translate:vi.fn(),scale:vi.fn(),beginPath:vi.fn(),moveTo:vi.fn(),lineTo:vi.fn(),bezierCurveTo:vi.fn(),closePath:vi.fn(),fill:vi.fn(),measureText:(text:string)=>({width:parseFloat(ctx.font)*text.length}),fillText:(text:string,_x:number,_y:number,width:number)=>{draws.push({font:ctx.font,text,width});}};

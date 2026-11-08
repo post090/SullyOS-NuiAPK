@@ -9,12 +9,12 @@ export function photoWindows(format:PhotoFrame){
  if(format==='collage')return [0,1,2,3].map(i=>({x:.055+(i%2)*.46,y:.075+Math.floor(i/2)*.46*aspect,w:.43,h:.43*aspect}));
  return [{x:0,y:0,w:1,h:1}];
 }
-export function photoCaptureAspect(format:PhotoFrame){const r=photoWindows(format)[0];return photoFrames[format].aspect*r.w/r.h;}
+export function photoCaptureAspect(format:PhotoFrame,aspect=photoFrames[format].aspect){const r=photoWindows(format)[0];return aspect*r.w/r.h;}
 export function isPhotoPaper(format:PhotoFrame){return ['polaroid','sticker','collage'].includes(format);}
 
 /** The same compositor paints the live preview and the saved PNG. */
-export function composePhoto(source:HTMLCanvasElement,output:HTMLCanvasElement,format:PhotoFrame,quality:PhotoRenderOptions['quality'],lettering:PhotoLettering=defaultPhotoLettering(format)){
- const {width,height}=photoSize(photoFrames[format].aspect,quality);output.width=width;output.height=height;
+export function composePhoto(source:HTMLCanvasElement,output:HTMLCanvasElement,format:PhotoFrame,quality:PhotoRenderOptions['quality'],lettering:PhotoLettering=defaultPhotoLettering(format),aspect=photoFrames[format].aspect){
+ const {width,height}=photoSize(aspect,quality);output.width=width;output.height=height;
  const ctx=output.getContext('2d');if(!ctx)throw Error('无法绘制照片');
  ctx.fillStyle=format==='polaroid'?'#fff9ed':format==='collage'?'#fff1ec':'#fbe9f0';ctx.fillRect(0,0,width,height);
  const windows=photoWindows(format);
