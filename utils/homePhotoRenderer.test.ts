@@ -2,7 +2,8 @@
 import {afterEach,it,expect,vi} from 'vitest';
 import * as T from 'three';
 import {createPhotoRenderer} from '../apps/room3d/photoRenderer';
-import {photoFrames,photoSize,photoDrag} from '../apps/room3d/photoFrame';
+import {photoFrames,photoFrameView,photoSize,photoDrag,DEFAULT_PHOTO_ZOOM} from '../apps/room3d/photoFrame';
+import {createPhotoSession} from '../apps/room3d/photoSession.js';
 vi.mock('../apps/room3d/photoEffects',()=>({paintPhoto:vi.fn()}));
 afterEach(()=>vi.restoreAllMocks());
 function setup(){
@@ -36,4 +37,23 @@ it('does not cache a failed capture and can retry',()=>{
 it('keeps every export aspect within a pixel of its preview and maps sideways gestures',()=>{
  for(const {aspect}of Object.values(photoFrames)){for(const quality of ['moving','preview','export']as const){const {width,height}=photoSize(aspect,quality);expect(Math.abs(width-height*aspect)).toBeLessThan(1.3);expect(Math.max(width,height)).toBeLessThanOrEqual(2560);}}
  expect(photoDrag(0,40,true)).toEqual({dx:40,dy:-0});expect(photoDrag(40,0,true)).toEqual({dx:0,dy:-40});expect(photoDrag(10,20,false)).toEqual({dx:10,dy:20});
+});
+it('keeps a full-body subject prominent and preserves its projected scale between portrait, landscape and export',()=>{
+ const s=setup(),session=createPhotoSession({actors:[],camera:s.camera,controls:{target:new T.Vector3()},invalidate:vi.fn(),canInteract:()=>true});
+ session.camera({zoom:DEFAULT_PHOTO_ZOOM,pitch:0,height:1.2});s.camera.updateMatrixWorld();
+ const occupancies:number[]=[];
+ for(const aspect of [390/844,844/390,9/16,16/9])for(const quality of ['preview','export'] as const){
+  s.pipeline.render(s.out,s.look,{aspect,quality});
+  const head=new T.Vector3(0,2.4,0).project(s.camera),feet=new T.Vector3(0,0,0).project(s.camera);
+  expect(head.y).toBeLessThan(1);expect(feet.y).toBeGreaterThan(-1);
+  occupancies.push((head.y-feet.y)/2);
+ }
+ for(const occupancy of occupancies){expect(occupancy).toBeGreaterThan(.65);expect(occupancy).toBeLessThan(.8);expect(occupancy).toBeCloseTo(occupancies[0],6);}
+ s.pipeline.dispose();session.restore();
+});
+it('adapts portrait frame presets to the viewport without rotating authored paper layouts',()=>{
+ expect(photoFrameView('tall',390,844)).toMatchObject({label:'全身 9:16',aspect:9/16});
+ expect(photoFrameView('tall',844,390)).toMatchObject({label:'全身 16:9',aspect:16/9});
+ expect(photoFrameView('portrait',844,390)).toMatchObject({label:'横幅 4:3',aspect:4/3});
+ for(const format of ['polaroid','sticker','collage','cinema','square'] as const)expect(photoFrameView(format,844,390).aspect).toBe(photoFrames[format].aspect);
 });

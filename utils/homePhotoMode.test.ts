@@ -4,6 +4,8 @@ import {createRoot} from 'react-dom/client';
 import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 import HomePhotoMode from '../apps/room3d/HomePhotoMode';
 import {PHOTO_LETTERING_KEY} from '../apps/room3d/photoLettering';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 
 vi.mock('../apps/room3d/PhotoFilterPresets',()=>({default:()=>null}));
 vi.mock('../utils/shareExport',()=>({savePhotoToGallery:vi.fn(),shareOrDownloadBlob:vi.fn()}));
@@ -24,6 +26,7 @@ beforeEach(()=>{
 afterEach(()=>{act(()=>root.unmount());vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function setup(actors:Array<{id:string;label:string}>=[]){const editor={beginPhotoMode:vi.fn(()=>actors),endPhotoMode:vi.fn(),setPhotoCamera:vi.fn(),setPhotoTogether:vi.fn(),setPhotoPose:vi.fn(),setPhotoInteraction:vi.fn(),setPhotoFace:vi.fn(),setPhotoTurn:vi.fn(),setPhotoDof:vi.fn(),setPhotoFocusAt:vi.fn((_x:number,_y:number)=>true),setPhotoFocusPart:vi.fn(),setPhotoLighting:vi.fn(),setPhotoLampColor:vi.fn(),getLightingMode:vi.fn(()=>'day'),canPlaySocial:vi.fn(()=>true),renderPhoto:vi.fn(),subscribePhoto:vi.fn(()=>()=>{})};const close=vi.fn();await act(async()=>{root.render(React.createElement(HomePhotoMode,{editor:editor as any,onClose:close}));});await act(async()=>{await new Promise(r=>setTimeout(r,10));});return {editor,close};}
 async function click(label:string){const button=[...host.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')===label||b.textContent===label)!;expect(button).toBeTruthy();await act(async()=>button.click());}
+async function previewFrame(){await act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));});}
 it('opens the lens controls in portrait and exports the chosen aspect',async()=>{
  const {editor}=await setup();expect(editor.renderPhoto.mock.calls.at(-1)?.[2]).toMatchObject({aspect:390/844,quality:'preview'});
  expect(host.querySelector<HTMLElement>('.photo-stage')?.style.inset).toBe('0px');
@@ -40,7 +43,7 @@ it('changes framing without resetting poses and reserves standing reset for its 
  const {editor}=await setup([{id:'a',label:'小白'},{id:'b',label:'小绿'}]);await click('镜头');expect(editor.setPhotoTogether).not.toHaveBeenCalled();
  await click('爱心大头贴');expect(editor.setPhotoTogether).not.toHaveBeenCalled();expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({zoom:1.65,height:1.75}));
  await click('居中同框');expect(editor.setPhotoTogether).not.toHaveBeenCalled();
- await click('全身 9:16');expect(editor.setPhotoTogether).not.toHaveBeenCalled();expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({zoom:1,height:1.2}));
+ await click('全身 9:16');expect(editor.setPhotoTogether).not.toHaveBeenCalled();expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({zoom:1.5,height:1.2}));
  await click('爱心大头贴');await click('双人并排站位会重置当前动作›');expect(editor.setPhotoTogether).toHaveBeenCalledOnce();
 });
 it('maps sideways drags into camera coordinates and leaves the shared application unrotated',async()=>{
@@ -48,6 +51,41 @@ it('maps sideways drags into camera coordinates and leaves the shared applicatio
  const canvas=host.querySelector('canvas')!;const send=(type:string,x:number,y:number)=>canvas.dispatchEvent(Object.assign(new MouseEvent(type,{bubbles:true,clientX:x,clientY:y}),{pointerId:1}));
  act(()=>{send('pointerdown',50,50);send('pointermove',50,90);send('pointerup',50,90);});
  expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({yaw:-14,pitch:4}));await click('竖屏');expect(host.querySelector('.home-photo-mode')?.getAttribute('data-sideways')).toBe('false');
+});
+it('fills the screen even while the measured stage still has its old inset dimensions',async()=>{
+ vi.spyOn(HTMLElement.prototype,'clientWidth','get').mockImplementation(function(this:HTMLElement){return this.classList.contains('photo-stage')?210:390;});
+ vi.spyOn(HTMLElement.prototype,'clientHeight','get').mockImplementation(function(this:HTMLElement){return this.classList.contains('photo-stage')?370:844;});
+ const {editor}=await setup(),frame=host.querySelector<HTMLElement>('.photo-frame')!;
+ expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({zoom:1.5}));
+ expect([frame.style.width,frame.style.height]).toEqual(['390px','844px']);
+ await click('横屏');expect([frame.style.width,frame.style.height]).toEqual(['844px','390px']);await previewFrame();
+ expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBe(844/390);
+ await click('拍下合影');expect(editor.renderPhoto.mock.calls.find(c=>c[2]?.quality==='export')?.[2].aspect).toBe(844/390);
+});
+it('turns the full-body frame into 16:9 in landscape and keeps manual framing and poses while rotating',async()=>{
+ const {editor}=await setup([{id:'a',label:'小白'},{id:'b',label:'小绿'}]);
+ await click('镜头');await click('全身 9:16');await edit('拉近','2');await click('收起调节');
+ const cameraCalls=editor.setPhotoCamera.mock.calls.length;
+ await click('横屏');expect(host.querySelector('.photo-format-label')?.textContent).toBe('全身 16:9');await previewFrame();
+ expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBe(16/9);
+ expect(editor.setPhotoCamera).toHaveBeenCalledTimes(cameraCalls);expect(editor.setPhotoTogether).not.toHaveBeenCalled();
+ await click('竖屏');expect(host.querySelector('.photo-format-label')?.textContent).toBe('全身 9:16');await previewFrame();
+ expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBe(9/16);
+ expect(editor.setPhotoCamera).toHaveBeenCalledTimes(cameraCalls);
+ await click('横屏');await click('拍下合影');
+ expect(editor.renderPhoto.mock.calls.find(c=>c[2]?.quality==='export')?.[2].aspect).toBe(16/9);
+ expect(host.querySelector('.photo-result-caption strong')?.textContent).toBe('全身 16:9');
+});
+it('releases the empty landscape panel column and all insets in clean mode using the actual stylesheet',async()=>{
+ const style=document.createElement('style');style.textContent=readFileSync(resolve(__dirname,'../apps/room3d/homePhoto.css'),'utf8');document.head.append(style);
+ try{
+  await setup();await click('镜头');await click('全身 9:16');await click('收起调节');await click('横屏');
+  const stage=host.querySelector<HTMLElement>('.photo-stage')!;
+  expect(getComputedStyle(stage).right).toBe('12px');
+  await click('镜头');expect(getComputedStyle(stage).right).toBe('324px');
+  await click('收起调节');expect(getComputedStyle(stage).right).toBe('12px');
+  await click('纯净');expect(getComputedStyle(stage).inset).toBe('0px');
+ }finally{style.remove();}
 });
 it('requests real negative space through camera pan and preserves the existing exit path',async()=>{
  const {editor,close}=await setup();await click('镜头');await click('左侧留白');expect(editor.setPhotoCamera).toHaveBeenLastCalledWith(expect.objectContaining({pan:-2,zoom:.78}));expect(host.querySelector('.photo-format-label')?.textContent).toBe('全屏');await click('退出拍照');expect(close).toHaveBeenCalledOnce();

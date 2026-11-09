@@ -73,7 +73,6 @@
 .home-photo-mode .photo-clean,.home-photo-mode .photo-orientation{display:inline-flex;align-items:center;justify-content:center;gap:5px;min-height:42px;padding:7px 10px;border-color:var(--photo-line);border-radius:13px;background:rgba(18,19,25,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);font-size:11px}
 .home-photo-mode .photo-restore{position:absolute;z-index:35;bottom:calc(18px + env(safe-area-inset-bottom,0px));left:50%;display:inline-flex;align-items:center;gap:7px;min-height:44px;transform:translateX(-50%);border-color:var(--photo-line);border-radius:999px;background:rgba(18,19,25,.76);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
 .home-photo-mode .photo-restore:active{transform:translateX(-50%) scale(.97)}
-.home-photo-mode[data-clean=true] .photo-stage{inset:calc(68px + var(--chrome-top,env(safe-area-inset-top,0px))) 0 0}
 .home-photo-mode[data-clean=true] .photo-frame{border-radius:0;box-shadow:none}
 .photo-result{position:absolute;z-index:20;inset:calc(68px + var(--chrome-top,env(safe-area-inset-top,0px))) 0 0;display:grid;grid-template-rows:minmax(0,1fr) auto auto;gap:12px;padding:8px 18px calc(16px + env(safe-area-inset-bottom,0px));background:radial-gradient(ellipse at 50% 35%,#24212d 0%,#111218 55%,#0a0b0f 100%)}
 .photo-result-media{display:flex;min-width:0;min-height:0;align-items:center;justify-content:center;overflow:hidden}
@@ -116,19 +115,22 @@
 .photo-tone-controls>div{padding-top:4px}
 @keyframes photo-enter{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 @keyframes photo-spin{to{transform:rotate(360deg)}}
-.home-photo-mode[data-wide=true] .photo-stage{inset:calc(76px + var(--chrome-top,env(safe-area-inset-top,0px))) 380px 92px 20px}
+.home-photo-mode[data-wide=true] .photo-stage{inset:calc(76px + var(--chrome-top,env(safe-area-inset-top,0px))) 20px 92px 20px}
+.home-photo-mode[data-wide=true][data-panel-open=true] .photo-stage{right:380px}
 .home-photo-mode[data-wide=true] .photo-dock{top:calc(82px + var(--chrome-top,env(safe-area-inset-top,0px)));right:18px;bottom:18px;left:auto;justify-content:flex-end;width:340px;max-width:calc(100% - 36px);margin:0}
-.home-photo-mode[data-wide=true] .photo-controls{max-height:min(62svh,560px)}
+.home-photo-mode[data-wide=true] .photo-controls{max-height:min(calc(var(--photo-height,100svh) * .62),560px)}
 .home-photo-mode[data-wide=true] footer{right:374px;max-width:none}
-.home-photo-mode[data-short=true] .photo-stage{inset:64px 324px 74px 12px}
+.home-photo-mode[data-short=true] .photo-stage{inset:64px 12px 74px 12px}
+.home-photo-mode[data-short=true][data-panel-open=true] .photo-stage{right:324px}
 .home-photo-mode[data-short=true] .photo-dock{top:68px;right:10px;bottom:10px;width:294px}
-.home-photo-mode[data-short=true] .photo-controls{max-height:calc(100svh - 150px)}
+.home-photo-mode[data-short=true] .photo-controls{max-height:calc(var(--photo-height,100svh) - 150px)}
 .home-photo-mode[data-short=true] footer{right:316px;bottom:8px}
 .home-photo-mode[data-short=true] .photo-shutter{width:54px;height:54px;min-height:54px}
 .home-photo-mode[data-short=true] .photo-tabbar button{min-height:38px}
 .home-photo-mode[data-short=true] .photo-panel-heading{min-height:48px}
 .home-photo-mode[data-short=true] .photo-result{grid-template-rows:minmax(0,1fr) auto;gap:8px}
 .home-photo-mode[data-short=true] .photo-result-caption{display:none}
+.home-photo-mode[data-clean=true] .photo-stage{inset:0}
 @media(max-width:380px){.home-photo-mode header{padding-inline:10px}.photo-title strong{font-size:14px}.photo-title small{letter-spacing:2px}.home-photo-mode .photo-exit{padding:8px 10px}.home-photo-mode .photo-original{min-width:70px;padding-inline:8px}.home-photo-mode footer{right:10px;left:10px;gap:6px}.home-photo-mode .photo-drag-switch button{padding-inline:8px}.home-photo-mode .photo-clean span{display:none}.home-photo-mode .photo-clean{padding-inline:10px}.photo-formats{gap:5px}.home-photo-mode .photo-formats button{font-size:10px}.photo-result{padding-inline:10px}.photo-result-actions{gap:6px}.home-photo-mode .photo-result-actions button{gap:4px;padding-inline:6px;font-size:11px}}
-@media(max-height:650px){.home-photo-mode:not([data-wide=true]) .photo-stage{bottom:calc(132px + env(safe-area-inset-bottom,0px))}.home-photo-mode:not([data-wide=true]) .photo-dock{bottom:calc(76px + env(safe-area-inset-bottom,0px))}.home-photo-mode:not([data-wide=true]) footer{bottom:calc(8px + env(safe-area-inset-bottom,0px))}.home-photo-mode:not([data-wide=true]) .photo-shutter{width:58px;height:58px;min-height:58px}.home-photo-mode:not([data-wide=true]) .photo-controls{max-height:50svh}}
+@media(max-height:650px){.home-photo-mode:not([data-wide=true]):not([data-clean=true]) .photo-stage{bottom:calc(132px + env(safe-area-inset-bottom,0px))}.home-photo-mode:not([data-wide=true]) .photo-dock{bottom:calc(76px + env(safe-area-inset-bottom,0px))}.home-photo-mode:not([data-wide=true]) footer{bottom:calc(8px + env(safe-area-inset-bottom,0px))}.home-photo-mode:not([data-wide=true]) .photo-shutter{width:58px;height:58px;min-height:58px}.home-photo-mode:not([data-wide=true]) .photo-controls{max-height:50svh}}
 @media(prefers-reduced-motion:reduce){.home-photo-mode button{transition:none}.home-photo-mode .photo-controls{animation:none}.photo-shutter-spinner{animation-duration:1.6s}}
