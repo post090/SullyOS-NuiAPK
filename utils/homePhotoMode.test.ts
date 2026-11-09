@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 import HomePhotoMode from '../apps/room3d/HomePhotoMode';
 import {PHOTO_LETTERING_KEY} from '../apps/room3d/photoLettering';
+import {photoFrameView,type PhotoFrame} from '../apps/room3d/photoFrame';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 
@@ -29,8 +30,7 @@ async function click(label:string){const button=[...host.querySelectorAll('butto
 async function previewFrame(){await act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()));});}
 it('opens the lens controls in portrait and exports the chosen aspect',async()=>{
  const {editor}=await setup();expect(editor.renderPhoto.mock.calls.at(-1)?.[2]).toMatchObject({aspect:390/844,quality:'preview'});
- expect(host.querySelector<HTMLElement>('.photo-stage')?.style.inset).toBe('0px');
- await click('镜头');await click('竖幅 3:4');expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBe(3/4);
+ await click('镜头');await click('竖幅 3:4');await previewFrame();expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBe(3/4);
  await click('电影 2.39:1');await click('拍下合影');
  const call=editor.renderPhoto.mock.calls.find(c=>c[2]?.quality==='export')!;expect(call[2].aspect).toBe(2.39);expect(call[0]).not.toBe(host.querySelector('.photo-view'));expect(host.querySelector('img[alt="拍好的合影"]')).toBeTruthy();
 });
@@ -76,15 +76,31 @@ it('turns the full-body frame into 16:9 in landscape and keeps manual framing an
  expect(editor.renderPhoto.mock.calls.find(c=>c[2]?.quality==='export')?.[2].aspect).toBe(16/9);
  expect(host.querySelector('.photo-result-caption strong')?.textContent).toBe('全身 16:9');
 });
-it('releases the empty landscape panel column and all insets in clean mode using the actual stylesheet',async()=>{
+it.each<PhotoFrame>(['screen','portrait','tall','landscape','cinema','square','polaroid','sticker','collage'])('keeps %s framing fixed across controls and clean mode in both orientations',async format=>{
  const style=document.createElement('style');style.textContent=readFileSync(resolve(__dirname,'../apps/room3d/homePhoto.css'),'utf8');document.head.append(style);
  try{
-  await setup();await click('镜头');await click('全身 9:16');await click('收起调节');await click('横屏');
-  const stage=host.querySelector<HTMLElement>('.photo-stage')!;
-  expect(getComputedStyle(stage).right).toBe('12px');
-  await click('镜头');expect(getComputedStyle(stage).right).toBe('324px');
-  await click('收起调节');expect(getComputedStyle(stage).right).toBe('12px');
-  await click('纯净');expect(getComputedStyle(stage).inset).toBe('0px');
+  const {editor}=await setup();await click('镜头');await click(photoFrameView(format,390,844).label);await click('收起调节');
+  const stage=host.querySelector<HTMLElement>('.photo-stage')!,frame=host.querySelector<HTMLElement>('.photo-frame')!;
+  for(const rotated of [false,true]){
+   if(rotated)await click('横屏');
+   const width=rotated?844:390,height=rotated?390:844,aspect=photoFrameView(format,width,height).aspect;
+   const expectedWidth=Math.min(width,height*aspect),cameraCalls=editor.setPhotoCamera.mock.calls.length;
+   const stable=()=>{
+    const css=getComputedStyle(stage);
+    // jsdom preserves inset shorthand instead of expanding it into its four edges.
+    expect([css.top,css.right,css.bottom,css.left].map(edge=>edge==='auto'?css.inset:edge)).toEqual(['0px','0px','0px','0px']);
+    expect(parseFloat(frame.style.width)).toBeCloseTo(expectedWidth,5);
+    expect(parseFloat(frame.style.height)).toBeCloseTo(expectedWidth/aspect,5);
+    expect(editor.setPhotoCamera).toHaveBeenCalledTimes(cameraCalls);
+    expect(editor.setPhotoTogether).not.toHaveBeenCalled();
+   };
+   stable();
+   for(const tab of ['镜头','人物','动作','氛围','镜头']){await click(tab);stable();}
+   await act(async()=>host.querySelector<HTMLButtonElement>('.photo-advanced-entry')!.click());stable();
+   await click('镜头设置');stable();await click('收起调节');stable();
+   await click('纯净');stable();await click('显示控制');stable();
+   await previewFrame();expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBeCloseTo(format==='polaroid'||format==='sticker'||format==='collage'?1:aspect,5);
+  }
  }finally{style.remove();}
 });
 it('requests real negative space through camera pan and preserves the existing exit path',async()=>{

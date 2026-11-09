@@ -28,7 +28,7 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  const [tab,setTab]=useState<PhotoTab>('镜头'),[look,setLook]=useState<PhotoLook>({...photoLooks.daylight}),[camera,setCamera]=useState({yaw:0,pitch:4,zoom:DEFAULT_PHOTO_ZOOM,height:1.2,pan:0,roll:0});
  const [gap,setGap]=useState(.85),[poses,setPoses]=useState<Record<string,{motion:string;time:number;turn:number}>>({}),[revision,refresh]=useState(0),[shot,setShot]=useState(''),[error,setError]=useState(''),[saving,setSaving]=useState(false),[hidden,setHidden]=useState(false);
  const [compactActions,setCompactActions]=useState(false),[panelOpen,setPanelOpen]=useState(false),[advanced,setAdvanced]=useState(false);
- const shell=useRef<HTMLDivElement>(null),stage=useRef<HTMLDivElement>(null),[bounds,setBounds]=useState({w:0,h:0}),[stageBounds,setStageBounds]=useState({w:0,h:0}),[sideways,setSideways]=useState(false);
+ const shell=useRef<HTMLDivElement>(null),[bounds,setBounds]=useState({w:0,h:0}),[sideways,setSideways]=useState(false);
  const [format,setFormat]=useState<PhotoFrame>('screen'),[shotLabel,setShotLabel]=useState(photoFrames.screen.label),[shotAspect,setShotAspect]=useState(3/4),[grid,setGrid]=useState(false),[moving,setMoving]=useState(false),[shooting,setShooting]=useState(false);
  const [letteringLibrary,setLetteringLibrary]=useState(readPhotoLettering);
  const lettering=letteringLibrary[format]||defaultPhotoLettering(format);
@@ -37,8 +37,9 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  const previewSource=useRef<HTMLCanvasElement>();
  const settle=useRef<ReturnType<typeof setTimeout>>();
  const rotated=sideways&&bounds.h>bounds.w,viewW=rotated?bounds.h:bounds.w,viewH=rotated?bounds.w:bounds.h,frameView=photoFrameView(format,viewW,viewH),aspect=frameView.aspect;
- const sidePanel=viewW>=800||viewW>viewH,stageW=format==='screen'?viewW:stageBounds.w||viewW,stageH=format==='screen'?viewH:stageBounds.h||viewH;
- const frameW=Math.max(1,Math.min(stageW,stageH*aspect)),frameH=frameW/aspect;
+ const sidePanel=viewW>=800||viewW>viewH;
+ // Controls overlay a fixed viewfinder; opening a panel must never reframe the photo.
+ const frameW=Math.max(1,Math.min(viewW,viewH*aspect)),frameH=frameW/aspect;
  const frameStyle={width:frameW,height:frameH};
  const [faces,setFaces]=useState<Record<string,PhotoFace>>({});
  const face=faces[actor]||{};
@@ -71,7 +72,6 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  useEffect(()=>{alive.current=true;const a=editor.beginPhotoMode();setActors(a);setActor(a[0]?.id||'');setFocusActor(a[0]?.id||'');setLampChoice('');setPhotoTime(null);editor.setPhotoCamera(camera);refresh(n=>n+1);return()=>{alive.current=false;shotRequest.current++;editor.endPhotoMode();if(shotRef.current)URL.revokeObjectURL(shotRef.current);};},[editor]);
  useEffect(()=>editor.subscribePhoto?.(()=>refresh(n=>n+1)),[editor]);
  useLayoutEffect(()=>{const element=shell.current!;const measure=()=>setBounds({w:element.clientWidth,h:element.clientHeight});measure();const observer=new ResizeObserver(measure);observer.observe(element);return()=>{observer.disconnect();clearTimeout(settle.current);};},[]);
- useLayoutEffect(()=>{const element=stage.current;if(!element)return;const measure=()=>setStageBounds({w:element.clientWidth,h:element.clientHeight});measure();const observer=new ResizeObserver(measure);observer.observe(element);return()=>observer.disconnect();},[format,rotated,sidePanel,panelOpen,hidden]);
  useEffect(()=>{if(shot||hidden)pointers.current.clear();},[shot,hidden]);
  useEffect(()=>{const frame=requestAnimationFrame(()=>{if(canvas.current)try{
   const source=previewSource.current ||= document.createElement('canvas'),quality=moving?'moving':'preview';
@@ -103,14 +103,14 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
  const selectTab=(next:PhotoTab)=>{setAdvanced(false);if(next!==tab){setTab(next);setPanelOpen(true);setCompactActions(false);}else setPanelOpen(open=>!open);};
  const toggleHidden=()=>{pointers.current.clear();setPanelOpen(false);setAdvanced(false);setHidden(value=>!value);};
  const slider=(label:string,value:number,min:number,max:number,step:number,onChange:(v:number)=>void,disabled=false)=><label className="photo-slider" data-disabled={disabled}><span>{label}</span><input aria-label={label} type="range" disabled={disabled} min={min} max={max} step={step} value={value} onChange={e=>{movingPreview();onChange(Number(e.target.value));}}/><output>{value.toFixed(step<1?2:0)}</output></label>;
- return <div ref={shell} className="photo-shell"><section className="home-photo-mode" data-sideways={rotated} data-wide={sidePanel} data-short={viewH<520} data-panel-open={panelOpen} data-clean={hidden} aria-label="合影模式" style={{'--photo-height':`${viewH}px`,...(rotated?{width:bounds.h,height:bounds.w,left:'50%',top:'50%',right:'auto',bottom:'auto',transform:'translate(-50%, -50%) rotate(90deg)'}:{})} as React.CSSProperties}>
-  <div ref={stage} className="photo-stage" aria-hidden={!!shot} style={format==='screen'?{inset:0}:undefined}>
+ return <div ref={shell} className="photo-shell"><section className="home-photo-mode" data-sideways={rotated} data-wide={sidePanel} data-short={viewH<520} data-clean={hidden} aria-label="合影模式" style={{'--photo-height':`${viewH}px`,...(rotated?{width:bounds.h,height:bounds.w,left:'50%',top:'50%',right:'auto',bottom:'auto',transform:'translate(-50%, -50%) rotate(90deg)'}:{})} as React.CSSProperties}>
+  <div className="photo-stage" aria-hidden={!!shot}>
    <div className="photo-frame" data-fullscreen={format==='screen'} style={frameStyle}>
     <canvas ref={canvas} className="photo-view" aria-label="照片取景画面" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);pointers.current.set(e.pointerId,{x:e.clientX,y:e.clientY});}} onPointerMove={moveCamera} onPointerUp={e=>pointers.current.delete(e.pointerId)} onPointerCancel={e=>pointers.current.delete(e.pointerId)} onLostPointerCapture={e=>pointers.current.delete(e.pointerId)} onWheel={e=>{cameraChange('zoom',Math.max(.4,Math.min(3,cameraRef.current.zoom*Math.exp(-e.deltaY*.001))));}}/>
     {dof.enabled&&focusMode==='free'&&focusDot&&!shot&&<div className="photo-focus-dot" role="slider" aria-label="对焦位置" style={{left:`${focusDot.x*100}%`,top:`${focusDot.y*100}%`}} onPointerDown={e=>{e.stopPropagation();e.currentTarget.setPointerCapture(e.pointerId);focusDrag.current=true;applyFocus(e);}} onPointerMove={e=>{if(focusDrag.current)applyFocus(e);}} onPointerUp={()=>{focusDrag.current=false;}} onPointerCancel={()=>{focusDrag.current=false;}} onLostPointerCapture={()=>{focusDrag.current=false;}}/>}
     {grid&&photoWindows(format).map((r,i)=><div key={i} className="photo-thirds" style={{left:r.x*100+'%',top:r.y*100+'%',width:r.w*100+'%',height:r.h*100+'%'}} aria-hidden="true"/>)}
-    <span className="photo-format-label">{frameView.label}</span>
    </div>
+   <span className="photo-format-label">{frameView.label}</span>
   </div>
   <header>
    <button className="photo-exit" aria-label="退出拍照" onClick={onClose}><X size={18}/><span>退出</span></button>
@@ -178,7 +178,7 @@ export default function HomePhotoMode({editor,onClose}:{editor:HomeEditor;onClos
   <footer hidden={!!shot||hidden}>
    <div className="photo-drag-switch" role="group" aria-label="拖动模式"><button aria-pressed={dragMode==='orbit'} onClick={()=>setDragMode('orbit')}>旋转</button><button aria-pressed={dragMode==='pan'} onClick={()=>setDragMode('pan')}>平移</button></div>
    <button className="photo-shutter" disabled={shooting} aria-busy={shooting} aria-label="拍下合影" onClick={shoot}>{shooting?<span className="photo-shutter-spinner"/>:<Camera size={27}/>}</button>
-   <div className="photo-footer-actions">{bounds.h>bounds.w&&<button className="photo-orientation" aria-pressed={rotated} onClick={()=>{pointers.current.clear();setSideways(!sideways);}}>{rotated?'竖屏':'横屏'}</button>}<button className="photo-clean" onClick={toggleHidden}><Eye size={16}/><span>纯净</span></button></div>
+   <div className="photo-footer-actions">{bounds.h>bounds.w&&<button className="photo-orientation" aria-pressed={rotated} onClick={()=>{pointers.current.clear();setSideways(!sideways);}}>{rotated?'竖屏':'横屏'}</button>}<button className="photo-clean" aria-label="纯净" onClick={toggleHidden}><Eye size={16}/><span>纯净</span></button></div>
   </footer>
   {error&&<p role="alert" className="photo-error"><span>{error}</span><button aria-label="关闭错误提示" onClick={()=>setError('')}>×</button></p>}
  </section></div>;
