@@ -207,6 +207,7 @@ export const LAST_SKIP_REASONS = [
   'min-gap',
   'recurring-unanswered',
   'daily-limit',
+  'chat-overlap',
 ] as const;
 
 export interface AmsgLastSkip {
@@ -225,6 +226,7 @@ export interface AmsgLastSkip {
    * min-gap               角色自排的任务到点时，离它上一条主动消息还没隔够用户设的间隔
    * recurring-unanswered  重复的任务到点时，用户已经连续几次没回它了（回话后恢复）
    * daily-limit           今天主动发的次数已到用户设的每日上限
+   * chat-overlap          写到一半用户开口聊上了，这句没看到新对话，推送前拦下
    */
   reason: (typeof LAST_SKIP_REASONS)[number];
   skippedAt: number;
@@ -291,6 +293,8 @@ export const describeLastSkip = (skip: AmsgLastSkip, formatTime: (ms: number) =>
       return `${when} 那条重复消息这次没发——你已经连续几次没回它了，先停一停；你回一句话，它就照常恢复。`;
     case 'daily-limit':
       return `${when} 那次主动消息没发——今天 ta 主动找你的次数已经到了你设的每日上限，跳过的这次不会补发，明天重新计数。`;
+    case 'chat-overlap':
+      return `${when} 那次主动消息没发——ta 写好的时候你们正好聊上了，那句话没看到你刚说的，就没发出去。`;
   }
 };
 
@@ -978,7 +982,7 @@ export const describeFirePackVersion = (value: string): string => {
     return `包是 v${v}、worker 要 v${FIRE_PACK_VERSION} —— 前端比 worker 旧，打开一次网页让它重新上传`;
   }
   if (typeof v === 'number') {
-    return `包是 v${v}、worker 只认 v${FIRE_PACK_VERSION} —— worker bundle 是旧的，去设置页重新粘贴部署`;
+    return `包是 v${v}、worker 只认 v${FIRE_PACK_VERSION} —— worker bundle 是旧的，去「设置 → 主动消息 2.0」点一下「更新 Worker」`;
   }
   return '包里没有版本号（数据损坏）';
 };

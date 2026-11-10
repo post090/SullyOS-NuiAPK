@@ -23,7 +23,7 @@ import {
   UserProfile,
 } from '../types';
 import { getLastRealUserMessageAt } from './amsg2ExpireGuard';
-import { AMSG_BUNDLE_VERSION } from './amsgBundleVersion';
+import { AMSG_BUNDLE_VERSION, compareBundleVersions } from './amsgBundleVersion';
 import { describeD1LimitCode } from './amsgD1Limits';
 import { explainCfTokenRejection, parseAmsgSelfUpdateState, type AmsgSelfUpdateReport } from './amsgSelfUpdateState';
 import { AMSG_AWAY_DELAY_META, AMSG_AWAY_MESSAGE_META, buildAwayTaskInstruction, buildTaskInstruction, resolveSendAtMs } from './amsgFireSchedule';
@@ -352,7 +352,7 @@ export const fetchWorkerDiagnostics = async (): Promise<AmsgDiagnosticsProbe> =>
     return {
       reachable: false,
       unsupported: true,
-      reason: 'Worker 上跑的代码还没有体检端点。回你 fork 的 sullyos-workers 点一下 Sync fork，或者用上面的「更新 Worker」，之后再来看。',
+      reason: 'Worker 上跑的代码还没有体检端点。点一下上面的「更新 Worker」，之后再来看。',
     };
   } catch (error: any) {
     // fetchWithAuthRaw 抛出来的已经是人话了（见 amsgDiagnostics 的 describeAmsgFetchFailure）。
@@ -399,7 +399,8 @@ export const fetchWorkerTickReport = async (): Promise<AmsgTickReportResult> => 
 
 /** probeWorkerVersion 的回执：版本对不对，外加那台 Worker 自动更新的近况。 */
 export interface AmsgWorkerVersionProbe {
-  state: 'current' | 'outdated' | 'unknown';
+  /** ahead = Worker 比 App 新：App 还是缓存的旧构建，刷新页面就对上了，不该去更新 Worker。 */
+  state: 'current' | 'outdated' | 'ahead' | 'unknown';
   /** 那台 Worker 自报的版本；老 bundle 不报就是 null。 */
   deployed: string | null;
   /** 本 App 期望的版本，用来在界面上写「更新到 X」。 */
@@ -1297,7 +1298,7 @@ export const describeInstantChatFailure = (status: number, body: any): string =>
     return '即时对话没发出去：共享密钥和 Worker 上的对不上，去「主动消息 2.0」设置里核对一下。';
   }
   if (status === 405 || status === 404) {
-    return '即时对话没发出去：Worker 上还没有这个端点，去你 fork 的 sullyos-workers 点一下 Sync fork 更新。';
+    return '即时对话没发出去：Worker 上还没有这个端点，去「设置 → 主动消息 2.0」点一下「更新 Worker」。';
   }
   if (status === 503) {
     if (code === 'INSTANT_CHAT_WORKER_OUTDATED' && outerMessage) {
@@ -2035,13 +2036,6 @@ export const ActiveMsgClient = {
     return copyWorkerBundleToClipboard('amsg-worker.bundle.js');
   },
 
-  // 复制 public/amsg-deno-proxy.ts —— 贴进 Deno Playground 当 worker 的门面用。
-  // 走的是同一套「fetch 站点静态文件 → 剪贴板」，只是这份不打包、原样发布，
-  // 因为用户要照着里面的注释改 UPSTREAM 那一行。
-  copyDenoProxyToClipboard(): Promise<void> {
-    return copyWorkerBundleToClipboard('amsg-deno-proxy.ts');
-  },
-
   async getPushStatus(): Promise<ActiveMsg2PushStatus> {
     const config = await ensureGlobalReady();
     const workerConfigured = Boolean(config.workerUrl.trim());
@@ -2567,7 +2561,7 @@ export const ActiveMsgClient = {
     // 换了 Master Key 时任务全是这种，按旧判断会叫用户去重新部署，越部署越乱。
     const readable = tasks.filter((t) => !t?.error);
     if (readable.length > 0 && readable.every((t) => t?.charId == null)) {
-      throw new Error('worker 版本过旧：任务列表没有 charId 投影，无法按角色对账，请在设置里重新粘贴部署。');
+      throw new Error('worker 版本过旧：任务列表没有 charId 投影，无法按角色对账，请去「设置 → 主动消息 2.0」点一下「更新 Worker」。');
     }
     return tasks
       .filter((t) => t?.charId === charId && typeof t?.uuid === 'string')
@@ -3097,7 +3091,7 @@ export const ActiveMsgClient = {
     assertWriteCurrent();
 
     if (!await isLlmCredentialsReady()) {
-      throw new Error('这台 Worker 还不支持凭据存表，后台任务跑不了（去设置页重新部署一次）。');
+      throw new Error('这台 Worker 还不支持凭据存表，后台任务跑不了（去「设置 → 主动消息 2.0」点一下「更新 Worker」）。');
     }
 
     const now = stampStateUpdatedAt();
@@ -3769,6 +3763,7 @@ export const ActiveMsgClient = {
    * 就是「那台 Worker 贴的是旧 bundle」。
    *
    * 三种拿不到结论的情况分开表态，因为界面上该说的话不一样：
+   *   - Worker 报的版本比 App 认的还新 → ahead（App 是缓存的旧构建，该刷新页面，不该动 Worker）；
    *   - 老 bundle 根本不报这个字段 → outdated（它确实旧，只是旧到还不会自报家门）；
    *   - 网络不通 / 还没连上 → unknown（别在用户断网时催他更新）。
    */
@@ -3792,7 +3787,9 @@ export const ActiveMsgClient = {
       const deployed = typeof body?.data?.workerVersion === 'string' ? body.data.workerVersion : null;
       const autoUpdate = parseSelfUpdateReport(body?.data?.selfUpdate);
       if (!deployed) return { state: 'outdated', deployed: null, expected, autoUpdate };
-      return { state: deployed === expected ? 'current' : 'outdated', deployed, expected, autoUpdate };
+      if (deployed === expected) return { state: 'current', deployed, expected, autoUpdate };
+      const order = compareBundleVersions(deployed, expected);
+      return { state: order !== null && order > 0 ? 'ahead' : 'outdated', deployed, expected, autoUpdate };
     } catch {
       return { state: 'unknown', deployed: null, expected, autoUpdate: null };
     } finally {

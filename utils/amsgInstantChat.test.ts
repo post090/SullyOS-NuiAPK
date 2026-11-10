@@ -54,7 +54,8 @@ const { storeState } = vi.hoisted(() => ({
     markedNotices: [] as Array<{ charId: string; ids: string[] }>,
   },
 }));
-vi.mock('./activeMsgStore', () => ({
+vi.mock('./activeMsgStore', async () => ({
+  isInstantChatSwitchedOn: (await vi.importActual<typeof import('./activeMsgStore')>('./activeMsgStore')).isInstantChatSwitchedOn,
   ActiveMsgStore: {
     ensureUserId: async () => TEST_USER_ID,
     getGlobalConfig: async () => {
@@ -700,6 +701,18 @@ describe('开关', () => {
     expect(await resolveInstantChatReadiness()).toEqual({ ready: false, reason: 'disabled' });
   });
 
+  // 很多人配好了 2.0 却没看懂这个开关、一直没开：没点过的，Worker 连上过就默认开。
+  it('没点过开关、Worker 连接验证成功过 → 默认走云端', async () => {
+    storeState.config = { ...storeState.config, instantChatEnabled: undefined, initializedAt: 1 };
+    expect(await resolveInstantChatReadiness()).toEqual({ ready: true });
+  });
+
+  // 只填了地址的那种上云会发一条挂一条，又不退回本地，不能默认开。
+  it('没点过开关、只填了地址没连上过 → 不走', async () => {
+    storeState.config = { ...storeState.config, instantChatEnabled: undefined, initializedAt: undefined };
+    expect(await resolveInstantChatReadiness()).toEqual({ ready: false, reason: 'disabled' });
+  });
+
   it('地址空着 → 不走', async () => {
     storeState.config = { ...storeState.config, workerUrl: '  ' };
     expect(await isInstantChatReady()).toBe(false);
@@ -791,6 +804,11 @@ describe('开关', () => {
     expect(await resolveInstantChatReadiness()).toEqual({ ready: true, workerBundleCurrent: false });
     storeState.config = { ...storeState.config, workerBundleVersion: null };
     expect(await resolveInstantChatReadiness()).toEqual({ ready: true, workerBundleCurrent: false });
+  });
+
+  it('存量版本比当前 bundle 新（App 是缓存的旧构建）→ workerBundleCurrent: true，SAR 回合照常上云', async () => {
+    storeState.config = { ...storeState.config, instantChatSupported: true, workerBundleVersion: '2999-01-01.2' };
+    expect(await resolveInstantChatReadiness()).toEqual({ ready: true, workerBundleCurrent: true });
   });
 
   it('从没探过版本（undefined）→ 不给结论，调用方放行', async () => {
