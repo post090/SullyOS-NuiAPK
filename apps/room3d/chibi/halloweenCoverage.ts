@@ -4,7 +4,8 @@
 export function halloweenCoverage(part:string,outfit:string,x:number,y:number){
  if(part==='socks')return y<({pumpkin:1.37,ghost:1.49,apprentice:1.26,witch:1.19}[outfit]??.90);
  if(part==='boots')return y<.54;
- if(part==='shoes')return y<.225;
+ // Keep the foot visible through the ghost shoe's open instep.
+ if(part==='shoes')return outfit!=='ghost'&&y<.225;
  if(part==='hooded-top')return x<.46&&y>2.26&&y<3.04||x>.37&&x<1.49&&y>2.88&&y<3.30;
  if(part==='romper')return x<.47&&y>1.90&&y<3.0;
  if(part==='sleeves')return x>.38&&x<1.49&&y>2.76&&y<3.40;

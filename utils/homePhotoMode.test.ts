@@ -81,6 +81,7 @@ it.each<PhotoFrame>(['screen','portrait','tall','landscape','cinema','square','p
  try{
   const {editor}=await setup();await click('镜头');await click(photoFrameView(format,390,844).label);await click('收起调节');
   const stage=host.querySelector<HTMLElement>('.photo-stage')!,frame=host.querySelector<HTMLElement>('.photo-frame')!;
+  const header=host.querySelector('header')!;
   for(const rotated of [false,true]){
    if(rotated)await click('横屏');
    const width=rotated?844:390,height=rotated?390:844,aspect=photoFrameView(format,width,height).aspect;
@@ -95,10 +96,16 @@ it.each<PhotoFrame>(['screen','portrait','tall','landscape','cinema','square','p
     expect(editor.setPhotoTogether).not.toHaveBeenCalled();
    };
    stable();
+   if(format==='screen'){
+    expect(getComputedStyle(header).top).toBe('0px');
+    expect(getComputedStyle(header).backgroundImage).toContain('linear-gradient');
+   }
    for(const tab of ['镜头','人物','动作','氛围','镜头']){await click(tab);stable();}
    await act(async()=>host.querySelector<HTMLButtonElement>('.photo-advanced-entry')!.click());stable();
    await click('镜头设置');stable();await click('收起调节');stable();
-   await click('纯净');stable();await click('显示控制');stable();
+   await click('纯净');stable();
+   if(format==='screen')expect(getComputedStyle(header).backgroundImage).not.toContain('gradient');
+   await click('显示控制');stable();
    await previewFrame();expect(editor.renderPhoto.mock.calls.at(-1)?.[2].aspect).toBeCloseTo(format==='polaroid'||format==='sticker'||format==='collage'?1:aspect,5);
   }
  }finally{style.remove();}

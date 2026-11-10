@@ -14,6 +14,34 @@ import {splitHalloweenShoeSeam} from './halloweenShoeSkin';
 const assets=new Map<string,Promise<T.Group>>();
 function load(asset:string){let task=assets.get(asset);if(!task){task=loadHomeGLTF(`${import.meta.env.BASE_URL}room3d/wardrobe/${asset}`).then(g=>{g.scene.traverse(o=>{if(o instanceof T.Mesh)for(const m of Array.isArray(o.material)?o.material:[o.material])m.userData.wardrobeMaterialIndex=g.parser.associations.get(m)?.materials;});g.scene.updateMatrixWorld(true);return g.scene;}).catch(e=>{assets.delete(asset);throw e;});assets.set(asset,task);}return task;}
 type Rig=ReturnType<typeof bindBlankBody>;
+
+// The shipped ghost socks end at the ankle. Reuse the foot's skin weights and
+// the sock's stripe material to fill the opening without changing the shoe.
+function extendGhostSocks(rig:Rig,sock:T.SkinnedMesh,openingY:number,keepSkin:boolean){
+ const masked=createClothingMask(rig.baseGeometry,p=>p.y>openingY,-Infinity);
+ const feet=masked.toNonIndexed();
+ masked.dispose();
+ const p=feet.attributes.position,n=feet.attributes.normal,uv=feet.attributes.uv;
+ for(let i=0;i<p.count;i++){
+  // Keep the instep silhouette exact. Only separate the coincident
+  // surfaces if the user explicitly keeps skin underneath this sock.
+  if(keepSkin){
+   p.setX(i,p.getX(i)+n.getX(i)*.003);
+   p.setY(i,p.getY(i)+Math.max(0,n.getY(i))*.003);
+   p.setZ(i,p.getZ(i)+n.getZ(i)*.003);
+  }
+  uv.setXY(i,.5,bodyBaseY(p.getY(i),rig.bodyHeight)/.24);
+ }
+ feet.clearGroups();
+ feet.setIndex(Array.from({length:p.count},(_,i)=>i));
+ const mesh=new T.SkinnedMesh(feet,sock.material);
+ mesh.name='wardrobe:halloween-ghost-socks:feet';
+ mesh.userData.garmentId=sock.userData.garmentId;
+ mesh.frustumCulled=false;
+ mesh.bind(rig.skeleton,rig.mesh.bindMatrix);
+ return mesh;
+}
+
 /** Attach authored primitives by bone name; retain UVs, materials and authored weights. */
 export async function prepareApprovedWardrobe(rig:Rig,value:ApprovedWardrobe,fits:WardrobeFits={},colors:WardrobeColors={},layering=true,signal?:AbortSignal){
  const checkpoint=async()=>{if(signal?.aborted)throw new DOMException('换装已取消','AbortError');if(signal)await new Promise<void>(resolve=>setTimeout(resolve,0));if(signal?.aborted)throw new DOMException('换装已取消','AbortError');};
@@ -66,6 +94,13 @@ export async function prepareApprovedWardrobe(rig:Rig,value:ApprovedWardrobe,fit
  await checkpoint();
  const originalBounds=new Map<string,T.Box3>();
  for(const mesh of meshes){mesh.geometry.computeBoundingBox();const id=mesh.userData.garmentId;const box=originalBounds.get(id)??new T.Box3();box.union(mesh.geometry.boundingBox!);originalBounds.set(id,box);}
+ const ghostSock=meshes.find(mesh=>mesh.userData.garmentId==='halloween-ghost-socks');
+ const ghostSockOpening=originalBounds.get('halloween-ghost-socks')?.min.y;
+ if(ghostSock&&ghostSockOpening!==undefined&&ghostSockOpening>bodyHeightY(.25,rig.bodyHeight)){
+  // Add after measuring the shaft so existing tailoring anchors stay stable.
+  const feet=extendGhostSocks(rig,ghostSock,ghostSockOpening,!fitById.get('halloween-ghost-socks')!.autoHide);
+  meshes.push(feet);resources.push(feet.geometry);
+ }
  // Paired hand sleeves share materials across both arms. Scale each sleeve
  // around its own center, retaining their spacing and all material alignment.
  const sleeveCenters=new Map<string,{left:T.Vector3;right:T.Vector3}>();

@@ -30,6 +30,43 @@ const referenced=(g:T.BufferGeometry)=>new Set(Array.from(g.index!.array));
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
 
 describe('footwear on the current body',()=>{
+ it.each([1,1.25])('fills the ghost shoe opening with striped sock geometry at height %s',async height=>{
+  loadLocalAssets();
+  const {rig}=makeRig(height),original=rig.mesh.geometry;
+  const shoeOnly=await dressApprovedWardrobe(rig,{shoes:'halloween-ghost-shoes'});
+  expect(Array.from(rig.mesh.geometry.index!.array)).toEqual(Array.from(original.index!.array));
+  shoeOnly.dispose();
+
+  const outfit=await dressApprovedWardrobe(rig,{shoes:'halloween-ghost-shoes',socks:'halloween-ghost-socks'});
+  const source=original.clone(),body=new MeshBVH(source);
+  const shoes=outfit.meshes.filter(mesh=>mesh.userData.garmentId==='halloween-ghost-shoes');
+  const socks=outfit.meshes.filter(mesh=>mesh.userData.garmentId==='halloween-ghost-socks');
+  const colliders=[...shoes,...socks].map(mesh=>{
+   const geometry=mesh.geometry.clone();
+   return {mesh,geometry,bvh:new MeshBVH(geometry)};
+  });
+  const ray=new T.Ray(new T.Vector3(),new T.Vector3(0,-1,0));
+  try{
+   const hits=(garments:T.SkinnedMesh[])=>colliders
+    .filter(({mesh})=>garments.includes(mesh))
+    .map(({bvh})=>bvh.raycastFirst(ray,T.DoubleSide)?.distance??Infinity);
+   for(const side of [-1,1]){
+    let visibleInstep=0;
+    for(let x=.18;x<=.34;x+=.02)for(let z=-.16;z<.30;z+=.02){
+     ray.origin.set(side*x,.44,z);
+     const foot=body.raycastFirst(ray,T.DoubleSide);
+     if(!foot||foot.point.y<.08||foot.point.y>.30||Math.min(...hits(shoes))<=foot.distance+.015)continue;
+     visibleInstep++;
+     expect(Math.min(...hits(socks)),`instep at ${side*x}, ${z}`).toBeLessThan(foot.distance+.015);
+    }
+    expect(visibleInstep).toBeGreaterThan(5);
+   }
+   expect(socks).toHaveLength(2);
+   expect(socks[0].material).toBe(socks[1].material);
+  }finally{source.dispose();colliders.forEach(({geometry})=>geometry.dispose());outfit.dispose();}
+  expect(rig.mesh.geometry).toBe(original);
+ });
+
  it.each([.8,1,1.25])('keeps the school sock rim outside skin after lengthening at height %s',async height=>{
   loadLocalAssets();const {rig}=makeRig(height);
   const query=rig.baseGeometry.clone(),tree=new MeshBVH(query),ray=new T.Ray();
