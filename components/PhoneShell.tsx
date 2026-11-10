@@ -831,27 +831,39 @@ const PhoneShell: React.FC = () => {
     return () => window.removeEventListener('popstate', onPopState);
   }, [activeApp, handleBack, deploymentNotice.blocked]);
 
-  // Capacitor Native Handling
   useEffect(() => {
-    const initNative = async () => {
-        if (!deploymentNotice.blocked && Capacitor.isNativePlatform()) {
-            try {
-                await CapStatusBar.setOverlaysWebView({ overlay: true });
-                await CapStatusBar.hide();
-                await CapStatusBar.setStyle({ style: StatusBarStyle.Dark });
-
-                const permStatus = await LocalNotifications.checkPermissions();
-                if (permStatus.display !== 'granted') {
-                    await LocalNotifications.requestPermissions();
-                }
-            } catch (e) {
-                console.error("Native init failed", e);
-            }
+    if (deploymentNotice.blocked || !Capacitor.isNativePlatform()) return;
+    const prepareStatusBar = async () => {
+        // The Android APK sets this before loading the WebView. Other native
+        // shells still use the plugin to apply the same appearance.
+        if (Capacitor.getPlatform() === 'android') {
+            const status = await CapStatusBar.getInfo();
+            if (!status.overlays) await CapStatusBar.setOverlaysWebView({ overlay: true });
+            if (status.visible) await CapStatusBar.hide();
+            if (status.style !== StatusBarStyle.Dark) await CapStatusBar.setStyle({ style: StatusBarStyle.Dark });
+            return;
         }
+        await CapStatusBar.setOverlaysWebView({ overlay: true });
+        await CapStatusBar.hide();
+        await CapStatusBar.setStyle({ style: StatusBarStyle.Dark });
     };
-    initNative();
+    void prepareStatusBar().catch(error => console.error('Native status bar setup failed', error));
+  }, [deploymentNotice.blocked]);
 
-    // Handle Android Hardware Back Button
+  const startupReady = isDataLoaded && (bootDone || !bootAnimationEnabled);
+  useEffect(() => {
+    if (deploymentNotice.blocked || !Capacitor.isNativePlatform() || !startupReady) return;
+    let cancelled = false;
+    const requestNotifications = async () => {
+        const permission = await LocalNotifications.checkPermissions();
+        if (!cancelled && permission.display !== 'granted') await LocalNotifications.requestPermissions();
+    };
+    void requestNotifications().catch(error => console.error('Native notification permission check failed', error));
+    return () => { cancelled = true; };
+  }, [deploymentNotice.blocked, startupReady]);
+
+  // Handle Android Hardware Back Button
+  useEffect(() => {
     const setupBackButton = async () => {
         if (Capacitor.isNativePlatform()) {
             try {

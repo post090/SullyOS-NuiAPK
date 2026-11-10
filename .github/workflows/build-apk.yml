@@ -52,9 +52,11 @@ jobs:
           VITE_AMSG_NATIVE_PUSH: 'true'
 
       - name: Add Android platform
-        run: npx cap add android || true
+        run: pnpm exec cap add android
       - name: Sync Capacitor
-        run: npx cap sync android
+        run: pnpm exec cap sync android
+      - name: Apply Android startup window
+        run: install -m 0644 scripts/android/MainActivity.java android/app/src/main/java/com/aetheros/simulator/MainActivity.java
       - name: Install fixed Android debug signing key
         shell: bash
         env:
