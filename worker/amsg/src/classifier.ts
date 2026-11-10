@@ -61,7 +61,7 @@ export type Directive =
   // 角色改自己今天的日程 [[ACTION:CHANGE_SCHEDULE | 22:00 | 陪你聊天]]。不在 SIDE_EFFECT_TAGS
   // 里而走旁路，理由同转账：解析要认中文别名 / 全角标点 / 漏括号那一堆写法，那份容错
   // 跟客户端共用一份源码（utils/scheduleChangeParse）。
-  | { type: 'change_schedule'; time: string; activity: string }
+  | { type: 'change_schedule'; time: string; activity: string; place?: string }
   | { type: 'schedule_message'; time: string; text: string }
   // song 是可选的后补字段（见 MusicActionSong），只有主动消息 2.0 的定时路径会填。
   | { type: 'music_action'; verb: string; args: string[]; song?: MusicActionSong }
@@ -401,7 +401,7 @@ export function classifyLLMOutput(text: string): ClassificationResult {
   const scheduleParsed = extractScheduleChangeDirectives(textAfterTransfers);
   const textAfterSchedule = scheduleParsed.cleanedText;
   for (const d of scheduleParsed.directives) {
-    directives.push({ type: 'change_schedule', time: d.startTime, activity: d.activity });
+    directives.push({ type: 'change_schedule', time: d.startTime, activity: d.activity, ...(d.place ? { place: d.place } : {}) });
   }
 
   for (const spec of SIDE_EFFECT_TAGS) {

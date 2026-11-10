@@ -5,6 +5,7 @@ import { getCurrentScheduleSlotIndex, getScheduleWallClock } from './scheduleTim
 import { getLocalDateKey } from './localDate';
 import { extractScheduleChangeDirectives } from './scheduleChangeParse';
 import type { ExtractedScheduleChanges, ScheduleChangeDirective } from './scheduleChangeParse';
+import { getHomeScheduleRooms, resolveHomeSchedulePlace, type HomeScheduleCharacter } from './homeSchedule';
 
 export const SCHEDULE_CHANGE_EVENT = 'schedule-change-applied';
 
@@ -33,10 +34,12 @@ export interface AppliedScheduleChangeResult extends ExtractedScheduleChanges {
     rejectedCount: number;
     /**
      * rejectedCount > 0 时说明是哪一种拒绝，给调用方拼准确的提示语用。
-     * `cross-day` 是这句话不是今天说的、整批作废；`no-slot` 是今天的表里没有能落的时段。
+     * 跨日、时段无落点或家园位置无效时，保留原计划。
      */
-    rejectedReason?: 'cross-day' | 'no-slot';
+    rejectedReason?: 'cross-day' | 'no-slot' | 'home-position';
 }
+
+type ScheduleChangeCharacter = Pick<CharacterProfile, 'customTimezoneEnabled' | 'customTimezone'> & HomeScheduleCharacter;
 
 const minutesOf = (time: string): number | null => {
     const matched = /^(\d{1,2}):(\d{2})$/u.exec(time.trim());
@@ -58,9 +61,9 @@ const minutesOf = (time: string): number | null => {
 export const applyScheduleChanges = (
     schedule: DailySchedule,
     directives: ScheduleChangeDirective[],
-    char?: Pick<CharacterProfile, 'customTimezoneEnabled' | 'customTimezone'> | null,
+    char?: ScheduleChangeCharacter | null,
     at: Date = new Date(),
-): { schedule: DailySchedule; changes: AppliedScheduleChange[]; rejectedCount: number } => {
+): Omit<AppliedScheduleChangeResult, keyof ExtractedScheduleChanges | 'schedule'> & { schedule: DailySchedule } => {
     const wallNow = getScheduleWallClock(char, at);
     const currentMinutes = wallNow.getHours() * 60 + wallNow.getMinutes();
     const slots: ScheduleSlot[] = schedule.slots.map((slot) => ({ ...slot }));
@@ -68,7 +71,9 @@ export const applyScheduleChanges = (
     // 否则界面高亮成「此刻」的那条，在这里会被判成不可改。
     const currentIndex = getCurrentScheduleSlotIndex(slots, char, at);
     const changeByTime = new Map<string, AppliedScheduleChange>();
+    const homeRooms = getHomeScheduleRooms(char);
     let rejectedCount = 0;
+    let invalidHomePosition = false;
 
     for (const directive of directives) {
         const targetMinutes = minutesOf(directive.startTime);
@@ -89,23 +94,44 @@ export const applyScheduleChanges = (
         }
 
         const slot = slots[slotIndex];
-        if (slot.activity.trim() === directive.activity.trim()) continue;
+        const activity = directive.activity.trim();
+        const sameActivity = slot.activity.trim() === activity;
+        if (sameActivity && !directive.place) continue;
+        const requestedPlace = directive.place?.match(/^(home|away)(?:\s*[:：]\s*(.*))?$/iu);
+        const kind = requestedPlace?.[1].toLowerCase();
+        const place = homeRooms.length && requestedPlace
+            ? resolveHomeSchedulePlace(homeRooms, { kind, roomId: requestedPlace[2] }, requestedPlace[2])
+            : undefined;
+        if (homeRooms.length && !place) {
+            rejectedCount += 1;
+            invalidHomePosition = true;
+            continue;
+        }
+        if (sameActivity && (!place || (
+            slot.location === place.location
+            && slot.homePosition?.kind === place.homePosition?.kind
+            && (slot.homePosition?.kind !== 'home'
+                || (place.homePosition?.kind === 'home' && place.homePosition.roomId === slot.homePosition.roomId))
+        ))) continue;
         const originalBefore = changeByTime.get(directive.startTime)?.before ?? slot.activity;
         slots[slotIndex] = {
             startTime: slot.startTime,
-            activity: directive.activity.trim(),
-            // 原描述、地点、独白和小剧场都围绕旧活动生成，保留会立即穿帮。
+            activity,
+            // 旧描述、独白和小剧场随活动失效；家园位置来自这次改动。
             ...(slot.emoji ? { emoji: slot.emoji } : {}),
+            ...place,
         };
         changeByTime.set(directive.startTime, {
             startTime: directive.startTime,
             before: originalBefore,
-            after: directive.activity.trim(),
+            after: activity,
         });
     }
 
     const changes = [...changeByTime.values()];
-    if (changes.length === 0) return { schedule, changes, rejectedCount };
+    if (changes.length === 0) {
+        return { schedule, changes, rejectedCount, ...(invalidHomePosition ? { rejectedReason: 'home-position' as const } : {}) };
+    }
     return {
         schedule: {
             ...schedule,
@@ -128,7 +154,7 @@ export const applyScheduleChanges = (
  */
 export const applyAssistantScheduleChanges = async (
     text: string,
-    char: Pick<CharacterProfile, 'id' | 'customTimezoneEnabled' | 'customTimezone'>,
+    char: ScheduleChangeCharacter & Pick<CharacterProfile, 'id'>,
     at: Date = new Date(),
 ): Promise<AppliedScheduleChangeResult> => {
     const extracted = extractScheduleChangeDirectives(text);
@@ -150,7 +176,7 @@ export const applyAssistantScheduleChanges = async (
  */
 export const applyScheduleChangeDirectives = async (
     directives: ScheduleChangeDirective[],
-    char: Pick<CharacterProfile, 'id' | 'customTimezoneEnabled' | 'customTimezone'>,
+    char: ScheduleChangeCharacter & Pick<CharacterProfile, 'id'>,
     at: Date = new Date(),
 ): Promise<Omit<AppliedScheduleChangeResult, keyof ExtractedScheduleChanges>> => {
     if (directives.length === 0) {
@@ -181,7 +207,7 @@ export const applyScheduleChangeDirectives = async (
         // 只在一条都没落地时才给原因。部分成功的批次（两条指令落了一条）挂上 'no-slot'
         // 是在说谎——这个字段是给调用方拼「为什么没改成」用的，而那种情况已经改成了。
         ...(applied.changes.length === 0 && applied.rejectedCount > 0
-            ? { rejectedReason: 'no-slot' as const }
+            ? { rejectedReason: applied.rejectedReason ?? 'no-slot' }
             : {}),
     };
 };

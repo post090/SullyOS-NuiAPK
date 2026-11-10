@@ -105,6 +105,7 @@ import {
 import type { AmsgFireScene } from './amsgFireScene';
 import { buildSongPool } from './charMusicSchedule';
 import { getDailyScheduleForChar } from './dailySchedule';
+import { getHomeScheduleRooms } from './homeSchedule';
 import { getLocalDateKey } from './localDate';
 import { isScheduleFeatureOn } from './scheduleGenerator';
 import {
@@ -815,11 +816,13 @@ export const buildFirePack = async (
   const timeAware = char.timeAwarenessEnabled !== false;
   // 只摘渲染会读到的字段：整份日程里还挂着每个时段缓存的小剧场台词和看板图，
   // 带上去只是白占云端状态的体积（fire_pack 本来就有几万字）。
+  const homeRooms = timeAware ? getHomeScheduleRooms(char).map(({id, name, level}) => ({id, name, level})) : [];
   const scene: AmsgFireScene | null = schedule
     ? {
         charId: char.id,
         // 这份表是角色当地「今天」的安排，到点先比日期再用（见 renderFireSceneBlock）。
         dateKey: getLocalDateKey(nowInTimeZone(tzId)),
+        ...(homeRooms.length ? { homeRooms } : {}),
         schedule: {
           slots: schedule.slots.map((s) => ({
             startTime: s.startTime,

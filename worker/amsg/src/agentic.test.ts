@@ -210,13 +210,13 @@ describe('processLLMRound — 无正文边界', () => {
   it('只有日程改动、没有正文：仍然不发推送，但把改动带出来', () => {
     const decision = processLLMRound(
       createFireSessionState(),
-      '[[ACTION:CHANGE_SCHEDULE | 22:00 | 陪你聊天]]',
+      '[[ACTION:CHANGE_SCHEDULE | 22:00 | 陪你聊天 | home:starter-study]]',
       build,
     );
     expect(decision.decision).toBe('skip-push');
     if (decision.decision !== 'skip-push') return;
     expect(decision.reason).toBe('side-effects-only');
-    expect(decision.scheduleChanges).toEqual([{ startTime: '22:00', activity: '陪你聊天' }]);
+    expect(decision.scheduleChanges).toEqual([{ startTime: '22:00', activity: '陪你聊天', place: 'home:starter-study' }]);
   });
 
   it('没有日程改动时不带这个字段（别让调用方对着空数组白跑一趟）', () => {

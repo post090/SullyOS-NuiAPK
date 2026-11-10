@@ -29,6 +29,16 @@ const shanghaiAt = (hour: number, minute = 0) =>
     Date.UTC(2026, 7, 2, hour - 8, minute);
 
 describe('renderFireSceneBlock — 到点现挑时段', () => {
+    it('uses the role’s room list when asking for a new schedule location', () => {
+        const withHome: AmsgFireScene = {...scene, homeRooms: [{id: 'study', name: '书房', level: 1}]};
+        const at = shanghaiAt(14, 30);
+        const tz = {tzId: 'Asia/Shanghai'};
+        const prompt = renderFireSceneBlock(withHome, at, tz);
+        expect(prompt).toContain('"id":"study","name":"书房"');
+        expect(prompt).toContain('[[ACTION:CHANGE_SCHEDULE | 22:00 | 去超市 | away:超市]]');
+        expect(renderFireSceneBlock(withHome, at, tz, {includeClock: false})).not.toContain('CHANGE_SCHEDULE');
+    });
+
     it('同一份作息表，不同触发时刻挑出不同时段', () => {
         const noon = renderFireSceneBlock(scene, shanghaiAt(14, 30), { tzId: 'Asia/Shanghai' });
         expect(noon).toContain('当前时段：14:00 你正在跑步（健身房）');

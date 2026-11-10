@@ -1,7 +1,7 @@
 /**
  * 日程 → prompt 文本的纯渲染层。
  *
- * 零运行时依赖（只 import type），浏览器与 Cloudflare Worker 共用同一份：
+ * 无浏览器依赖，浏览器与 Cloudflare Worker 共用同一份：
  *  - 前台聊天走 ContextBuilder.buildScheduleInjection（转发到这里）；
  *  - 主动消息到点生成走 utils/amsgFireScene.ts，由 worker 在 fire 时刻按角色时区调用。
  *
@@ -10,6 +10,7 @@
  */
 
 import type { DailySchedule, ScheduleSlot } from '../types';
+import { describeHomeScheduleRooms, type HomeScheduleRoom } from './homeSchedule';
 
 /**
  * 渲染真正会读到的那部分日程。
@@ -30,6 +31,7 @@ export interface ScheduleInjectionOptions {
      * 措辞对两边都成立：主动消息里没有「完整日程表」可指，所以只让它抄上面出现过的时段。
      */
     includeChangeInstruction?: boolean;
+    homeRooms?: readonly HomeScheduleRoom[];
     /**
      * 能不能报钟点（默认能）。角色关掉「时间感知」时传 false：日程照给——那是这个
      * 功能自己的开关——但 `07:00` 这种精确钟点属于时间感知的范畴，不该从日程块漏出去。
@@ -160,11 +162,15 @@ export const buildScheduleInjection = (
     // 最需要「我今晚不睡了」这个出口的时候。
     const changeTarget = nextSlot ?? currentSlot;
     if (options.includeChangeInstruction && withClock && changeTarget) {
+        const homeRooms = options.homeRooms ?? [];
         out += '\n日程是你早上给自己排的计划，不是必须履行的命令。真实发生的事跟它对不上时'
             + '（比如这会儿表上写着睡觉、你却醒着在跟对方说话），把它改成你实际在做的事就好。\n'
             + '需要时在回复末尾单独输出：'
-            + `[[ACTION:CHANGE_SCHEDULE | ${changeTarget.startTime} | 去超市]]`
+            + `[[ACTION:CHANGE_SCHEDULE | ${changeTarget.startTime} | 去超市${homeRooms.length ? ' | away:超市' : ''}]]`
             + '（时段要原样抄上面出现过的那几个；正在进行的这一条和它之后的都能改，已经过去的不能）。';
+        if (homeRooms.length) {
+            out += `\n家园房间：${describeHomeScheduleRooms(homeRooms)}。每条修改都要写新活动的位置：在家用第四段 home:房间ID（只抄清单中的 ID），外出用 away:地点（地点未知时写 away）。仍在原房间时也要写出它的 ID。`;
+        }
     }
     // 放块尾：上面几段是条件拼的，挂在其中一段里的话，另一种形态就是裸的。
     out += `\n${scopeNote}`;

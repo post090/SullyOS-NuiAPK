@@ -241,7 +241,7 @@ export type RoundDecision =
        * 这一轮被整条丢掉、但仍要送到客户端的日程改动（没有就没有这个字段）。
        * 别的副作用丢了就丢了，日程不行——理由见下面 skip-push 那处的注释。
        */
-      scheduleChanges?: Array<{ startTime: string; activity: string }>;
+      scheduleChanges?: Array<{ startTime: string; activity: string; place?: string }>;
     };
 
 /** 本轮的通用 MCP 识别输入（没配 MCP 的角色不传，行为与改动前完全一致）。 */
@@ -505,7 +505,7 @@ export function processLLMRound(
     // 落的是服务端收件箱，不占聊天正文，也不用为它硬发一条空推送。
     const scheduleChanges = directives
       .filter((d): d is Extract<Directive, { type: 'change_schedule' }> => d.type === 'change_schedule')
-      .map((d) => ({ startTime: d.time, activity: d.activity }));
+      .map((d) => ({ startTime: d.time, activity: d.activity, ...(d.place ? { place: d.place } : {}) }));
     return {
       decision: 'skip-push',
       reason: declined ? 'declined' : finishMeta ? 'side-effects-only' : 'empty-generation',

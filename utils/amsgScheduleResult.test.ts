@@ -8,9 +8,10 @@ describe('schedule-change 结果的往返', () => {
         const built = buildScheduleChangeResult({
             charId: 'char-1',
             spokenAt: 1755600000000,
-            directives: [{ startTime: '22:00', activity: '陪你聊天' }],
+            directives: [{ startTime: '22:00', activity: '陪你聊天', place: 'home:starter-study' }],
         });
         expect(built.resultKind).toBe(SCHEDULE_CHANGE_RESULT_KIND);
+        expect(built.directives[0].place).toBe('home:starter-study');
         expect(parseScheduleChangeResult(built)).toEqual(built);
     });
 

@@ -29,6 +29,7 @@ import { nowInTimeZone } from './timezone';
 import { buildScheduleInjection, resolveScheduleSlots, type RenderableSchedule } from './scheduleInjection';
 import { pickSongFromPool, slotIsListening } from './charMusicSchedule';
 import type { AmsgTzRef } from './amsgFirePack';
+import type { HomeScheduleRoom } from './homeSchedule';
 
 /** 随 fire_pack 带给 worker 的原始素材。到点渲染成 AMSG_SLOT_SCENE 那一段。 */
 export interface AmsgFireScene {
@@ -49,6 +50,7 @@ export interface AmsgFireScene {
    * 缓存的小剧场台词和 coverImage（可能是 base64 图），随包上云纯属白占体积。
    */
   schedule: RenderableSchedule | null;
+  homeRooms?: HomeScheduleRoom[];
   /**
    * 意识流独白。日程自带的 flowNarrative 按小时分三档、到点现取，
    * 这个字段是聊天时演化出来的那一份（进化独白），有的话优先。
@@ -122,6 +124,7 @@ export const renderFireSceneBlock = (
       // 所以这条路也要教。标签由 worker classifier 摘成 directive 随 push 回来、
       // 客户端落库；落库按 push 的 sentAt 判时段，隔夜的整批丢弃（见 scheduleChange）。
       includeChangeInstruction: true,
+      homeRooms: scene.homeRooms,
     },
   ).trim();
 

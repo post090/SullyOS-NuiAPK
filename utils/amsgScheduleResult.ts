@@ -12,11 +12,7 @@
  * 拿得到），不占聊天正文，也不需要为它硬发一条没内容的推送。
  */
 
-/** 一条日程改动：把某个时段换成另一件事。与 scheduleChangeParse 的同名结构一致。 */
-export interface AmsgScheduleChangeItem {
-    startTime: string;
-    activity: string;
-}
+import type { ScheduleChangeDirective } from './scheduleChangeParse';
 
 /** 结果的名字（`emitResult` 的 resultKind），客户端按它分流。 */
 export const SCHEDULE_CHANGE_RESULT_KIND = 'schedule-change';
@@ -33,21 +29,21 @@ export interface AmsgScheduleChangeResult {
      * 今天的安排。客户端拿这个时刻判时段，隔天的整批丢弃。
      */
     spokenAt: number;
-    directives: AmsgScheduleChangeItem[];
+    directives: ScheduleChangeDirective[];
 }
 
 /** 组一条结果（版本号只有这一处写，别在调用点手抄）。 */
 export function buildScheduleChangeResult(args: {
     charId: string;
     spokenAt: number;
-    directives: AmsgScheduleChangeItem[];
+    directives: ScheduleChangeDirective[];
 }): AmsgScheduleChangeResult {
     return {
         resultKind: SCHEDULE_CHANGE_RESULT_KIND,
         v: 1,
         charId: args.charId,
         spokenAt: args.spokenAt,
-        directives: args.directives.map((d) => ({ startTime: d.startTime, activity: d.activity })),
+        directives: args.directives.map((d) => ({ startTime: d.startTime, activity: d.activity, ...(d.place ? { place: d.place } : {}) })),
     };
 }
 
@@ -60,13 +56,14 @@ export function parseScheduleChangeResult(raw: unknown): AmsgScheduleChangeResul
     if (typeof o.spokenAt !== 'number' || !Number.isFinite(o.spokenAt)) return null;
     if (!Array.isArray(o.directives)) return null;
 
-    const directives: AmsgScheduleChangeItem[] = [];
+    const directives: ScheduleChangeDirective[] = [];
     for (const d of o.directives) {
         if (!d || typeof d !== 'object') continue;
         const row = d as Record<string, unknown>;
         if (typeof row.startTime !== 'string' || typeof row.activity !== 'string') continue;
         if (!row.startTime.trim() || !row.activity.trim()) continue;
-        directives.push({ startTime: row.startTime, activity: row.activity });
+        if (row.place !== undefined && typeof row.place !== 'string') continue;
+        directives.push({ startTime: row.startTime, activity: row.activity, ...(row.place ? { place: row.place } : {}) });
     }
     // 一条有效的都没有 = 这条结果没有内容可执行，当形状坏了处理（销账丢弃）。
     if (directives.length === 0) return null;

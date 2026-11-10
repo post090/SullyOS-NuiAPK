@@ -16,9 +16,11 @@
  */
 import type { CharacterProfile, DailySchedule, ScheduleRevision, ScheduleSlot } from '../types';
 import { DB } from './db';
-import { getLocalDailySchedule } from './dailySchedule';
+import { getDailyScheduleForChar } from './dailySchedule';
+import { getScheduleWallClock } from './scheduleTime';
 import { safeFetchJson } from './safeApi';
 import { extractAssistantText } from './emotionApply';
+import { buildHomeSchedulePrompt, getHomeScheduleRooms, resolveHomeSchedulePlace, type HomeScheduleRoom } from './homeSchedule';
 
 export type RevisionSource = ScheduleRevision['source'];
 
@@ -59,13 +61,16 @@ export function claimGroupRevisionSlot(charId: string): boolean {
     } catch { return true; }
 }
 
-const nowHHMM = (): string => {
-    const d = new Date();
+const nowHHMM = (char: CharacterProfile): string => {
+    const d = getScheduleWallClock(char);
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 
 const fmtSlots = (slots: ScheduleSlot[]): string =>
-    slots.map(s => `- ${s.startTime} ${s.emoji || ''} ${s.activity}${s.description ? `（${s.description}）` : ''}`).join('\n');
+    slots.map(s => `- ${s.startTime} ${s.emoji || ''} ${s.activity}${s.location ? `（${s.location}）` : ''}${s.description ? `（${s.description}）` : ''}`).join('\n');
+
+const revisionHomePrompt = (char: CharacterProfile): string =>
+    buildHomeSchedulePrompt(getHomeScheduleRooms(char), 'changes 中每个 after');
 
 // ── 修订载荷解析（merged 情绪 raw / standalone 独立 raw 共用） ──────
 
@@ -74,7 +79,7 @@ interface RevisionPayload {
     changes: { type: 'modify' | 'add' | 'remove'; before?: ScheduleSlot; after?: ScheduleSlot }[];
 }
 
-const sanitizeSlot = (s: any): ScheduleSlot | undefined => {
+const sanitizeSlot = (s: any, homeRooms?: readonly HomeScheduleRoom[]): ScheduleSlot | undefined => {
     if (!s || typeof s !== 'object' || typeof s.startTime !== 'string') return undefined;
     if (!/^\d{1,2}:\d{2}$/.test(s.startTime.trim())) return undefined;
     const out: ScheduleSlot = {
@@ -84,20 +89,26 @@ const sanitizeSlot = (s: any): ScheduleSlot | undefined => {
     if (typeof s.description === 'string' && s.description.trim()) out.description = s.description.trim().slice(0, 120);
     if (typeof s.emoji === 'string' && s.emoji.trim()) out.emoji = s.emoji.trim().slice(0, 4);
     if (typeof s.location === 'string' && s.location.trim()) out.location = s.location.trim().slice(0, 30);
+    if (homeRooms?.length) {
+        const place = resolveHomeSchedulePlace(homeRooms, s.homePosition, s.location);
+        if (!place) return undefined;
+        return { ...out, ...place };
+    }
     return out;
 };
 
 /** 从任意对象里规整出修订载荷（changes 空 = 无有效修订 → null） */
-function sanitizePayload(j: any): RevisionPayload | null {
+function sanitizePayload(j: any, char: CharacterProfile): RevisionPayload | null {
     if (!j || typeof j !== 'object') return null;
     const rawChanges = Array.isArray(j.changes) ? j.changes : [];
+    const homeRooms = getHomeScheduleRooms(char);
     const changes: RevisionPayload['changes'] = [];
     for (const c of rawChanges) {
         if (!c || typeof c !== 'object') continue;
         const type = c.type === 'add' || c.type === 'remove' || c.type === 'modify' ? c.type : null;
         if (!type) continue;
         const before = sanitizeSlot(c.before);
-        const after = sanitizeSlot(c.after);
+        const after = sanitizeSlot(c.after, homeRooms);
         if (type === 'modify' && before && after) changes.push({ type, before, after });
         else if (type === 'add' && after) changes.push({ type, after });
         else if (type === 'remove' && before) changes.push({ type, before });
@@ -145,27 +156,29 @@ const revisionChains = new Map<string, Promise<unknown>>();
  * 把修订载荷应用到今天的日程并落库。只动「当前时刻之后」的时段；
  * 应用成功（至少 1 处生效）返回 true，并广播 SCHEDULE_REVISED_EVENT。
  */
-export function applyScheduleRevision(
-    charId: string,
+function applyScheduleRevision(
+    char: CharacterProfile,
     payload: RevisionPayload,
     source: RevisionSource,
     sourceLabel?: string,
 ): Promise<boolean> {
+    const charId = char.id;
     const prev = revisionChains.get(charId) || Promise.resolve();
-    const run = prev.then(() => applyRevisionInner(charId, payload, source, sourceLabel));
+    const run = prev.then(() => applyRevisionInner(char, payload, source, sourceLabel));
     revisionChains.set(charId, run.catch(() => {}));
     return run;
 }
 
 async function applyRevisionInner(
-    charId: string,
+    char: CharacterProfile,
     payload: RevisionPayload,
     source: RevisionSource,
     sourceLabel?: string,
 ): Promise<boolean> {
-    const schedule = await getLocalDailySchedule(charId);
+    const charId = char.id;
+    const schedule = await getDailyScheduleForChar(char);
     if (!schedule || !Array.isArray(schedule.slots) || schedule.slots.length === 0) return false;
-    const now = nowHHMM();
+    const now = nowHHMM(char);
     let slots = [...schedule.slots];
     const applied: RevisionPayload['changes'] = [];
 
@@ -226,9 +239,9 @@ async function applyRevisionInner(
 export async function buildScheduleRevisionSection(char: CharacterProfile): Promise<string> {
     try {
         if (revisionModeOf(char) !== 'merged' || !isRevisionEnabled(char)) return '';
-        const schedule = await getLocalDailySchedule(char.id);
+        const schedule = await getDailyScheduleForChar(char);
         if (!schedule || schedule.slots.length === 0) return '';
-        const now = nowHHMM();
+        const now = nowHHMM(char);
         if (!schedule.slots.some(s => s.startTime > now)) return '';
         return `
 
@@ -237,7 +250,7 @@ export async function buildScheduleRevisionSection(char: CharacterProfile): Prom
 ${fmtSlots(schedule.slots)}
 如果刚才的对话对 ta 今天**之后**的安排有实际影响（约了什么/取消了什么/心情变了想换个安排……），在上面的 JSON 里**额外**加一个 scheduleRevision 字段：
 "scheduleRevision": { "reason": "以${char.name}第一人称、贴合 ta 性格口吻的一句话原因", "changes": [ { "type": "modify", "before": { "startTime": "原时段的startTime" }, "after": { "startTime": "HH:MM", "activity": "2-6字", "description": "一句话", "emoji": "一个emoji" } } ] }
-changes 里 type 可选 modify / add / remove：modify 给 before.startTime + 完整 after；add 只给 after；remove 只给 before.startTime。改动要克制（1~3 处），别整天重排。**对话没有实际影响就不要输出这个字段**（绝大多数闲聊都不影响日程）。`;
+changes 里 type 可选 modify / add / remove：modify 给 before.startTime + 完整 after；add 只给 after；remove 只给 before.startTime。改动要克制（1~3 处），别整天重排。**对话没有实际影响就不要输出这个字段**（绝大多数闲聊都不影响日程）。${revisionHomePrompt(char)}`;
     } catch { return ''; }
 }
 
@@ -249,9 +262,9 @@ export async function applyMergedRevisionFromEvalRaw(raw: string, char: Characte
     try {
         if (revisionModeOf(char) !== 'merged' || !isRevisionEnabled(char)) return;
         const j = extractKeyedObject(raw || '', 'scheduleRevision');
-        const payload = sanitizePayload(j);
+        const payload = sanitizePayload(j, char);
         if (!payload) return;
-        await applyScheduleRevision(char.id, payload, 'chat');
+        await applyScheduleRevision(char, payload, 'chat');
     } catch (e) {
         console.warn('📅 [ScheduleRev] merged 落地失败:', (e as any)?.message);
     }
@@ -276,9 +289,9 @@ export async function reviseScheduleForEvent(args: {
         // 修订模式是总阀门：选「关闭」时所有来源（含家园）都不改日程
         if (!isRevisionEnabled(char)) return false;
         if (!api?.baseUrl || !eventSummary.trim()) return false;
-        const schedule = await getLocalDailySchedule(char.id);
+        const schedule = await getDailyScheduleForChar(char);
         if (!schedule || schedule.slots.length === 0) return false;
-        const now = nowHHMM();
+        const now = nowHHMM(char);
         if (!schedule.slots.some(s => s.startTime > now)) return false;
 
         const prompt = `你是「${char.name}」本人在心里快速盘算日程。${char.description ? `\n\n## 你是谁\n${char.description.slice(0, 400)}` : ''}
@@ -292,7 +305,7 @@ ${eventSummary.slice(0, 1200)}
 这件事会不会让你调整今天**之后**的安排？严格输出一个 JSON 对象（不要输出 JSON 之外的文字）：
 { "revise": true, "reason": "第一人称、贴合你性格口吻的一句话原因（如：临时和你打了电话，把下午的画稿往后挪了）", "changes": [ { "type": "modify", "before": { "startTime": "原时段startTime" }, "after": { "startTime": "HH:MM", "activity": "2-6字", "description": "一句话", "emoji": "一个emoji" } } ] }
 type 可选 modify / add / remove：modify 给 before.startTime + 完整 after；add 只给 after；remove 只给 before.startTime。
-规则：只动 ${now} 之后的时段；改动克制（1~3 处）；大多数小事其实不影响日程——不影响就输出 { "revise": false }。`;
+规则：只动 ${now} 之后的时段；改动克制（1~3 处）；大多数小事其实不影响日程——不影响就输出 { "revise": false }。${revisionHomePrompt(char)}`;
 
         const data = await safeFetchJson(`${api.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
@@ -316,9 +329,9 @@ type 可选 modify / add / remove：modify 给 before.startTime + 完整 after�
             try { j = JSON.parse(c.replace(/,\s*([}\]])/g, '$1')); break; } catch { /* next */ }
         }
         if (!j || j.revise === false) return false;
-        const payload = sanitizePayload(j.scheduleRevision && typeof j.scheduleRevision === 'object' ? j.scheduleRevision : j);
+        const payload = sanitizePayload(j.scheduleRevision && typeof j.scheduleRevision === 'object' ? j.scheduleRevision : j, char);
         if (!payload) return false;
-        return await applyScheduleRevision(char.id, payload, source, sourceLabel);
+        return await applyScheduleRevision(char, payload, source, sourceLabel);
     } catch (e) {
         console.warn('📅 [ScheduleRev] 独立修订失败:', (e as any)?.message);
         return false;

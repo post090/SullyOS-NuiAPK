@@ -27,6 +27,18 @@ describe('extractScheduleChangeDirectives', () => {
         expect(result.malformedCount).toBe(0);
     });
 
+    it('把房间或外出地点与活动正文分开', () => {
+        const result = extractScheduleChangeDirectives(
+            '去书房吧。\n[[ACTION:CHANGE_SCHEDULE | 18:30 | 看书 | home:starter-study]]\n'
+            + '[[ACTION:CHANGE_SCHEDULE | 22:00 | 散步 | away:公园]]',
+        );
+        expect(result.cleanedText).toBe('去书房吧。');
+        expect(result.directives).toEqual([
+            {startTime: '18:30', activity: '看书', place: 'home:starter-study'},
+            {startTime: '22:00', activity: '散步', place: 'away:公园'},
+        ]);
+    });
+
     it.each([
         '【【修改日程：18:30：去超市】】',
         '[[change schedule: (18:30): 去超市]]',
@@ -126,6 +138,36 @@ describe('extractScheduleChangeDirectives', () => {
 });
 
 describe('applyScheduleChanges', () => {
+    const homeChar = {chibiStudio: {home3D: {state: {selected: {}}, hair: {layers: {}, extras: []}}}};
+    const withHome = {
+        ...schedule,
+        slots: schedule.slots.map(slot => ({
+            ...slot, homePosition: {kind: 'home' as const, roomId: 'starter-living'},
+        })),
+    };
+
+    it('保存新活动的家园位置，也允许只换地点', () => {
+        const result = applyScheduleChanges(withHome, [
+            {startTime: '18:30', activity: '看书', place: 'home:starter-study'},
+            {startTime: '22:00', activity: '看电影', place: 'away:电影院'},
+        ], homeChar, at(14));
+        expect(result.schedule.slots.slice(2)).toEqual([
+            {startTime: '18:30', activity: '看书', location: '书房', homePosition: {kind: 'home', roomId: 'starter-study'}},
+            {startTime: '22:00', activity: '看电影', location: '电影院', homePosition: {kind: 'away'}},
+        ]);
+        expect(result.changes).toHaveLength(2);
+    });
+
+    it('家园改动漏写地点或引用不存在的房间时保留整条原安排', () => {
+        const result = applyScheduleChanges(withHome, [
+            {startTime: '18:30', activity: '看书'},
+            {startTime: '22:00', activity: '早点睡', place: 'home:deleted'},
+        ], homeChar, at(14));
+        expect(result.schedule).toBe(withHome);
+        expect(result.rejectedCount).toBe(2);
+        expect(result.rejectedReason).toBe('home-position');
+    });
+
     it('只改未来已有时段，并清掉围绕旧活动生成的冲突信息', () => {
         const result = applyScheduleChanges(
             schedule,

@@ -7,7 +7,7 @@ import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
 import TokenImg from '../os/TokenImg';
-import {homePositionLabel} from '../../utils/homeSchedule';
+import {getHomeScheduleRooms, homePositionLabel} from '../../utils/homeSchedule';
 
 import { putImageBlob } from '../../utils/blobRef';
 
@@ -127,6 +127,7 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
     const charAvatar = character?.avatar;
     const charName = character?.name || '角色';
     const coverImage = schedule?.coverImage;
+    const homeRooms = character?.home3D?.rooms.length ? character.home3D.rooms : getHomeScheduleRooms(character);
 
     const startEdit = (idx: number, slot: ScheduleSlot) => {
         setEditingIdx(idx);
@@ -139,13 +140,14 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
 
     const saveEdit = () => {
         if (editingIdx !== null && onEdit) {
+            const room = homeRooms.find(room => room.id === editHomePosition);
             onEdit(editingIdx, {
                 startTime: editTime,
                 activity: editActivity,
                 description: editDesc || undefined,
                 emoji: editEmoji || undefined,
-                homePosition: editHomePosition === '__away' ? {kind: 'away'} : character?.home3D?.rooms.some(room => room.id === editHomePosition) ? {kind: 'home', roomId: editHomePosition} : undefined,
-                location: editHomePosition === '__away' ? '外出' : character?.home3D?.rooms.find(room => room.id === editHomePosition)?.name,
+                homePosition: editHomePosition === '__away' ? {kind: 'away'} : room ? {kind: 'home', roomId: room.id} : undefined,
+                location: editHomePosition === '__away' ? '外出' : room?.name,
             });
         }
         setEditingIdx(null);
@@ -322,7 +324,7 @@ export const ScheduleCardView: React.FC<ScheduleCardProps & {theme:OSTheme;previ
                                             placeholder="描述 (可选)"
                                             className="w-full bg-white/10 rounded-lg px-2 py-1 text-xs border border-white/10 focus:outline-none opacity-70"
                                         />
-                                        {!!character?.home3D?.rooms.length && <select aria-label="日程所在房间" value={editHomePosition} onChange={event => setEditHomePosition(event.target.value)} className="w-full text-slate-800 bg-white rounded-lg px-2 py-2 text-xs mt-2"><option value="">位置待补全</option><option value="__away">外出</option>{character.home3D.rooms.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}</select>}
+                                        {homeRooms.length > 0 && <select aria-label="日程所在房间" value={editHomePosition} onChange={event => setEditHomePosition(event.target.value)} className="w-full text-slate-800 bg-white rounded-lg px-2 py-2 text-xs mt-2"><option value="">位置待补全</option><option value="__away">外出</option>{homeRooms.map(room => <option key={room.id} value={room.id}>{room.name}</option>)}</select>}
                                         <div className="flex gap-2 mt-2">
                                             <button onClick={saveEdit} className="text-[10px] font-bold px-3 py-1 rounded-lg bg-white/20 hover:bg-white/30 transition-colors">保存</button>
                                             <button onClick={() => setEditingIdx(null)} className="text-[10px] font-bold px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 transition-colors opacity-60">取消</button>

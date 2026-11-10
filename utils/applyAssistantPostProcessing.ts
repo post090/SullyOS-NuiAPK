@@ -335,7 +335,7 @@ export type PostProcessDirective =
     | { type: 'transfer_accept' }
     | { type: 'transfer_return' }
     | { type: 'add_event'; title: string; date: string }
-    | { type: 'change_schedule'; time: string; activity: string }
+    | { type: 'change_schedule'; time: string; activity: string; place?: string }
     | { type: 'schedule_message'; time: string; text: string }
     // song 是主动消息 2.0 的定时路径后补的「角色说的是哪首歌」（见 chatParser 的
     // FrozenMusicSong）；标签里只有歌单名带不动它，所以单独走 directive 字段。
@@ -392,7 +392,7 @@ function reconstructDirectiveTags(directives: PostProcessDirective[] | undefined
                 parts.push(`[[ACTION:ADD_EVENT|${d.title}|${d.date}]]`);
                 break;
             case 'change_schedule':
-                parts.push(`[[ACTION:CHANGE_SCHEDULE|${d.time}|${d.activity}]]`);
+                parts.push(`[[ACTION:CHANGE_SCHEDULE|${d.time}|${d.activity}${d.place ? `|${d.place}` : ''}]]`);
                 break;
             case 'schedule_message':
                 parts.push(`[schedule_message | ${d.time} | fixed | ${d.text}]`);
@@ -766,9 +766,9 @@ export async function applyAssistantPostProcessing(
                     count: result.rejectedCount,
                 });
             } else {
-                // 剩下两种才是真没落地。两种原因分开讲：一种是标签认出来了但今天的表里
-                // 没有对得上的时段，一种是标签本身就没写对，用户能做的事不一样。
-                const failureNote = result.rejectedCount > 0
+                const failureNote = result.rejectedReason === 'home-position'
+                    ? '日程修改缺少有效的家园位置，已保留原安排'
+                    : result.rejectedCount > 0
                     ? '日程修改没有找到对得上的时段，已安全跳过'
                     : '日程修改的格式没认出来，已安全跳过';
                 if (notifyScheduleChangeFailed) notifyScheduleChangeFailed(failureNote);

@@ -15,6 +15,7 @@
 export interface ScheduleChangeDirective {
     startTime: string;
     activity: string;
+    place?: string;
 }
 
 export interface ExtractedScheduleChanges {
@@ -49,11 +50,13 @@ const parseDirectiveBody = (input: string): ParsedBody => {
         return { recognized: true, directive: null };
     }
 
-    const activity = rest
+    const details = rest
         .slice(time.index + time[0].length)
         .replace(/^\s*(?:[:：|=→>\-]+)\s*/u, '')
         .replace(/[】\]]+\s*$/gu, '')
         .trim();
+    const place = details.match(/\s*[|｜]\s*((?:home|away)\s*[:：][^|｜]*|away)\s*$/iu);
+    const activity = place ? details.slice(0, place.index).trim() : details;
     if (!activity) return { recognized: true, directive: null };
 
     return {
@@ -62,6 +65,7 @@ const parseDirectiveBody = (input: string): ParsedBody => {
             startTime: `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`,
             // 日程卡本来就是短标题；截断异常长输出，避免一条标签撑坏 UI / prompt。
             activity: activity.slice(0, 120),
+            ...(place ? { place: place[1].trim() } : {}),
         },
     };
 };

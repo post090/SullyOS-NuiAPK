@@ -12,7 +12,7 @@ import { loadCharacterContextRange } from './chatContextRange';
 import { ChatPrompts } from './chatPrompts';
 import { cleanApiMessages, flattenImageContentParts } from './promptMessageCleanup';
 import { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
-import {buildHomeSchedulePrompt, hasHomeSchedulePositions, parseHomePosition} from './homeSchedule';
+import {buildHomeSchedulePrompt, getHomeScheduleRooms, resolveHomeSchedulePlace} from './homeSchedule';
 
 export { getFlowNarrativeKey, isScheduleFeatureOn } from './scheduleFeature';
 
@@ -324,7 +324,8 @@ export async function generateDailyScheduleForChar(
 
     const style = char.scheduleStyle || 'lifestyle';
     const {scheduleHomeVisitPrompt,submitScheduleHomeVisits}=await import('./homeVisits');
-    const homePrompt = buildHomeSchedulePrompt(char);
+    const homeRooms = getHomeScheduleRooms(char);
+    const homePrompt = buildHomeSchedulePrompt(homeRooms);
     const visitPrompt=await scheduleHomeVisitPrompt(char);
     const prompt = (style === 'mindful'
         ? buildMindfulPrompt('', char, userProfile, today, dayOfWeek, chatHistoryBlock)
@@ -361,15 +362,15 @@ export async function generateDailyScheduleForChar(
             return null;
         }
         const slots: ScheduleSlot[] = (parsed.slots || []).map((s: any) => {
-            const homePosition = parseHomePosition(s.homePosition, char);
+            const place = homeRooms.length ? resolveHomeSchedulePlace(homeRooms, s.homePosition, s.location) : undefined;
             return {
             // 补零规范化（"9:30" → "09:30"）：排序和修订引擎的字符串比较都依赖 HH:MM 定长格式
             startTime: (typeof s.startTime === 'string' && /^\d{1,2}:\d{2}$/.test(s.startTime.trim())) ? s.startTime.trim().padStart(5, '0') : '00:00',
             activity: s.activity || '',
             description: s.description,
             emoji: s.emoji,
-            location: homePosition?.kind === 'home' ? char.home3D?.rooms.find(room => room.id === homePosition.roomId)?.name : typeof s.location === 'string' ? s.location : homePosition?.kind === 'away' ? '外出' : undefined,
-            homePosition,
+            location: typeof s.location === 'string' ? s.location : undefined,
+            ...place,
             innerThought: s.innerThought,
         };}).filter((s: ScheduleSlot) => s.activity);
 
@@ -401,7 +402,7 @@ export async function generateDailyScheduleForChar(
         };
 
         // Missing or stale room IDs must not overwrite a usable old schedule.
-        if (homePrompt && !hasHomeSchedulePositions(schedule, char)) return null;
+        if (homeRooms.length && slots.some(slot => !slot.homePosition)) return null;
         await submitScheduleHomeVisits(char,schedule.date,parsed.homeVisits,schedule);
         return schedule;
     } catch (e) {

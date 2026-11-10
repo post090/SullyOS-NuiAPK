@@ -12,6 +12,7 @@ import {buildHomePetContext} from './homePetContext';
 import { buildHomeDefinitionContext } from './homeDefinitionContext';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { buildScheduleInjection as buildScheduleInjectionText } from './scheduleInjection';
+import { getHomeScheduleRooms } from './homeSchedule';
 import { TIME_FRAMING_CONVERSATIONAL } from './timeFramingNote';
 import { resolveCharTimeZone, nowInTimeZone, tzAwarenessNote, interactionGapNote, tzLabel } from './timezone';
 import {
@@ -55,6 +56,7 @@ export const ContextBuilder = {
         return buildScheduleInjectionText(schedule, undefined, nowInTimeZone(resolveCharTimeZone(char)), {
             includeFullDay: true, includeClock: char.timeAwarenessEnabled !== false,
             includeChangeInstruction: allowScheduleChange,
+            homeRooms: allowScheduleChange ? getHomeScheduleRooms(char) : undefined,
         });
     },
     buildEmotionContext: (char: CharacterProfile, options?: EmotionContextOptions): string => {
