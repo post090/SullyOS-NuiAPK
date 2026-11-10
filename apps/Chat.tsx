@@ -76,6 +76,7 @@ import ProactiveSettingsModal from '../components/chat/ProactiveSettingsModal';
 import { cancelCloudAwayTasks } from '../utils/awayMessage';
 import ThinkingChainSettingsModal from '../components/chat/ThinkingChainSettingsModal';
 import CharApiHubModal from '../components/chat/CharApiHubModal';
+import ChatApiRecovery from '../components/chat/ChatApiRecovery';
 import JobHuntPanelModal from '../components/chat/JobHuntPanelModal';
 import ChatSearchModal from '../components/chat/ChatSearchModal';
 import ScheduleChangeNotice from '../components/chat/ScheduleChangeNotice';
@@ -551,7 +552,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     }, [activeCharacterId]);
 
     // --- Initialize Hook ---
-    const { isTyping, streamingBubbles, streamingThinking, streamingHandoverIds, inboxStatus, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
+    const { isTyping, apiFailure, retryFailedReply, streamingBubbles, streamingThinking, streamingHandoverIds, inboxStatus, recallStatus, searchStatus, diaryStatus, emotionStatus, memoryPalaceStatus, memoryPalaceResult, setMemoryPalaceResult, lastDigestResult, setLastDigestResult, lastTokenUsage, tokenBreakdown, setLastTokenUsage, triggerAI, startProactiveChat, stopProactiveChat, isProactiveActive } = useChatAI({
         char,
         homePhoneContext:homePhone?.getContext,
         userProfile,
@@ -4742,6 +4743,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
                 {/* 开关写着「已开启」、这一轮却在本地生成时，把原因说给用户听 */}
                 <InstantChatRouteNotice charId={activeCharacterId} />
+
+                {apiFailure && char && <ChatApiRecovery key={char.id} failure={apiFailure} character={char}
+                    busy={isTyping || instantChatPending} onRetry={retryFailedReply} />}
 
                 <ChatInputArea
                     compactHome={!!homePhone}

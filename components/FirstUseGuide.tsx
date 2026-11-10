@@ -1,52 +1,40 @@
 import { MEMORY_GUIDE_SECTIONS } from '../utils/memoryGuide';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { AppID } from '../types';
+import DialogueApiStatus from './settings/DialogueApiStatus';
 import { GUIDE_SULLY_ID, hasGuideApi, setGuideStep, setVectorGuideSkipped, useFirstUseGuideStep, useVectorGuideSkipped } from '../utils/firstUseGuide';
 
-const titles = ['为了您的使用体验，请先配置 API 和向量记忆！', '配置向量记忆', '开启 Sully 的全自动记忆', '从神经链接进入聊天', '认识生成按钮', '试着从桌面回到聊天', '记忆会自动整理'];
+const titles = ['为了您的使用体验，请先配置 API 和向量记忆！', '配置向量记忆', '开启 Sully 的全自动记忆', '选择想认识的角色', '了解如何让角色回复', '从桌面进入聊天', '记忆会自动整理'];
 const descriptions = [
-    '先填写聊天服务商提供的地址、API Key 和聊天模型，并保存 API 配置。保存后点击下一步。',
+    '先填写聊天服务商提供的地址、API Key 和聊天模型，并保存 API 配置。保存后可以测试连接，也可以直接继续；使用时回复成功会验证当前配置。',
     '向量模型负责按含义找回记忆，与聊天模型不同。不熟悉的话，按下方硅基流动预设选择模型、填写 Key 并保存；熟悉 Embedding 的用户也可以填写其他兼容的向量模型。',
     '在 Sully 卡片上先开启「记忆宫殿」，再开启「全自动记忆」。之后达到整理条件时会自动归档和召回，无需每次手动操作。自动整理会使用 API，并按服务商规则计费。',
-    '点击 Sully，再点击角色详情右上角的「发消息」，就能进入 Sully 的聊天界面。神经链接也是日后查看和修改角色记忆的入口。',
-    '圈出的闪电按钮就是「生成」，默认在聊天页右上角。先在底部输入并发送文字，再用它让 Sully 回复；也可在输入设置中改为发送按钮代替生成。这里只认识位置，不需要点击：生成会调用 API，可能扣费。',
-    '已经回到桌面，请点击「聊天」App，再次进入对话。以后退出聊天后，也可以这样回来；聊天页左上角的返回按钮可以回到桌面。',
+    '你可以在「神经链接」创建或导入角色，选择自己想聊天的对象，再从角色详情的「发消息」进入对话。完成引导后可以自由选择。神经链接也是查看和修改角色记忆的入口。',
+    '聊天页右上角的闪电按钮默认用于「生成回复」。先发送文字，再点它让当前角色回复；也可在输入设置中改为发送按钮代替生成。生成会调用 API，可能按服务商规则计费。',
+    '以后可以从桌面的「聊天」App 选择已有对话，也可以从「神经链接」选择新角色开始聊天。聊天页左上角的返回按钮可以回到桌面。',
     '配置向量记忆并开启全自动后，日常只管聊天，无需再主动整理。查看和更改记忆可到「神经链接」→ Sully →「记忆」或「门牌」；向量节点在「记忆宫殿」查看。原始记忆档案是文字记录，记忆宫殿负责按含义检索，两者不需要重复手动维护。',
 ];
 
 export default function FirstUseGuide() {
     const step = useFirstUseGuideStep();
     const skippedVector = useVectorGuideSkipped();
-    const { apiConfig, memoryPalaceConfig, characters, activeApp, activeCharacterId, openApp, setActiveCharacterId } = useOS();
+    const { apiConfig, memoryPalaceConfig, characters, activeApp, openApp, setActiveCharacterId } = useOS();
     const [collapsed, setCollapsed] = useState(false);
-    const [targetReady, setTargetReady] = useState(false);
     const [targetHint, setTargetHint] = useState<{ text: string; left: number; top: number; below: boolean } | null>(null);
-    const pendingPage = useRef<AppID | null>(null);
     const sully = characters.find(c => c.id === GUIDE_SULLY_ID);
     const navigate = (target: number) => {
-        setActiveCharacterId(GUIDE_SULLY_ID);
-        const app = target === 0 ? AppID.Settings : target <= 2 ? AppID.MemoryPalace : target === 3 ? AppID.Character : target === 5 ? AppID.Launcher : AppID.Chat;
-        pendingPage.current = app;
+        if (target === 1 || target === 2) setActiveCharacterId(GUIDE_SULLY_ID);
+        const app = target === 0 ? AppID.Settings : target <= 2 ? AppID.MemoryPalace : target === 3 ? AppID.Character : AppID.Launcher;
         openApp(app);
         window.dispatchEvent(new Event('sully:guide-navigate'));
     };
     // Resume after refresh; do not pull the user back while they interact with a page.
     useEffect(() => { if (step !== null) navigate(step); }, [step]);
     useEffect(() => {
-        // Navigation must render before accepting a click back into Chat.
-        if (pendingPage.current !== null) {
-            if (activeApp !== pendingPage.current) return;
-            pendingPage.current = null;
-        }
-        if (step === 3 && activeApp === AppID.Chat && activeCharacterId === GUIDE_SULLY_ID) setGuideStep(4);
-        if (step === 5 && activeApp === AppID.Chat) setGuideStep(6);
-    }, [step, activeApp, activeCharacterId]);
-    useEffect(() => {
         setTargetHint(null);
         if (step === null) return;
-        setTargetReady(false);
         let current: Element | null = null;
         let hint = '';
         const placeHint = () => {
@@ -68,11 +56,6 @@ export default function FirstUseGuide() {
                 hint = hasGuideApi(memoryPalaceConfig.lightLLM) ? '配置向量记忆，或选择跳过' : '可点这里，暂时沿用主 API';
             }
             if (step === 2) { selector = '[data-guide="sully-memory"]'; hint = '开启这两个记忆开关'; }
-            if (step === 3) {
-                selector = document.querySelector('[data-guide="sully-message"]') ? '[data-guide="sully-message"]' : '[data-guide="sully-card"]';
-                hint = selector.includes('sully-message') ? '点击「发消息」进入聊天' : '点击 Sully，打开角色详情';
-            }
-            if (step === 4) { selector = '[data-guide="generate"]'; hint = '生成按钮 · 认识位置即可'; }
             if (step === 5) { selector = '[data-launcher-item="chat"]'; hint = '点击「聊天」回到对话'; }
             let next = selector ? document.querySelector(selector) : null;
             if (step === 2 && next) {
@@ -85,7 +68,6 @@ export default function FirstUseGuide() {
             if (next === current) { placeHint(); return; }
             current?.classList.remove('first-use-highlight');
             current = next;
-            setTargetReady(!!next);
             current?.classList.add('first-use-highlight');
             current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
             placeHint();
@@ -105,7 +87,7 @@ export default function FirstUseGuide() {
         };
     }, [step, activeApp, memoryPalaceConfig.lightLLM, sully?.memoryPalaceEnabled, sully?.autoArchiveEnabled, collapsed]);
     if (step === null) return null;
-    const ready = step === 0 ? hasGuideApi(apiConfig) : step === 1 ? hasGuideApi(memoryPalaceConfig.embedding) && hasGuideApi(memoryPalaceConfig.lightLLM) : step === 2 ? !!(sully?.memoryPalaceEnabled && sully.autoArchiveEnabled) : step === 4 ? activeApp === AppID.Chat && targetReady : step !== 3 && step !== 5;
+    const ready = step === 0 ? hasGuideApi(apiConfig) : step === 1 ? hasGuideApi(memoryPalaceConfig.embedding) && hasGuideApi(memoryPalaceConfig.lightLLM) : step === 2 ? !!(sully?.memoryPalaceEnabled && sully.autoArchiveEnabled) : true;
     return <aside aria-label="首次使用引导" className="relative z-[70] shrink-0 bg-white border-b border-violet-200 px-4 py-3 text-slate-700" style={{ maxHeight: '40%', overflowY: 'auto', paddingTop: 'max(12px, var(--safe-top, 0px))' }}>
         <style>{`
             .first-use-highlight { outline: 4px solid #7c3aed !important; outline-offset: 3px; border-radius: 16px; box-shadow: 0 0 0 9px #ede9fe, 0 0 26px 8px #8b5cf670; animation: first-use-beacon 1.8s ease-in-out infinite !important; }
@@ -124,6 +106,7 @@ export default function FirstUseGuide() {
         </div>
         {!collapsed && <>
             <p className="text-xs leading-relaxed mt-2">{step === 6 && skippedVector ? '你已跳过向量记忆，本次引导没有为你开启全自动记忆。现在可以先聊天；之后到「记忆宫殿」配置 Embedding API，再开启 Sully 的记忆宫殿和全自动记忆。查看和更改角色记忆可到「神经链接」。' : descriptions[step]}</p>
+            {step === 0 && <DialogueApiStatus value={apiConfig} saved={apiConfig} />}
             {step === 1 && <>
                 <p className="text-xs leading-relaxed mt-2 text-amber-800">全自动记忆需要副 API 整理文字、Embedding API 检索记忆，两者缺一不可。副 API 可选择「我想暂时只用主 API」；向量记忆可暂时跳过。硅基流动需要先在<a className="underline" href="https://cloud.siliconflow.cn" target="_blank" rel="noreferrer">网页版完成实名认证</a>才能使用。</p>
             </>}
@@ -132,9 +115,9 @@ export default function FirstUseGuide() {
             <div className="flex items-center gap-3 mt-3 text-xs">
                 {step > 0 && <button onClick={() => setGuideStep(step === 3 && skippedVector ? 1 : step - 1)}>上一步</button>}
                 <button onClick={() => navigate(step)} className="text-violet-700">回到本步页面</button>
-                <button disabled={!ready} onClick={() => { if (step === 1) setVectorGuideSkipped(false); setGuideStep(step === 6 ? 'done' : step + 1); }} className="ml-auto rounded-xl px-4 py-2 bg-violet-600 text-white disabled:opacity-40">{step === 6 ? '完成引导' : step === 4 ? '知道了，回桌面' : '下一步'}</button>
+                <button disabled={!ready} onClick={() => { if (step === 1) setVectorGuideSkipped(false); setGuideStep(step === 6 ? 'done' : step + 1); }} className="ml-auto rounded-xl px-4 py-2 bg-violet-600 text-white disabled:opacity-40">{step === 6 ? '完成引导' : '下一步'}</button>
             </div>
-            {!ready && <p className="mt-2 text-[11px] text-slate-500">{step <= 1 ? '请填写并保存完整配置后继续（保存不代表已验证连通性）。' : step === 2 ? '请开启 Sully 的两个记忆开关后继续。' : step === 4 ? '等待聊天页面显示生成按钮；离开后可点「回到本步页面」。' : '按上面的说明点击页面入口，即可继续引导。'}</p>}
+            {!ready && <p className="mt-2 text-[11px] text-slate-500">{step <= 1 ? '请填写并保存完整配置后继续（保存不代表已验证连通性）。' : step === 2 ? '请开启 Sully 的两个记忆开关后继续。' : '按上面的说明点击页面入口，即可继续引导。'}</p>}
         </>}
     </aside>;
 }

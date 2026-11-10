@@ -10,6 +10,7 @@ import ApiPresetGroups from '../components/settings/ApiPresetGroups';
 import DialogueApiFields from '../components/settings/DialogueApiFields';
 import { llmApiType, normalizeLlmBaseUrl, type LlmApiType } from '../utils/llmEndpoint';
 import { fetchLlm } from '../utils/anthropicApi';
+import DialogueApiStatus from '../components/settings/DialogueApiStatus';
 import ModelPicker from '../components/settings/ModelPicker';
 import { buildModelPickerView } from '../utils/modelPickerView';
 
@@ -1055,8 +1056,6 @@ const Settings: React.FC = () => {
   }, []);
 
   const [statusMsg, setStatusMsg] = useState('');
-  const [testingApi, setTestingApi] = useState(false);
-  const [testApiResult, setTestApiResult] = useState<string | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const independentImportInputRef = useRef<HTMLInputElement>(null);
   const avatarModelBackupInputRef = useRef<HTMLInputElement>(null);
@@ -3262,55 +3261,11 @@ const Settings: React.FC = () => {
                     </p>
                 )}
 
-                <button
-                    onClick={async () => {
-                        if (!localUrl.trim() || !localKey.trim() || !localModel.trim()) return;
-                        setTestingApi(true);
-                        setTestApiResult(null);
-                        try {
-                            // fetchLlm 处理 Anthropic 端点；nativeFetch 作传输层（原生绕 CORS），同 fetchModels。
-                            const res = await fetchLlm(`${normalizeLlmBaseUrl(localUrl, localApiType)}/chat/completions`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localKey.trim()}` },
-                                body: JSON.stringify({
-                                    model: localModel.trim(),
-                                    messages: [{ role: 'user', content: 'Hi' }],
-                                    max_tokens: 5,
-                                    stream: localStream,
-                                }),
-                            }, nativeFetch);
-                            if (res.ok) {
-                                // 走 safeResponseJson —— 它能透明把 SSE 流响应拼成普通 chat/completion 结构
-                                const data = await safeResponseJson(res);
-                                const reply = extractContent(data);
-                                setTestApiResult(`✅ 连接成功 — 模型回复: "${reply.slice(0, 30)}"`);
-                            } else {
-                                const text = await res.text().catch(() => '');
-                                setTestApiResult(`❌ HTTP ${res.status}: ${text.slice(0, 100)}`);
-                            }
-                        } catch (err: any) {
-                            setTestApiResult(`❌ 连接失败: ${err.message}`);
-                        } finally {
-                            setTestingApi(false);
-                        }
-                    }}
-                    disabled={testingApi || !localUrl.trim() || !localKey.trim() || !localModel.trim()}
-                    className={`w-full py-2.5 rounded-2xl font-bold text-sm border mt-2 active:scale-95 transition-all ${
-                        testingApi || !localUrl.trim() || !localKey.trim() || !localModel.trim()
-                            ? 'border-slate-200 text-slate-400 bg-slate-50'
-                            : 'border-primary/30 text-primary bg-primary/5 hover:bg-primary/10'
-                    }`}
-                >
-                    {testingApi ? '测试中...' : '🧪 测试连接'}
-                </button>
-
-                {testApiResult && (
-                    <div className={`mt-2 text-xs px-3 py-2 rounded-xl ${
-                        testApiResult.startsWith('✅') ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'
-                    }`}>
-                        {testApiResult}
-                    </div>
-                )}
+                <DialogueApiStatus
+                    value={{ baseUrl: localUrl, apiKey: localKey, model: localModel, stream: localStream, temperature: localTemperature, maxTokens: localMaxTokens, apiType: localApiType }}
+                    saved={apiConfig}
+                    allowTest
+                />
             </div>
             </div>)}
             </div>

@@ -39,5 +39,5 @@ export function useFirstUseGuideStep() {
     return useSyncExternalStore(subscribe, readGuideStep, () => null);
 }
 export function hasGuideApi(config?: { baseUrl?: string; apiKey?: string; model?: string }) {
-    return !!(config?.baseUrl?.trim() && config.apiKey?.trim() && config.model?.trim());
+    return !!(config?.baseUrl?.trim() && config.model?.trim());
 }

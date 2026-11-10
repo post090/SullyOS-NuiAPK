@@ -55,22 +55,23 @@ describe('first-use memory guide', () => {
         expect(document.querySelector('[aria-label="首次使用引导"]')).toBeNull();
     });
 
-    it('points to Sully first, then moves the highlight to Send message and removes it on skip', async () => {
+    it('lets users choose their own character and continue without entering a conversation', async () => {
         const card = document.createElement('button'); card.dataset.guide = 'sully-card';
-        card.getBoundingClientRect = () => ({ left: 200, top: 400, bottom: 440, width: 80, height: 40 } as DOMRect);
-        document.body.append(card);
-        setGuideStep(3); await render();
-        expect(card.classList.contains('first-use-highlight')).toBe(true);
-        expect(document.body.textContent).toContain('点击 Sully，打开角色详情');
         const send = document.createElement('button'); send.dataset.guide = 'sully-message';
-        send.getBoundingClientRect = card.getBoundingClientRect;
-        await act(async () => { host.append(send); });
-        expect(send.classList.contains('first-use-highlight')).toBe(true);
+        const sendRequest = vi.fn(); send.onclick = sendRequest;
+        document.body.append(card, send);
+        setGuideStep(3); await render();
+        expect(mocked.os.openApp).toHaveBeenLastCalledWith(AppID.Character);
+        expect(mocked.os.setActiveCharacterId).not.toHaveBeenCalled();
         expect(card.classList.contains('first-use-highlight')).toBe(false);
-        expect(document.body.textContent).toContain('点击「发消息」进入聊天');
-        await click('直接跳过引导');
         expect(send.classList.contains('first-use-highlight')).toBe(false);
-        expect(document.body.textContent).not.toContain('点击「发消息」进入聊天');
+        expect(document.body.textContent).toContain('选择自己想聊天的对象');
+        await click('下一步');
+        expect(readGuideStep()).toBe(4);
+        expect(mocked.os.openApp).not.toHaveBeenCalledWith(AppID.Chat);
+        expect(sendRequest).not.toHaveBeenCalled();
+        await click('直接跳过引导');
+        expect(document.querySelector('[aria-label="首次使用引导"]')).toBeNull();
         card.remove(); send.remove();
     });
     it('does not interrupt existing users and preserves an unfinished new-user step', () => {
@@ -136,24 +137,22 @@ describe('first-use memory guide', () => {
         await click('完成引导'); expect(host.textContent).toBe('');
     });
 
-    it('highlights generation without clicking it, then waits for the desktop Chat entry', async () => {
+    it('explains generation and the desktop entry without requiring a chat or making a paid request', async () => {
         const generate = document.createElement('button');
         generate.dataset.guide = 'generate';
         const generateRequest = vi.fn(); generate.onclick = generateRequest;
         document.body.append(generate);
-        setGuideStep(3); await render(); await render();
-        mocked.os.activeApp = AppID.Chat;
-        await render();
+        setGuideStep(4); await render();
         expect(readGuideStep()).toBe(4);
-        expect(generate.classList.contains('first-use-highlight')).toBe(true);
-        await click('知道了，回桌面');
+        expect(host.textContent).toContain('让当前角色回复');
+        expect(generate.classList.contains('first-use-highlight')).toBe(false);
+        await click('下一步');
         expect(readGuideStep()).toBe(5);
         expect(mocked.os.openApp).toHaveBeenLastCalledWith(AppID.Launcher);
-        await render();
-        await click('下一步'); expect(readGuideStep()).toBe(5);
-        mocked.os.activeApp = AppID.Chat; await render();
+        await click('下一步');
         expect(readGuideStep()).toBe(6);
         expect(host.textContent).toContain('全自动用户大部分时候不需要操作');
+        expect(mocked.os.openApp).not.toHaveBeenCalledWith(AppID.Chat);
         await click('完成引导');
         expect(host.textContent).toBe('');
         expect(generateRequest).not.toHaveBeenCalled();

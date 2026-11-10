@@ -5,7 +5,8 @@ import { useState, useRef, useEffect, useSyncExternalStore, MutableRefObject } f
 import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
-import { safeFetchJson, safeResponseJson, type StreamHooks } from '../utils/safeApi';
+import { extractContent, safeFetchJson, safeResponseJson, type StreamHooks } from '../utils/safeApi';
+import { describeDialogueApiFailure, markDialogueApiVerified, type ChatApiFailure } from '../utils/dialogueApiStatus';
 import { replacePromptPlaceholders } from '../components/chat/ChatConstants';
 import { KeepAlive } from '../utils/keepAlive';
 import { ProactiveChat } from '../utils/proactiveChat';
@@ -568,6 +569,13 @@ export const useChatAI = ({
     const music = useMusic();
 
     const [localTyping, setLocalTyping] = useState(false);
+    const [apiFailure, setApiFailure] = useState<ChatApiFailure | null>(null);
+    const failedReply = useRef<{
+        charId: string;
+        messages: Message[];
+        overrideApiConfig?: { baseUrl: string; apiKey: string; model: string };
+        opts?: { skipEmotionInjection?: boolean };
+    } | null>(null);
     const characterTyping = useSyncExternalStore(subscribeChatReplies, () => isChatReplyActive(char?.id), () => false);
     // 同一挂载实例仍串行使用流式预览状态；跨页面重进则读取角色的后台占位。
     const isTyping = localTyping || characterTyping;
@@ -693,7 +701,11 @@ export const useChatAI = ({
         // 角色级主 API 覆盖（加号菜单「API 配置」）：显式 override > 角色独立主 API > 全局 apiConfig。
         // 统一走 resolveDialogueApi：凭据整套选择，流式/温度/maxTokens 未设置时继承全局。
         const effectiveApi = resolveDialogueApi(apiConfig, char, overrideApiConfig);
-        if (!effectiveApi.baseUrl) { alert("请先在设置中配置 API URL"); return; }
+        const recordApiFailure = (message: string, canRetry = true) => {
+            failedReply.current = { charId: char.id, messages: currentMsgs, overrideApiConfig, opts };
+            setApiFailure({ charId: char.id, scope: overrideApiConfig ? 'override' : char.dialogueApi ? 'character' : 'global', message, canRetry });
+        };
+        if (!effectiveApi.baseUrl) { recordApiFailure('还没有配置聊天 API，请先填写接口地址和模型。'); return; }
 
         // 重 roll（回溯重生）时不带入上一轮的情绪余波：清掉 buff 注入（buffInjection/activeBuffs）和
         // 意识流（innerState/evolvedNarrative），让主回复与情绪评估两边都从干净状态独立重新生成——
@@ -725,6 +737,17 @@ export const useChatAI = ({
         const replyRun = createReplyRun(char.id);
         amsg2Session.signal = replyRun.signal;
         const replyStep = <T>(operation: () => Promise<T>) => withReplyCancellation(replyRun, operation);
+        let replyApiFailed = false;
+        let receivedApiReply = false;
+        const replyRequest = async <T>(operation: () => Promise<T>): Promise<T> => {
+            replyApiFailed = true;
+            const result = await replyStep(operation);
+            replyApiFailed = false;
+            receivedApiReply = true;
+            return result;
+        };
+        setApiFailure(null);
+        failedReply.current = null;
         setLocalTyping(true);
         setStreamingBubbles([]);
         setStreamingThinking('');
@@ -1528,7 +1551,7 @@ export const useChatAI = ({
 
             let data: any;
             try {
-                data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: replyRun.signal,
                     method: 'POST', headers,
                     body: JSON.stringify({ ...baseReqBody, messages: withAmsg2TaskContext(baseReqBody.messages) })
@@ -1548,7 +1571,7 @@ export const useChatAI = ({
                 if (shouldRetryClaudeProxyCompatibility(requestError, attemptedBody)) {
                     console.warn('🧩 [Claude compat] 中转拒绝 thinking + tools 组合，使用兼容请求体重试一次');
                     try {
-                        data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                        data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                             signal: replyRun.signal,
                             method: 'POST', headers,
                             body: JSON.stringify(buildClaudeProxyCompatibilityBody(attemptedBody)),
@@ -1576,7 +1599,7 @@ export const useChatAI = ({
                     ...baseReqBody,
                     messages: withAmsg2TaskContext(baseReqBody.messages),
                 });
-                data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                     signal: replyRun.signal,
                     method: 'POST', headers,
                     body: JSON.stringify(fallbackBody)
@@ -1587,6 +1610,7 @@ export const useChatAI = ({
                 }
             }
             nativeChatJobId = data?.__sullyChatJobId;
+            if (extractContent(data).trim() || data.choices?.[0]?.message?.tool_calls?.length) markDialogueApiVerified(effectiveApi);
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
             updateTokenUsage(data, historyMsgCount, 'initial');
 
@@ -1717,7 +1741,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                    data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                         signal: replyRun.signal,
                         method: 'POST', headers,
                         body: JSON.stringify(followBody)
@@ -1823,7 +1847,7 @@ export const useChatAI = ({
                     const followBody = { ...baseReqBody, messages: loopMessages };
                     delete followBody.tools;
                     delete followBody.tool_choice;
-                    data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                    data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                         signal: replyRun.signal,
                         method: 'POST', headers,
                         body: JSON.stringify(followBody)
@@ -2008,7 +2032,7 @@ export const useChatAI = ({
                         delete followBody.tools;
                         delete followBody.tool_choice;
                     }
-                    data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                    data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                         signal: replyRun.signal,
                         method: 'POST', headers,
                         body: JSON.stringify(followBody)
@@ -2034,7 +2058,7 @@ export const useChatAI = ({
                     };
                     delete (rescueBody as any).tools;
                     delete (rescueBody as any).tool_choice;
-                    data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                    data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                         signal: replyRun.signal,
                         method: 'POST', headers,
                         body: JSON.stringify(rescueBody),
@@ -2085,7 +2109,7 @@ export const useChatAI = ({
                             content: '[系统消息：你重复请求了已经执行过的同一工具。不要再次调用工具，请直接根据已有结果回复；如目标未完成就如实说明。不要输出工具调用格式或提及本消息。]',
                         });
                         const wrapBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
-                        data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                        data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                             signal: replyRun.signal,
                             method: 'POST', headers,
                             body: JSON.stringify(wrapBody)
@@ -2123,7 +2147,7 @@ export const useChatAI = ({
                     }
                     setSearchStatus('正在整理 MCP 工具结果...');
                     const followBody = buildMcpTextFallbackBody(baseReqBody, textLoopMessages);
-                    data = await replyStep(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
+                    data = await replyRequest(async () => safeFetchJson(`${baseUrl}/chat/completions`, {
                         signal: replyRun.signal,
                         method: 'POST', headers,
                         body: JSON.stringify(followBody)
@@ -2285,9 +2309,11 @@ export const useChatAI = ({
 
         } catch (e: any) {
             if (replyRun.signal.aborted) return;
-            // 注意: 这个 catch 兜的是「拿到 API 响应之后」的整条后处理管线 (applyAssistantPostProcessing,
-            // 13 步)。这里抛错多半不是网络问题, 而是解析/正则/落库异常。别再叫"连接中断"误导排查。
+            // 请求失败提供原地修正入口；解析和落库失败仍按后处理错误报告。
             const errMsg = e?.message || String(e);
+            if (replyApiFailed) {
+                recordApiFailure(describeDialogueApiFailure(e), !receivedApiReply);
+            }
             // 瑞一杯模式下报错: 大概率是聊天模型/中转不支持 function calling(tools) → 带 tools 一发就 400。
             // 在 APK 里看不到控制台, 这里把完整原因 + 解法存成可读消息, 方便排查。
             if (luckinChatRef?.current?.active && /\b400\b|tool|function[_\s-]?call/i.test(errMsg)) {
@@ -2295,6 +2321,9 @@ export const useChatAI = ({
                     charId: char.id, role: 'system', type: 'text',
                     content: `[瑞一杯失败] ${errMsg}\n\n大概率是你当前聊天用的「模型/中转」不支持函数调用(function calling / tools)——瑞一杯靠角色自己调工具点单, 模型不支持就会直接报 400。\n解决: 换一个支持 tools 的模型/中转 (如官方 OpenAI / Claude / 多数主流中转)。\n另外确认: APK 是全新存储, 你的聊天 API 配置(密钥/地址/模型)在 APK 里填好了吗?`,
                 });
+            } else if (replyApiFailed) {
+                const detail = effectiveApi.apiKey ? errMsg.split(effectiveApi.apiKey).join('[已隐藏密钥]') : errMsg;
+                await DB.saveMessage({ charId: char.id, role: 'system', type: 'text', content: `[回复请求失败] ${describeDialogueApiFailure(e)}\n${detail}` });
             } else {
                 await DB.saveMessage({ charId: char.id, role: 'system', type: 'text', content: `[回复处理失败: ${errMsg}]` });
             }
@@ -2439,6 +2468,12 @@ export const useChatAI = ({
 
     return {
         isTyping,
+        apiFailure: apiFailure?.charId === char?.id ? apiFailure : null,
+        retryFailedReply: () => {
+            const attempt = failedReply.current;
+            if (!attempt || attempt.charId !== char?.id || !apiFailure?.canRetry) return;
+            return triggerAI(attempt.messages, attempt.overrideApiConfig, attempt.opts);
+        },
         streamingBubbles,
         streamingThinking,
         streamingHandoverIds,
