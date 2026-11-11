@@ -73,15 +73,19 @@ jobs:
       - name: Apply SullyOS launcher icon
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y imagemagick
-          for spec in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
-            density="${spec%%:*}"
-            size="${spec##*:}"
-            dir="android/app/src/main/res/mipmap-${density}"
-            mkdir -p "$dir"
-            convert public/icons/icon-512.png -resize "${size}x${size}" "$dir/sully_launcher.png"
-          done
+          node --input-type=module <<'JS'
+          import { mkdir } from 'node:fs/promises';
+          import sharp from 'sharp';
+
+          const iconSizes = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+          for (const [density, size] of Object.entries(iconSizes)) {
+            const directory = `android/app/src/main/res/mipmap-${density}`;
+            await mkdir(directory, { recursive: true });
+            await sharp('public/icons/icon-512.png')
+              .resize(size, size, { fit: 'inside' })
+              .toFile(`${directory}/sully_launcher.png`);
+          }
+          JS
           python3 - <<'PY'
           from pathlib import Path
           manifest = Path('android/app/src/main/AndroidManifest.xml')
