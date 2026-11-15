@@ -7,7 +7,7 @@ export function isChatCard(type: Message['type']) {
 }
 
 /** One stable styling boundary for cards, without changing their actions or payloads. */
-export function ChatCardSurface({message, children}: {message: Message; children: React.ReactNode}) {
+export function ChatCardSurface({message, children}: {message: Message; children?: React.ReactNode}) {
   if (!isChatCard(message.type)) return <>{children}</>;
   const meta = message.metadata || {};
   let score=meta.scoreCard;

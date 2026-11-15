@@ -38,7 +38,7 @@
 .decoration-current-image{display:block;aspect-ratio:1;overflow:hidden;background:#efedf2;border-radius:14px}
 .decoration-current-grid>button:first-child{grid-row:span 2;grid-column:span 2}.decoration-current-grid>button:first-child .decoration-current-image{aspect-ratio:3/4}
 .decoration-current-grid small,.decoration-current-grid strong{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.decoration-current-grid small{font-size:10px;color:#999;margin-top:6px}.decoration-current-grid strong{font-size:13px;font-weight:500;margin-top:2px}.decoration-current-character{color:#888;font-size:12px;margin:6px 0 10px}
-.decoration-bubble-maker{position:fixed;inset:0;z-index:12000;height:var(--visual-viewport-height,100dvh);background:#f8fafc;padding-bottom:env(safe-area-inset-bottom,0px)}
+.decoration-bubble-maker{position:fixed;inset:0;z-index:12000;height:var(--visual-viewport-height,100dvh);background:#f8fafc;color:#1e293b;padding-bottom:env(safe-area-inset-bottom,0px)}
 .wardrobe-character-context select{background:transparent;border:0;font:inherit;font-weight:550;max-width:200px;padding:8px;outline-offset:3px}
 
 /* The outfit viewer keeps its full height; browsing lives beside it. */
@@ -59,4 +59,5 @@
 .decoration-current{overflow:hidden}
 @media(min-width:760px){.decoration-current .decoration-composer-controls{position:relative;transform:none;visibility:visible;flex:0 0 280px;width:280px;box-shadow:none}.decoration-current .decoration-side-toggle,.decoration-current .decoration-side-scrim,.decoration-current .decoration-side-header button{display:none}.decoration-current .decoration-composer-preview{padding:18px 76px 24px 24px}.decoration-current .decoration-layout-orb{right:14px}.decoration-current .decoration-shelf-overlay{justify-content:flex-end}.decoration-current .decoration-shelf-overlay>section{max-width:360px}}
 @media(max-width:420px){.decoration-current .decoration-composer-preview{padding:14px 10px 18px}.decoration-current .decoration-layout-orb{top:72px}.decoration-current .decoration-side-toggle{top:138px}.decoration-current .beauty-preset-preview{padding:0!important}}
+.decoration-avatar-target{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;padding:4px;margin-top:10px;border-radius:12px;background:#ebe9ef;flex-shrink:0}.decoration-draft .decoration-avatar-target button{min-height:34px;padding:4px 6px;border-radius:9px;background:transparent;color:#65606e;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.decoration-draft .decoration-avatar-target button[aria-pressed=true]{background:#fff;color:#222;font-weight:550;box-shadow:0 1px 4px #201a2a14}
 @media(prefers-reduced-motion:reduce){.decoration-current .decoration-composer-controls{transition:none}}

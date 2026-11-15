@@ -120,8 +120,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const chatImageInputRef = useRef<HTMLInputElement>(null);
     const chatAudioInputRef = useRef<HTMLInputElement>(null);
     const [cameraOpen, setCameraOpen] = useState(false);
+    const [exportEmojis, setExportEmojis] = useState<Emoji[] | null>(null);
     useEffect(() => setCameraOpen(false), [activeCharacterId]);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const inputBarRef = useRef<HTMLDivElement>(null);
     const sendButtonRef = useRef<HTMLButtonElement>(null);
     const suggestionsRef = useRef<HTMLDivElement>(null);
     const [isInputFocused, setIsInputFocused] = useState(false);
@@ -139,6 +141,21 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const canEndEditing = canSwitchToGenerate || autoReplyEnabled;
     const isGenerateButton = canSwitchToGenerate && !isInputFocused;
     const primaryButtonDisabled = isGenerateButton ? false : !input.trim();
+
+    useEffect(() => {
+        if (showPanel === 'none' || cameraOpen || exportEmojis) return;
+        // 不依赖输入框焦点、输入法或自动回复开关；capture 也能接到消息子项的触摸。
+        // 从工具栏弹出的对话框 / Portal（分享照片、表情管理、确认窗等）与外挂辅助条不触发外部收起。
+        const closePanelOutside = (event: PointerEvent) => {
+            const target = event.target;
+            if (!(target instanceof Node)) return;
+            if (inputBarRef.current?.contains(target) || suggestionsRef.current?.contains(target)) return;
+            if (target instanceof Element && target.closest('[role="dialog"], [aria-modal="true"], .chat-camera-backdrop')) return;
+            setShowPanel('none');
+        };
+        document.addEventListener('pointerdown', closePanelOutside, true);
+        return () => document.removeEventListener('pointerdown', closePanelOutside, true);
+    }, [showPanel, setShowPanel, cameraOpen, exportEmojis]);
 
     useEffect(() => {
         onInputFocusChange?.(isInputFocused);
@@ -167,7 +184,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const [isBubbleSectionOpen, setIsBubbleSectionOpen] = useState(false);
     const [pendingDeleteThemeId, setPendingDeleteThemeId] = useState<string | null>(null);
     const [emojiSelectionMode, setEmojiSelectionMode] = useState(false);
-    const [exportEmojis, setExportEmojis] = useState<Emoji[] | null>(null);
     const [selectedEmojis, setSelectedEmojis] = useState<Emoji[]>([]);
     // 手动分页避免旧版/第三方 WebView 不触发 IntersectionObserver，永远卡在「加载中」。
     const [emojiPaging, setEmojiPaging] = useState({category: activeCategory, page: 0});
@@ -207,10 +223,10 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
 
     const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, type: 'chat' | 'bg') => {
         const file = e.target.files?.[0];
+        if (e.target) e.target.value = '';
         if (file) {
             onImageSelect(file);
         }
-        if (e.target) e.target.value = ''; // Reset
     };
 
     // --- Unified Touch/Long-Press Logic ---
@@ -580,7 +596,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border ${isDiscordStyle ? 'bg-slate-800 text-violet-300 border-violet-400/20' : 'bg-violet-50 text-violet-500 border-violet-100'}`}>
                     <ChatCircleDots className="w-6 h-6" weight="bold" />
                 </div>)}
-                {awayMessageOn && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 bg-violet-500 border-white" />}
+                {awayMessageOn && <span className="sully-chat-badge-dot absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border-2 bg-violet-500 border-white" />}
             </div>
             <span className="text-xs font-bold">离开后消息</span>
         </button>,
@@ -614,14 +630,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           }}
           className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'} ${!mcdConfigured ? 'opacity-50' : ''}`}
         >
-          {acnh ? <div className="relative"><AcnhActionTile kind="mcd" />{mcdActivated && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#fc736d] border-2 border-white" />}</div> : (
+          {acnh ? <div className="relative"><AcnhActionTile kind="mcd" />{mcdActivated && <span className="sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#fc736d] border-2 border-white" />}</div> : (
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${
               mcdActivated
                 ? (isDiscordStyle ? 'bg-yellow-500/20 text-yellow-300 border-yellow-400/40' : 'bg-yellow-100 text-yellow-700 border-yellow-300')
                 : (isDiscordStyle ? 'bg-slate-800 text-yellow-300 border-yellow-400/20' : 'bg-yellow-50 text-yellow-600 border-yellow-100')
           }`}>
               <ForkKnife className="w-6 h-6" weight="bold" />
-              {mcdActivated && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-yellow-300 border-slate-900' : 'bg-yellow-500 border-white'}`} />}
+              {mcdActivated && <span className={`sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-yellow-300 border-slate-900' : 'bg-yellow-500 border-white'}`} />}
           </div>)}
           <span className="text-xs font-bold">{mcdActivated ? '结束麦请求' : '麦当劳'}</span>
         </button>,
@@ -638,7 +654,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                 : (isDiscordStyle ? 'bg-slate-800 text-[#C6A15B] border-[#C6A15B]/20' : 'bg-[#0B1F3A]/5 text-[#0B1F3A] border-[#0B1F3A]/15')
           }`}>
               <Coffee className="w-6 h-6" weight="bold" />
-              {luckinActivated && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-[#C6A15B] border-slate-900' : 'bg-[#C6A15B] border-white'}`} />}
+              {luckinActivated && <span className={`sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-[#C6A15B] border-slate-900' : 'bg-[#C6A15B] border-white'}`} />}
           </div>
           <span className="text-xs font-bold">{luckinActivated ? '结束瑞一杯' : '瑞一杯'}</span>
         </button>,
@@ -647,14 +663,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           onContextMenu={(e) => { e.preventDefault(); onPanelAction('html-mode-settings'); }}
           className={`flex flex-col items-center gap-2 active:scale-95 transition-transform relative ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
         >
-          {acnh ? <div className="relative"><AcnhActionTile kind="html" />{htmlModeEnabled && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#b77dee] border-2 border-white" />}</div> : (
+          {acnh ? <div className="relative"><AcnhActionTile kind="html" />{htmlModeEnabled && <span className="sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#b77dee] border-2 border-white" />}</div> : (
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${
               htmlModeEnabled
                 ? (isDiscordStyle ? 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-400/40' : 'bg-fuchsia-100 text-fuchsia-600 border-fuchsia-200')
                 : (isDiscordStyle ? 'bg-slate-800 text-fuchsia-300 border-fuchsia-400/20' : 'bg-fuchsia-50 text-fuchsia-500 border-fuchsia-100')
           }`}>
               <Code className="w-6 h-6" weight="bold" />
-              {htmlModeEnabled && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-fuchsia-400 border-slate-900' : 'bg-fuchsia-500 border-white'}`} />}
+              {htmlModeEnabled && <span className={`sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-fuchsia-400 border-slate-900' : 'bg-fuchsia-500 border-white'}`} />}
           </div>)}
           <span className="text-xs font-bold">{htmlModeEnabled ? 'HTML已开' : 'HTML模式'}</span>
         </button>,
@@ -662,14 +678,14 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
           onClick={() => onPanelAction('thinking-settings')}
           className={`flex flex-col items-center gap-2 active:scale-95 transition-transform ${acnh ? 'text-[#725d42]' : isDiscordStyle ? 'text-slate-200' : 'text-slate-600'}`}
         >
-          {acnh ? <div className="relative"><AcnhActionTile kind="thinking" />{showThinkingChain && <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#889df0] border-2 border-white" />}</div> : (
+          {acnh ? <div className="relative"><AcnhActionTile kind="thinking" />{showThinkingChain && <span className="sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full bg-[#889df0] border-2 border-white" />}</div> : (
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm border relative ${
               showThinkingChain
                 ? (isDiscordStyle ? 'bg-indigo-500/20 text-indigo-300 border-indigo-400/40' : 'bg-indigo-100 text-indigo-600 border-indigo-200')
                 : (isDiscordStyle ? 'bg-slate-800 text-indigo-300 border-indigo-400/20' : 'bg-indigo-50 text-indigo-500 border-indigo-100')
           }`}>
               <Brain className="w-6 h-6" weight="bold" />
-              {showThinkingChain && <span className={`absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-indigo-400 border-slate-900' : 'bg-indigo-500 border-white'}`} />}
+              {showThinkingChain && <span className={`sully-chat-badge-dot absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 ${isDiscordStyle ? 'bg-indigo-400 border-slate-900' : 'bg-indigo-500 border-white'}`} />}
           </div>)}
           <span className="text-xs font-bold">{showThinkingChain ? '思考已开' : '展示思考'}</span>
         </button>,
@@ -743,6 +759,15 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             <div className={`fixed inset-0 z-[-1] ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
         )}
         {exportEmojis && <EmojiExportDialog emojis={exportEmojis} onClose={() => setExportEmojis(null)} />}
+        {/* 选图/音频 input 常驻在输入栏外：面板收起时不会随条件分支卸载而丢失点击或回传事件，也不改变 .sully-chat-inputbar 子节点序号。 */}
+        <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
+        {onAudioSelect && (
+            <input type="file" ref={chatAudioInputRef} className="hidden" accept={AUDIO_PICKER_ACCEPT} aria-label="选择本地音频" onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onAudioSelect(file);
+                e.target.value = '';
+            }} />
+        )}
         {cameraOpen && <ChatCamera character={characters.find(c => c.id === activeCharacterId)} onClose={() => setCameraOpen(false)} onCapture={onImageSelect} onGallery={() => { chatImageInputRef.current?.click(); setCameraOpen(false); }} />}
         {/* 辅助提示保持在输入栏外，避免改变社区 CSS 的 > div:first-child / nth-child 目标。 */}
             {suggestedEmojis.length > 0 && (
@@ -776,7 +801,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                     <button type="button" onClick={onCancelAutoReply} className="min-h-11 px-3 font-bold text-primary" aria-label="取消自动回复">取消</button>
                 </div>
             )}
-        <div className={`sully-chat-inputbar ${shellClass} pb-safe shrink-0 z-40 relative`}>
+        <div ref={inputBarRef} className={`sully-chat-inputbar ${shellClass} ${!isDiscordStyle && !isPixelStyle ? 'text-slate-800' : ''} pb-safe shrink-0 z-40 relative`}>
             {selectionMode ? (
                 <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? (reducedBlur ? 'bg-slate-900/95' : 'bg-slate-900/60 backdrop-blur-md') : (reducedBlur ? 'bg-white/95' : 'bg-white/50 backdrop-blur-md')}`}>
                     {onFavoriteSelected && <button type="button" onClick={onFavoriteSelected} disabled={!favoriteSelectedCount}
@@ -821,7 +846,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             enterKeyHint={enterToSend ? 'send' : 'enter'}
                             autoCorrect="on"
                             autoCapitalize="sentences"
-                            className={`sully-chat-textarea flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`}
+                            className={`sully-chat-textarea flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : 'placeholder:text-slate-400'}`}
                             placeholder="Message..."
                             style={{ height: 'auto' }}
                         />
@@ -851,7 +876,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                     </button>
 
                     {emojiSelectionMode && (
-                        <div className={`absolute inset-0 z-10 ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
+                        <div className={`absolute inset-0 z-10 ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-slate-900/20 backdrop-blur-[2px]'}`} />
                     )}
                 </div>
             )}
@@ -884,6 +909,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             onMouseUp={handleTouchEnd}
                                             onMouseLeave={handleTouchEnd}
                                             onContextMenu={(e) => e.preventDefault()}
+                                            data-active={activeCategory === cat.id ? 'true' : undefined}
                                             className={`px-3 py-1 text-xs rounded-full whitespace-nowrap shrink-0 transition-all select-none flex items-center gap-1 ${activeCategory === cat.id ? activeCategoryClass : inactiveCategoryClass}`}
                                         >
                                             {cat.name}
@@ -899,7 +925,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         className={`absolute inset-0 z-10 flex items-center justify-end px-3 ${
                                             isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' :
                                             isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' :
-                                            'bg-white/60 backdrop-blur-[2px]'
+                                            'bg-slate-900/20 backdrop-blur-[2px]'
                                         }`}
                                     >
                                         <button
@@ -1032,14 +1058,6 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             onTouchEnd={handleActionsSwipeEnd}
                             onClickCapture={handleActionsClickCapture}
                         >
-                          <input type="file" ref={chatImageInputRef} className="hidden" accept="image/*" onChange={(e) => handleImageChange(e, 'chat')} />
-                          {onAudioSelect && (
-                            <input type="file" ref={chatAudioInputRef} className="hidden" accept={AUDIO_PICKER_ACCEPT} aria-label="选择本地音频" onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) onAudioSelect(file);
-                              e.target.value = '';
-                            }} />
-                          )}
                           {Array.from({length: actionPageCount}, (_, page) => (
                             <div key={page} role="group" aria-label={`聊天功能第 ${page + 1} 页`} className={`p-6 grid grid-cols-4 grid-rows-[repeat(2,96px)] gap-x-4 gap-y-8 ${actionsPage === page ? '' : 'hidden'}`}>
                               {actionTiles.slice(page * ACTION_PAGE_SIZE, (page + 1) * ACTION_PAGE_SIZE)}
@@ -1047,8 +1065,8 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                           ))}
                           <div className="flex items-center justify-center gap-3 pb-3 -mt-2">
                             {Array.from({length: actionPageCount}, (_, page) => (
-                              <button key={page} type="button" aria-label={`第 ${page + 1} 页`} aria-current={actionsPage === page ? 'page' : undefined} onClick={() => setActionsPage(page)}
-                                className={`w-2 h-2 rounded-full transition-all ${actionsPage === page ? (isDiscordStyle ? 'bg-slate-200 w-5' : 'bg-slate-500 w-5') : (isDiscordStyle ? 'bg-slate-600' : 'bg-slate-300')}`} />
+                              <button key={page} type="button" aria-label={`第 ${page + 1} 页`} aria-current={actionsPage === page ? 'page' : undefined} data-active={actionsPage === page ? 'true' : undefined} onClick={() => setActionsPage(page)}
+                                className={`sully-chat-page-dot w-2 h-2 rounded-full transition-all ${actionsPage === page ? (isDiscordStyle ? 'bg-slate-200 w-5' : 'bg-slate-500 w-5') : (isDiscordStyle ? 'bg-slate-600' : 'bg-slate-300')}`} />
                             ))}
                           </div>
                         </div>
@@ -1077,15 +1095,15 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         value={bubbleSearch}
                                         onChange={e => setBubbleSearch(e.target.value)}
                                         placeholder="搜索我的气泡…"
-                                        className="w-full mb-2.5 px-3 py-2 rounded-xl bg-white/70 border border-slate-200 text-xs focus:outline-none focus:border-indigo-300"
+                                        className="sully-chat-bubble-search w-full mb-2.5 px-3 py-2 rounded-xl bg-white/70 border border-slate-200 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-indigo-300"
                                     />
                                 )}
                                 <div className="flex flex-wrap gap-2 px-1 max-h-48 overflow-y-auto no-scrollbar pb-1">
                                     {(bubbleSearch.trim() ? [] : Object.values(PRESET_THEMES)).map(t => (
-                                        <button key={t.id} onClick={() => onUpdateTheme(t.id)} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold border transition-all ${activeThemeId === t.id ? 'bg-primary text-white border-primary shadow-md' : 'bg-white border-slate-200 text-slate-600'}`}>
+                                        <button key={t.id} data-active={activeThemeId === t.id ? 'true' : undefined} onClick={() => onUpdateTheme(t.id)} className={`sully-chat-bubble-chip flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold border transition-all ${activeThemeId === t.id ? 'bg-primary text-white border-primary shadow-md' : 'bg-white border-slate-200 text-slate-600'}`}>
                                             <span className="flex -space-x-1">
-                                                <span className="w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.user?.backgroundColor || '#6366f1' }} />
-                                                <span className="w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.ai?.backgroundColor || '#ffffff' }} />
+                                                <span className="sully-chat-swatch-dot w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.user?.backgroundColor || '#6366f1' }} />
+                                                <span className="sully-chat-swatch-dot w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.ai?.backgroundColor || '#ffffff' }} />
                                             </span>
                                             {t.name}
                                             {activeThemeId === t.id && <span aria-hidden>✓</span>}
@@ -1097,11 +1115,11 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                             const inUseCount = characters.filter(c => (c as any).bubbleStyle === t.id).length;
                                             const pendingDelete = pendingDeleteThemeId === t.id;
                                             return (
-                                                <div key={t.id} className={`flex items-center rounded-2xl border transition-all overflow-hidden ${activeThemeId === t.id ? 'bg-indigo-500 border-indigo-500 text-white shadow-md' : 'bg-indigo-50 border-indigo-100 text-indigo-600'}`}>
+                                                <div key={t.id} data-active={activeThemeId === t.id ? 'true' : undefined} className={`sully-chat-bubble-pill flex items-center rounded-2xl border transition-all overflow-hidden ${activeThemeId === t.id ? 'bg-indigo-500 border-indigo-500 text-white shadow-md' : 'bg-indigo-50 border-indigo-100 text-indigo-600'}`}>
                                                     <button onClick={() => onUpdateTheme(t.id)} className="flex items-center gap-1.5 pl-3.5 pr-1.5 py-2 text-xs font-bold active:scale-95 transition-transform">
                                                         <span className="flex -space-x-1">
-                                                            <span className="w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.user?.backgroundColor || '#6366f1' }} />
-                                                            <span className="w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.ai?.backgroundColor || '#ffffff' }} />
+                                                            <span className="sully-chat-swatch-dot w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.user?.backgroundColor || '#6366f1' }} />
+                                                            <span className="sully-chat-swatch-dot w-3 h-3 rounded-full border border-white/80 shadow-sm" style={{ background: t.ai?.backgroundColor || '#ffffff' }} />
                                                         </span>
                                                         {t.name}
                                                         {activeThemeId === t.id && <span aria-hidden>✓</span>}
@@ -1113,7 +1131,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                                     {pendingDelete ? (
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); setPendingDeleteThemeId(null); onRemoveTheme(t.id); }}
-                                                            className="px-2 py-2 text-[10px] font-bold bg-red-500 text-white self-stretch"
+                                                            className="sully-chat-bubble-danger px-2 py-2 text-[10px] font-bold bg-red-500 text-white self-stretch"
                                                         >
                                                             确删
                                                         </button>

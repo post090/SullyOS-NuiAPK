@@ -753,6 +753,38 @@ describe('离开后消息（到点）', () => {
     });
     await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ skip: true });
   });
+
+  it('用户删掉推进词只剩角色见面/通话记录（lastAwayAnchorAt 在等待时长内）→ 照样推迟，不误发', async () => {
+    const ancientUser = NOW.getTime() - 360 * 60_000;
+    const recentDateAnchor = NOW.getTime() - 20 * 60_000;
+    const { ctx } = makeCtx({
+      metadata: awayMeta,
+      charRows: [
+        {
+          key: AMSG_FIRE_PACK_KEY,
+          value: firePackValue(ancientUser, {
+            lastAwayAnchorAt: recentDateAnchor,
+            template: `${BEFORE_SPEAK_LINES.join('\n')}\n${AMSG_SLOT_TASK_INSTRUCTION}`,
+          }),
+        },
+        { key: AMSG_TOOL_PACK_KEY, value: toolPackValue },
+        limitsRow({ minSendGapMinutes: 0 }),
+      ],
+    });
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ defer: { afterMs: 70 * 60_000 } });
+  });
+
+  it('人正停在见面界面里（presence.scene === date）撞上到点 → 推迟到离开后，不当面弹消息', async () => {
+    const ancientUser = NOW.getTime() - 360 * 60_000;
+    const activeAt = NOW.getTime() - 5_000;
+    const { ctx } = makeCtx({
+      metadata: awayMeta,
+      charRows: rows(ancientUser, [
+        { key: AMSG_CHAT_PRESENCE_KEY, value: presenceValue(activeAt, { lastUserMessageAt: null, scene: 'date' }) },
+      ]),
+    });
+    await expect(amsgHooks.onBeforeFire(ctx)).resolves.toEqual({ defer: { afterMs: 90 * 60_000 - 5_000 } });
+  });
 });
 
 // ─── 用户定的「频率与额度」：到点那几道闸 ───
@@ -1639,6 +1671,7 @@ describe('云端思考链随首条 push 回客户端', () => {
   /** 一轮 LLM：正文 + 可选的思考（放在哪个响应字段里也能挑）。 */
   interface Round {
     output: string;
+    message?: Record<string, unknown>;
     reasoning?: string;
     /** 思考放哪个字段，默认 reasoning_content。 */
     field?: 'reasoning_content' | 'reasoning' | 'thinking';
@@ -1682,6 +1715,7 @@ describe('云端思考链随首条 push 回客户端', () => {
             message: {
               content: round.output,
               ...(round.reasoning ? { [round.field ?? 'reasoning_content']: round.reasoning } : {}),
+              ...round.message,
             },
           }],
         },
@@ -1726,6 +1760,29 @@ describe('云端思考链随首条 push 回客户端', () => {
     }
     expect(payloads.map((p) => p.message)).toEqual(['在的。', '怎么啦？']);
     expect(JSON.stringify(payloads)).not.toContain('<think>');
+  });
+
+  it.each([
+    {content:[{text:'摘要',thought:true},{type:'text',text:'你好'}]},
+    {content:'你好',reasoning_content:'',reasoning_details:[{type:'reasoning.summary',summary:'摘要'}]},
+  ])('structured thoughts stay out of push messages', async message => {
+    const decision=await instantFire([{output:'摘要你好',message}]);
+    expect(decision.decision).toBe('finish');
+    expect(decision.pushPayloads.map((p:any)=>p.message)).toEqual(['你好']);
+    expect(decision.pushPayloads[0].metadata.amsgReasoning).toBe('摘要');
+  });
+
+  it('captures a trailing unfinished block without pushing it', async () => {
+    const decision=await instantFire([{output:'<think>前半段</think>你好<thinking>后半段'}]);
+    expect(decision.decision).toBe('finish');
+    expect(decision.pushPayloads.map((p:any)=>p.message)).toEqual(['你好']);
+    expect(decision.pushPayloads[0].metadata.amsgReasoning).toBe('前半段\n\n后半段');
+  });
+
+  it('does not use SDK fallback thinking as a missing answer', async () => {
+    const decision=await instantFire([{output:'只有思考没有回答',message:{content:null,reasoning:'只有思考没有回答'}}]);
+    expect(decision.decision).toBe('skip-push');
+    expect(decision.pushPayloads).toBeUndefined();
   });
 
   // 工具循环一次 fire 跑好几轮，每轮都有自己的思考。留最后一轮的：用户看到的正文就是
@@ -3401,6 +3458,46 @@ describe('fire 侧取消 / 改期任务', () => {
     } as any) as any;
     const last = decision.pushPayloads[decision.pushPayloads.length - 1];
     expect(last.metadata.amsgUsage).toEqual({ promptTokens: 1234, completionTokens: 56 });
+  });
+
+  it('多轮工具调用时按轮累加 usage 并标 amsgUsageComplete，定时主动消息同样在末条带回 amsgUsage', async () => {
+    const stash = makeStash({ instant: true, maxToolIterations: 5 });
+    const round1 = await amsgHooks.onLLMOutput({
+      sessionId: 'sess_task_42', taskId: FIRE_TASK_ID, taskUuid: TASK_UUID,
+      iteration: 0,
+      llmResponse: {}, llmOutputText: '[[RECALL: 2026-07]]', contactName: 'Nyah',
+      metadata: { charId: CHAR_ID, amsgClientTaskId: 'ct-u', amsgMode: 'instant', amsgInstantChat: true },
+      scratch: { fire: stash },
+      usage: { prompt_tokens: 1000, completion_tokens: 30 },
+      writeState: vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 })),
+    } as any) as any;
+    expect(round1.decision).toBe('tool-request');
+
+    const round2 = await amsgHooks.onLLMOutput({
+      sessionId: 'sess_task_42', taskId: FIRE_TASK_ID, taskUuid: TASK_UUID,
+      iteration: 1,
+      llmResponse: {}, llmOutputText: '想起来了，是七月那件事。', contactName: 'Nyah',
+      metadata: { charId: CHAR_ID, amsgClientTaskId: 'ct-u', amsgMode: 'instant', amsgInstantChat: true },
+      scratch: { fire: stash },
+      usage: { prompt_tokens: 1400, completion_tokens: 70 },
+      writeState: vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 })),
+    } as any) as any;
+    const last = round2.pushPayloads[round2.pushPayloads.length - 1];
+    expect(last.metadata.amsgUsage).toEqual({ promptTokens: 2400, completionTokens: 100 });
+    expect(last.metadata.amsgUsageComplete).toBe(true);
+
+    const scheduledStash = makeStash({ instant: false, selfScheduled: true });
+    const scheduledDecision = await amsgHooks.onLLMOutput({
+      sessionId: 'sess_task_43', taskId: FIRE_TASK_ID, taskUuid: TASK_UUID,
+      llmResponse: {}, llmOutputText: '忙完了吗？', contactName: 'Nyah',
+      metadata: { charId: CHAR_ID, amsgClientTaskId: 'ct-s', amsgMode: 'auto' },
+      scratch: { fire: scheduledStash },
+      usage: { prompt_tokens: 900, completion_tokens: 25 },
+      writeState: vi.fn(async () => ({ upserted: 1, skipped: 0, deleted: 0 })),
+    } as any) as any;
+    const scheduledLast = scheduledDecision.pushPayloads[scheduledDecision.pushPayloads.length - 1];
+    expect(scheduledLast.metadata.amsgUsage).toEqual({ promptTokens: 900, completionTokens: 25 });
+    expect(scheduledLast.metadata.amsgProactiveKind).toBe('self');
   });
 
   it('取消 / 改期的账随末条 push 的 amsgTaskMutations 回客户端（首条不带）', async () => {

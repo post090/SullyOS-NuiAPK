@@ -330,7 +330,14 @@ const ScheduleApp: React.FC = () => {
                     messages: await ContextBuilder.buildCharacterRequest(characterContextInput, messages),
                     temperature: 0.8, max_tokens: 8000,
                 }),
-            });
+                __sullyMeta: {
+                    appId: 'schedule',
+                    appName: '日程表',
+                    charId: char.id,
+                    charName: char.name,
+                    purpose: '纪念日感想生成',
+                },
+            } as RequestInit);
             if (!response.ok) return;
             const data = await safeResponseJson(response);
             const text = (data?.choices?.[0]?.message?.content || '').trim().replace(/^["'"「『]+|["'"」』]+$/g, '');
@@ -726,7 +733,7 @@ const ScheduleApp: React.FC = () => {
                     {/* 标题 */}
                     <div>
                         <label className={`text-[10px] font-bold uppercase tracking-widest ${theme.textSub} block mb-2`}>契约标题</label>
-                        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="例如：每天背 30 个单词" className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white rounded-xl border-none'}`} />
+                        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="例如：每天背 30 个单词" className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white [color-scheme:dark] placeholder:text-slate-400 rounded-xl border-none'}`} />
                     </div>
 
                     {/* 类型 */}
@@ -798,7 +805,7 @@ const ScheduleApp: React.FC = () => {
                     {form.type === 'oneshot' && (
                         <div>
                             <label className={`text-[10px] font-bold uppercase tracking-widest ${theme.textSub} block mb-2`}>截止时间</label>
-                            <input type="datetime-local" value={form.deadline} onChange={e => setForm({ ...form, deadline: e.target.value })} className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white rounded-xl border-none'}`} />
+                            <input type="datetime-local" value={form.deadline} onChange={e => setForm({ ...form, deadline: e.target.value })} className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white [color-scheme:dark] placeholder:text-slate-400 rounded-xl border-none'}`} />
                         </div>
                     )}
 
@@ -810,7 +817,7 @@ const ScheduleApp: React.FC = () => {
                             {filterCharactersByGroup(characters, characterGroups, supervisorGroupId).map(c => (
                                 <button key={c.id} onClick={() => setForm({ ...form, supervisorId: c.id })} className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[60px] ${(form.supervisorId || activeCharacterId) === c.id ? (currentThemeMode === 'minimal' ? 'bg-indigo-50/70 border-indigo-300' : currentThemeMode === 'cyber' ? 'border-cyan-500 bg-cyan-50' : 'border-current') : (currentThemeMode === 'cyber' ? 'border-slate-200 bg-white' : 'border-transparent opacity-50')}`}>
                                     <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
-                                    <span className={`text-[10px] font-bold whitespace-nowrap ${currentThemeMode === 'cyber' ? 'text-slate-700' : theme.text}`}>{c.name}</span>
+                                    <span className="text-[10px] font-bold whitespace-nowrap text-slate-700">{c.name}</span>
                                 </button>
                             ))}
                         </div>
@@ -830,7 +837,7 @@ const ScheduleApp: React.FC = () => {
                         {form.reminderEnabled && (
                             <div className="mt-3 flex items-center gap-2">
                                 <Clock size={14} className={theme.textSub} />
-                                <input type="time" value={form.reminderTime} onChange={e => setForm({ ...form, reminderTime: e.target.value })} className={`px-3 py-1.5 text-sm rounded-lg focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-white border border-pink-100' : 'bg-slate-900 border border-slate-700'}`} />
+                                <input type="time" value={form.reminderTime} onChange={e => setForm({ ...form, reminderTime: e.target.value })} className={`px-3 py-1.5 text-sm rounded-lg focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-white border border-pink-100' : 'bg-slate-900 border border-slate-700 [color-scheme:dark]'}`} />
                                 <span className={`text-[10px] ${theme.textSub}`}>到点监督角色会主动找你</span>
                             </div>
                         )}
@@ -887,8 +894,8 @@ const ScheduleApp: React.FC = () => {
                 footer={<button onClick={handleAddAnni} className={`w-full py-3 transition-all ${theme.buttonPrimary}`}>保存</button>}
             >
                 <div className="space-y-4">
-                    <input value={newAnniTitle} onChange={e => setNewAnniTitle(e.target.value)} placeholder="事件名称 (例如: 第一次见面)" className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white rounded-xl border-none'}`} />
-                    <input type="date" value={newAnniDate} onChange={e => setNewAnniDate(e.target.value)} className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white rounded-xl border-none'}`} />
+                    <input value={newAnniTitle} onChange={e => setNewAnniTitle(e.target.value)} placeholder="事件名称 (例如: 第一次见面)" className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white [color-scheme:dark] placeholder:text-slate-400 rounded-xl border-none'}`} />
+                    <input type="date" value={newAnniDate} onChange={e => setNewAnniDate(e.target.value)} className={`w-full px-4 py-3 text-sm focus:outline-none ${currentThemeMode === 'minimal' ? 'bg-slate-100/80 text-slate-700 rounded-xl border border-slate-200/60' : currentThemeMode === 'soft' ? 'bg-pink-50 text-slate-700 border border-pink-100 rounded-xl' : 'bg-slate-800 text-white [color-scheme:dark] placeholder:text-slate-400 rounded-xl border-none'}`} />
                     <div>
                         <label className={`text-[10px] font-bold uppercase tracking-widest ${theme.textSub} block mb-2`}>关联对象</label>
                         <CharacterGroupFilterBar characters={characters} groups={characterGroups} value={anniCharGroupId} onChange={setAnniCharGroupId} className="mb-2" />
@@ -896,7 +903,7 @@ const ScheduleApp: React.FC = () => {
                             {filterCharactersByGroup(characters, characterGroups, anniCharGroupId).map(c => (
                                 <button key={c.id} onClick={() => setNewAnniChar(c.id)} className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[60px] ${(newAnniChar || activeCharacterId) === c.id ? (currentThemeMode === 'minimal' ? 'bg-indigo-50/70 border-indigo-300' : currentThemeMode === 'cyber' ? 'border-cyan-500 bg-cyan-50' : 'border-current') : (currentThemeMode === 'cyber' ? 'border-slate-200 bg-white' : 'border-transparent opacity-50')}`}>
                                     <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
-                                    <span className={`text-[10px] font-bold whitespace-nowrap ${currentThemeMode === 'cyber' ? 'text-slate-700' : theme.text}`}>{c.name}</span>
+                                    <span className="text-[10px] font-bold whitespace-nowrap text-slate-700">{c.name}</span>
                                 </button>
                             ))}
                         </div>
@@ -1188,7 +1195,7 @@ const TaskDetail: React.FC<{
                                 </button>
                             ) : (
                                 <div className="flex items-center gap-2">
-                                    <input type="datetime-local" value={draftDeadline} onChange={e => setDraftDeadline(e.target.value)} className={`px-2 py-1 text-xs rounded-lg focus:outline-none ${themeMode === 'minimal' ? 'bg-slate-100/80 border border-slate-200/60' : themeMode === 'soft' ? 'bg-white border border-pink-100' : 'bg-slate-900 border border-slate-700'}`} />
+                                    <input type="datetime-local" value={draftDeadline} onChange={e => setDraftDeadline(e.target.value)} className={`px-2 py-1 text-xs rounded-lg focus:outline-none ${themeMode === 'minimal' ? 'bg-slate-100/80 border border-slate-200/60' : themeMode === 'soft' ? 'bg-white border border-pink-100' : 'bg-slate-900 border border-slate-700 [color-scheme:dark]'}`} />
                                     <button onClick={() => { onUpdate({ deadline: draftDeadline || undefined }); setEditingDeadline(false); }} className={`px-2 py-1 text-[10px] font-bold rounded-md ${theme.buttonPrimary}`}>保存</button>
                                     <button onClick={() => setEditingDeadline(false)} className={`px-2 py-1 text-[10px] font-bold rounded-md ${theme.buttonGhost}`}>取消</button>
                                 </div>
@@ -1216,7 +1223,7 @@ const TaskDetail: React.FC<{
                             </div>
                             {draftReminderEnabled && (
                                 <div className="flex items-center gap-2">
-                                    <input type="time" value={draftReminderTime} onChange={e => setDraftReminderTime(e.target.value)} className={`px-2 py-1 text-xs rounded-lg focus:outline-none ${themeMode === 'minimal' ? 'bg-slate-100/80 border border-slate-200/60' : themeMode === 'soft' ? 'bg-white border border-pink-100' : 'bg-slate-900 border border-slate-700'}`} />
+                                    <input type="time" value={draftReminderTime} onChange={e => setDraftReminderTime(e.target.value)} className={`px-2 py-1 text-xs rounded-lg focus:outline-none ${themeMode === 'minimal' ? 'bg-slate-100/80 border border-slate-200/60' : themeMode === 'soft' ? 'bg-white border border-pink-100' : 'bg-slate-900 border border-slate-700 [color-scheme:dark]'}`} />
                                     <button onClick={() => { onUpdate({ reminderEnabled: draftReminderEnabled, reminderTime: draftReminderEnabled ? draftReminderTime : undefined }); setEditingReminder(false); }} className={`px-2 py-1 text-[10px] font-bold rounded-md ${theme.buttonPrimary}`}>保存</button>
                                     <button onClick={() => setEditingReminder(false)} className={`px-2 py-1 text-[10px] font-bold rounded-md ${theme.buttonGhost}`}>取消</button>
                                 </div>

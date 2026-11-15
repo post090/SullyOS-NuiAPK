@@ -46,6 +46,7 @@
               surface: 'rgba(255, 255, 255, 0.75)',
               'surface-glass': 'rgba(255, 255, 255, 0.35)',
             },
+            opacity: Object.fromEntries(Array.from({ length: 101 }, (_, i) => [i, (i / 100).toString()])),
             animation: {
               'fade-in': 'fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
               'slide-up': 'slideUp 0.35s cubic-bezier(0.25, 1, 0.5, 1)',
@@ -149,6 +150,8 @@
       }
       body {
         background-color: #0f1115;
+        color: #0f172a;
+        color-scheme: light;
         margin: 0;
         overflow: hidden;
         /* Critical: Prevent browser back/forward swipe navigation AND vertical rubber-banding */
@@ -172,11 +175,17 @@
       html.sully-statusbar-compact {
         --chrome-top: max(var(--safe-top), 1.5rem);
       }
+      /* 外壳本身可多画一段 home 安全区，但不能因此把根页面变成可拖动的滚动容器。 */
+      html.ios-standalone {
+        height: var(--app-visible-height, 100dvh);
+        min-height: 0;
+        overflow: hidden;
+        overscroll-behavior: none;
+      }
       body.ios-standalone {
         min-height: var(--app-height);
         height: var(--app-height);
-        overscroll-behavior-y: auto;
-        overscroll-behavior-x: none;
+        overscroll-behavior: none;
       }
       body.ios-standalone #root {
         min-height: var(--app-height);

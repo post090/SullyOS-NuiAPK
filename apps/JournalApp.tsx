@@ -545,8 +545,15 @@ Structure:
                         { role: 'user', content: `Users Diary:\n${currentEntry.userPage.text}` }
                     ])),
                     temperature: 0.85
-                })
-            });
+                }),
+                __sullyMeta: {
+                    appId: 'journal',
+                    appName: '交换日记',
+                    charId: selectedChar.id,
+                    charName: selectedChar.name,
+                    purpose: '交换日记回信',
+                },
+            } as RequestInit);
 
             if (!response.ok) throw new Error('API Error');
             const data = await safeResponseJson(response);
@@ -656,7 +663,14 @@ ${charPart}
                     temperature: 0.4,
                     max_tokens: 1200,
                 }),
-            });
+                __sullyMeta: {
+                    appId: 'journal',
+                    appName: '交换日记',
+                    charId: selectedChar.id,
+                    charName: selectedChar.name,
+                    purpose: '日记归档总结',
+                },
+            } as RequestInit);
             if (!response.ok) throw new Error(`主 API 失败 (${response.status})`);
             const data = await safeResponseJson(response);
             let s = (data.choices?.[0]?.message?.content || '').trim();
@@ -1294,7 +1308,7 @@ ${charPart}
             {/* Sticker Import Modal */}
             <Modal 
                 isOpen={showImportModal} title="添加日记贴纸" onClose={() => setShowImportModal(false)}
-                footer={<button onClick={handleImportStickers} className="w-full py-3 bg-white/10 text-white font-bold rounded-2xl hover:bg-white/20 transition-all">确认添加</button>}
+                footer={<button onClick={handleImportStickers} className="w-full py-3 bg-slate-900 text-white font-bold rounded-2xl hover:bg-slate-800 transition-all">确认添加</button>}
             >
                 <div className="space-y-3">
                     <p className="text-xs text-slate-500">格式：贴纸名称--图片URL (每行一个)</p>

@@ -88,7 +88,13 @@ const callLlm = async (
             stream: false,
         }),
         // API 调用记录标签：自由活动是后台任务，不标会被兜底成「用户当时打开的 App」
-        __sullyMeta: { appName: '自由活动', purpose: '自由活动生成' },
+        __sullyMeta: {
+            appId: 'xhs_free_roam',
+            appName: '自由活动',
+            charId: systemPrompt.char.id,
+            charName: systemPrompt.char.name,
+            purpose: '自由活动生成',
+        },
     } as RequestInit, { timeoutMs: 120_000, retries: 1 });
 
     if (!resp.ok) throw new Error(`LLM API ${resp.status}: ${await resp.text().catch(() => '')}`);

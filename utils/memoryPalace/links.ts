@@ -73,6 +73,7 @@ async function batchClassifyDeepLinks(
 strength 范围 0.3-0.8。没有关联返回 []。只输出 JSON。`;
 
     const userMsg = `新记忆：\n${newList}\n\n旧记忆：\n${oldList}`;
+    const charId = newNodes[0]?.charId || candidates[0]?.charId;
 
     try {
         const data = await safeFetchJson(
@@ -94,7 +95,7 @@ strength 范围 0.3-0.8。没有关联返回 []。只输出 JSON。`;
                     stream: false,
                 }),
             },
-            2, 90_000, { appName: '记忆宫殿', purpose: '记忆关联' }
+            2, 90_000, { appId: 'memorypalace', appName: '记忆宫殿', ...(charId ? { charId } : {}), purpose: '记忆关联' }
         );
 
         const reply = data.choices?.[0]?.message?.content || '';
@@ -168,14 +169,20 @@ export async function buildLinks(
             }
         }
 
-        // 同批次内的节点
+        // 同批次内的节点：新提取和外部搬入节点默认不带旧版 boxId，
+        // 需显式同盒或创建时间落在 24 小时内才建立时间链，避免跨月跨年的同批导入被两两全连。
         for (const other of newNodes) {
             if (newNode.id === other.id) continue;
 
-            if (newNode.boxId === other.boxId) {
+            const sameBox = Boolean(
+                (newNode.boxId && newNode.boxId === other.boxId)
+                || (newNode.eventBoxId && newNode.eventBoxId === other.eventBoxId)
+            );
+            const withinTemporalWindow = Math.abs(newNode.createdAt - other.createdAt) < TEMPORAL_WINDOW_MS;
+            if (sameBox || withinTemporalWindow) {
                 const key = makeKey(newNode.id, other.id, 'temporal');
                 if (!linkSet.has(key)) {
-                    links.push(createLink(newNode.id, other.id, 'temporal', 0.5));
+                    links.push(createLink(newNode.id, other.id, 'temporal', sameBox ? 0.5 : 0.3));
                     linkSet.add(key);
                 }
             }

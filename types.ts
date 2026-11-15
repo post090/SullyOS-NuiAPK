@@ -409,6 +409,11 @@ export interface ActiveMsg2ApiConfig {
 }
 
 export interface ActiveMsg2GlobalConfig {
+  /**
+   * 全局总开关：false 时保留 Worker 地址、密钥与各角色配置，暂停本机一切向云端的请求与轮询；
+   * undefined / true 均为开启（兼容存量配置）。
+   */
+  enabled?: boolean;
   /** Confirmed by /config-check, scoped to the Worker URL that was checked. */
   anthropicMessagesSupported?: boolean;
   anthropicMessagesWorkerUrl?: string;
@@ -417,6 +422,10 @@ export interface ActiveMsg2GlobalConfig {
   workerUrl: string;
   /** 与 worker 约定的共享密钥；配了就每次请求带 X-Client-Token，缺/错 worker 返回 401 */
   serverToken?: string;
+  /** 请求经 SullyOS 中转服务器转发（设置里叫「大陆连接优化」），见 utils/amsgRelay.ts */
+  useRelay?: boolean;
+  /** 中转令牌，在 SullyOS 的 Discord 群里用 /中转令牌 领取。绑着 Discord 账号，只存在本机，不随默认备份导出 */
+  relayToken?: string;
   /**
    * 一键部署时生成的 AMSG_MASTER_KEY（worker 侧用它加密任务内容）。
    * 存在这里只为「重装时沿用同一把」——它一换，之前加密进 D1 的任务就全解不开了，
@@ -685,7 +694,8 @@ export interface RealtimeConfig {
     userHolidays?: import('./utils/userHolidays').UserHolidayConfig;
   // 天气配置
   weatherEnabled: boolean;
-  weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
+  weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走所选免费源）
+  weatherFreeSource?: import('./utils/weatherSources').FreeWeatherSource;
   weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
     weatherCity: string;    // 城市名（如 "北京"、"Beijing"）
 
@@ -4786,6 +4796,7 @@ export interface FullBackupData {
     chatTranslateTargetLangByChar?: Record<string, string>;
     chatTranslateEnabledByChar?: Record<string, boolean>;
     chatTranslateExpandedByChar?: Record<string, boolean>;
+    chatTranslateStyleByChar?: Record<string, 'bubble' | 'subtitle'>;
     chatArchivePrompts?: any;
     chatActiveArchivePromptId?: string;
     characterRefinePrompts?: any;

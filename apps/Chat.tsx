@@ -1,5 +1,7 @@
 import {avatarFrameLayer} from '../utils/avatarFrameTarget';
 import ChatRuntimeStyle from '../components/chat/ChatRuntimeStyle';
+import { ChatSubtitleLayer } from '../components/chat/ChatSubtitleLayer';
+import { readChatTranslationStyle, type ChatTranslationStyle } from '../utils/chatTranslationStyle';
 import {homePhoneAppearance,HOME_PHONE_BUBBLES} from './room3d/homePhoneAppearance';
 
 import { publishReplyDisplay, stopReplyRuns } from '../utils/chatReplyCancellation';
@@ -16,6 +18,7 @@ import { useBackGuard } from '../hooks/useBackGuard';
 import { DB } from '../utils/db';
 import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
 import { chatCharacterDisplayName } from '../utils/characterRemark';
+import { useChatViewportAnchor } from '../utils/useChatViewportAnchor';
 import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot, TaskV2 } from '../types';
 import { processImageToBlob } from '../utils/file';
 import { prepareChatImage } from '../utils/chatImageQuality';
@@ -102,7 +105,8 @@ import { fetchBlobForShare, shareOrDownloadBlob } from '../utils/shareExport';
 import { resolveMiniMaxApiKey } from '../utils/minimaxApiKey';
 import { CollaborationStore } from '../features/collaboration/store';
 import { resolveTtsProvider } from '../utils/ttsProvider';
-import { resolveActiveSound, playWhiteboxSound, unlockWhiteboxAudio } from '../utils/whiteboxSound';
+import { unlockWhiteboxAudio } from '../utils/whiteboxSound';
+import { useChatNotificationSound } from '../hooks/useChatNotificationSound';
 import { normalizeTranslationLangLabel, isTranslationLangPreset } from '../utils/translationLang';
 import { resetNoResponseCount } from '../utils/proactiveChat';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
@@ -162,6 +166,7 @@ const INSTANT_VOICE_SCAN_WINDOW_MS = 30_000;
 
 export interface HomePhoneChatProps {characterId:string;getContext:()=>string;onBack:()=>void}
 const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
+    const playChatNotificationSound = useChatNotificationSound();
     const { activeApp, characters, activeCharacterId: osActiveCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, openApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: baseOsTheme, openDateWithChar } = useOS();
     const activeCharacterId=homePhone?.characterId??osActiveCharacterId;
     const osTheme = useMemo(()=>homePhone?homePhoneAppearance(baseOsTheme):resolveDecorationTheme(baseOsTheme,characters.find(c=>c.id===activeCharacterId)||characters[0]),[baseOsTheme,characters,activeCharacterId,!!homePhone]);
@@ -380,6 +385,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [translationExpanded, setTranslationExpanded] = useState(() => {
         try { return JSON.parse(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) || 'false'); } catch { return false; }
     });
+    const [translationStyle, setTranslationStyle] = useState<ChatTranslationStyle>(() => readChatTranslationStyle(activeCharacterId));
     // Which messages are currently showing "译" version (toggle state only, no API calls)
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
 
@@ -729,7 +735,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: text }],
                     temperature: 0.3,
                 }),
-            }, { timeoutMs: 60_000, retries: 1 });
+                __sullyMeta: { appId: 'chat', appName: '消息', charId: char?.id, charName: char?.name, purpose: '语音字幕翻译' },
+            } as RequestInit, { timeoutMs: 60_000, retries: 1 });
             if (!res.ok) throw new Error(`translate http ${res.status}`);
             const data = await res.json();
             return data?.choices?.[0]?.message?.content?.trim() || '';
@@ -1257,6 +1264,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             try {
                 setTranslationExpanded(JSON.parse(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) || 'false'));
             } catch { setTranslationExpanded(false); }
+            setTranslationStyle(readChatTranslationStyle(activeCharacterId));
             lastMsgIdRef.current = null;
             scrollThrottleRef.current = 0;
             setLastTokenUsage(null);
@@ -1436,6 +1444,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         }
     }, [messages, activeCharacterId, selectionMode, windowedFocusMsgId]);
 
+    useChatViewportAnchor(scrollRef, activeCharacterId, !!char && !selectionMode && windowedFocusMsgId === null);
+
     const extendHistoryWindow = useCallback((direction: 'older' | 'newer') => {
         const scroller = scrollRef.current;
         const range = historyWindowRangeRef.current;
@@ -1543,7 +1553,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 // 回合首条即响：距上一条气泡 >3s 视为新回合，立刻响一次；同一轮后续气泡只刷新计时、不再响。
                 const now = Date.now();
                 if (sync.lastAt == null || now - sync.lastAt > SOUND_ROUND_GAP_MS) {
-                    !homePhone && playWhiteboxSound(resolveActiveSound(char?.chromeCustomCss, char?.chatSound, osTheme.chatChromeCustomCss, osTheme.chatSound));
+                    !homePhone && char && playChatNotificationSound('character', char.id);
                 }
                 sync.lastAt = now;
             }
@@ -1683,6 +1693,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             if ((xhsFullNoteId || xhsShortUrl) && await decideLinkCard('xhsCards')) {
                 let noteId = xhsFullNoteId || '';
                 let xsecToken = xhsFullNote?.xsecToken;
+                let sourceLink = xhsFullNote;
                 let shortLinkError = '';
                 // 短链（xhslink.com / xhslink.cn）不含 id/token —— 先经 sfworker 展开成真实链接再提取。
                 if (!noteId && xhsShortUrl) {
@@ -1691,6 +1702,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         const expandedNote = extractXhsNoteLink(finalUrl);
                         noteId = expandedNote?.noteId || '';
                         xsecToken = expandedNote?.xsecToken;
+                        sourceLink = expandedNote;
                         if (!noteId) shortLinkError = '短链返回的页面中未找到笔记地址';
                         if (isDevDebugAvailable()) console.log('[卡片调试] 小红书短链展开 →', finalUrl, '| noteId =', noteId);
                     } catch (e) {
@@ -1708,14 +1720,14 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     // 基础卡数据来自分享文案，零后端依赖。
                     let note: any = {
                         noteId, title: titleFromText || '', desc: '', author: '',
-                        authorId: '', likes: 0, xsecToken,
+                        authorId: '', likes: 0, xsecToken, url: sourceLink?.url, xsecSource: sourceLink?.xsecSource,
                     };
 
                     // 有小红书 MCP/Lite 才抓详情补全（正文/封面/作者/赞数）。
                     const mcpUrl = realtimeConfig?.xhsMcpConfig?.serverUrl;
                     if (mcpUrl && realtimeConfig?.xhsMcpConfig?.enabled) {
                         try {
-                            const noteUrl = `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_share` : ''}`;
+                            const noteUrl = sourceLink?.url || `https://www.xiaohongshu.com/explore/${noteId}${xsecToken ? `?xsec_token=${encodeURIComponent(xsecToken)}&xsec_source=pc_share` : ''}`;
                             // loadAllComments：和角色自己浏览笔记 (XHS_DETAIL) 一致地把评论区也抓回来，
                             // 否则 user 分享的笔记只有标题/正文，角色读不到评论（char 分享给 user 的却能看到）。
                             const result = await XhsMcpClient.getNoteDetail(mcpUrl, noteUrl, xsecToken, { loadAllComments: true });
@@ -1723,7 +1735,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             if (result.success && result.data) {
                                 const fetched = normalizeXhsLiteDetail(result.data);
                                 // 抓到的字段补全基础卡；id/标题/token 保底，标题优先文案标题（更完整可读）。
-                                note = { ...note, ...fetched, noteId: fetched.noteId || note.noteId, title: titleFromText || fetched.title || note.title, xsecToken: fetched.xsecToken || xsecToken };
+                                note = { ...note, ...fetched, noteId: fetched.noteId || note.noteId, title: titleFromText || fetched.title || note.title, xsecToken: fetched.xsecToken || xsecToken,
+                                    url: sourceLink?.url || fetched.url, xsecSource: sourceLink?.xsecSource || fetched.xsecSource };
                             } else if (!result.success) {
                                 // 基础卡仍然可以发送，只提示详情读取失败，避免误以为整次分享失败。
                                 addToast(`小红书正文读取失败，已发送基础卡片。请尝试开启/关闭科学上网、切换 Wi‑Fi/流量，或检查 Lite 配置。${result.error ? `（${result.error}）` : ''}`, 'info');
@@ -3128,8 +3141,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         messages: [{ role: "user", content: prompt }],
                         temperature: 0.5,
                         max_tokens: 8000 
-                    })
-                });
+                    }),
+                    __sullyMeta: { appId: 'chat', appName: '消息', charId: char?.id, charName: char?.name, purpose: '单日记忆归档' },
+                } as RequestInit);
 
                 if (!response.ok) throw new Error(`API Error on ${dateStr}`);
                 const data = await safeResponseJson(response);
@@ -3926,11 +3940,12 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const chatPendingAvatarClass = `${chatAvatarSizeClass} ${chatAvatarRadiusClass} object-cover`;
 
     return (
-        <div
-            className={`sully-chat-root ${finalRootClass}`}
-            style={finalRootStyle}
-        >
-             <ChatRuntimeStyle />
+        <div className={`h-full w-full relative overflow-hidden ${homePhone ? '' : 'text-slate-900'}`}>
+            <ChatRuntimeStyle />
+            <div
+                className={`sully-chat-root ${finalRootClass}`}
+                style={finalRootStyle}
+            >
              {/* 聊天细节微调（外观 App 可视化设置生成）：排在用户自定义 CSS 之前——
                  同为 !important 时后写的胜，手写美化代码永远可覆盖可视化设置。 */}
              {chatFineTuneCss && <style>{chatFineTuneCss}</style>}
@@ -4035,282 +4050,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                  </div>
              )}
 
-
-             {/* 记忆整理结果 — 弹窗（高级感） */}
-             {memoryPalaceResult && (
-                 <div
-                     className="absolute inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in"
-                     style={{
-                         pointerEvents: 'all',
-                         background: 'rgba(15,23,42,0.55)',
-                     }}
-                     onClick={() => setMemoryPalaceResult(null)}
-                 >
-                     <div
-                         className="w-full max-w-sm max-h-[82vh] overflow-hidden flex flex-col relative"
-                         style={{
-                             background: 'linear-gradient(160deg, #ffffff 0%, #f8fafc 100%)',
-                             borderRadius: 28,
-                             border: '1px solid rgba(148,163,184,0.18)',
-                             boxShadow: '0 20px 50px -20px rgba(15,23,42,0.35)',
-                         }}
-                         onClick={(e) => e.stopPropagation()}
-                     >
-                         <div
-                             className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
-                             style={{ background: 'linear-gradient(90deg, transparent, #6366f1, #a5b4fc, #6366f1, transparent)' }}
-                         />
-                         <div className="px-6 pt-7 pb-4 text-center">
-                             <div
-                                 className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
-                                 style={{
-                                     background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(129,140,248,0.06))',
-                                     border: '1px solid rgba(99,102,241,0.15)',
-                                 }}
-                             >
-                                 <span style={{ fontSize: 26 }}>🗂️</span>
-                             </div>
-                             <div className="text-[10px] tracking-[0.25em] uppercase font-semibold" style={{ color: '#6366f1' }}>Memory Palace</div>
-                             <p className="text-[17px] font-bold mt-1" style={{ color: '#0f172a' }}>记忆整理完成</p>
-                             <p className="text-[11px] text-slate-400 mt-1">
-                                 新增 {memoryPalaceResult.stored} 条 · 去重跳过 {memoryPalaceResult.skipped} 条
-                                 {memoryPalaceResult.batches.length > 1 && ` · ${memoryPalaceResult.batches.length} 批`}
-                             </p>
-                             {memoryPalaceResult.batches.some(b => !b.ok) && (
-                                 <p className="text-[10px] text-red-500 mt-1">
-                                     {memoryPalaceResult.batches.filter(b => !b.ok).map(b => `batch ${b.index} 失败`).join(', ')}
-                                 </p>
-                             )}
-                         </div>
-                         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 no-scrollbar">
-                             {memoryPalaceResult.memories.map((m, i) => {
-                                 const roomMeta: Record<string, { label: string; color: string }> = {
-                                     living_room: { label: '客厅', color: '#f59e0b' },
-                                     bedroom: { label: '卧室', color: '#8b5cf6' },
-                                     study: { label: '书房', color: '#0ea5e9' },
-                                     user_room: { label: '用户房间', color: '#ec4899' },
-                                     self_room: { label: '自我房间', color: '#10b981' },
-                                     attic: { label: '阁楼', color: '#6366f1' },
-                                     windowsill: { label: '窗台', color: '#14b8a6' },
-                                 };
-                                 const meta = roomMeta[m.room] || { label: m.room, color: '#64748b' };
-                                 const roomLabel = getRoomLabel(m.room as any, userProfile?.name) || meta.label;
-                                 return (
-                                     <div
-                                         key={i}
-                                         className="p-3 rounded-2xl"
-                                         style={{
-                                             background: 'rgba(255,255,255,0.75)',
-                                             border: `1px solid ${meta.color}22`,
-                                             boxShadow: `0 2px 8px ${meta.color}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
-                                         }}
-                                     >
-                                         <div className="flex items-center gap-2 mb-1.5">
-                                             <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-                                                 style={{ background: `${meta.color}18`, color: meta.color }}
-                                             >
-                                                 {roomLabel}
-                                             </span>
-                                             <span className="text-[10px] text-slate-400">{m.mood}</span>
-                                             <span className="text-[10px] font-bold ml-auto" style={{ color: '#f59e0b' }}>{'★'.repeat(Math.min(m.importance, 5))}</span>
-                                         </div>
-                                         <p className="text-[12px] text-slate-700 leading-relaxed">{m.content}</p>
-                                         {m.tags.length > 0 && (
-                                             <div className="flex gap-1 mt-2 flex-wrap">
-                                                 {m.tags.map((t, j) => (
-                                                     <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-full"
-                                                         style={{ background: 'rgba(148,163,184,0.15)', color: '#64748b' }}
-                                                     >{t}</span>
-                                                 ))}
-                                             </div>
-                                         )}
-                                     </div>
-                                 );
-                             })}
-                             {memoryPalaceResult.memories.length === 0 && (
-                                 <p className="text-center text-xs text-slate-400 py-4">本次未提取到新记忆</p>
-                             )}
-                         </div>
-                         <div className="px-6 pb-6 pt-2">
-                             <button
-                                 onClick={() => setMemoryPalaceResult(null)}
-                                 className="w-full py-3 text-white text-[13px] font-bold rounded-2xl active:scale-[0.98] transition-transform"
-                                 style={{
-                                     background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
-                                     boxShadow: '0 6px 18px -6px rgba(79,70,229,0.5)',
-                                 }}
-                             >
-                                 确认
-                             </button>
-                         </div>
-                     </div>
-                 </div>
-             )}
-
-             {showHistoryCleanup && <ChatHistoryCleanupModal key={`history-cleanup:${char.id}`} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
-             {emojiExport && <EmojiExportDialog {...emojiExport} onClose={() => setEmojiExport(null)} />}
-            <ConfirmDialog isOpen={linkCardQuestion !== null}
-                title={linkCardQuestion === 'xhsCards' ? '小红书链接解析' : '分享链接解析'}
-                message="检测到分享链接，要关闭自动转卡片吗？关闭后，本条及之后的链接会按原文发送，方便角色用你配置的 MCP 读取。保留卡片也会带上原链接。两类解析可在加号 → 设置中分别调整。"
-                confirmText="关闭，发送原文" cancelText="保留卡片"
-                onConfirm={() => answerLinkCard(false)} onCancel={() => answerLinkCard(true)} />
-            <ChatModals
-                compactHome={!!homePhone}
-                modalType={modalType} setModalType={setModalType}
-                transferAmt={transferAmt} setTransferAmt={setTransferAmt}
-                transferNote={transferNote} setTransferNote={setTransferNote}
-                emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
-                settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
-                settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
-                settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
-                settingsInputPreferences={settingsInputPreferences} setSettingsInputPreferences={setSettingsInputPreferences}
-                contextSuiteAnyEnabled={contextSuiteAnyEnabled}
-                contextSuiteAllEnabled={contextSuiteAllEnabled}
-                onToggleContextSuite={handleToggleContextSuite}
-                editContent={editContent} setEditContent={setEditContent}
-                archivePrompts={archivePrompts} selectedPromptId={selectedPromptId} setSelectedPromptId={(id: string) => {
-                    setSelectedPromptId(id);
-                    // 同步写 localStorage，让 palace extraction 的风格追加能读到最新选择
-                    try { localStorage.setItem('chat_active_archive_prompt_id', id); } catch {}
-                }}
-                editingPrompt={editingPrompt} setEditingPrompt={setEditingPrompt} isSummarizing={isSummarizing} archiveProgress={archiveProgress}
-                selectedMessage={selectedMessage} selectedEmoji={selectedEmoji} activeCharacter={char} messages={messages}
-                allHistoryMessages={allHistoryMessages}
-                contextRangeSnapshot={historyContextRange}
-                
-                newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={handleAddCategory}
-                newEmojiName={newEmojiName} setNewEmojiName={setNewEmojiName} onRenameEmoji={handleRenameEmoji}
-                selectedCategory={selectedCategory}
-
-                onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
-                onImportEmoji={handleImportEmoji}
-                onSaveSettings={saveSettings}
-                onOpenHistoryCleanup={() => { setModalType('none'); setShowHistoryCleanup(true); }} onArchive={handleFullArchive}
-                onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
-                onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
-                onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
-                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
-                messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
-                onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
-                onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory} onRenameCategory={handleRenameCategory} onDownloadCategory={handleDownloadCategory}
-                allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
-                translationEnabled={translationEnabled}
-                onToggleTranslation={() => {
-                    const next = !translationEnabled;
-                    setTranslationEnabled(next);
-                    localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next));
-                    markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
-                    if (next) trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' });
-                    if (!next) setShowingTargetIds(new Set());
-                }}
-                translateSourceLang={translateSourceLang}
-                translateTargetLang={translateTargetLang}
-                translationExpanded={translationExpanded}
-                onToggleTranslationExpanded={() => {
-                    const next = !translationExpanded;
-                    setTranslationExpanded(next);
-                    localStorage.setItem(`chat_translate_expanded_${activeCharacterId}`, JSON.stringify(next));
-                    setShowingTargetIds(new Set());
-                    trackEvent('切换翻译展开模式', { enabled: next ? 'on' : 'off' });
-                }}
-                onSetTranslateSourceLang={(lang: string) => {
-                    const next = normalizeTranslationLangLabel(lang);
-                    if (!next) return;
-                    setTranslateSourceLang(next);
-                    localStorage.setItem(`chat_translate_source_lang_${activeCharacterId}`, next);
-                    markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
-                    setShowingTargetIds(new Set());
-                }}
-                onSetTranslateLang={(lang: string) => {
-                    const next = normalizeTranslationLangLabel(lang);
-                    if (!next) return;
-                    setTranslateTargetLang(next);
-                    localStorage.setItem(`chat_translate_lang_${activeCharacterId}`, next);
-                    markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
-                    setShowingTargetIds(new Set());
-                }}
-                xhsEnabled={!!char.xhsEnabled}
-                onToggleXhs={() => updateCharacter(char.id, { xhsEnabled: !char.xhsEnabled })}
-                htmlModeEnabled={!!(char as any).htmlModeEnabled}
-                onToggleHtmlMode={() => updateCharacter(char.id, { htmlModeEnabled: !((char as any).htmlModeEnabled) } as any)}
-                htmlModeCustomPrompt={settingsHtmlModeCustomPrompt}
-                setHtmlModeCustomPrompt={setSettingsHtmlModeCustomPrompt}
-                listenSongApiReady={isAudioApiReady(apiConfig.audioApi)}
-                listenSongUserName={userProfile?.name || ''}
-                onChangeListenSong={config => updateCharacter(char.id, { listenSongConfig: config })}
-                chatVoiceEnabled={!!char.chatVoiceEnabled}
-                onToggleChatVoice={() => updateCharacter(char.id, { chatVoiceEnabled: !char.chatVoiceEnabled })}
-                memoEnabled={!!char.memoEnabled}
-                onToggleMemo={() => updateCharacter(char.id, { memoEnabled: !char.memoEnabled })}
-                chatVoiceAutoPlay={!!char.chatVoiceAutoPlay}
-                onToggleChatVoiceAutoPlay={() => updateCharacter(char.id, { chatVoiceAutoPlay: !char.chatVoiceAutoPlay })}
-                chatVoiceLang={char.chatVoiceLang || ''}
-                onSetChatVoiceLang={(lang: string) => {
-                    updateCharacter(char.id, { chatVoiceLang: lang });
-                    trackEvent('设置聊天语音语种', { 语种: voiceLanguageAnalyticsValue(lang) });
-                }}
-                voiceAvailable={characterHasVoice(char, apiConfig)}
-                onGenerateVoice={selectedMessage ? () => handleManualTts(selectedMessage) : undefined}
-                voiceDownloadable={!!(selectedMessage?.id && voiceDataMap[selectedMessage.id])}
-                voiceCollectable={!!(selectedMessage?.id && (voiceDataMap[selectedMessage.id] || parseVoiceOutput(selectedMessage.content || '').hasVoiceTag))}
-                onDownloadVoice={selectedMessage ? () => handleDownloadVoice(selectedMessage) : undefined}
-                voiceFavorited={!!(selectedMessage?.id && chatFavoriteKeys.has(chatFavoriteSourceKey(selectedMessage)))}
-                onToggleVoiceFavorite={selectedMessage ? () => handleToggleVoiceFavorite(selectedMessage) : undefined}
-                scheduleData={scheduleData}
-                isScheduleGenerating={isScheduleGenerating}
-                onScheduleEdit={handleScheduleEdit}
-                onScheduleDelete={handleScheduleDelete}
-                onScheduleReroll={() => generateDailySchedule(char, true)}
-                onScheduleCoverChange={handleScheduleCoverChange}
-                onScheduleStyleChange={handleScheduleStyleChange}
-                onPlayTheater={handlePlayTheater}
-                isScheduleFeatureEnabled={isScheduleFeatureOn(char)}
-                onToggleScheduleFeature={handleToggleScheduleFeature}
-                isMemoryPalaceEnabled={!!char.memoryPalaceEnabled}
-                isVectorizing={isVectorizing}
-                vectorizePendingCount={vectorizePendingCount}
-                vectorizeProgress={vectorizeProgress}
-                retainRecentForVectorize={retainRecentForVectorize}
-                setRetainRecentForVectorize={setRetainRecentForVectorize}
-                vectorizeResult={vectorizeResult}
-                onForceVectorize={handleForceVectorize}
-                apiPresets={apiPresets}
-                onAddApiPreset={addApiPreset}
-                onSaveEmotion={(config) => {
-                    // API 同步到所有角色，enabled 仅写到当前角色
-                    syncEmotionApiToAllCharacters(config.api);
-                    updateCharacter(char.id, {
-                        emotionConfig: {
-                            enabled: config.enabled,
-                            ...(config.api && config.api.baseUrl ? { api: config.api } : {}),
-                        },
-                    });
-                }}
-                onClearBuffs={() => {
-                    updateCharacter(char.id, { activeBuffs: [], buffInjection: '' });
-                    addToast('情绪状态已清除', 'info');
-                }}
-                onUpdateCharacter={(patch) => {
-                    updateCharacter(char.id, patch);
-                    addToast('提示词已保存', 'success');
-                }}
-                onScheduleConfigChange={(cfg) => updateCharacter(char.id, { scheduleConfig: cfg })}
-             />
-
-             {/* 小剧场播放器：窥视某个日程时段的角色行为演出 */}
-             {theaterSlotIdx !== null && scheduleData && createPortal(
-                <TheaterPlayer
-                    character={char}
-                    slot={scheduleData.slots[theaterSlotIdx] || null}
-                    lines={scheduleData.slots[theaterSlotIdx]?.theater?.lines || null}
-                    isGenerating={isTheaterGenerating}
-                    onReplay={() => runTheater(theaterSlotIdx, true)}
-                    onSendCard={(exposed) => handleSendTheaterCard(theaterSlotIdx, exposed)}
-                    onClose={() => setTheaterSlotIdx(null)}
-                />,
-                document.body,
-             )}
-
              {homePhone?<header className="home-phone-chat-header"><span className="home-phone-chat-avatar" aria-hidden="true">{char.name.slice(0,1)}</span><div><strong>{chatCharacterDisplayName(char)}</strong><small>{isTyping||instantChatPending?'正在输入…':'在家，也想给你发消息'}</small></div><button onClick={handleManualTrigger} disabled={isTyping} aria-label="让对方回复">↗</button></header>:<ChatHeader
                 selectionMode={selectionMode}
                 selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
@@ -4345,130 +4084,11 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 acnh={acnh}
              />}
 
-            {/* 认知消化结果弹窗 — 全屏玻璃拟态 */}
-            {lastDigestResult && (() => {
-                const r = lastDigestResult;
-                const groups: Array<{
-                    key: string;
-                    label: string;
-                    icon: string;
-                    accent: string;       // base hue for chip/dot
-                    items: Array<{ content: string; sub?: string }>;
-                }> = [];
-                if (r.resolved.length) groups.push({ key: 'resolved', label: '困惑化解', icon: '🕊️', accent: '#10b981', items: r.resolved.map(e => ({ content: e.content })) });
-                if (r.deepened.length) groups.push({ key: 'deepened', label: '创伤加深', icon: '💢', accent: '#f43f5e', items: r.deepened.map(e => ({ content: e.content })) });
-                if (r.internalized.length) groups.push({ key: 'internalized', label: '知识内化', icon: '🪞', accent: '#8b5cf6', items: r.internalized.map(e => ({ content: e.content })) });
-                if (r.selfInsights.length) groups.push({ key: 'insights', label: '自我领悟', icon: '💡', accent: '#f59e0b', items: r.selfInsights.map(t => ({ content: t })) });
-                if (r.selfConfused.length) groups.push({ key: 'confused', label: '新的自我困惑', icon: '🌀', accent: '#6366f1', items: r.selfConfused.map(e => ({ content: e.content })) });
-                if (r.synthesizedUser.length) groups.push({ key: 'synth', label: '用户认知整合', icon: '👤', accent: '#0ea5e9', items: r.synthesizedUser.map(e => ({ content: e.content, sub: e.category })) });
-                if (r.worries?.length) groups.push({ key: 'worries', label: '回看引发的担忧', icon: '😟', accent: '#f97316', items: r.worries.map(e => ({ content: e.content })) });
-                if (r.aspirations?.length) groups.push({ key: 'aspirations', label: '新的期盼', icon: '🌟', accent: '#eab308', items: r.aspirations.map(e => ({ content: e.content })) });
-                if (r.distilled?.length) groups.push({ key: 'distilled', label: '沉淀到门牌', icon: '🚪', accent: '#a855f7', items: r.distilled.map(e => ({ content: e.content })) });
-                if (r.fulfilled.length) groups.push({ key: 'fulfilled', label: '期盼实现', icon: '✨', accent: '#22c55e', items: r.fulfilled.map(e => ({ content: e.content })) });
-                if (r.disappointed.length) groups.push({ key: 'disappointed', label: '期盼落空', icon: '🍂', accent: '#94a3b8', items: r.disappointed.map(e => ({ content: e.content })) });
-                if (r.faded.length) groups.push({ key: 'faded', label: '淡忘', icon: '🌫️', accent: '#cbd5e1', items: r.faded.map(e => ({ content: e.content })) });
-                if (groups.length === 0) return null;
-                return (
-                    <div
-                        className="absolute inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in"
-                        style={{
-                            background: 'radial-gradient(ellipse at top, rgba(16,185,129,0.18), rgba(0,0,0,0.55))',
-                            backdropFilter: 'blur(10px)',
-                            WebkitBackdropFilter: 'blur(10px)',
-                        }}
-                        onClick={() => setLastDigestResult(null)}
-                    >
-                        <div
-                            className="w-full max-w-sm max-h-[85vh] overflow-hidden flex flex-col relative"
-                            style={{
-                                background: 'linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(240,253,250,0.96) 100%)',
-                                borderRadius: 28,
-                                border: '1px solid rgba(255,255,255,0.7)',
-                                boxShadow: '0 30px 80px -20px rgba(16,185,129,0.35), 0 10px 40px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.9)',
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* 顶部光晕条 */}
-                            <div
-                                className="absolute top-0 left-0 right-0 h-1 pointer-events-none"
-                                style={{ background: 'linear-gradient(90deg, transparent, #10b981, #6ee7b7, #10b981, transparent)' }}
-                            />
-                            {/* 头部 */}
-                            <div className="px-6 pt-7 pb-4 text-center">
-                                <div
-                                    className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
-                                    style={{
-                                        background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(52,211,153,0.08))',
-                                        boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.9), 0 4px 16px rgba(16,185,129,0.2)',
-                                    }}
-                                >
-                                    <span style={{ fontSize: 28 }}>🧠</span>
-                                </div>
-                                <div className="text-[11px] tracking-[0.2em] uppercase font-semibold" style={{ color: '#059669' }}>Cognitive Digest</div>
-                                <div className="text-[17px] font-bold mt-1" style={{ color: '#0f172a' }}>{char.name} 完成了一次认知消化</div>
-                                <div className="text-[11px] text-slate-400 mt-1">内心整理 · {groups.reduce((s, g) => s + g.items.length, 0)} 项变化</div>
-                            </div>
-
-                            {/* 内容列表 */}
-                            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-3 no-scrollbar">
-                                {groups.map(g => (
-                                    <div key={g.key}
-                                        className="rounded-2xl overflow-hidden"
-                                        style={{
-                                            background: 'rgba(255,255,255,0.7)',
-                                            border: `1px solid ${g.accent}22`,
-                                            boxShadow: `0 2px 8px ${g.accent}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
-                                        }}
-                                    >
-                                        <div className="px-4 py-2.5 flex items-center gap-2"
-                                            style={{ background: `linear-gradient(90deg, ${g.accent}18, transparent)` }}
-                                        >
-                                            <span style={{ fontSize: 14 }}>{g.icon}</span>
-                                            <span className="text-[12px] font-bold" style={{ color: g.accent }}>{g.label}</span>
-                                            <span className="text-[10px] font-bold ml-auto px-1.5 py-0.5 rounded-full"
-                                                style={{ background: `${g.accent}22`, color: g.accent }}
-                                            >{g.items.length}</span>
-                                        </div>
-                                        <div className="px-4 py-2 space-y-1.5">
-                                            {g.items.slice(0, 3).map((it, i) => (
-                                                <div key={i} className="text-[12px] leading-relaxed text-slate-700 flex gap-2">
-                                                    <span className="shrink-0 mt-[7px] w-1 h-1 rounded-full" style={{ background: g.accent }} />
-                                                    <span className="flex-1">
-                                                        {it.sub && <span className="text-[10px] font-semibold mr-1.5 px-1.5 py-0.5 rounded" style={{ background: `${g.accent}18`, color: g.accent }}>{it.sub}</span>}
-                                                        <span>{it.content.length > 80 ? it.content.slice(0, 80) + '…' : it.content}</span>
-                                                    </span>
-                                                </div>
-                                            ))}
-                                            {g.items.length > 3 && (
-                                                <div className="text-[10px] text-slate-400 pl-3">还有 {g.items.length - 3} 条…</div>
-                                            )}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* 确认按钮 */}
-                            <div className="px-6 pb-6 pt-2">
-                                <button
-                                    onClick={() => setLastDigestResult(null)}
-                                    className="w-full py-3 text-white text-[13px] font-bold rounded-2xl active:scale-[0.98] transition-transform"
-                                    style={{
-                                        background: 'linear-gradient(135deg, #10b981, #059669)',
-                                        boxShadow: '0 8px 24px -4px rgba(16,185,129,0.45), inset 0 1px 0 rgba(255,255,255,0.25)',
-                                    }}
-                                >
-                                    放入心里
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            })()}
-
             <StreamingVoiceBar state={streamingVoice.state} onStop={stopStreamingVoice} />
             {/* onScroll 两件事都要做：handleScrollSnapshot 防抖保存阅读位置（单聊滚动恢复），
                 handleChatScroll 在历史窗口模式下按边界扩展更早/更新的消息。 */}
-            <div ref={scrollRef} onScroll={() => { handleScrollSnapshot(); handleChatScroll(); }} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} onScroll={() => { handleScrollSnapshot(); handleChatScroll(); }} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+                <ChatSubtitleLayer enabled={translationEnabled && translationExpanded && translationStyle === 'subtitle'}>
                 <div ref={chatContentRef} className="flow-root">
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
@@ -4485,7 +4105,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             visibleCountRef.current = nextVisibleCount;
                             setVisibleCount(nextVisibleCount);
                             await reloadMessages(nextVisibleCount);
-                        }} className="px-4 py-2 bg-white/60 rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">加载历史消息 ({collapsedCount})</button>
+                        }} className="sully-chat-history-load px-4 py-2 bg-white/60 bg-white/50 backdrop-blur-sm rounded-full text-xs text-slate-500 shadow-sm border border-white hover:bg-white transition-colors">加载历史消息 ({collapsedCount})</button>
                     </div>
                 )}
                 {windowedFocusMsgId !== null && (
@@ -4493,7 +4113,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         {hasOlderHistoryWindow ? (
                             <button
                                 onClick={() => extendHistoryWindow('older')}
-                                className="px-3 py-1.5 bg-white/60 rounded-full text-[11px] text-slate-500 shadow-sm border border-white hover:bg-white transition-colors"
+                                className="sully-chat-history-load sully-chat-history-older px-3 py-1.5 bg-white/60 backdrop-blur-sm rounded-full text-[11px] text-slate-500 shadow-sm border border-white hover:bg-white transition-colors"
                             >
                                 向上滑继续看更早消息
                             </button>
@@ -4553,6 +4173,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             onToggleThinkingSelect={toggleThinkingSelection}
                             translationEnabled={translationEnabled && m.type === 'text' && m.role === 'assistant'}
                             translationExpanded={translationExpanded}
+                            translationStyle={translationStyle}
                             isShowingTarget={showingTargetIds.has(m.id)}
                             onTranslateToggle={handleTranslateToggle}
                             voiceData={voiceDataMap[m.id]}
@@ -4591,7 +4212,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         {hasNewerHistoryWindow ? (
                             <button
                                 onClick={() => extendHistoryWindow('newer')}
-                                className="px-3 py-1.5 bg-white/60 rounded-full text-[11px] text-slate-500 shadow-sm border border-white hover:bg-white transition-colors"
+                                className="sully-chat-history-load sully-chat-history-newer px-3 py-1.5 bg-white/60 backdrop-blur-sm rounded-full text-[11px] text-slate-500 shadow-sm border border-white hover:bg-white transition-colors"
                             >
                                 向下滑继续看较新消息
                             </button>
@@ -4686,6 +4307,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     </div>
                 )}
                 </div>
+                </ChatSubtitleLayer>
             </div>
 
             <div className="relative z-40">
@@ -4704,7 +4326,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     </div>
                 )}
                 {luckinActivated && (
-                    <div className="flex items-center justify-between px-4 py-1.5 bg-[#0B1F3A]/5 border-b border-[#0B1F3A]/15 text-xs">
+                    <div className="flex items-center justify-between px-4 py-1.5 bg-[#eef3fa]/95 backdrop-blur-sm border-b border-[#0B1F3A]/15 text-[#0B1F3A] text-xs">
                         <div className="flex items-center gap-1.5 text-[#0B1F3A] font-bold">
                             <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#C6A15B] animate-pulse"/>
                             🦌 瑞一杯进行中
@@ -4795,6 +4417,408 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     acnh={acnh}
                 />
             </div>
+            </div>
+            {/* .sully-chat-root 仅包裹聊天舞台；系统弹窗、迷你应用与底部面板挂载在舞台外，避免白框顶层颜色/字体规则向表单和对话框继承。 */}
+
+            {/* 记忆整理结果 — 弹窗（高级感） */}
+            {memoryPalaceResult && (
+                <div
+                    className="absolute inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in"
+                    style={{
+                        pointerEvents: 'all',
+                        background: 'rgba(15,23,42,0.55)',
+                    }}
+                    onClick={() => setMemoryPalaceResult(null)}
+                >
+                    <div
+                        className="w-full max-w-sm max-h-[82vh] overflow-hidden flex flex-col relative text-slate-800"
+                        style={{
+                            background: 'linear-gradient(160deg, #ffffff 0%, #f8fafc 100%)',
+                            borderRadius: 28,
+                            border: '1px solid rgba(148,163,184,0.18)',
+                            boxShadow: '0 20px 50px -20px rgba(15,23,42,0.35)',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div
+                            className="absolute top-0 left-0 right-0 h-[2px] pointer-events-none"
+                            style={{ background: 'linear-gradient(90deg, transparent, #6366f1, #a5b4fc, #6366f1, transparent)' }}
+                        />
+                        <div className="px-6 pt-7 pb-4 text-center">
+                            <div
+                                className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
+                                style={{
+                                    background: 'linear-gradient(135deg, rgba(99,102,241,0.12), rgba(129,140,248,0.06))',
+                                    border: '1px solid rgba(99,102,241,0.15)',
+                                }}
+                            >
+                                <span style={{ fontSize: 26 }}>🗂️</span>
+                            </div>
+                            <div className="text-[10px] tracking-[0.25em] uppercase font-semibold" style={{ color: '#6366f1' }}>Memory Palace</div>
+                            <p className="text-[17px] font-bold mt-1" style={{ color: '#0f172a' }}>记忆整理完成</p>
+                            <p className="text-[11px] text-slate-400 mt-1">
+                                新增 {memoryPalaceResult.stored} 条 · 去重跳过 {memoryPalaceResult.skipped} 条
+                                {memoryPalaceResult.batches.length > 1 && ` · ${memoryPalaceResult.batches.length} 批`}
+                            </p>
+                            {memoryPalaceResult.batches.some(b => !b.ok) && (
+                                <p className="text-[10px] text-red-500 mt-1">
+                                    {memoryPalaceResult.batches.filter(b => !b.ok).map(b => `batch ${b.index} 失败`).join(', ')}
+                                </p>
+                            )}
+                        </div>
+                        <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 no-scrollbar">
+                            {memoryPalaceResult.memories.map((m, i) => {
+                                const roomMeta: Record<string, { label: string; color: string }> = {
+                                    living_room: { label: '客厅', color: '#f59e0b' },
+                                    bedroom: { label: '卧室', color: '#8b5cf6' },
+                                    study: { label: '书房', color: '#0ea5e9' },
+                                    user_room: { label: '用户房间', color: '#ec4899' },
+                                    self_room: { label: '自我房间', color: '#10b981' },
+                                    attic: { label: '阁楼', color: '#6366f1' },
+                                    windowsill: { label: '窗台', color: '#14b8a6' },
+                                };
+                                const meta = roomMeta[m.room] || { label: m.room, color: '#64748b' };
+                                const roomLabel = getRoomLabel(m.room as any, userProfile?.name) || meta.label;
+                                return (
+                                    <div
+                                        key={i}
+                                        className="p-3 rounded-2xl"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.75)',
+                                            border: `1px solid ${meta.color}22`,
+                                            boxShadow: `0 2px 8px ${meta.color}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
+                                        }}
+                                    >
+                                        <div className="flex items-center gap-2 mb-1.5">
+                                            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                                                style={{ background: `${meta.color}18`, color: meta.color }}
+                                            >
+                                                {roomLabel}
+                                            </span>
+                                            <span className="text-[10px] text-slate-400">{m.mood}</span>
+                                            <span className="text-[10px] font-bold ml-auto" style={{ color: '#f59e0b' }}>{'★'.repeat(Math.min(m.importance, 5))}</span>
+                                        </div>
+                                        <p className="text-[12px] text-slate-700 leading-relaxed">{m.content}</p>
+                                        {m.tags.length > 0 && (
+                                            <div className="flex gap-1 mt-2 flex-wrap">
+                                                {m.tags.map((t, j) => (
+                                                    <span key={j} className="text-[9px] px-1.5 py-0.5 rounded-full"
+                                                        style={{ background: 'rgba(148,163,184,0.15)', color: '#64748b' }}
+                                                    >{t}</span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            {memoryPalaceResult.memories.length === 0 && (
+                                <p className="text-center text-xs text-slate-400 py-4">本次未提取到新记忆</p>
+                            )}
+                        </div>
+                        <div className="px-6 pb-6 pt-2">
+                            <button
+                                onClick={() => setMemoryPalaceResult(null)}
+                                className="w-full py-3 text-white text-[13px] font-bold rounded-2xl active:scale-[0.98] transition-transform"
+                                style={{
+                                    background: 'linear-gradient(135deg, #6366f1, #4f46e5)',
+                                    boxShadow: '0 6px 18px -6px rgba(79,70,229,0.5)',
+                                }}
+                            >
+                                确认
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {showHistoryCleanup && <ChatHistoryCleanupModal key={`history-cleanup:${char.id}`} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
+            {emojiExport && <EmojiExportDialog {...emojiExport} onClose={() => setEmojiExport(null)} />}
+            <ConfirmDialog isOpen={linkCardQuestion !== null}
+                title={linkCardQuestion === 'xhsCards' ? '小红书链接解析' : '分享链接解析'}
+                message="检测到分享链接，要关闭自动转卡片吗？关闭后，本条及之后的链接会按原文发送，方便角色用你配置的 MCP 读取。保留卡片也会带上原链接。两类解析可在加号 → 设置中分别调整。"
+                confirmText="关闭，发送原文" cancelText="保留卡片"
+                onConfirm={() => answerLinkCard(false)} onCancel={() => answerLinkCard(true)} />
+            <ChatModals
+                compactHome={!!homePhone}
+                modalType={modalType} setModalType={setModalType}
+                transferAmt={transferAmt} setTransferAmt={setTransferAmt}
+                transferNote={transferNote} setTransferNote={setTransferNote}
+                emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
+                settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
+                settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
+                settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
+                settingsInputPreferences={settingsInputPreferences} setSettingsInputPreferences={setSettingsInputPreferences}
+                contextSuiteAnyEnabled={contextSuiteAnyEnabled}
+                contextSuiteAllEnabled={contextSuiteAllEnabled}
+                onToggleContextSuite={handleToggleContextSuite}
+                editContent={editContent} setEditContent={setEditContent}
+                archivePrompts={archivePrompts} selectedPromptId={selectedPromptId} setSelectedPromptId={(id: string) => {
+                    setSelectedPromptId(id);
+                    // 同步写 localStorage，让 palace extraction 的风格追加能读到最新选择
+                    try { localStorage.setItem('chat_active_archive_prompt_id', id); } catch {}
+                }}
+                editingPrompt={editingPrompt} setEditingPrompt={setEditingPrompt} isSummarizing={isSummarizing} archiveProgress={archiveProgress}
+                selectedMessage={selectedMessage} selectedEmoji={selectedEmoji} activeCharacter={char} messages={messages}
+                allHistoryMessages={allHistoryMessages}
+                contextRangeSnapshot={historyContextRange}
+
+                newCategoryName={newCategoryName} setNewCategoryName={setNewCategoryName} onAddCategory={handleAddCategory}
+                newEmojiName={newEmojiName} setNewEmojiName={setNewEmojiName} onRenameEmoji={handleRenameEmoji}
+                selectedCategory={selectedCategory}
+
+                onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
+                onImportEmoji={handleImportEmoji}
+                onSaveSettings={saveSettings}
+                onOpenHistoryCleanup={() => { setModalType('none'); setShowHistoryCleanup(true); }} onArchive={handleFullArchive}
+                onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
+                onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
+                onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
+                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
+                messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
+                onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
+                onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory} onRenameCategory={handleRenameCategory} onDownloadCategory={handleDownloadCategory}
+                allCharacters={characters} onSaveCategoryVisibility={handleSaveCategoryVisibility}
+                translationEnabled={translationEnabled}
+                onToggleTranslation={() => {
+                    const next = !translationEnabled;
+                    setTranslationEnabled(next);
+                    localStorage.setItem(`chat_translate_enabled_${activeCharacterId}`, JSON.stringify(next));
+                    markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+                    if (next) trackEvent('开启聊天翻译', { targetLang: isTranslationLangPreset(translateTargetLang) ? translateTargetLang : 'custom' });
+                    if (!next) setShowingTargetIds(new Set());
+                }}
+                translateSourceLang={translateSourceLang}
+                translateTargetLang={translateTargetLang}
+                translationExpanded={translationExpanded}
+                translationStyle={translationStyle}
+                onSetTranslationStyle={(style) => {
+                    setTranslationStyle(style);
+                    localStorage.setItem(`chat_translate_style_${activeCharacterId}`, style);
+                }}
+                onToggleTranslationExpanded={() => {
+                    const next = !translationExpanded;
+                    setTranslationExpanded(next);
+                    localStorage.setItem(`chat_translate_expanded_${activeCharacterId}`, JSON.stringify(next));
+                    setShowingTargetIds(new Set());
+                    trackEvent('切换翻译展开模式', { enabled: next ? 'on' : 'off' });
+                }}
+                onSetTranslateSourceLang={(lang: string) => {
+                    const next = normalizeTranslationLangLabel(lang);
+                    if (!next) return;
+                    setTranslateSourceLang(next);
+                    localStorage.setItem(`chat_translate_source_lang_${activeCharacterId}`, next);
+                    markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+                    setShowingTargetIds(new Set());
+                }}
+                onSetTranslateLang={(lang: string) => {
+                    const next = normalizeTranslationLangLabel(lang);
+                    if (!next) return;
+                    setTranslateTargetLang(next);
+                    localStorage.setItem(`chat_translate_lang_${activeCharacterId}`, next);
+                    markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+                    setShowingTargetIds(new Set());
+                }}
+                xhsEnabled={!!char.xhsEnabled}
+                onToggleXhs={() => updateCharacter(char.id, { xhsEnabled: !char.xhsEnabled })}
+                htmlModeEnabled={!!(char as any).htmlModeEnabled}
+                onToggleHtmlMode={() => updateCharacter(char.id, { htmlModeEnabled: !((char as any).htmlModeEnabled) } as any)}
+                htmlModeCustomPrompt={settingsHtmlModeCustomPrompt}
+                setHtmlModeCustomPrompt={setSettingsHtmlModeCustomPrompt}
+                listenSongApiReady={isAudioApiReady(apiConfig.audioApi)}
+                listenSongUserName={userProfile?.name || ''}
+                onChangeListenSong={config => updateCharacter(char.id, { listenSongConfig: config })}
+                chatVoiceEnabled={!!char.chatVoiceEnabled}
+                onToggleChatVoice={() => updateCharacter(char.id, { chatVoiceEnabled: !char.chatVoiceEnabled })}
+                memoEnabled={!!char.memoEnabled}
+                onToggleMemo={() => updateCharacter(char.id, { memoEnabled: !char.memoEnabled })}
+                chatVoiceAutoPlay={!!char.chatVoiceAutoPlay}
+                onToggleChatVoiceAutoPlay={() => updateCharacter(char.id, { chatVoiceAutoPlay: !char.chatVoiceAutoPlay })}
+                chatVoiceLang={char.chatVoiceLang || ''}
+                onSetChatVoiceLang={(lang: string) => {
+                    updateCharacter(char.id, { chatVoiceLang: lang });
+                    trackEvent('设置聊天语音语种', { 语种: voiceLanguageAnalyticsValue(lang) });
+                }}
+                voiceAvailable={characterHasVoice(char, apiConfig)}
+                onGenerateVoice={selectedMessage ? () => handleManualTts(selectedMessage) : undefined}
+                voiceDownloadable={!!(selectedMessage?.id && voiceDataMap[selectedMessage.id])}
+                voiceCollectable={!!(selectedMessage?.id && (voiceDataMap[selectedMessage.id] || parseVoiceOutput(selectedMessage.content || '').hasVoiceTag))}
+                onDownloadVoice={selectedMessage ? () => handleDownloadVoice(selectedMessage) : undefined}
+                voiceFavorited={!!(selectedMessage?.id && chatFavoriteKeys.has(chatFavoriteSourceKey(selectedMessage)))}
+                onToggleVoiceFavorite={selectedMessage ? () => handleToggleVoiceFavorite(selectedMessage) : undefined}
+                scheduleData={scheduleData}
+                isScheduleGenerating={isScheduleGenerating}
+                onScheduleEdit={handleScheduleEdit}
+                onScheduleDelete={handleScheduleDelete}
+                onScheduleReroll={() => generateDailySchedule(char, true)}
+                onScheduleCoverChange={handleScheduleCoverChange}
+                onScheduleStyleChange={handleScheduleStyleChange}
+                onPlayTheater={handlePlayTheater}
+                isScheduleFeatureEnabled={isScheduleFeatureOn(char)}
+                onToggleScheduleFeature={handleToggleScheduleFeature}
+                isMemoryPalaceEnabled={!!char.memoryPalaceEnabled}
+                isVectorizing={isVectorizing}
+                vectorizePendingCount={vectorizePendingCount}
+                vectorizeProgress={vectorizeProgress}
+                retainRecentForVectorize={retainRecentForVectorize}
+                setRetainRecentForVectorize={setRetainRecentForVectorize}
+                vectorizeResult={vectorizeResult}
+                onForceVectorize={handleForceVectorize}
+                apiPresets={apiPresets}
+                onAddApiPreset={addApiPreset}
+                onSaveEmotion={(config) => {
+                    // API 同步到所有角色，enabled 仅写到当前角色
+                    syncEmotionApiToAllCharacters(config.api);
+                    updateCharacter(char.id, {
+                        emotionConfig: {
+                            enabled: config.enabled,
+                            ...(config.api && config.api.baseUrl ? { api: config.api } : {}),
+                        },
+                    });
+                }}
+                onClearBuffs={() => {
+                    updateCharacter(char.id, { activeBuffs: [], buffInjection: '' });
+                    addToast('情绪状态已清除', 'info');
+                }}
+                onUpdateCharacter={(patch) => {
+                    updateCharacter(char.id, patch);
+                    addToast('提示词已保存', 'success');
+                }}
+                onScheduleConfigChange={(cfg) => updateCharacter(char.id, { scheduleConfig: cfg })}
+            />
+
+            {/* 小剧场播放器：窥视某个日程时段的角色行为演出 */}
+            {theaterSlotIdx !== null && scheduleData && createPortal(
+                <TheaterPlayer
+                    character={char}
+                    slot={scheduleData.slots[theaterSlotIdx] || null}
+                    lines={scheduleData.slots[theaterSlotIdx]?.theater?.lines || null}
+                    isGenerating={isTheaterGenerating}
+                    onReplay={() => runTheater(theaterSlotIdx, true)}
+                    onSendCard={(exposed) => handleSendTheaterCard(theaterSlotIdx, exposed)}
+                    onClose={() => setTheaterSlotIdx(null)}
+                />,
+                document.body,
+            )}
+
+            {/* 认知消化结果弹窗 — 全屏玻璃拟态 */}
+            {lastDigestResult && (() => {
+                const r = lastDigestResult;
+                const groups: Array<{
+                    key: string;
+                    label: string;
+                    icon: string;
+                    accent: string;       // base hue for chip/dot
+                    items: Array<{ content: string; sub?: string }>;
+                }> = [];
+                if (r.resolved.length) groups.push({ key: 'resolved', label: '困惑化解', icon: '🕊️', accent: '#10b981', items: r.resolved.map(e => ({ content: e.content })) });
+                if (r.deepened.length) groups.push({ key: 'deepened', label: '创伤加深', icon: '💢', accent: '#f43f5e', items: r.deepened.map(e => ({ content: e.content })) });
+                if (r.internalized.length) groups.push({ key: 'internalized', label: '知识内化', icon: '🪞', accent: '#8b5cf6', items: r.internalized.map(e => ({ content: e.content })) });
+                if (r.selfInsights.length) groups.push({ key: 'insights', label: '自我领悟', icon: '💡', accent: '#f59e0b', items: r.selfInsights.map(t => ({ content: t })) });
+                if (r.selfConfused.length) groups.push({ key: 'confused', label: '新的自我困惑', icon: '🌀', accent: '#6366f1', items: r.selfConfused.map(e => ({ content: e.content })) });
+                if (r.synthesizedUser.length) groups.push({ key: 'synth', label: '用户认知整合', icon: '👤', accent: '#0ea5e9', items: r.synthesizedUser.map(e => ({ content: e.content, sub: e.category })) });
+                if (r.worries?.length) groups.push({ key: 'worries', label: '回看引发的担忧', icon: '😟', accent: '#f97316', items: r.worries.map(e => ({ content: e.content })) });
+                if (r.aspirations?.length) groups.push({ key: 'aspirations', label: '新的期盼', icon: '🌟', accent: '#eab308', items: r.aspirations.map(e => ({ content: e.content })) });
+                if (r.distilled?.length) groups.push({ key: 'distilled', label: '沉淀到门牌', icon: '🚪', accent: '#a855f7', items: r.distilled.map(e => ({ content: e.content })) });
+                if (r.fulfilled.length) groups.push({ key: 'fulfilled', label: '期盼实现', icon: '✨', accent: '#22c55e', items: r.fulfilled.map(e => ({ content: e.content })) });
+                if (r.disappointed.length) groups.push({ key: 'disappointed', label: '期盼落空', icon: '🍂', accent: '#94a3b8', items: r.disappointed.map(e => ({ content: e.content })) });
+                if (r.faded.length) groups.push({ key: 'faded', label: '淡忘', icon: '🌫️', accent: '#cbd5e1', items: r.faded.map(e => ({ content: e.content })) });
+                if (groups.length === 0) return null;
+                return (
+                    <div
+                        className="absolute inset-0 z-[200] flex items-center justify-center p-4 animate-fade-in"
+                        style={{
+                            background: 'radial-gradient(ellipse at top, rgba(16,185,129,0.18), rgba(0,0,0,0.55))',
+                            backdropFilter: 'blur(10px)',
+                            WebkitBackdropFilter: 'blur(10px)',
+                        }}
+                        onClick={() => setLastDigestResult(null)}
+                    >
+                        <div
+                            className="w-full max-w-sm max-h-[85vh] overflow-hidden flex flex-col relative text-slate-800"
+                            style={{
+                                background: 'linear-gradient(160deg, rgba(255,255,255,0.98) 0%, rgba(240,253,250,0.96) 100%)',
+                                borderRadius: 28,
+                                border: '1px solid rgba(255,255,255,0.7)',
+                                boxShadow: '0 30px 80px -20px rgba(16,185,129,0.35), 0 10px 40px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.9)',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {/* 顶部光晕条 */}
+                            <div
+                                className="absolute top-0 left-0 right-0 h-1 pointer-events-none"
+                                style={{ background: 'linear-gradient(90deg, transparent, #10b981, #6ee7b7, #10b981, transparent)' }}
+                            />
+                            {/* 头部 */}
+                            <div className="px-6 pt-7 pb-4 text-center">
+                                <div
+                                    className="w-14 h-14 mx-auto rounded-2xl flex items-center justify-center mb-3"
+                                    style={{
+                                        background: 'linear-gradient(135deg, rgba(16,185,129,0.15), rgba(52,211,153,0.08))',
+                                        boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.9), 0 4px 16px rgba(16,185,129,0.2)',
+                                    }}
+                                >
+                                    <span style={{ fontSize: 28 }}>🧠</span>
+                                </div>
+                                <div className="text-[11px] tracking-[0.2em] uppercase font-semibold" style={{ color: '#059669' }}>Cognitive Digest</div>
+                                <div className="text-[17px] font-bold mt-1" style={{ color: '#0f172a' }}>{char.name} 完成了一次认知消化</div>
+                                <div className="text-[11px] text-slate-400 mt-1">内心整理 · {groups.reduce((s, g) => s + g.items.length, 0)} 项变化</div>
+                            </div>
+
+                            {/* 内容列表 */}
+                            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-3 no-scrollbar">
+                                {groups.map(g => (
+                                    <div key={g.key}
+                                        className="rounded-2xl overflow-hidden"
+                                        style={{
+                                            background: 'rgba(255,255,255,0.7)',
+                                            border: `1px solid ${g.accent}22`,
+                                            boxShadow: `0 2px 8px ${g.accent}14, inset 0 1px 0 rgba(255,255,255,0.8)`,
+                                        }}
+                                    >
+                                        <div className="px-4 py-2.5 flex items-center gap-2"
+                                            style={{ background: `linear-gradient(90deg, ${g.accent}18, transparent)` }}
+                                        >
+                                            <span style={{ fontSize: 14 }}>{g.icon}</span>
+                                            <span className="text-[12px] font-bold" style={{ color: g.accent }}>{g.label}</span>
+                                            <span className="text-[10px] font-bold ml-auto px-1.5 py-0.5 rounded-full"
+                                                style={{ background: `${g.accent}22`, color: g.accent }}
+                                            >{g.items.length}</span>
+                                        </div>
+                                        <div className="px-4 py-2 space-y-1.5">
+                                            {g.items.slice(0, 3).map((it, i) => (
+                                                <div key={i} className="text-[12px] leading-relaxed text-slate-700 flex gap-2">
+                                                    <span className="shrink-0 mt-[7px] w-1 h-1 rounded-full" style={{ background: g.accent }} />
+                                                    <span className="flex-1">
+                                                        {it.sub && <span className="text-[10px] font-semibold mr-1.5 px-1.5 py-0.5 rounded" style={{ background: `${g.accent}18`, color: g.accent }}>{it.sub}</span>}
+                                                        <span>{it.content.length > 80 ? it.content.slice(0, 80) + '…' : it.content}</span>
+                                                    </span>
+                                                </div>
+                                            ))}
+                                            {g.items.length > 3 && (
+                                                <div className="text-[10px] text-slate-400 pl-3">还有 {g.items.length - 3} 条…</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* 确认按钮 */}
+                            <div className="px-6 pb-6 pt-2">
+                                <button
+                                    onClick={() => setLastDigestResult(null)}
+                                    className="w-full py-3 text-white text-[13px] font-bold rounded-2xl active:scale-[0.98] transition-transform"
+                                    style={{
+                                        background: 'linear-gradient(135deg, #10b981, #059669)',
+                                        boxShadow: '0 8px 24px -4px rgba(16,185,129,0.45), inset 0 1px 0 rgba(255,255,255,0.25)',
+                                    }}
+                                >
+                                    放入心里
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
 
             {/* Proactive Settings Modal */}

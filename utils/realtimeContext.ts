@@ -21,6 +21,8 @@ import {
 } from './realtimeFetchCore';
 import { formatFeishuWriteFailure } from './feishuDiagnostics';
 import {
+    fetchWeatherWithFallback,
+    normalizeFreeWeatherSource,
     generateWeatherAdvice as generateWeatherAdviceCore,
     checkSpecialDates as checkSpecialDatesCore,
     clearGeocodeCache,
@@ -30,11 +32,11 @@ import {
     type WeatherData,
     type NewsItem,
 } from './realtimeWorldCore';
-// 注意：fetchWeatherWithFallback / fetchHotNews / resolveHotNewsPlatforms / sameHotNewsPlatforms /
+// 注意：fetchHotNews / resolveHotNewsPlatforms / sameHotNewsPlatforms /
 // pickRandomNews / renderRealtimeWorldBlock / REALTIME_NEWS_PICK_COUNT 这些上游版本 fork 不用——
-// fork 自带带超时+瞬断补枪+陈旧缓存兜底的 fetchWithTimeout，以及角色级 origin/RSS 过滤、
-// ratio 加权抽样、双城市天气模糊感知，buildFullContext 全程走 fork 自己的实现。amsg worker
-// 才直接用 realtimeWorldCore 那份（云端网络稳定，不需要超时包装）。
+// fork 自带带超时+瞬断补枪的 fetchWithTimeout，以及角色级 origin/RSS 过滤、
+// ratio 加权抽样、双城市天气模糊感知。天气 Manager 走 core 的双免费源路由，
+// 本文件继续负责角色城市覆盖、缓存隔离与陈旧缓存兜底。
 import { getLocalDateKey } from './localDate';
 import { browserHolidayCache, deviceTimeZone, getUserHolidayReminder, type UserHolidayConfig } from './userHolidays';
 
@@ -45,8 +47,8 @@ import { browserHolidayCache, deviceTimeZone, getUserHolidayReminder, type UserH
 export type { SearchResult, DiaryPreview, FeishuDiaryPreview } from './realtimeFetchCore';
 export type { WeatherData, NewsItem } from './realtimeWorldCore';
 // fetchOwmWeather / fetchOpenMeteoWeather / HOTNEWS_API_BASE_URL 不再从 realtimeWorldCore re-export：
-// fork 在本文件下方自带带超时+瞬断补枪的版本（buildFullContext 走这份），amsg worker 才用
-// realtimeWorldCore 里那份裸 fetch 版本（云端网络稳定，不需要超时包装）。
+// fork 在本文件下方保留带超时+瞬断补枪的天气函数，兼容现有直接调用；
+// Manager 则统一走 realtimeWorldCore 的 OWM 与双免费源路由。
 
 /**
  * 角色级「地区与热点」覆盖参数（buildFullContext 用）。fork 特有，上游无。
@@ -70,7 +72,8 @@ export interface RealtimeConfig {
     userHolidays?: UserHolidayConfig;
     // 天气配置
     weatherEnabled: boolean;
-    weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走免 key 的 Open-Meteo）
+    weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走所选免费源）
+    weatherFreeSource?: import('./weatherSources').FreeWeatherSource;
     weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
     weatherCity: string;    // 城市名 (如 "北京"、"Beijing"，Open-Meteo 支持中文)
 
@@ -119,6 +122,7 @@ export interface RealtimeConfig {
 export const defaultRealtimeConfig: RealtimeConfig = {
     weatherEnabled: false,
     weatherApiKey: '',
+    weatherFreeSource: 'open-meteo',
     weatherCity: 'Beijing',
     newsEnabled: false,
     newsApiKey: '',
@@ -142,8 +146,7 @@ export const defaultRealtimeConfig: RealtimeConfig = {
 };
 
 // 缓存
-// 天气按城市名分桶缓存——多个角色配了多个城市时不会互相覆盖。
-// key 是归一化后的城市名（trim + 小写），value 含原始返回（带正确大小写的 city 名）。
+// 天气按归一化城市名、API Key 与首选免费源分桶，多角色、多城市及数据源配置互不覆盖。
 let weatherCacheMap = new Map<string, { data: WeatherData; timestamp: number }>();
 let newsCache: { data: NewsItem[]; timestamp: number } = { data: [], timestamp: 0 };
 
@@ -386,9 +389,8 @@ export const renderWeatherLine = (
 export const RealtimeContextManager = {
 
     /**
-     * 获取天气信息。填了 OpenWeatherMap key 优先走 OWM，失败或没填 key 时回落免费的 Open-Meteo。
-     * cityOverride 传城市名时按该城市查询（用于角色级「地区」覆盖），不传则用 config.weatherCity。
-     * 缓存按城市名分桶，多角色多城市互不覆盖。
+     * 获取天气信息。OWM（有 key 时）→ 所选免费源 → 另一免费源。
+     * cityOverride 用于角色级「地区」覆盖；缓存按城市、Key 与首选免费源隔离。
      */
     fetchWeather: async (config: RealtimeConfig, cityOverride?: string): Promise<WeatherData | null> => {
         const city = (cityOverride && cityOverride.trim()) || config.weatherCity;
@@ -398,45 +400,27 @@ export const RealtimeContextManager = {
 
         const now = Date.now();
         const cacheMs = config.cacheMinutes * 60 * 1000;
-        // 缓存键带上 apiKey（上游不变量）：换了 key 等于换了数据源账号，旧缓存不能继续命中。
-        // 城市仍做归一化（trim + 小写），多角色多城市分桶不受影响。
-        const cacheKey = city.trim().toLowerCase() + '|' + (config.weatherApiKey || '');
-
-        // 检查缓存
+        const cacheKey = JSON.stringify([
+            city.trim().toLowerCase(),
+            config.weatherApiKey?.trim() || '',
+            normalizeFreeWeatherSource(config.weatherFreeSource),
+        ]);
         const cached = weatherCacheMap.get(cacheKey);
         if (cached && (now - cached.timestamp) < cacheMs) {
             return cached.data;
         }
 
-        let weather: WeatherData | null = null;
-
-        if (config.weatherApiKey) {
-            try {
-                weather = await fetchOwmWeather(city, config.weatherApiKey);
-            } catch (e) {
-                console.warn('OpenWeatherMap 失败，回落 Open-Meteo:', e);
-            }
-        }
-
+        const weather = await fetchWeatherWithFallback(city, config.weatherApiKey, config.weatherFreeSource);
         if (!weather) {
-            try {
-                weather = await fetchOpenMeteoWeather(city);
-            } catch (e) {
-                // 双源都失败（弱网/切后台的瞬断最常见）：有陈旧缓存就先用陈旧的——
-                // 一小时前的天气比没有天气强得多。console.warn 而非 error：
-                // 全局拦截器会把 console.error 抓进 systemLogs 红字吓用户，这属于预期内降级。
-                if (cached) {
-                    console.warn('Weather fetch failed, serving stale cache:', e);
-                    return cached.data;
-                }
-                console.warn('Failed to fetch weather (no cache to fall back):', e);
-                return null;
+            // 所有源都失败时，只复用同一城市、Key 与首选源的陈旧缓存。
+            if (cached) {
+                console.warn('Weather fetch failed, serving stale cache');
+                return cached.data;
             }
+            return null;
         }
 
-        // 更新缓存
         weatherCacheMap.set(cacheKey, { data: weather, timestamp: now });
-
         return weather;
     },
 
@@ -2237,6 +2221,9 @@ export interface XhsNote {
     author: string;
     authorId: string;
     xsecToken?: string;
+    xsecSource?: string;
+    url?: string;
+    platform?: 'xhs' | 'rednote';
     coverUrl?: string;
     type?: string;  // 'normal' | 'video'
     comments?: {

@@ -210,9 +210,15 @@ export const generateWriterPersonaDeep = async (
                 }, [{ role: 'user', content: `请分析${char.name}本人的写作风格；${userProfile.name}是共创搭档。` }]),
                 temperature: 0.7,
                 max_tokens: 8000
-            })
-        }, { timeoutMs: 120_000, retries: 1 });
-
+            }),
+            __sullyMeta: {
+                appId: 'novel',
+                appName: '一起写小说',
+                charId: char.id,
+                charName: char.name,
+                purpose: '生成写手文风设定',
+            },
+        } as RequestInit, { timeoutMs: 120_000, retries: 1 });
         if (response.ok) {
             const data = await safeResponseJson(response);
             let rawPersona: string;

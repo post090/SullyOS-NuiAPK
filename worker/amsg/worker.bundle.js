@@ -24,6 +24,20 @@ var init_characterWeather = __esm({
   }
 });
 
+// utils/weatherSources.ts
+var normalizeFreeWeatherSource, WEATHER_SOURCE_LABELS;
+var init_weatherSources = __esm({
+  "utils/weatherSources.ts"() {
+    "use strict";
+    normalizeFreeWeatherSource = (value) => value === "wttr" ? "wttr" : "open-meteo";
+    WEATHER_SOURCE_LABELS = {
+      "open-meteo": "\u514D\u8D39\u6E90 1 \xB7 Open-Meteo",
+      wttr: "\u514D\u8D39\u6E90 2 \xB7 wttr.in",
+      owm: "OpenWeatherMap"
+    };
+  }
+});
+
 // utils/proxyWorker.ts
 var DEFAULT_PROXY_WORKER, LS_KEY, STALE_HOSTS, isLegacyProxyWorkerUrl, normalize, runtimeOverrideUrl, setProxyWorkerUrlOverride, getProxyWorkerUrl;
 var init_proxyWorker = __esm({
@@ -67,6 +81,7 @@ var init_amsgToolPack = __esm({
   "utils/amsgToolPack.ts"() {
     "use strict";
     init_characterWeather();
+    init_weatherSources();
     init_proxyWorker();
     AMSG_TOOL_PACK_KEY = "tool_pack";
     AMSG_GLOBAL_NAMESPACE = "amsg:global";
@@ -101,6 +116,7 @@ var init_amsgToolPack = __esm({
           delete parsed.mcpServers;
         }
         if (parsed.weatherCities !== void 0) parsed.weatherCities = cleanCharacterWeatherCities(parsed.weatherCities);
+        parsed.weatherFreeSource = normalizeFreeWeatherSource(parsed.weatherFreeSource);
         return parsed;
       } catch {
         return null;
@@ -1048,21 +1064,26 @@ function resolveFriendIdentities(value) {
     const accounts = [];
     if (Array.isArray(v.accounts)) for (const a of v.accounts) {
       if (!record2(a) || typeof a.id !== "string" || !a.id || a.id === "main" || seen.has(a.id) || typeof a.name !== "string" || !a.name.trim()) continue;
-      seen.add(a.id);
-      accounts.push({ id: a.id.slice(0, 100), name: a.name.trim().slice(0, 40), purpose: typeof a.purpose === "string" ? a.purpose.slice(0, 300) : "", tags: tags(a.tags) });
+      const accountId = a.id.slice(0, 100);
+      if (seen.has(accountId)) continue;
+      seen.add(accountId);
+      accounts.push({ id: accountId, name: a.name.trim().slice(0, 40), purpose: typeof a.purpose === "string" ? a.purpose.slice(0, 300) : "", bio: typeof a.bio === "string" ? a.bio.slice(0, 1e3) : "", tags: tags(a.tags) });
       if (accounts.length === 3) break;
     }
-    return [id, { nickname: typeof v.nickname === "string" ? v.nickname.trim().slice(0, 40) : void 0, tags: tags(v.tags), accounts }];
+    return [id, { nickname: typeof v.nickname === "string" ? v.nickname.trim().slice(0, 40) : void 0, bio: typeof v.bio === "string" ? v.bio.slice(0, 1e3) : "", purpose: typeof v.purpose === "string" ? v.purpose.slice(0, 300) : "", tags: tags(v.tags), accounts }];
   }));
 }
 function friendAccounts(settings, char) {
+  if (char.id === "user") return [{ id: "main", name: settings.userNickname || char.name, purpose: "\u4E3B\u53F7", bio: settings.userBio, tags: [] }, ...settings.userAccounts || []];
   const identity = settings.identities[char.id];
-  return [{ id: "main", name: identity?.nickname || char.name, purpose: "\u4E3B\u53F7", tags: identity?.tags || [] }, ...identity?.accounts || []];
+  return [{ id: "main", name: identity?.nickname || char.name, purpose: identity?.purpose || "\u4E3B\u53F7", bio: identity?.bio, tags: identity?.tags || [] }, ...identity?.accounts || []];
 }
 function resolveFriendFeedSettings(value) {
   const defaults = defaultFriendFeedSettings();
   return {
     userNickname: typeof value?.userNickname === "string" ? value.userNickname.trim().slice(0, 40) : "",
+    userBio: typeof value?.userBio === "string" ? value.userBio.slice(0, 1e3) : "",
+    userAccounts: resolveFriendIdentities({ user: { accounts: value?.userAccounts } }).user.accounts,
     weiboHomeMode: value?.weiboHomeMode === "latest" ? "latest" : "default",
     weiboProfile: value?.weiboProfile && /^\d{4,25}$/.test(value.weiboProfile.uid) && typeof value.weiboProfile.name === "string" && value.weiboProfile.name.trim() ? {
       uid: value.weiboProfile.uid,
@@ -1101,6 +1122,8 @@ var init_friendFeedSettings = __esm({
 \u7F51\u53CB\u4E5F\u4F1A\u63A5\u5176\u4ED6\u8BC4\u8BBA\u7684\u8BDD\uFF0C\u800C\u4E0D\u53EA\u56F4\u7740\u5E16\u4E3B\uFF1A\u6309\u5DF2\u6709\u8BC4\u8BBA ID \u6307\u5B9A\u56DE\u590D\u5BF9\u8C61\uFF0C\u5EF6\u7EED\u5177\u4F53\u5206\u6B67\u3001\u95EE\u9898\u6216\u6897\uFF1B\u666E\u901A\u9876\u5C42\u8BC4\u8BBA\u4E0D\u586B\u56DE\u590D ID\u3002\u53EA\u77E5\u9053\u516C\u5F00\u5E16\u5B50\u548C\u8BC4\u8BBA\uFF0C\u4E0D\u77E5\u9053\u79C1\u804A\u4E0E\u5185\u5FC3\uFF0C\u4E0D\u5F3A\u884C\u88C5\u719F\u3002`;
     defaultFriendFeedSettings = () => ({
       userNickname: "",
+      userBio: "",
+      userAccounts: [],
       weiboHomeMode: "default",
       coverImages: {},
       interactionPrompt: DEFAULT_FRIEND_FEED_PROMPT,
@@ -1169,7 +1192,7 @@ var APP_VERSION, APP_VERSION_TAG;
 var init_appVersion = __esm({
   "utils/appVersion.ts"() {
     "use strict";
-    APP_VERSION = "v3.16 (User Spaces)";
+    APP_VERSION = "v3.17 (Mainland Relay)";
     APP_VERSION_TAG = APP_VERSION.split(" ")[0];
   }
 });
@@ -1180,7 +1203,7 @@ var init_buildInfo = __esm({
   "utils/buildInfo.ts"() {
     "use strict";
     init_appVersion();
-    BUILD_LABEL = `${"main"}@${"2da334a4"}`;
+    BUILD_LABEL = `${"main"}@${"221bc25f"}`;
   }
 });
 
@@ -2002,6 +2025,10 @@ var init_homeMessageBridge = __esm({
 });
 
 // utils/phoneEvidence.ts
+function applyPhoneEvidenceChatLink(character2, link) {
+  if (character2.id !== link.charId || !character2.phoneState?.records?.some((record4) => record4.id === link.recordId)) return character2;
+  return { ...character2, phoneState: { ...character2.phoneState, records: character2.phoneState.records.map((record4) => record4.id === link.recordId ? { ...record4, systemMessageId: link.messageId } : record4) } };
+}
 function phoneFieldToText(input, fallback = "") {
   const text3 = renderPhoneField(input, /* @__PURE__ */ new Set()).trim();
   return text3 || fallback;
@@ -2023,6 +2050,7 @@ function buildPhoneEvidenceChatCard(record4, appName) {
   return {
     content,
     metadata: {
+      deliveryId: phoneEvidenceDeliveryId(record4.id),
       phoneCard: {
         app,
         kind: normalized.type,
@@ -2033,10 +2061,12 @@ function buildPhoneEvidenceChatCard(record4, appName) {
     }
   };
 }
-var renderPhoneField;
+var PHONE_EVIDENCE_SYNCED, phoneEvidenceDeliveryId, renderPhoneField;
 var init_phoneEvidence = __esm({
   "utils/phoneEvidence.ts"() {
     "use strict";
+    PHONE_EVIDENCE_SYNCED = "phone-evidence-synced";
+    phoneEvidenceDeliveryId = (recordId) => `phone-evidence:${recordId}`;
     renderPhoneField = (input, seen) => {
       if (input == null) return "";
       const valueType = typeof input;
@@ -2484,6 +2514,15 @@ var init_home3DBackup = __esm({
   }
 });
 
+// utils/amsgGlobalGate.ts
+var AMSG_GLOBAL_CONFIG_EVENT;
+var init_amsgGlobalGate = __esm({
+  "utils/amsgGlobalGate.ts"() {
+    "use strict";
+    AMSG_GLOBAL_CONFIG_EVENT = "amsg2-global-config-changed";
+  }
+});
+
 // utils/activeMsgStore.ts
 async function exportAmsg2GlobalConfig(options2 = {}) {
   try {
@@ -2509,6 +2548,8 @@ async function importAmsg2GlobalConfig(config, options2 = {}) {
   } = config;
   if (!options2.allowBackendConnection) {
     for (const key of BACKEND_CONNECTION_KEYS) delete restorable[key];
+  } else if (backupHasBackendConnection(config)) {
+    restorable.enabled = restorable.enabled !== false;
   }
   if (Object.keys(restorable).length === 0) return;
   await ActiveMsgStore.saveGlobalConfig({
@@ -2519,10 +2560,11 @@ async function importAmsg2GlobalConfig(config, options2 = {}) {
     anthropicMessagesWorkerUrl: void 0
   });
 }
-var DB_NAME, DB_VERSION, STORE_KV, STORE_INBOX, STORE_OUTBOUND_SESSIONS, STORE_PENDING_TOOL_CALLS, STORE_REASONING_BUFFER, GLOBAL_CONFIG_KEY, DELETE_DB_BLOCKED_TIMEOUT_MS, EXPIRED_NOTICES_PREFIX, EXPIRED_NOTICES_MAX, EXPIRED_NOTICES_TTL_MS, capacitorDefaultWorkerUrl, defaultGlobalConfig, dbPromise, openDB, getKv, setKv, XHS_SESSION_NOTES_PREFIX, XHS_SESSION_NOTES_TTL_MS, pruneStaleXhsSessionNotes, generateUuidV4, ACTION_RESULT_APPLIED_PREFIX, ACTION_RESULT_APPLIED_TTL_MS, pruneStaleActionResultReceipts, ActiveMsgStore, BACKEND_CONNECTION_KEYS;
+var DB_NAME, DB_VERSION, STORE_KV, STORE_INBOX, STORE_OUTBOUND_SESSIONS, STORE_PENDING_TOOL_CALLS, STORE_REASONING_BUFFER, GLOBAL_CONFIG_KEY, DELETE_DB_BLOCKED_TIMEOUT_MS, EXPIRED_NOTICES_PREFIX, EXPIRED_NOTICES_MAX, EXPIRED_NOTICES_TTL_MS, capacitorDefaultWorkerUrl, defaultGlobalConfig, dbPromise, openDB, getKv, setKv, XHS_SESSION_NOTES_PREFIX, XHS_SESSION_NOTES_TTL_MS, pruneStaleXhsSessionNotes, generateUuidV4, ACTION_RESULT_APPLIED_PREFIX, ACTION_RESULT_APPLIED_TTL_MS, pruneStaleActionResultReceipts, ActiveMsgStore, BACKEND_CONNECTION_KEYS, backupHasBackendConnection;
 var init_activeMsgStore = __esm({
   "utils/activeMsgStore.ts"() {
     "use strict";
+    init_amsgGlobalGate();
     DB_NAME = "ActiveMsg";
     DB_VERSION = 2;
     STORE_KV = "kv";
@@ -2791,6 +2833,12 @@ var init_activeMsgStore = __esm({
           updatedAt: Date.now()
         };
         await setKv(GLOBAL_CONFIG_KEY, next);
+        if (typeof window !== "undefined" && typeof CustomEvent === "function") {
+          try {
+            window.dispatchEvent(new CustomEvent(AMSG_GLOBAL_CONFIG_EVENT, { detail: next }));
+          } catch {
+          }
+        }
         return next;
       },
       async ensureUserId() {
@@ -2937,7 +2985,8 @@ var init_activeMsgStore = __esm({
         await setKv(`${EXPIRED_NOTICES_PREFIX}${charId}`, next);
       }
     };
-    BACKEND_CONNECTION_KEYS = ["workerUrl", "serverToken", "masterKey", "userId", "pushMode", "thirdPartyPush"];
+    BACKEND_CONNECTION_KEYS = ["enabled", "workerUrl", "serverToken", "masterKey", "userId", "pushMode", "thirdPartyPush", "useRelay", "relayToken"];
+    backupHasBackendConnection = (config) => !!config?.workerUrl?.trim();
   }
 });
 
@@ -4181,7 +4230,7 @@ function friendAccountRef(feed, row) {
 }
 function activeFriendAccounts(feed, characters) {
   const settings = resolveFriendFeedSettings(feed.settings), owners = /* @__PURE__ */ new Set(["user", ...characters.map((c) => c.id)]);
-  return (feed.accountGraph?.accounts || []).filter((a) => owners.has(a.ownerId) && (a.accountId === "main" || a.ownerId !== "user" && settings.identities[a.ownerId]?.accounts.some((alias) => alias.id === a.accountId)));
+  return (feed.accountGraph?.accounts || []).filter((a) => owners.has(a.ownerId) && (a.accountId === "main" || (a.ownerId === "user" ? settings.userAccounts : settings.identities[a.ownerId]?.accounts)?.some((alias) => alias.id === a.accountId)));
 }
 function normalizeFriendGraph(feed, characters) {
   if (!feed.circles.length && !feed.publicFeed) return;
@@ -4197,6 +4246,7 @@ function normalizeFriendGraph(feed, characters) {
     return account;
   };
   const user = add("user");
+  for (const account of settings.userAccounts || []) add("user", account.id);
   for (const char of characters) {
     const main = add(char.id);
     if (!Object.prototype.hasOwnProperty.call(graph.follows, main.id)) {
@@ -4218,6 +4268,7 @@ function rememberMutualIdentities(graph) {
     if (!graph.follows[targetId]?.includes(source.id)) continue;
     const target = graph.accounts.find((a) => a.id === targetId);
     if (!target || source.ownerId === target.ownerId) continue;
+    if (target.ownerId === "user" && target.accountId !== "main") continue;
     const known = graph.known[source.ownerId] ||= {};
     if (known[targetId] === void 0) known[targetId] = true;
   }
@@ -4518,6 +4569,7 @@ async function saveFriendFeedSettings(settings) {
       "\u6211",
       user?.name || "",
       next.userNickname || "",
+      ...(next.userAccounts || []).map((a) => a.name),
       ...state.posts.flatMap((p) => [p, ...p.comments]).filter((c) => c.authorId === "user").map((c) => c.authorName)
     ].map(normalizeFriendIdentityName).filter(Boolean));
     if (Object.values(next.identities).some((i) => [i.nickname, ...i.accounts.map((a) => a.name)].some((n) => !!n && reserved.has(normalizeFriendIdentityName(n)))))
@@ -4647,7 +4699,7 @@ async function importFriendSource(circleId, source) {
   });
   return id;
 }
-async function publishFriendPost(circleId, authorName, body, id = createLocalId(), images = []) {
+async function publishFriendPost(circleId, authorName, body, id = createLocalId(), images = [], accountId = "main") {
   if (images.length > FRIEND_POST_IMAGE_LIMIT || !images.every((i) => i && isLocalFriendImage(i.url) && i.thumbnail === i.url)) throw new Error("\u52A8\u6001\u6700\u591A\u6DFB\u52A0 9 \u5F20\u672C\u5730\u56FE\u7247");
   if (!body.trim() && !images.length) throw new Error("\u8BF7\u5199\u70B9\u4EC0\u4E48\u6216\u6DFB\u52A0\u56FE\u7247");
   await mutate((state, characters) => {
@@ -4658,12 +4710,15 @@ async function publishFriendPost(circleId, authorName, body, id = createLocalId(
     const live = new Set(characters.map((c) => c.id));
     const audienceIds = circle.memberIds.filter((id2) => live.has(id2));
     if (!state.publicFeed && !audienceIds.length) throw new Error("\u5708\u5185\u5DF2\u6CA1\u6709\u89D2\u8272\uFF0C\u8BF7\u5148\u8C03\u6574\u6210\u5458");
+    const account = friendAccounts(resolveFriendFeedSettings(state.settings), { id: "user", name: authorName }).find((a) => a.id === accountId);
+    if (!account) throw new Error("\u8FD9\u4E2A\u53D1\u8A00\u8D26\u53F7\u5DF2\u505C\u7528\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9");
     state.posts.push({
       id,
       circleId: circle.id,
       authorId: "user",
-      accountId: "main",
-      authorName: cleanText(resolveFriendFeedSettings(state.settings).userNickname || authorName, 100, "\u540D\u5B57"),
+      accountId: account.id,
+      accountTags: account.tags,
+      authorName: cleanText(account.name, 100, "\u540D\u5B57"),
       text: body.trim() ? cleanText(body, FRIEND_POST_TEXT_LIMIT, "\u52A8\u6001") : "",
       createdAt: Date.now(),
       audienceIds,
@@ -4674,7 +4729,7 @@ async function publishFriendPost(circleId, authorName, body, id = createLocalId(
   });
   return id;
 }
-async function commentOnFriendPost(postId, authorName, body, id = createLocalId(), random = Math.random, replyTarget) {
+async function commentOnFriendPost(postId, authorName, body, id = createLocalId(), random = Math.random, replyTarget, accountId = "main") {
   const changed = [];
   await mutate((state, characters, tx) => {
     const post = state.posts.find((p) => p.id === postId);
@@ -4685,11 +4740,14 @@ async function commentOnFriendPost(postId, authorName, body, id = createLocalId(
     const original = replyTarget?.kind === "source" ? post.weiboComments?.rows.find((c) => c.id === replyTarget.id) : void 0;
     if (replyTarget && !local && !original) throw new Error("\u8981\u56DE\u590D\u7684\u8BC4\u8BBA\u5DF2\u4E0D\u5B58\u5728\uFF0C\u8BF7\u8FD4\u56DE\u8BC4\u8BBA\u533A\u91CD\u65B0\u9009\u62E9");
     const replyTo = local ? { localReply: { id: local.id, authorId: local.authorId, authorName: local.authorName, text: friendFeedExcerpt(local.text) } } : original ? { sourceReply: { id: original.id, authorName: original.authorName, text: original.text.slice(0, 1200) } } : {};
-    authorName = resolveFriendFeedSettings(state.settings).userNickname || authorName;
+    const account = friendAccounts(resolveFriendFeedSettings(state.settings), { id: "user", name: authorName }).find((a) => a.id === accountId);
+    if (!account) throw new Error("\u8FD9\u4E2A\u53D1\u8A00\u8D26\u53F7\u5DF2\u505C\u7528\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9");
+    authorName = account.name;
     post.comments.push({
       id,
       authorId: "user",
-      accountId: "main",
+      accountId: account.id,
+      accountTags: account.tags,
       authorName: cleanText(authorName, 100, "\u540D\u5B57"),
       text: cleanText(body, FRIEND_COMMENT_TEXT_LIMIT, "\u8BC4\u8BBA"),
       createdAt: Date.now(),
@@ -5734,6 +5792,88 @@ var init_db = __esm({
           };
           tx.onerror = () => reject(failure || tx.error);
           tx.onabort = () => reject(failure || tx.error || new Error("\u624B\u673A\u8BB0\u5F55\u672A\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5"));
+        });
+      },
+      /** 记录仍在但私聊卡片已删时可补发；查重、卡片、关联编号在一个事务中提交。 */
+      syncPhoneEvidenceToChat: async (charId, recordId, appName) => {
+        const db = await openDB2();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(["characters", STORE_MESSAGES2, STORE_ASSETS2], "readwrite");
+          const characters = tx.objectStore("characters"), messages = tx.objectStore(STORE_MESSAGES2);
+          let result, failure;
+          const fail3 = (error) => {
+            failure = error;
+            tx.abort();
+          };
+          const read = characters.get(charId);
+          read.onsuccess = () => {
+            const character2 = read.result;
+            const record4 = character2?.phoneState?.records?.find((item) => item.id === recordId);
+            if (!character2 || !record4) {
+              fail3(new Error("\u89D2\u8272\u6216\u8FD9\u6761\u624B\u673A\u8BB0\u5F55\u5DF2\u4E0D\u5B58\u5728\uFF0C\u65E0\u6CD5\u540C\u6B65"));
+              return;
+            }
+            const deliveryId = phoneEvidenceDeliveryId(record4.id);
+            const isLinkedCard = (message) => message && message.charId === charId && !message.groupId && message.type === "phone_card" && (!message.metadata?.deliveryId || message.metadata.deliveryId === deliveryId);
+            const link = (messageId, inserted) => {
+              try {
+                result = { messageId, inserted };
+                if (record4.systemMessageId !== messageId) characters.put(applyPhoneEvidenceChatLink(character2, { charId, recordId, messageId }));
+                if (inserted) clearStaleMemoryMirror(tx, charId, messageId);
+              } catch (error) {
+                fail3(error);
+              }
+            };
+            const findOrCreate = () => {
+              const indexed = messages.indexNames.contains("charId_deliveryId");
+              const cursor = messages.index(indexed ? "charId_deliveryId" : "charId").openCursor(IDBKeyRange.only(indexed ? [charId, deliveryId] : charId));
+              cursor.onsuccess = () => {
+                const row = cursor.result;
+                if (row) {
+                  if (row.value.metadata?.deliveryId === deliveryId && isLinkedCard(row.value)) {
+                    link(row.value.id, false);
+                    return;
+                  }
+                  row.continue();
+                  return;
+                }
+                try {
+                  const card = buildPhoneEvidenceChatCard(record4, appName);
+                  const add = messages.add({
+                    charId,
+                    role: "assistant",
+                    type: "phone_card",
+                    ...card,
+                    // 补的是原记录，不把发生时间改成补发时刻。
+                    timestamp: Number.isFinite(record4.timestamp) && record4.timestamp > 0 ? record4.timestamp : Date.now()
+                  });
+                  add.onsuccess = () => link(add.result, true);
+                } catch (error) {
+                  fail3(error);
+                }
+              };
+            };
+            if (record4.systemMessageId) {
+              const previous = messages.get(record4.systemMessageId);
+              previous.onsuccess = () => {
+                if (isLinkedCard(previous.result)) link(previous.result.id, false);
+                else findOrCreate();
+              };
+            } else findOrCreate();
+          };
+          tx.oncomplete = () => {
+            if (result.inserted) {
+              try {
+                const key = `mp_lastMsgId_${charId}`;
+                if (Number(localStorage.getItem(key)) >= result.messageId) localStorage.removeItem(key);
+              } catch {
+              }
+            }
+            if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PHONE_EVIDENCE_SYNCED, { detail: { charId, recordId, messageId: result.messageId } }));
+            resolve(result);
+          };
+          tx.onerror = () => reject(failure || tx.error);
+          tx.onabort = () => reject(failure || tx.error || new Error("\u540C\u6B65\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5"));
         });
       },
       saveMessage: async (msg) => {
@@ -10488,7 +10628,7 @@ var chatFieldOk = (chat) => {
 var parseFirePack = (value) => {
   try {
     const parsed = JSON.parse(value);
-    if (parsed && typeof parsed === "object" && parsed.v === FIRE_PACK_VERSION && chatFieldOk(parsed.chat) && typeof parsed.template === "string" && parsed.template.length > 0 && (parsed.lastUserMessageAt === null || typeof parsed.lastUserMessageAt === "number") && typeof parsed.tzId === "string" && parsed.tzId.length > 0 && typeof parsed.userTzId === "string" && parsed.userTzId.length > 0 && typeof parsed.targetName === "string" && typeof parsed.builtAt === "number" && Array.isArray(parsed.pendingTasks) && (parsed.scene === null || typeof parsed.scene === "object") && typeof parsed.selfScheduleEnabled === "boolean") {
+    if (parsed && typeof parsed === "object" && parsed.v === FIRE_PACK_VERSION && chatFieldOk(parsed.chat) && typeof parsed.template === "string" && parsed.template.length > 0 && (parsed.lastUserMessageAt === null || typeof parsed.lastUserMessageAt === "number") && (parsed.lastAwayAnchorAt === void 0 || parsed.lastAwayAnchorAt === null || typeof parsed.lastAwayAnchorAt === "number") && typeof parsed.tzId === "string" && parsed.tzId.length > 0 && typeof parsed.userTzId === "string" && parsed.userTzId.length > 0 && typeof parsed.targetName === "string" && typeof parsed.builtAt === "number" && Array.isArray(parsed.pendingTasks) && (parsed.scene === null || typeof parsed.scene === "object") && typeof parsed.selfScheduleEnabled === "boolean") {
       return parsed;
     }
   } catch {
@@ -10752,7 +10892,19 @@ function buildPlateJobMessages(job) {
     { role: "user", content: PLATE_USER_TURN }
   ];
 }
+var normalizePlateUsage = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const u = value;
+  const promptTokens = typeof u.promptTokens === "number" && Number.isFinite(u.promptTokens) ? u.promptTokens : void 0;
+  const completionTokens = typeof u.completionTokens === "number" && Number.isFinite(u.completionTokens) ? u.completionTokens : void 0;
+  if (promptTokens === void 0 && completionTokens === void 0) return void 0;
+  return {
+    ...promptTokens !== void 0 ? { promptTokens } : {},
+    ...completionTokens !== void 0 ? { completionTokens } : {}
+  };
+};
 function buildPlateConsolidateResult(args) {
+  const usage = normalizePlateUsage(args.usage);
   return {
     resultKind: PLATE_CONSOLIDATE_RESULT_KIND,
     v: 1,
@@ -10760,7 +10912,8 @@ function buildPlateConsolidateResult(args) {
     charId: args.charId,
     items: args.items,
     rooms: args.rooms.map((r) => ({ room: r.room, entryIds: r.entryIds })),
-    ...snapshotTimeFields(args.snapshotAt)
+    ...snapshotTimeFields(args.snapshotAt),
+    ...usage ? { usage } : {}
   };
 }
 
@@ -21309,6 +21462,56 @@ function createSingleUserCloudflareWorker(buildConfig, options2 = {}) {
   return { fetch: fetch2, scheduled: scheduled2, runTask: runTask2, getSchemaVersion: getSchemaVersion2, ensureSchema: ensureSchema2 };
 }
 
+// utils/assistantThinking.ts
+var isThinkingPart = (part) => part?.thought === true || ["thinking", "thought", "reasoning", "reasoning.text", "reasoning.summary"].includes(part?.type);
+var isOpaquePart = (part) => ["redacted_thinking", "reasoning.encrypted", "thought_signature"].includes(part?.type);
+function plainText(value) {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(plainText).join("");
+  if (!value || typeof value !== "object" || isOpaquePart(value)) return "";
+  return plainText(value.text ?? value.thinking ?? value.summary ?? value.content ?? value.value);
+}
+function contentParts(value) {
+  if (typeof value === "string") return { content: value, reasoning: "" };
+  if (Array.isArray(value)) return value.map(contentParts).reduce((all, part) => ({
+    content: all.content + part.content,
+    reasoning: all.reasoning + part.reasoning
+  }), { content: "", reasoning: "" });
+  if (!value || typeof value !== "object" || isOpaquePart(value)) return { content: "", reasoning: "" };
+  if (isThinkingPart(value)) return { content: "", reasoning: plainText(value) };
+  return contentParts(value.text ?? value.content ?? value.value);
+}
+function readAssistantMessage(message) {
+  const parts = contentParts(message?.content);
+  const aliases = [message?.reasoning_content, message?.reasoning, message?.thinking].map(plainText);
+  const native = aliases.find((text3) => text3.trim().length > 0) || aliases.find((text3) => text3.length > 0) || "";
+  const details = Array.isArray(message?.reasoning_details) ? message.reasoning_details.filter(isThinkingPart).map(plainText).join("") : "";
+  const reasoning = [native.trim() ? native : details || native, parts.reasoning].filter(Boolean);
+  return { content: parts.content, reasoning: [...new Set(reasoning)].join("\n\n") };
+}
+function splitInlineThinking(text3) {
+  const open = /<(think|thinking|thought)(?:\s[^>]*)?>/gi;
+  let content = "", cursor = 0;
+  const blocks = [];
+  let match;
+  while (match = open.exec(text3)) {
+    content += text3.slice(cursor, match.index);
+    const close = new RegExp(`<\\/\\s*${match[1]}\\s*>`, "gi");
+    close.lastIndex = open.lastIndex;
+    const end = close.exec(text3);
+    const block = text3.slice(open.lastIndex, end ? end.index : text3.length).trim();
+    if (block) blocks.push(block);
+    cursor = end ? close.lastIndex : text3.length;
+    open.lastIndex = cursor;
+    if (!end) break;
+  }
+  return { content: content + text3.slice(cursor), reasoning: blocks.join("\n\n") };
+}
+function readAssistantThinking(message, override) {
+  const parts = readAssistantMessage(message);
+  return [override?.trim() || parts.reasoning.trim(), splitInlineThinking(parts.content).reasoning].filter(Boolean).join("\n\n");
+}
+
 // utils/voiceTextDedup.ts
 function deduplicateVoiceText(text3) {
   if (/\[html\]|<翻[译譯]>|```/i.test(text3)) return text3;
@@ -21377,8 +21580,8 @@ var LONGEST_MESSAGE_KIND = Object.values(MESSAGE_KIND).reduce((longest, kind) =>
 var PUSH_PAYLOAD_BYTE_ENCODER = new TextEncoder();
 function segmentTextWithProtectedBlocks(text3, options2) {
   if (!text3) return [];
-  const splitAndSanitize = (plainText) => {
-    const chunks = options2.splitText(plainText).filter((c) => c !== "");
+  const splitAndSanitize = (plainText2) => {
+    const chunks = options2.splitText(plainText2).filter((c) => c !== "");
     return chunks.map((chunk) => ({
       raw: chunk,
       sanitized: options2.sanitizeText ? options2.sanitizeText(chunk) : chunk,
@@ -21424,8 +21627,8 @@ function segmentTextWithProtectedBlocks(text3, options2) {
   const resolveField = (field, raw2, match) => typeof field === "function" ? field(raw2, match) : field;
   for (const m of validMatches) {
     if (m.index > cursor) {
-      const plainText = text3.substring(cursor, m.index);
-      segments.push(...splitAndSanitize(plainText));
+      const plainText2 = text3.substring(cursor, m.index);
+      segments.push(...splitAndSanitize(plainText2));
     }
     const previewStr = resolveField(m.patternDef.preview, m.raw, m.matchObj);
     const metaData = resolveField(m.patternDef.meta, m.raw, m.matchObj);
@@ -21445,8 +21648,8 @@ function segmentTextWithProtectedBlocks(text3, options2) {
     cursor = m.index + m.length;
   }
   if (cursor < text3.length) {
-    const plainText = text3.substring(cursor);
-    segments.push(...splitAndSanitize(plainText));
+    const plainText2 = text3.substring(cursor);
+    segments.push(...splitAndSanitize(plainText2));
   }
   return segments;
 }
@@ -21474,7 +21677,7 @@ var stripMarkdownDividers = (t) => t.replace(/^\s*---\s*$/gm, "").replace(/^\s*[
 var stripBackticks = (t) => t.replace(/`(\[\[[\s\S]*?\]\])`/g, "$1").replace(/``+/g, "").replace(/(^|\s)`(\s|$)/gm, "$1$2");
 var stripLegacyTrans = (t) => t.replace(/%%TRANS%%[\s\S]*/gi, "");
 var collapseWhitespace = (t) => t.replace(/\n{3,}/g, "\n\n").trim();
-var stripThinkBlocks = (t) => t.replace(/<(think|thinking|thought)>[\s\S]*?<\/\1>/gi, "").replace(/<(?:think|thinking|thought)>[\s\S]*$/gi, "");
+var stripThinkBlocks = (t) => splitInlineThinking(t).content;
 var stripInnerState = (t) => t.replace(/\[\[INNER_STATE:\s*[\s\S]*?\]\]/g, "");
 var replaceMarkdownLinks = (t) => t.replace(/\[([^\]]+)\]\([^)]+\)/g, "[\u94FE\u63A5\uFF1A$1]");
 var replaceSendEmoji = (t) => t.replace(/\[\[SEND_EMOJI[:：]\s*(.+?)\]\]/g, "[\u8868\u60C5\uFF1A$1]");
@@ -21627,7 +21830,7 @@ function sanitizeIntoSegments(text3) {
   const ATOM_MARKER = String.fromCharCode(2);
   const atomBlocks = [];
   const atomSegments = segmentTextWithProtectedBlocks(cleaned, {
-    splitText: (plainText) => [plainText],
+    splitText: (plainText2) => [plainText2],
     protectedPatterns: [
       {
         pattern: /\[html\][\s\S]*?\[\/html\]/i,
@@ -22910,7 +23113,7 @@ function buildScheduledPush(message, build, extraMeta, bannerBody) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-11-11.2";
+var AMSG_BUNDLE_VERSION = "2026-11-14.3";
 
 // worker/amsg/src/reproduction.ts
 async function writeDiagnosticStage(writeState, runId, event, fields = {}) {
@@ -22954,9 +23157,21 @@ var reproductionHandler = {
     });
     if (decision.decision === "tool-request") return { decision: "skip-push", reason: "diagnostic-tools-disabled" };
     if (decision.decision === "skip-push") return { decision: "skip-push", reason: decision.reason };
-    return { decision: "finish", pushPayloads: decision.pushPayloads.map((payload) => ({
+    const rawUsage = ctx.usage ?? ctx.llmResponse?.usage;
+    const promptTokens = typeof rawUsage?.prompt_tokens === "number" && Number.isFinite(rawUsage.prompt_tokens) ? rawUsage.prompt_tokens : void 0;
+    const completionTokens = typeof rawUsage?.completion_tokens === "number" && Number.isFinite(rawUsage.completion_tokens) ? rawUsage.completion_tokens : void 0;
+    const amsgUsage = promptTokens !== void 0 || completionTokens !== void 0 ? {
+      ...promptTokens !== void 0 ? { promptTokens } : {},
+      ...completionTokens !== void 0 ? { completionTokens } : {}
+    } : void 0;
+    return { decision: "finish", pushPayloads: decision.pushPayloads.map((payload, index) => ({
       ...payload,
-      metadata: { charId: DIAGNOSTIC_CHAR_ID, amsgKind: "diagnostic", amsgDiagnosticRunId: diagnostic.runId }
+      metadata: {
+        charId: DIAGNOSTIC_CHAR_ID,
+        amsgKind: "diagnostic",
+        amsgDiagnosticRunId: diagnostic.runId,
+        ...amsgUsage && index === decision.pushPayloads.length - 1 ? { amsgUsage } : {}
+      }
     })) };
   }
 };
@@ -23196,9 +23411,23 @@ var plateConsolidateHandler = {
       await discardJob(ctx.writeState, jobId);
       return { decision: "skip-push", reason: "plate-emit-result-unsupported" };
     }
+    const rawUsage = ctx.usage ?? ctx.llmResponse?.usage;
+    const promptTokens = typeof rawUsage?.prompt_tokens === "number" && Number.isFinite(rawUsage.prompt_tokens) ? rawUsage.prompt_tokens : void 0;
+    const completionTokens = typeof rawUsage?.completion_tokens === "number" && Number.isFinite(rawUsage.completion_tokens) ? rawUsage.completion_tokens : void 0;
+    const usage = promptTokens !== void 0 || completionTokens !== void 0 ? {
+      ...promptTokens !== void 0 ? { promptTokens } : {},
+      ...completionTokens !== void 0 ? { completionTokens } : {}
+    } : void 0;
     try {
       await ctx.emitResult({
-        ...buildPlateConsolidateResult({ jobId, charId: job.charId, items, rooms: job.rooms, snapshotAt: job.snapshotAt }),
+        ...buildPlateConsolidateResult({
+          jobId,
+          charId: job.charId,
+          items,
+          rooms: job.rooms,
+          snapshotAt: job.snapshotAt,
+          ...usage ? { usage } : {}
+        }),
         // 背景工作，整理完不该把人叫回来看。show:false 的 payload 上游只落收件箱、
         // 不发推送，客户端下次上线补收。
         notification: { show: false }
@@ -23239,7 +23468,20 @@ var getKindFireStash = (scratch) => {
 var FIRE_SKIP_RESULT_KIND = "fire-skipped";
 var SILENT_REASONS = /* @__PURE__ */ new Set(["schedule-off"]);
 var shouldReportFireSkip = (reason) => !SILENT_REASONS.has(reason);
+var normalizeSkipUsage = (value) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return void 0;
+  const u = value;
+  const promptTokens = typeof u.promptTokens === "number" && Number.isFinite(u.promptTokens) ? u.promptTokens : void 0;
+  const completionTokens = typeof u.completionTokens === "number" && Number.isFinite(u.completionTokens) ? u.completionTokens : void 0;
+  if (promptTokens === void 0 && completionTokens === void 0) return void 0;
+  return {
+    ...promptTokens !== void 0 ? { promptTokens } : {},
+    ...completionTokens !== void 0 ? { completionTokens } : {},
+    ...u.tokensPartial === true ? { tokensPartial: true } : {}
+  };
+};
 function buildFireSkipResult(args) {
+  const usage = normalizeSkipUsage(args.usage);
   return {
     resultKind: FIRE_SKIP_RESULT_KIND,
     v: 1,
@@ -23253,7 +23495,9 @@ function buildFireSkipResult(args) {
         ...args.task.promptHint ? { promptHint: args.task.promptHint } : {},
         recurrenceType: args.task.recurrenceType
       }
-    } : {}
+    } : {},
+    ...usage ? { usage } : {},
+    ...args.proactiveKind ? { proactiveKind: args.proactiveKind } : {}
   };
 }
 
@@ -23284,6 +23528,8 @@ init_amsgToolPack();
 init_characterWeather();
 
 // utils/realtimeWorldCore.ts
+init_weatherSources();
+init_weatherSources();
 var readJson = async (res) => {
   const text3 = await res.text();
   try {
@@ -23293,6 +23539,41 @@ var readJson = async (res) => {
   }
 };
 var geocodeCache = /* @__PURE__ */ new Map();
+var WEATHER_REQUEST_TIMEOUT_MS = 8e3;
+var fetchWeatherJson = async (url, stage, timeoutMs = WEATHER_REQUEST_TIMEOUT_MS) => {
+  if (timeoutMs <= 0) throw new Error(`${stage}\u8D85\u65F6\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u6216\u68C0\u67E5\u7F51\u7EDC`);
+  const controller = new AbortController();
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new Error(`${stage}\u8D85\u65F6\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u6216\u68C0\u67E5\u7F51\u7EDC`));
+      controller.abort();
+    }, timeoutMs);
+  });
+  const request = async () => {
+    let response;
+    try {
+      response = await fetch(url, { signal: controller.signal });
+    } catch {
+      throw new Error(`${stage}\u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216\u7A0D\u540E\u91CD\u8BD5`);
+    }
+    if (!response.ok) {
+      const hint = response.status === 429 ? "\uFF0C\u8BF7\u6C42\u8FC7\u591A\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5" : "";
+      throw new Error(`${stage} HTTP ${response.status}${hint}`);
+    }
+    try {
+      return await readJson(response);
+    } catch {
+      throw new Error(`${stage}\u54CD\u5E94\u8BFB\u53D6\u5931\u8D25\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5`);
+    }
+  };
+  try {
+    return await Promise.race([request(), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+var isWeatherNumber = (value) => typeof value === "number" && Number.isFinite(value);
 var WMO_WEATHER_CODES = {
   0: { description: "\u6674", icon: "01d" },
   1: { description: "\u5927\u81F4\u6674\u6717", icon: "02d" },
@@ -23323,45 +23604,51 @@ var WMO_WEATHER_CODES = {
   96: { description: "\u96F7\u9635\u96E8\u4F34\u5C0F\u51B0\u96F9", icon: "11d" },
   99: { description: "\u96F7\u9635\u96E8\u4F34\u5927\u51B0\u96F9", icon: "11d" }
 };
-var fetchOwmWeather = async (city, apiKey) => {
-  const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city)}&appid=${apiKey}&units=metric&lang=zh_cn`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`OpenWeatherMap HTTP ${response.status}`);
+var fetchOwmWeather = async (city, apiKey, timeoutMs = WEATHER_REQUEST_TIMEOUT_MS) => {
+  const url = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(city.trim())}&appid=${encodeURIComponent(apiKey.trim())}&units=metric&lang=zh_cn`;
+  const data = await fetchWeatherJson(url, "OpenWeatherMap \u5929\u6C14\u670D\u52A1", timeoutMs);
+  if (![data?.main?.temp, data?.main?.feels_like, data?.main?.humidity].every(isWeatherNumber)) {
+    throw new Error("OpenWeatherMap \u5929\u6C14\u6570\u636E\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
   }
-  const data = await readJson(response);
   return {
     temp: Math.round(data.main.temp),
     feelsLike: Math.round(data.main.feels_like),
     humidity: data.main.humidity,
-    description: data.weather[0]?.description || "\u672A\u77E5",
-    icon: data.weather[0]?.icon || "01d",
+    description: data.weather?.[0]?.description || "\u672A\u77E5",
+    icon: data.weather?.[0]?.icon || "01d",
     city: data.name
   };
 };
-var fetchOpenMeteoWeather = async (city) => {
+var fetchOpenMeteoWeather = async (city, timeoutMs = WEATHER_REQUEST_TIMEOUT_MS) => {
+  city = city.trim();
+  if (!city) throw new Error("\u8BF7\u5148\u586B\u5199\u57CE\u5E02");
+  const deadline = Date.now() + timeoutMs;
   let geo = geocodeCache.get(city);
   if (!geo) {
-    const geoUrl = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=zh&format=json`;
-    const geoRes = await fetch(geoUrl);
-    if (!geoRes.ok) {
-      throw new Error(`Open-Meteo geocoding HTTP ${geoRes.status}`);
+    const lookup = (name) => fetchWeatherJson(
+      `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=1&language=zh&format=json`,
+      "Open-Meteo \u57CE\u5E02\u67E5\u8BE2",
+      deadline - Date.now()
+    );
+    let hit = (await lookup(city))?.results?.[0];
+    if (!hit && /^[\u3400-\u9fff]{2,}市$/.test(city)) {
+      hit = (await lookup(city.slice(0, -1)))?.results?.[0];
     }
-    const geoData = await readJson(geoRes);
-    const hit = geoData.results?.[0];
     if (!hit) {
-      throw new Error(`Open-Meteo \u627E\u4E0D\u5230\u57CE\u5E02: ${city}`);
+      throw new Error(`Open-Meteo \u627E\u4E0D\u5230\u57CE\u5E02: ${city}\uFF0C\u8BF7\u5C1D\u8BD5\u57CE\u5E02\u7B80\u79F0\u6216\u82F1\u6587\u540D\uFF08\u5982\u5317\u4EAC / Beijing\uFF09`);
+    }
+    if (!isWeatherNumber(hit.latitude) || Math.abs(hit.latitude) > 90 || !isWeatherNumber(hit.longitude) || Math.abs(hit.longitude) > 180 || typeof hit.name !== "string" || !hit.name.trim()) {
+      throw new Error("Open-Meteo \u57CE\u5E02\u6570\u636E\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
     }
     geo = { latitude: hit.latitude, longitude: hit.longitude, name: hit.name };
     geocodeCache.set(city, geo);
   }
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.latitude}&longitude=${geo.longitude}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code&timezone=auto`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Open-Meteo HTTP ${response.status}`);
+  const data = await fetchWeatherJson(url, "Open-Meteo \u5929\u6C14\u670D\u52A1", deadline - Date.now());
+  const current = data?.current;
+  if (![current?.temperature_2m, current?.apparent_temperature, current?.relative_humidity_2m, current?.weather_code].every(isWeatherNumber)) {
+    throw new Error("Open-Meteo \u5929\u6C14\u6570\u636E\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
   }
-  const data = await readJson(response);
-  const current = data.current;
   const wmo = WMO_WEATHER_CODES[current.weather_code] || { description: "\u672A\u77E5", icon: "01d" };
   return {
     temp: Math.round(current.temperature_2m),
@@ -23372,17 +23659,108 @@ var fetchOpenMeteoWeather = async (city) => {
     city: geo.name
   };
 };
-var fetchWeatherWithFallback = async (city, apiKey) => {
-  if (!city) return null;
-  if (apiKey) {
+var WWO_TO_WMO = {
+  113: 0,
+  116: 2,
+  119: 3,
+  122: 3,
+  143: 45,
+  176: 61,
+  179: 71,
+  182: 67,
+  185: 56,
+  200: 95,
+  227: 75,
+  230: 75,
+  248: 45,
+  260: 48,
+  263: 51,
+  266: 53,
+  281: 56,
+  284: 57,
+  293: 61,
+  296: 61,
+  299: 63,
+  302: 63,
+  305: 65,
+  308: 65,
+  311: 66,
+  314: 67,
+  317: 67,
+  320: 67,
+  323: 71,
+  326: 71,
+  329: 73,
+  332: 73,
+  335: 75,
+  338: 75,
+  350: 77,
+  353: 80,
+  356: 81,
+  359: 82,
+  362: 67,
+  365: 67,
+  368: 85,
+  371: 86,
+  374: 77,
+  377: 77,
+  386: 95,
+  389: 95,
+  392: 95,
+  395: 95
+};
+var fetchWttrWeather = async (city, timeoutMs = WEATHER_REQUEST_TIMEOUT_MS) => {
+  city = city.trim();
+  if (!city) throw new Error("\u8BF7\u5148\u586B\u5199\u57CE\u5E02");
+  if (/^\.{1,2}$|[/\\:@~?#]/.test(city)) throw new Error("\u8BF7\u586B\u5199\u57CE\u5E02\u540D\u79F0\uFF0C\u4E0D\u8981\u586B\u5199\u7F51\u5740");
+  const data = await fetchWeatherJson(`https://wttr.in/${encodeURIComponent(city)}?format=j1&lang=zh`, "wttr.in \u5929\u6C14\u670D\u52A1", timeoutMs);
+  const current = data?.current_condition?.[0];
+  const number = (value) => typeof value === "string" && value.trim() ? Number(value) : typeof value === "number" ? value : NaN;
+  const temp = number(current?.temp_C), feelsLike = number(current?.FeelsLikeC), humidity = number(current?.humidity);
+  if (![temp, feelsLike, humidity].every(isWeatherNumber) || humidity < 0 || humidity > 100) {
+    throw new Error("wttr.in \u5929\u6C14\u6570\u636E\u4E0D\u5B8C\u6574\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5");
+  }
+  const code2 = number(current?.weatherCode);
+  const mapped = code2 === 149 ? { description: "\u973E", icon: "50d" } : [182, 317, 320, 362, 365].includes(code2) ? { description: "\u96E8\u5939\u96EA", icon: "13d" } : [392, 395].includes(code2) ? { description: "\u96F7\u9635\u96EA", icon: "13d" } : WMO_WEATHER_CODES[WWO_TO_WMO[code2]];
+  const description = current.lang_zh?.[0]?.value || current.lang_xx?.[0]?.value || current.weatherDesc?.[0]?.value;
+  return {
+    temp: Math.round(temp),
+    feelsLike: Math.round(feelsLike),
+    humidity: Math.round(humidity),
+    description: mapped?.description || (typeof description === "string" ? description.trim().slice(0, 80) : "") || "\u672A\u77E5",
+    icon: mapped?.icon || "01d",
+    // nearest_area 是气象站附近的地名，不一定是用户填写的城市（如成都返回郫县）。
+    city
+  };
+};
+var fetchWeatherFromSource = async (city, source, apiKey = "", timeoutMs = WEATHER_REQUEST_TIMEOUT_MS) => {
+  if (!city.trim()) throw new Error("\u8BF7\u5148\u586B\u5199\u57CE\u5E02");
+  const data = source === "owm" ? await fetchOwmWeather(city, apiKey, timeoutMs) : source === "wttr" ? await fetchWttrWeather(city, timeoutMs) : await fetchOpenMeteoWeather(city, timeoutMs);
+  return { ...data, source };
+};
+var fetchWeatherOrThrow = async (city, apiKey, freeSource) => {
+  city = city.trim();
+  if (!city) throw new Error("\u8BF7\u5148\u586B\u5199\u57CE\u5E02");
+  const key = apiKey?.trim() || "";
+  const preferred = normalizeFreeWeatherSource(freeSource);
+  const sources = [...key ? ["owm"] : [], preferred, preferred === "wttr" ? "open-meteo" : "wttr"];
+  const failures = [];
+  for (const source of sources) {
     try {
-      return await fetchOwmWeather(city, apiKey);
-    } catch (e) {
-      console.warn("OpenWeatherMap \u5931\u8D25\uFF0C\u56DE\u843D Open-Meteo:", e);
+      const weather = await fetchWeatherFromSource(city, source, key, key ? 3e3 : 4e3);
+      return failures.length ? { ...weather, fallbackFrom: sources[0] } : weather;
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : `${WEATHER_SOURCE_LABELS[source]}\u8FDE\u63A5\u5931\u8D25`);
     }
   }
+  throw new Error(failures.join("\uFF1B"));
+};
+var fetchWeatherWithFallback = async (city, apiKey, freeSource) => {
+  city = city.trim();
+  apiKey = apiKey?.trim();
+  if (!city) return null;
   try {
-    return await fetchOpenMeteoWeather(city);
+    return await fetchWeatherOrThrow(city, apiKey, freeSource);
   } catch (e) {
     console.error("Failed to fetch weather:", e);
     return null;
@@ -24072,24 +24450,26 @@ var withBudget = async (job, ms, fallback, label) => {
 var loadWeather = async (cfg, nowMs, globalRows, pendingWrites) => {
   const city = cfg.weatherCity?.trim();
   if (!city) return null;
+  const freeSource = normalizeFreeWeatherSource(cfg.weatherFreeSource);
   const snap = parseSnapshot(
     globalRows,
     AMSG_WEATHER_SNAPSHOT_KEY,
     (v) => v && typeof v.city === "string" && v.data && typeof v.fetchedAt === "number"
   );
-  if (snap && snap.city === city && nowMs - snap.fetchedAt < WEATHER_TTL_MS) {
+  const matches = snap && snap.city === city && normalizeFreeWeatherSource(snap.freeSource) === freeSource;
+  if (matches && nowMs - snap.fetchedAt < WEATHER_TTL_MS) {
     console.log("[amsg:world] \u5929\u6C14\u547D\u4E2D\u5FEB\u7167", { city, ageMin: Math.round((nowMs - snap.fetchedAt) / 6e4) });
     return snap.data;
   }
-  const fresh = await fetchWeatherWithFallback(city, cfg.weatherApiKey);
+  const fresh = await fetchWeatherWithFallback(city, cfg.weatherApiKey, freeSource);
   if (fresh) {
     pendingWrites.push({
       key: AMSG_WEATHER_SNAPSHOT_KEY,
-      value: JSON.stringify({ city, data: fresh, fetchedAt: nowMs })
+      value: JSON.stringify({ city, freeSource, data: fresh, fetchedAt: nowMs })
     });
     return fresh;
   }
-  if (snap && snap.city === city && nowMs - snap.fetchedAt <= WEATHER_FALLBACK_MAX_AGE_MS) {
+  if (matches && nowMs - snap.fetchedAt <= WEATHER_FALLBACK_MAX_AGE_MS) {
     console.warn("[amsg:world] \u5929\u6C14\u62C9\u53D6\u5931\u8D25\uFF0C\u5148\u7528\u4E0A\u4E00\u6B21\u7684\u8BFB\u6570", { city });
     return snap.data;
   }
@@ -25664,6 +26044,36 @@ var classifyFetchFailure = (ctx) => {
   return "unknown";
 };
 
+// utils/xhsNoteLink.ts
+function buildXhsNoteLink(note, mobile = false) {
+  const id = note.noteId || note.note_id || note.id;
+  if (!id || !/^[a-f\d]{24}$/i.test(id)) return;
+  let original;
+  for (const value of [note.url, note.shareUrl]) {
+    if (!value) continue;
+    try {
+      const candidate = new URL(value);
+      if (/^https?:$/.test(candidate.protocol) && !candidate.username && !candidate.password && ["xiaohongshu.com", "www.xiaohongshu.com", "rednote.com", "www.rednote.com"].includes(candidate.hostname) && candidate.pathname.match(/^\/(?:explore|discovery\/item|search_result)\/([a-f\d]{24})\/?$/i)?.[1] === id) {
+        original = candidate;
+        break;
+      }
+    } catch {
+    }
+  }
+  const host = original?.hostname || (note.platform === "rednote" ? "www.rednote.com" : "www.xiaohongshu.com");
+  const url = original || new URL(`https://${host}/explore/${id}`);
+  url.protocol = "https:";
+  url.port = "";
+  if (mobile) url.pathname = `/discovery/item/${id}`;
+  const token = note.xsecToken || note.xsec_token || url.searchParams.get("xsec_token");
+  const source = note.xsecSource || note.xsec_source || url.searchParams.get("xsec_source");
+  if (token) {
+    url.searchParams.set("xsec_token", token);
+    url.searchParams.set("xsec_source", source || "pc_feed");
+  }
+  return url.href;
+}
+
 // utils/xhsMcpClient.ts
 var XHS_SPIDER_V3_EXPERIMENT = Object.freeze({
   optInValue: "spider-v3-isolated-cookie",
@@ -26233,7 +26643,11 @@ var XhsMcpClient = {
   },
   search: async (serverUrl, keyword, options2, signal) => {
     signal?.throwIfAborted();
-    return detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "search", { keyword, ...options2 }, signal) : mcpCallTool(serverUrl, "search", { keyword }, signal);
+    const result = await (detectMode(serverUrl) === "bridge" ? bridgePost(serverUrl, "search", { keyword, ...options2 }, signal) : mcpCallTool(serverUrl, "search", { keyword }, signal));
+    if (result.success) for (const note of extractNotesFromMcpData(result.data)) {
+      if (note && typeof note === "object" && !note.xsecSource && !note.xsec_source && !note.url && !note.note_url && !note.shareUrl && !note.share_url) note.xsecSource = "pc_search";
+    }
+    return result;
   },
   getRecommend: async (serverUrl, signal) => {
     signal?.throwIfAborted();
@@ -26488,8 +26902,20 @@ var normalizeNote = (n) => {
   const collectsRaw = n.collects ?? n.collected_count ?? interact.collected_count ?? interact.collectedCount ?? 0;
   const commentCountRaw = n.commentCount ?? n.comment_count ?? interact.comment_count ?? interact.commentCount ?? 0;
   const shareCountRaw = n.shareCount ?? n.share_count ?? interact.share_count ?? interact.shareCount ?? 0;
+  const noteId = n.noteId || n.note_id || n.id || card?.note_id || card?.noteId || "";
+  const platform = n.platform === "rednote" || n.platform === "xhs" ? n.platform : litePlatform === "rednote" ? "rednote" : "xhs";
+  const xsecToken = n.xsecToken || n.xsec_token || card?.xsec_token || card?.xsecToken || void 0;
+  const xsecSource = n.xsecSource || n.xsec_source || card?.xsec_source || card?.xsecSource || void 0;
+  const url = buildXhsNoteLink({
+    noteId,
+    platform,
+    xsecToken,
+    xsecSource,
+    url: n.url || n.note_url,
+    shareUrl: n.shareUrl || n.share_url || card?.share_url
+  });
   return {
-    noteId: n.noteId || n.note_id || n.id || card?.note_id || card?.noteId || card?.noteId || "",
+    noteId,
     title: n.title || n.display_title || n.displayTitle || card?.display_title || card?.displayTitle || "",
     desc: (n.desc || n.description || n.content || card?.desc || card?.description || card?.title || "").slice(0, 500),
     author: n.author || n.nickname || n.user?.nickname || n.user?.name || card?.user?.nickname || card?.user?.name || "",
@@ -26498,7 +26924,10 @@ var normalizeNote = (n) => {
     collects: parseXhsCount(collectsRaw),
     commentCount: parseXhsCount(commentCountRaw),
     shareCount: parseXhsCount(shareCountRaw),
-    xsecToken: n.xsecToken || n.xsec_token || card?.xsec_token || card?.xsecToken || void 0,
+    xsecToken,
+    xsecSource,
+    url,
+    platform,
     coverUrl,
     type: n.type || card?.type || void 0
   };
@@ -26926,6 +27355,8 @@ async function runXhsDetail(args, ctx) {
         author: detailNote.author || matched?.author || "",
         authorId: detailNote.authorId || matched?.authorId || "",
         xsecToken: detailNote.xsecToken || detailToken || xsecToken || matched?.xsecToken,
+        url: matched?.url || detailNote.url,
+        xsecSource: matched?.xsecSource || detailNote.xsecSource,
         comments: detailNote.comments || matched?.comments
       };
       const index = ctx.lastXhsNotesRef.current.findIndex((n) => n.noteId === args.noteId);
@@ -27241,15 +27672,23 @@ var requestEmotionEval = async (api, promptContent, timeoutMs = EMOTION_EVAL_TIM
       return { raw: null, error: `\u526F API HTTP ${res.status}${snippet ? `\uFF1A${snippet}` : ""}` };
     }
     const data = await res.json();
+    const rawUsage = data?.usage;
+    const promptTokens = typeof rawUsage?.prompt_tokens === "number" && Number.isFinite(rawUsage.prompt_tokens) ? rawUsage.prompt_tokens : void 0;
+    const completionTokens = typeof rawUsage?.completion_tokens === "number" && Number.isFinite(rawUsage.completion_tokens) ? rawUsage.completion_tokens : void 0;
+    const usage = promptTokens !== void 0 || completionTokens !== void 0 ? {
+      ...promptTokens !== void 0 ? { promptTokens } : {},
+      ...completionTokens !== void 0 ? { completionTokens } : {}
+    } : void 0;
     const message = data?.choices?.[0]?.message;
     const raw2 = flattenEvalContent(message?.content) || (typeof message?.reasoning_content === "string" ? message.reasoning_content : "");
     if (!raw2.trim()) {
       return {
         raw: null,
-        error: `\u8BC4\u4F30\u6A21\u578B\u6CA1\u6709\u8F93\u51FA\u5185\u5BB9\uFF08finish_reason: ${data?.choices?.[0]?.finish_reason ?? "?"}\uFF09`
+        error: `\u8BC4\u4F30\u6A21\u578B\u6CA1\u6709\u8F93\u51FA\u5185\u5BB9\uFF08finish_reason: ${data?.choices?.[0]?.finish_reason ?? "?"}\uFF09`,
+        ...usage ? { usage } : {}
       };
     }
-    return { raw: raw2, error: null };
+    return { raw: raw2, error: null, ...usage ? { usage } : {} };
   } catch (error) {
     if (signal?.aborted) return { raw: null, error: null };
     console.warn("[emotion-eval] \u8BC4\u4F30\u5931\u8D25\uFF08\u4E3B\u6D41\u7A0B\u4E0D\u53D7\u5F71\u54CD\uFF09", error);
@@ -27666,16 +28105,6 @@ var fireStateError = (reason, detail) => {
   error.permanent = true;
   return error;
 };
-var INLINE_THINK_RE = /<(think|thinking|thought)>([\s\S]*?)<\/\1>/gi;
-var extractInlineThink = (text3) => {
-  if (!text3.includes("<")) return "";
-  const blocks = [];
-  for (const match of text3.matchAll(INLINE_THINK_RE)) {
-    const inner = match[2].trim();
-    if (inner) blocks.push(inner);
-  }
-  return blocks.join("\n\n");
-};
 var amsgReasoningKey = (clientTaskId) => `reasoning:${clientTaskId}`;
 var pushFits = (payload) => measurePushPayload(JSON.stringify(payload), { reserveEnvelope: true }).withinLimit;
 var OFFLOAD_BATONS = [
@@ -27765,8 +28194,19 @@ var writeLastSkip = async (writeState, charId, skip) => {
     console.warn("[amsg:skip] \u8DF3\u8FC7\u539F\u56E0\u5199\u5165\u5931\u8D25\uFF08\u8DF3\u8FC7\u672C\u8EAB\u7167\u5E38\u751F\u6548\uFF0C\u53EA\u662F\u9762\u677F\u5C11\u4E00\u53E5\u8BF4\u660E\uFF09", error);
   }
 };
+var proactiveKindOf = (stash) => stash.away ? "away" : stash.dateLeave ? "dateLeave" : stash.selfScheduled ? "self" : "scheduled";
+var readStashUsage = (stash) => {
+  const pt = stash.promptTokensAcc;
+  const ct = stash.completionTokensAcc;
+  if (pt === void 0 && ct === void 0) return void 0;
+  return {
+    ...pt !== void 0 ? { promptTokens: pt } : {},
+    ...ct !== void 0 ? { completionTokens: ct } : {}
+  };
+};
+var hasPartialStashUsage = (stash) => (stash.llmRounds ?? 0) > (stash.llmRoundsWithUsage ?? 0);
 var emitFireSkip = async (emitResult, args) => {
-  if (!args.taskUuid || !shouldReportFireSkip(args.reason) || typeof emitResult !== "function") return;
+  if (!args.taskUuid || !shouldReportFireSkip(args.reason) && !args.usage || typeof emitResult !== "function") return;
   try {
     await emitResult({
       ...buildFireSkipResult({ ...args, taskUuid: args.taskUuid }),
@@ -28494,6 +28934,8 @@ var amsgHooks = {
     }
     const presenceLastUserMessageAt = presence?.charId === charId ? presence.lastUserMessageAt : null;
     const lastUserMessageAt = laterOf(pack.lastUserMessageAt ?? null, presenceLastUserMessageAt);
+    const lastInteractionAt = laterOf(pack.lastAwayAnchorAt ?? null, lastUserMessageAt);
+    const awayAnchorAt = laterOf(lastInteractionAt, inPerson && presence ? presence.activeAt : null);
     if (!instant) {
       console.log("[amsg:fire-context]", {
         taskId: ctx.task.id,
@@ -28502,6 +28944,7 @@ var amsgHooks = {
         occurrenceMs,
         nowMs: ctx.now.getTime(),
         packLastUserMessageAt: pack.lastUserMessageAt ?? null,
+        packLastAwayAnchorAt: pack.lastAwayAnchorAt ?? null,
         presenceLastUserMessageAt
       });
     }
@@ -28519,7 +28962,7 @@ var amsgHooks = {
     }
     if (!instant && away) {
       const delayMs = Number(taskMeta[AMSG_AWAY_DELAY_META]) * 6e4;
-      const dueAt = lastUserMessageAt != null && delayMs > 0 ? lastUserMessageAt + delayMs : null;
+      const dueAt = awayAnchorAt != null && delayMs > 0 ? awayAnchorAt + delayMs : null;
       const waitMs = dueAt == null ? 0 : dueAt - ctx.now.getTime();
       if (waitMs > AWAY_DUE_TOLERANCE_MS) {
         console.log("[amsg:defer]", { taskId: ctx.task.id, reason: "away-not-due", dueAt });
@@ -28559,7 +29002,7 @@ var amsgHooks = {
       ctx.now.getTime(),
       typeof ctx.task.uuid === "string" && ctx.task.uuid ? stoppedReplyKey(ctx.task.uuid) : null
     );
-    const selfLog = reconcileSelfLogWithPack(storedSelfLog, pack, lastUserMessageAt);
+    const selfLog = reconcileSelfLogWithPack(storedSelfLog, pack, lastInteractionAt);
     const taskBrief = findTaskBrief([...pack.pendingTasks, ...selfLog.tasks], ctx.task.uuid);
     const clientTaskId = typeof taskMeta.amsgClientTaskId === "string" ? taskMeta.amsgClientTaskId : "";
     const nowMs = ctx.now.getTime();
@@ -28713,7 +29156,10 @@ var amsgHooks = {
       instantInputKey,
       // 下面即时对话那一支起跑（要等请求消息拼完才知道给评估喂什么）。
       emotionEvalPromise: null,
-      emotionLatePending: false
+      emotionLatePending: false,
+      away,
+      dateLeave,
+      selfScheduled
     };
     ctx.scratch.fire = stash;
     const canManageTasks = canSelfSchedule && mcpNative && typeof ctx.cancelTask === "function" && typeof ctx.renewTask === "function";
@@ -28850,7 +29296,7 @@ ${userHoliday}` });
       selfLog,
       taskListBlock,
       realtimeWorldBlock,
-      lastUserMessageAt,
+      lastUserMessageAt: lastInteractionAt,
       // 「此刻在做什么」里的钟点跟今日节日同一个开关：关掉时间感知的角色不该从日程块
       // 读到「23:00」——那正是这个开关要挡的东西。日程内容本身照给。
       includeClock: toolPack.timeAwarenessEnabled,
@@ -28871,7 +29317,9 @@ ${userHoliday}` });
       }
       return handler.llmOutput({ ctx, state: kindFire.state });
     }
-    const content = stripReasoningTags(ctx.llmOutputText || "").trim();
+    const llmMessage = ctx.llmResponse?.choices?.[0]?.message;
+    const rawContent = llmMessage && "content" in llmMessage ? readAssistantMessage(llmMessage).content : ctx.llmOutputText || "";
+    const content = splitInlineThinking(rawContent).content.trim();
     const taskId = ctx.taskId != null ? String(ctx.taskId) : null;
     if (taskId == null) {
       console.warn("[amsg:agentic] ctx \u4E0A\u6CA1\u6709 taskId\uFF0C\u9001\u8FBE\u5F52\u5C5E\u4F1A\u5931\u6548", ctx.sessionId);
@@ -28882,9 +29330,18 @@ ${userHoliday}` });
       throw new Error("AMSG2_FIRE_STASH_MISSING: onLLMOutput \u8BFB\u4E0D\u5230 ctx.scratch.fire\uFF0C\u68C0\u67E5 amsg-server \u662F\u5426\u4ECD\u5171\u4EAB scratch");
     }
     const session2 = stash.session;
-    const llmMessage = ctx.llmResponse?.choices?.[0]?.message;
-    const nativeReasoning = llmMessage?.reasoning_content ?? llmMessage?.reasoning ?? llmMessage?.thinking;
-    const roundReasoning = [nativeReasoning, extractInlineThink(ctx.llmOutputText || "")].filter((s) => typeof s === "string" && !!s.trim()).map((s) => s.trim()).join("\n\n");
+    stash.llmRounds = (stash.llmRounds ?? 0) + 1;
+    const roundRawUsage = ctx.usage ?? ctx.llmResponse?.usage;
+    if (roundRawUsage && typeof roundRawUsage === "object") {
+      const pt = typeof roundRawUsage.prompt_tokens === "number" && Number.isFinite(roundRawUsage.prompt_tokens) ? roundRawUsage.prompt_tokens : void 0;
+      const ct = typeof roundRawUsage.completion_tokens === "number" && Number.isFinite(roundRawUsage.completion_tokens) ? roundRawUsage.completion_tokens : void 0;
+      if (pt !== void 0 || ct !== void 0) {
+        stash.llmRoundsWithUsage = (stash.llmRoundsWithUsage ?? 0) + 1;
+        if (pt !== void 0) stash.promptTokensAcc = (stash.promptTokensAcc ?? 0) + pt;
+        if (ct !== void 0) stash.completionTokensAcc = (stash.completionTokensAcc ?? 0) + ct;
+      }
+    }
+    const roundReasoning = readAssistantThinking(llmMessage && "content" in llmMessage ? llmMessage : { ...llmMessage, content: rawContent });
     session2.finalReasoning = roundReasoning || null;
     const rawToolCalls = ctx.llmResponse?.choices?.[0]?.message?.tool_calls;
     const nativeCalls = classifyNativeToolCalls(rawToolCalls, stash.fireToolNames, stash.mcpResolve);
@@ -28965,12 +29422,17 @@ ${userHoliday}` });
             reason: overlapReason,
             skippedAt: Date.now()
           });
+          const overlapUsage = readStashUsage(stash);
           await emitFireSkip(ctx.emitResult, {
             charId: stash.charId,
             taskUuid: stash.taskUuid,
             occurrenceMs: stash.occurrenceMs,
             reason: overlapReason,
-            task: findTaskBrief(stash.pendingTasks, stash.taskUuid)
+            task: findTaskBrief(stash.pendingTasks, stash.taskUuid),
+            ...overlapUsage ? {
+              usage: { ...overlapUsage, ...hasPartialStashUsage(stash) ? { tokensPartial: true } : {} },
+              proactiveKind: proactiveKindOf(stash)
+            } : {}
           });
           return { decision: "skip-push" };
         }
@@ -28978,6 +29440,7 @@ ${userHoliday}` });
     }
     if (decision.decision === "skip-push" && decision.sideEffects) {
       if (typeof ctx.emitResult !== "function") throw new Error("AMSG2_RESULT_UNSUPPORTED: \u8BF7\u66F4\u65B0 Worker \u4EE5\u63A5\u6536\u52A8\u4F5C\u7ED3\u679C");
+      const sideEffectUsage = readStashUsage(stash);
       const metadata = {
         ...stripSarSnapshot(stripEmotionEvalSpec(ctx.metadata)),
         ...decision.sideEffects,
@@ -28985,6 +29448,11 @@ ${userHoliday}` });
         ...stash.scheduledTasks.length ? { amsgSelfScheduled: stash.scheduledTasks } : {},
         ...stash.cancelledTasks.length || stash.renewedTasks.length ? {
           amsgTaskMutations: { cancelled: stash.cancelledTasks, renewed: stash.renewedTasks }
+        } : {},
+        ...sideEffectUsage ? {
+          amsgUsage: sideEffectUsage,
+          amsgProactiveKind: proactiveKindOf(stash),
+          ...hasPartialStashUsage(stash) ? { amsgTokensPartial: true } : {}
         } : {}
       };
       await ctx.emitResult({
@@ -29056,12 +29524,17 @@ ${userHoliday}` });
         skippedAt: Date.now()
       });
       if (!stash.instant) {
+        const skipUsage = readStashUsage(stash);
         await emitFireSkip(ctx.emitResult, {
           charId: stash.charId,
           taskUuid: stash.taskUuid,
           occurrenceMs: stash.occurrenceMs,
           reason: decision.reason,
-          task: findTaskBrief(stash.pendingTasks, stash.taskUuid)
+          task: findTaskBrief(stash.pendingTasks, stash.taskUuid),
+          ...skipUsage ? {
+            usage: { ...skipUsage, ...hasPartialStashUsage(stash) ? { tokensPartial: true } : {} },
+            proactiveKind: proactiveKindOf(stash)
+          } : {}
         });
       }
       if (stash.instant && stash.taskUuid && ctx.writeState) {
@@ -29101,16 +29574,11 @@ ${userHoliday}` });
         const lastMeta = {};
         const toolTrace = condenseToolTrace(session2.toolCalls);
         if (toolTrace.length > 0) lastMeta.amsgToolTrace = toolTrace;
-        const usage = ctx.usage;
-        if (usage && typeof usage === "object") {
-          const pick = (key) => typeof usage[key] === "number" ? usage[key] : void 0;
-          const promptTokens = pick("prompt_tokens");
-          const completionTokens = pick("completion_tokens");
-          if (promptTokens !== void 0 || completionTokens !== void 0) {
-            lastMeta.amsgUsage = {
-              ...promptTokens !== void 0 ? { promptTokens } : {},
-              ...completionTokens !== void 0 ? { completionTokens } : {}
-            };
+        const stashUsage = readStashUsage(stash);
+        if (stashUsage) {
+          lastMeta.amsgUsage = stashUsage;
+          if ((stash.llmRounds ?? 0) > 1 && !hasPartialStashUsage(stash)) {
+            lastMeta.amsgUsageComplete = true;
           }
         }
         if (stash.emotionEvalPromise) {
@@ -29128,10 +29596,20 @@ ${userHoliday}` });
             lastMeta.amsgEmotionDone = true;
             if (outcome.raw) lastMeta.amsgEmotionUpdate = outcome.raw;
             else if (outcome.error) lastMeta.amsgEmotionError = outcome.error;
+            if (outcome.usage) lastMeta.amsgEmotionUsage = outcome.usage;
           }
         }
         if (Object.keys(lastMeta).length > 0) {
           payloads = attachMetaAt(payloads, payloads.length - 1, lastMeta);
+        }
+      } else if (!stash.instant && payloads.length > 0) {
+        const stashUsage = readStashUsage(stash);
+        if (stashUsage) {
+          payloads = attachMetaAt(payloads, payloads.length - 1, {
+            amsgUsage: stashUsage,
+            amsgProactiveKind: proactiveKindOf(stash),
+            ...hasPartialStashUsage(stash) ? { amsgTokensPartial: true } : {}
+          });
         }
       }
       if (stash.charId) {
