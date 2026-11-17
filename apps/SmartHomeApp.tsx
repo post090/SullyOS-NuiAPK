@@ -7,7 +7,7 @@
  *  - 两级导航：角色列表页（每人一张住所卡）→ 点击推入角色住所详情页
  *  - 房间卡网格 → 点开看物品清单（少数物品带保质期钩子，过期/临期高亮）
  *  - 补给（冰箱/日用品）走档位制：充足/还够/快没了/用完了——记类别不数鸡蛋
- *  - 一键生成/重Roll；生成时接入世界书主题触发 + 记忆宫殿 + 最近聊天（见 assetGen）
+ *  - 一键生成/明确重置；日常变化走购买/补货/消耗/丢弃事件（见 homeOps）
  *
  * UI：浅色玻璃 + 温和卡片（对齐全站扁平毛玻璃规范；安全区走 --chrome-top）。
  */
@@ -16,10 +16,11 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useOS } from '../context/OSContext';
 import { useBackGuard } from '../hooks/useBackGuard';
 import { DB } from '../utils/db';
-import { CharHomeProfile, HomeRoom, HomeSupplyLevel } from '../types';
+import { CharHomeProfile, HomeItemKind, HomeLifeEventType, HomeRoom, HomeSupplyLevel } from '../types';
 import { generateHomeProfile } from '../utils/assetGen';
+import { recordHomeLifeEvent } from '../utils/homeOps';
 import {
-    ArrowLeft, Lightbulb, ArrowsClockwise, Sparkle, CaretDown, CaretUp, Warning, Timer,
+    ArrowLeft, Lightbulb, ArrowsClockwise, Sparkle, CaretDown, CaretUp, Warning, Timer, Plus,
 } from '@phosphor-icons/react';
 
 const CARD: React.CSSProperties = {
@@ -55,11 +56,19 @@ const SmartHomeApp: React.FC = () => {
     const [generating, setGenerating] = useState(false);
     const [confirmReroll, setConfirmReroll] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [editorOpen, setEditorOpen] = useState(false);
+    const [editorAction, setEditorAction] = useState<HomeLifeEventType>('buy');
+    const [editorName, setEditorName] = useState('');
+    const [editorRoom, setEditorRoom] = useState('');
+    const [editorKind, setEditorKind] = useState<HomeItemKind>('durable');
+    const [editorExpiry, setEditorExpiry] = useState('');
+    const [savingEvent, setSavingEvent] = useState(false);
 
     const selChar = useMemo(() => characters.find(c => c.id === selId) || null, [characters, selId]);
 
-    // 系统返回手势：先关重Roll弹窗，再退回角色列表页，最后才轮到关 App
+    // 系统返回手势：先关弹窗，再退回角色列表页，最后才轮到关 App
     useBackGuard([
+        [editorOpen, () => setEditorOpen(false)],
         [confirmReroll, () => setConfirmReroll(false)],
         [!!selId, () => setSelId(null)],
     ]);
@@ -93,7 +102,14 @@ const SmartHomeApp: React.FC = () => {
         }
     }, [selId]);
 
-    useEffect(() => { reload(); setOpenRoomId(null); setConfirmReroll(false); }, [reload]);
+    useEffect(() => { reload(); setOpenRoomId(null); setConfirmReroll(false); setEditorOpen(false); }, [reload]);
+
+    // 从聊天或别的页面切回来时重新读取，而不是拿挂载时的旧快照冒充最新状态。
+    useEffect(() => {
+        const onFocus = () => { reload(); };
+        window.addEventListener('focus', onFocus);
+        return () => window.removeEventListener('focus', onFocus);
+    }, [reload]);
 
     const handleGenerate = useCallback(async (isReroll: boolean) => {
         if (!selChar) return;
@@ -119,6 +135,42 @@ const SmartHomeApp: React.FC = () => {
             setGenerating(false);
         }
     }, [selChar, apiConfig, profile, reload, addToast]);
+
+    const openEventEditor = useCallback((action: HomeLifeEventType = 'buy', name = '', room = '') => {
+        setEditorAction(action);
+        setEditorName(name);
+        setEditorRoom(room);
+        setEditorKind('durable');
+        setEditorExpiry('');
+        setEditorOpen(true);
+    }, []);
+
+    const handleManualEvent = useCallback(async () => {
+        if (!selId || !editorName.trim()) {
+            addToast('先填写物品或补给名称', 'error');
+            return;
+        }
+        setSavingEvent(true);
+        try {
+            const input = editorAction === 'buy'
+                ? { type: 'buy' as const, name: editorName, roomName: editorRoom, kind: editorKind, expiryDate: editorKind === 'consumable' ? editorExpiry : '' }
+                : editorAction === 'restock'
+                    ? { type: 'restock' as const, name: editorName, roomName: editorRoom, expiryDate: editorExpiry }
+                    : { type: editorAction, name: editorName };
+            const result = await recordHomeLifeEvent(selId, input, { source: 'manual' });
+            if (!result) { addToast('住所档案不存在，请重新读取', 'error'); return; }
+            addToast(result.summary, result.changed ? 'success' : 'info');
+            if (result.changed) {
+                setEditorOpen(false);
+                await reload();
+            }
+        } catch (error) {
+            console.error('[SmartHome] manual event failed:', error);
+            addToast('这次修正没有保存，请再试一次', 'error');
+        } finally {
+            setSavingEvent(false);
+        }
+    }, [selId, editorAction, editorName, editorRoom, editorKind, editorExpiry, reload, addToast]);
 
     // 需要关注的事：过期/临期物品 + 见底补给（放顶部当"今日提醒"）
     const alerts = useMemo(() => {
@@ -203,11 +255,17 @@ const SmartHomeApp: React.FC = () => {
                             </>
                         )}
                     </div>
-                    <div className="ml-auto">
+                    <div className="ml-auto flex items-center gap-0.5">
                         {selId && profile && (
-                            <button onClick={() => setConfirmReroll(true)} disabled={generating} className="p-2 rounded-full active:scale-90 transition-transform hover:bg-black/5 disabled:opacity-40" aria-label="重Roll">
-                                <ArrowsClockwise size={18} className="text-teal-500" weight="bold" />
-                            </button>
+                            <>
+                                <button onClick={() => reload()} disabled={loading || generating} className="p-2 rounded-full active:scale-90 transition-transform hover:bg-black/5 disabled:opacity-40" aria-label="重新读取" title="重新读取最新档案">
+                                    <ArrowsClockwise size={18} className={`text-teal-500 ${loading ? 'animate-spin' : ''}`} weight="bold" />
+                                </button>
+                                <button onClick={() => openEventEditor()} className="p-2 rounded-full active:scale-90 transition-transform hover:bg-black/5" aria-label="记录生活事件" title="手动修正物品或补给">
+                                    <Plus size={19} className="text-teal-500" weight="bold" />
+                                </button>
+                                <button onClick={() => setConfirmReroll(true)} disabled={generating} className="px-2 py-1.5 rounded-lg text-[10px] font-bold text-slate-400 hover:bg-black/5 disabled:opacity-40">重置</button>
+                            </>
                         )}
                     </div>
                 </div>
@@ -310,25 +368,105 @@ const SmartHomeApp: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="text-[10px] text-slate-300 px-1 leading-relaxed">
-                            角色对家里只有"直觉概念"（洗衣液快没了、那盒巧克力快过期了），聊天时会自然带出来，不会报库存清单。
+                        {profile.recentEvents && profile.recentEvents.length > 0 && (
+                            <div className="rounded-2xl p-4" style={CARD}>
+                                <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-2">最近更新</div>
+                                <div className="space-y-2.5">
+                                    {profile.recentEvents.slice(0, 3).map(event => (
+                                        <div key={event.id} className="text-[11px] leading-relaxed">
+                                            <div className="font-semibold text-slate-600">{event.summary}</div>
+                                            <div className="text-[9px] text-slate-400 mt-0.5">
+                                                {event.source === 'chat' ? '聊天自动记录' : '手动修正'} · {new Date(event.timestamp).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="text-[10px] text-slate-400 px-1 leading-relaxed">
+                            聊天里明确发生的购买、补货、消耗和丢弃会增量更新；顶部 + 可手动修正。重置才会覆盖整套档案。
                         </div>
                     </>
                 )}
             </div>
             )}
 
-            {/* 重Roll 确认 */}
+            {/* 手动记录生活事件：与聊天指令共用 homeOps，不走另一套猜测逻辑 */}
+            {editorOpen && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center p-5 animate-fade-in" role="dialog" aria-modal="true" aria-label="记录生活事件">
+                    <div className="absolute inset-0 bg-black/30" onClick={() => !savingEvent && setEditorOpen(false)} />
+                    <div className="relative w-full max-h-[88%] overflow-y-auto no-scrollbar rounded-3xl p-5 bg-white shadow-2xl border border-slate-100">
+                        <div className="text-sm font-black text-slate-700">记录一次生活变化</div>
+                        <div className="text-[10px] text-slate-400 mt-1.5 leading-relaxed">消耗或丢弃时，名称需与现有条目一致；补货没有对应条目时会新增。</div>
+
+                        <label className="block mt-4">
+                            <span className="text-[10px] font-bold text-slate-400">发生了什么</span>
+                            <select value={editorAction} onChange={event => setEditorAction(event.target.value as HomeLifeEventType)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600 outline-none focus:border-teal-300">
+                                <option value="buy">购买了新物品</option>
+                                <option value="restock">购买补给 / 重新补货</option>
+                                <option value="consume">吃完 / 用完</option>
+                                <option value="discard">丢弃 / 清空</option>
+                            </select>
+                        </label>
+
+                        <label className="block mt-3">
+                            <span className="text-[10px] font-bold text-slate-400">物品或补给名称</span>
+                            <input value={editorName} onChange={event => setEditorName(event.target.value)} list="home-life-targets" maxLength={40} placeholder="例如：牛奶、纸巾、咖啡机" className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600 outline-none focus:border-teal-300" />
+                            <datalist id="home-life-targets">
+                                {Array.from(new Set([
+                                    ...(profile?.rooms.flatMap(room => room.items.map(item => item.name)) || []),
+                                    ...(profile?.supplies.map(supply => supply.name) || []),
+                                ])).map(name => <option key={name} value={name} />)}
+                            </datalist>
+                        </label>
+
+                        {(editorAction === 'buy' || editorAction === 'restock') && (
+                            <label className="block mt-3">
+                                <span className="text-[10px] font-bold text-slate-400">所在房间{editorAction === 'restock' ? '（新增消耗品时必填，默认厨房）' : ''}</span>
+                                <input value={editorRoom} onChange={event => setEditorRoom(event.target.value)} maxLength={20} placeholder={editorAction === 'buy' ? '例如：厨房（留空归入其他）' : '留空默认厨房'} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600 outline-none focus:border-teal-300" />
+                            </label>
+                        )}
+
+                        {editorAction === 'buy' && (
+                            <label className="block mt-3">
+                                <span className="text-[10px] font-bold text-slate-400">物品类型</span>
+                                <select value={editorKind} onChange={event => setEditorKind(event.target.value as HomeItemKind)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600 outline-none focus:border-teal-300">
+                                    <option value="durable">耐用品（家具、家电、摆件）</option>
+                                    <option value="consumable">消耗品（食品、会用完的物品）</option>
+                                </select>
+                            </label>
+                        )}
+
+                        {(editorAction === 'restock' || (editorAction === 'buy' && editorKind === 'consumable')) && (
+                            <label className="block mt-3">
+                                <span className="text-[10px] font-bold text-slate-400">新保质期（可选）</span>
+                                <input type="date" value={editorExpiry} onChange={event => setEditorExpiry(event.target.value)} className="mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600 outline-none focus:border-teal-300" />
+                                <span className="block text-[9px] text-slate-400 mt-1">旧消耗品补货但不填日期时，会清掉已经失效的旧保质期。</span>
+                            </label>
+                        )}
+
+                        <div className="flex gap-2 mt-5">
+                            <button onClick={() => setEditorOpen(false)} disabled={savingEvent} className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 active:scale-95 transition-all disabled:opacity-50">取消</button>
+                            <button onClick={handleManualEvent} disabled={savingEvent || !editorName.trim()} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-500 hover:bg-teal-400 active:scale-95 transition-all disabled:opacity-50">
+                                {savingEvent ? '保存中…' : '保存这次变化'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 重置确认：只有这里会覆盖整套档案 */}
             {confirmReroll && (
                 <div className="absolute inset-0 z-50 flex items-center justify-center p-8 animate-fade-in">
                     <div className="absolute inset-0 bg-black/30" onClick={() => setConfirmReroll(false)} />
                     <div className="relative w-full rounded-3xl p-6 bg-white shadow-2xl border border-slate-100">
-                        <div className="text-sm font-black text-slate-700">重新统计 {selChar?.name} 的家？</div>
-                        <div className="text-[11px] text-slate-400 mt-2 leading-relaxed">会生成一套全新的住所（房间、物品、补给都换），旧档案不可恢复。</div>
+                        <div className="text-sm font-black text-slate-700">重置 {selChar?.name} 的住所档案？</div>
+                        <div className="text-[11px] text-slate-400 mt-2 leading-relaxed">这不是日常刷新：会覆盖当前房间、物品、补给和生活记录，旧档案不可恢复。只是想看最新状态，请用顶部的重新读取。</div>
                         <div className="flex gap-2 mt-5">
                             <button onClick={() => setConfirmReroll(false)} className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 text-slate-500 active:scale-95 transition-all">算了</button>
                             <button onClick={() => handleGenerate(true)} disabled={generating} className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-500 hover:bg-teal-400 active:scale-95 transition-all disabled:opacity-50">
-                                {generating ? '统计中…' : '重Roll'}
+                                {generating ? '生成中…' : '确认重置'}
                             </button>
                         </div>
                     </div>

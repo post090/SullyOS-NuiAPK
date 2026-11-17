@@ -550,6 +550,7 @@ ${groupLogStr}\n`;
         //    角色对自己的钱和家里只有日常直觉，跟真人一样。
         //    顺手记下"有没有钱包档案"——下面的可用动作段用它决定要不要教记账指令。
         let walletHasProfile = false;
+        let homeHasProfile = false;
         const assetIntuitionPromise: Promise<string> = (async () => {
             try {
                 const [wallet, home] = await Promise.all([
@@ -557,6 +558,7 @@ ${groupLogStr}\n`;
                     DB.getHomeProfile(char.id),
                 ]);
                 walletHasProfile = !!wallet;
+                homeHasProfile = !!home;
                 const lines: string[] = [];
                 if (wallet?.intuition) lines.push(`- 钱的直觉：${wallet.intuition}。`);
                 if (home?.intuition) lines.push(`- 家里的直觉：${home.intuition}。`);
@@ -788,7 +790,13 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - 转账: 必须使用且只使用 \`[[ACTION:TRANSFER|to=user|amount=100]]\`（to 固定写 user，金额只写数字）；不要写成 \`[系统: 你向某人转账 100]\` 等系统日志文本。
    - **处理用户转账**: 当历史里出现 \`[[记录:TRANSFER|to=char|...|status=待处理]]\`（用户转给你、还没处理）时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。
    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。${walletHasProfile ? `
-   - **记账（你的钱包会真实变动）**: 当你在聊天里**真的发生了**一笔花销或进账时（比如你说自己买了咖啡、点了外卖、打车了，或收到稿费/兼职钱），在那句话的末尾附上: 花钱 \`[[ACTION:SPEND:金额|用途]]\`，进账 \`[[ACTION:INCOME:金额|来源]]\`（如 \`[[ACTION:SPEND:32|一杯燕麦拿铁]]\`）。规则: ①只记你**此刻实际发生**的收支，回忆过去/计划将来/打比方都不记；②金额按物价合理估，跟你的经济状况匹配；③工资、房租、月供这类固定收支系统会自动扣，**不要**用这个指令重复记；④转账走 TRANSFER，不要用 SPEND/INCOME 记转账；⑤买日用品/耗材时把**品名**写进用途（如 \`[[ACTION:SPEND:25|钢笔墨水]]\`），家里对应的补给库存会自动补上。这个账本影响你的"钱的直觉"，记了钱就真的少了/多了。` : ''}
+   - **记账（你的钱包会真实变动）**: 当你在聊天里**真的发生了**一笔花销或进账时（比如你说自己买了咖啡、点了外卖、打车了，或收到稿费/兼职钱），在那句话的末尾附上: 花钱 \`[[ACTION:SPEND:金额|用途]]\`，进账 \`[[ACTION:INCOME:金额|来源]]\`（如 \`[[ACTION:SPEND:32|一杯燕麦拿铁]]\`）。规则: ①只记你**此刻实际发生**的收支，回忆过去/计划将来/打比方都不记；②金额按物价合理估，跟你的经济状况匹配；③工资、房租、月供这类固定收支系统会自动扣，**不要**用这个指令重复记；④转账走 TRANSFER，不要用 SPEND/INCOME 记转账。这个账本影响你的"钱的直觉"，记了钱就真的少了/多了。` : ''}${homeHasProfile && !forFirePack && !timelyByWorker ? `
+   - **栖居生活事件（你的住所会真实更新）**: 只有你自己刚刚明确发生的住所变化，才在正文外单独一行输出对应标签：
+     ① 买回耐用品（家具、家电、摆件等）: \`[[ACTION:HOME:BUY|物品名|房间名|durable]]\`；
+     ② 买回食品或其他消耗品: \`[[ACTION:HOME:BUY|物品名|房间名|consumable|YYYY-MM-DD]]\`（最后是最新保质期，不知道就不写最后一栏）；
+     ③ 补充已有补给/消耗品: \`[[ACTION:HOME:RESTOCK|名称|YYYY-MM-DD(可省略)|房间名(可省略)]]\`（没有对应条目时会新增）；
+     ④ 吃完或用完: \`[[ACTION:HOME:CONSUME|名称]]\`；丢弃或清空: \`[[ACTION:HOME:DISCARD|名称]]\`。
+     名称应与【你的经济与生活直觉】中的现有物品一致；耐用品不写保质期，纸巾/洗衣液等补给档位用 RESTOCK 而非 BUY。**只在事实已经发生时记录**：计划去买、想要、回忆过去、假设、用户买的东西都不能写回你的家；外卖、打车、服务等普通 SPEND 也不会自动变成家中物品。一条指令只记录一种物品，不要为了显得有变化而编造事件；未明确提到这些事实时，一个 HOME 标签都不要输出。` : ''}
 ${forFirePack || char.hideMonthlyRecallPrompt === false ? "   - 调取记忆: `[[RECALL: YYYY-MM]]`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作\n" : ''}   - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
 ${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `

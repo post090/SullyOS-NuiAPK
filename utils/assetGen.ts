@@ -30,6 +30,20 @@ const num = (v: unknown, fallback = 0): number => {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '');
 
+/** 住所消耗品只接受真实且尚未过去的本地日期，避免模型生成“出生即过期”的物品。 */
+export function normalizeHomeExpiryDate(value: string, now = Date.now()): string | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(year, month - 1, day);
+    if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
+    const today = new Date(now);
+    today.setHours(0, 0, 0, 0);
+    return date >= today ? `${match[1]}-${match[2]}-${match[3]}` : null;
+}
+
 /**
  * LLM JSON 惯犯修复（状态机单遍扫描）：
  * 1. 字符串内未转义的双引号 → \"（看后面第一个非空白字符是不是 , } ] : 来判断真收尾）
@@ -339,8 +353,9 @@ export async function generateHomeProfile(
         note: str(r?.note) || undefined,
         items: Array.isArray(r?.items) ? r.items.slice(0, 10).map((it: any, ii: number): HomeItem => {
             let expiryDate: string | undefined;
-            if (/^\d{4}-\d{2}-\d{2}$/.test(str(it?.expiryDate)) && expiryBudget > 0) {
-                expiryDate = str(it.expiryDate);
+            const normalizedExpiry = normalizeHomeExpiryDate(str(it?.expiryDate));
+            if (normalizedExpiry && expiryBudget > 0) {
+                expiryDate = normalizedExpiry;
                 expiryBudget--;
             }
             return {
@@ -348,6 +363,7 @@ export async function generateHomeProfile(
                 name: str(it?.name) || '物品',
                 icon: str(it?.icon) || undefined,
                 note: str(it?.note) || undefined,
+                kind: expiryDate ? 'consumable' : 'durable',
                 expiryDate,
             };
         }) : [],
@@ -364,6 +380,7 @@ export async function generateHomeProfile(
     const profile: CharHomeProfile = {
         charId: char.id,
         generatedAt: Date.now(),
+        updatedAt: Date.now(),
         rerollCount: (prev?.rerollCount || 0) + (prev ? 1 : 0),
         homeName: str(raw.homeName) || undefined,
         homeNote: str(raw.homeNote) || undefined,
@@ -445,6 +462,12 @@ const LEVEL_TEXT: Record<HomeSupplyLevel, string> = {
 export function buildHomeIntuition(profile: CharHomeProfile): string {
     const parts: string[] = [];
     if (profile.homeName) parts.push(`住的是${profile.homeName}`);
+
+    // 给角色足够准确的目标名，后续“吃完/丢弃/补货”才能写回同一件物品。
+    const itemNames = profile.rooms.flatMap(room => room.items.map(item => item.name)).filter(Boolean);
+    if (itemNames.length > 0) parts.push(`家里放着${itemNames.slice(0, 24).join('、')}`);
+    const supplyNames = profile.supplies.map(supply => supply.name).filter(Boolean);
+    if (supplyNames.length > 0) parts.push(`日常补给有${supplyNames.slice(0, 12).join('、')}`);
 
     const lows = profile.supplies.filter(s => s.level === 'low');
     const outs = profile.supplies.filter(s => s.level === 'out');

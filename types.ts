@@ -2779,8 +2779,10 @@ export interface CharWalletProfile {
     intuition?: string;
 }
 
-// 智能家居：住所明细。物品记"档位"不记"个数"；保质期只挂在少数钩子物品上。
+// 智能家居：住所明细。耐用品按物品记录，消耗品按物品或补给档位记录。
 export type HomeSupplyLevel = 'plenty' | 'ok' | 'low' | 'out';
+export type HomeItemKind = 'durable' | 'consumable';
+export type HomeLifeEventType = 'buy' | 'restock' | 'consume' | 'discard';
 
 export interface HomeSupply {
     id: string;
@@ -2788,6 +2790,7 @@ export interface HomeSupply {
     icon?: string;             // emoji
     level: HomeSupplyLevel;
     note?: string;             // "还剩两天的菜"
+    updatedAt?: number;
 }
 
 export interface HomeItem {
@@ -2795,7 +2798,9 @@ export interface HomeItem {
     name: string;
     icon?: string;             // emoji
     note?: string;
-    expiryDate?: string;       // 保质期钩子（生成时只挑 2~3 件）YYYY-MM-DD
+    kind?: HomeItemKind;       // 旧档案缺省：有保质期=消耗品，其余=耐用品
+    expiryDate?: string;       // 消耗品保质期 YYYY-MM-DD
+    updatedAt?: number;
 }
 
 export interface HomeRoom {
@@ -2806,14 +2811,25 @@ export interface HomeRoom {
     items: HomeItem[];
 }
 
+export interface HomeLifeEventRecord {
+    id: string;                // 聊天消息 ID + 指令内容，用于重放去重
+    type: HomeLifeEventType;
+    name: string;
+    summary: string;
+    timestamp: number;
+    source: 'chat' | 'manual';
+}
+
 export interface CharHomeProfile {
     charId: string;            // keyPath
     generatedAt: number;
+    updatedAt?: number;
     rerollCount?: number;
     homeName?: string;         // "老小区六楼一居室"
     homeNote?: string;
     rooms: HomeRoom[];
     supplies: HomeSupply[];
+    recentEvents?: HomeLifeEventRecord[];
     intuition?: string;        // 直觉摘要（注入角色 prompt）
 }
 // ---------------------------------
