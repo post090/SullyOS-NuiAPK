@@ -12,6 +12,7 @@
 import { SignalBooklet, SignalPoem } from '../../types';
 import { getPostOfficeBase, getDeviceId, maskPen } from './postOffice';
 import { resilientFetch } from '../resilientFetch';
+import { recoverSignalOwnership } from './signalRecovery';
 
 export interface SignalState {
     booklet: SignalBooklet;
@@ -134,6 +135,7 @@ export const Signal = {
     /** 读当前态：册子规格 + 那首未写完的诗(全文) + 近期封存几首。带本机 device → 句子回 mine 标记。
      *  只读视图用（UI 面板）；写诗路径走 lock()。 */
     async current(): Promise<SignalState> {
+        void recoverSignalOwnership();
         return await call<SignalState>('/poem/current', { query: { device: getDeviceId() } });
     },
 
@@ -179,6 +181,7 @@ export const Signal = {
 
     /** 翻阅诗集：已封存的诗（含全文），最近优先。mineOnly = 只看本机 char 参与过的；带 device → 句子回 mine 标记。 */
     async feed(limit = 30, opts?: { mineOnly?: boolean; bookletId?: string }): Promise<SignalPoem[]> {
+        void recoverSignalOwnership();
         const r = await call<{ poems: SignalPoem[] }>('/poem/feed', {
             query: {
                 limit: String(limit), device: getDeviceId(),

@@ -45,12 +45,56 @@ export enum AppID {
   JobHunt = 'job_hunt', // 上岸计划 — 角色辅助求职工作台（岗位进展/模拟面试/简历建议沉淀成笔记，公司代号制 + 本地脱敏两道隐私闸）
 }
 
+export interface SystemLogContext {
+    /** 应用版本与构建标识，随单条日志导出便于定位构建版本 */
+    build?: string;
+    /** 请求所属功能分类，如 llm / embedding / vector-db / amsg2 / music / tts / backup / mcp 等 */
+    category?: string;
+    /** 失败细分形态：blocked / timeout / offline / mixed-content / bad-url / stream-interrupted / aborted / http-status / console-error / unknown */
+    failureKind?: string;
+    /** 具体子操作，如 提交即时对话 (/instant-chat)、PROPFIND、tools/call:search 等 */
+    operation?: string;
+    method?: string;
+    /** 已脱敏的请求 URL（不含中转令牌、密钥查询参数或账号口令） */
+    url?: string;
+    host?: string;
+    /** 转发通道：direct / proxy-worker / amsg-relay / mcp-proxy / same-origin */
+    via?: string;
+    /** 经由代理或中转时的实际目标上游域名 */
+    upstreamTarget?: string;
+    /** 命中的本地配置来源说明，如「对话 API（预设：OpenRouter）」 */
+    configSource?: string;
+    /** 请求体中的模型标识（仅模型类请求） */
+    model?: string;
+    httpStatus?: number;
+    durationMs?: number;
+    /** 响应头到达耗时（仅已收到响应头后在流式读取阶段中断时存在） */
+    headersMs?: number;
+    /** no-cors 连通性复检结果（异步回填） */
+    reachability?: string;
+    /** 归属信息来源：explicit = 调用点显式传入；ambient = 仅取发起时的前台界面快照 */
+    attributionMode?: 'explicit' | 'ambient';
+    appName?: string;
+    charName?: string;
+    purpose?: string;
+    /** 发起时 -> 失败时的页面可见性，如 visible -> hidden */
+    visibility?: string;
+    /** 请求在飞期间页面是否进入过后台/锁屏 */
+    backgroundedDuringRequest?: boolean;
+    /** 精简后的调用栈入口线索 */
+    caller?: string;
+}
+
 export interface SystemLog {
+    advice?: { title: string; action: string };
     id: string;
     timestamp: number;
+    /** 便于直接阅读的本地时间字符串（含时区偏移） */
+    time?: string;
     type: 'error' | 'network' | 'system' | 'warn';
     source: string;
     message: string;
+    context?: SystemLogContext;
     detail?: string;
 }
 
@@ -195,6 +239,8 @@ export interface OSTheme {
   chatBubbleStyle?: 'modern' | 'flat' | 'outline' | 'shadow' | 'wechat' | 'ios';
   chatMessageSpacing?: 'compact' | 'default' | 'spacious';
   chatShowTimestamp?: 'always' | 'hover' | 'never';
+  /** 消息组末气泡下方（默认）、可见头像正下方，或按 5 分钟分段在上方居中。 */
+  chatTimestampPosition?: 'below' | 'below_avatar' | 'top_center';
   chatHeaderStyle?: 'default' | 'minimal' | 'gradient' | 'wechat' | 'telegram' | 'discord' | 'pixel';
   chatInputStyle?: 'default' | 'rounded' | 'flat' | 'wechat' | 'ios' | 'telegram' | 'discord' | 'pixel';
   chatChromeStyle?: 'soft' | 'flat' | 'floating' | 'pixel';
@@ -209,6 +255,7 @@ export interface OSTheme {
    *  可换色 / 贴图 / 改外形 / 挪位；稳定选择器清单见 ChromeCssEditor。 */
   chatChromeCustomCss?: string;
   /** 心象外观的全局默认值；不包含显示开关或生成提示词。 */
+  chatProfileAppearance?: import('./utils/chatProfileAppearance').ChatProfileAppearance;
   chatPsyche?: import('./utils/psycheAppearance').PsycheAppearance;
   /** 全局默认「白框提示音」：某角色未单独设提示音时回落到这里。src 同角色版（内置 key / 音频直链 / data:audio）。 */
   chatSound?: { src: string; volume?: number };
@@ -340,6 +387,8 @@ export interface APIConfig {
   // 可选识图中转：给不支持 image_url 的主模型补视觉能力。
   visionApi?: VisionApiConfig;
   audioApi?: AudioApiConfig;
+  /** 心象手动翻译专用；全局共用，未配置时不自动调用对话 API。 */
+  thinkingTranslationApi?: DialogueApiConfig;
   minimaxApiKey?: string;
   minimaxGroupId?: string;
   // 'domestic' → https://api.minimaxi.com (国内站)
@@ -544,6 +593,11 @@ export interface ActiveMsg2TaskRecord {
 export interface ActiveMsg2CharacterConfig {
   enabled: boolean;
   /**
+   * 角色关闭「聊天 · 时间感知强化」（timeAwarenessEnabled === false）时，用户是否已明确确认
+   * 接受现实定时与架空剧情时间可能错乱、仍要开启主动消息 2.0。关闭 2.0 或恢复时间感知时清除。
+   */
+  allowWithoutTimeAwareness?: boolean;
+  /**
    * 即时对话按角色单独关。undefined = 跟随全局（全局即时对话开着就默认开）；
    * false = 这个角色的聊天回到本地前台生成。与 enabled（排程开关）互相独立：
    * 可以只排程不即时，也可以只即时不排程。
@@ -695,6 +749,7 @@ export interface RealtimeConfig {
   // 天气配置
   weatherEnabled: boolean;
   weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走所选免费源）
+  weatherFreeSourceMigration?: 1;
   weatherFreeSource?: import('./utils/weatherSources').FreeWeatherSource;
   weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
     weatherCity: string;    // 城市名（如 "北京"、"Beijing"）
@@ -3383,6 +3438,8 @@ export interface CharacterProfile {
   memories: MemoryFragment[];
   refinedMemories?: Record<string, string>;
   activeMemoryMonths?: string[];
+  /** 允许角色自主查阅指定月份的详细记忆，默认开启；关闭同时禁止提示与执行。 */
+  monthlyRecallEnabled?: boolean;
   /** 默认隐藏 ChatApp 的按月 RECALL 指令提示；false 恢复提示，不禁用指令解析。 */
   hideMonthlyRecallPrompt?: boolean;
   
@@ -3432,6 +3489,7 @@ export interface CharacterProfile {
   spriteConfig?: SpriteConfig;
   customDateSprites?: string[]; // User-added custom emotion names for date mode (per-character)
   dateLightReading?: boolean;   // Light reading mode for novel/text view in date
+  chatProfileAppearance?: import('./utils/chatProfileAppearance').ChatProfileAppearance;
   dateAppearance?: import('./utils/meetingAppearance').MeetingAppearance;
   dateReadingShowAvatars?: boolean; // Show both participants' avatars beside messages in date reading mode
   dateSkinSets?: SkinSet[];     // Multiple skin sets for portrait mode
@@ -4582,7 +4640,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'friend_feed_share_card' | 'friend_feed_card' | 'secret_note' | 'text' | 'image' | 'emoji' | 'voice' | 'audio' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
+export type MessageType = 'friend_feed_share_card' | 'friend_feed_card' | 'sully_help_card' | 'secret_note' | 'text' | 'image' | 'emoji' | 'voice' | 'audio' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'task_proposal' | 'job_card';
 
 export interface Message {
     id: number;
@@ -4620,6 +4678,7 @@ export interface FullBackupData {
     friendFeedMedia?: import('./utils/activityBackup').FriendFeedMediaBackup;
     /** Text records stored in assets; restore only this allowlisted subset. */
     activityTextAssets?: import('./utils/activityBackup').ActivityTextAsset[];
+    helpDeskHistory?: import('./utils/sullyHelpHistory').HelpRecord[];
     /** 纯文字备份单独携带收藏索引，不覆盖整个资源库。 */
     contentFavoritesIndex?: unknown;
     timestamp: number;
@@ -4635,6 +4694,7 @@ export interface FullBackupData {
      * 的 exportAmsg2GlobalConfig）。角色身上那份 activeMsg2Config 跟着 characters 走。
      */
     amsg2GlobalConfig?: ActiveMsg2GlobalConfig;
+    /** Personal backup: saved provider/keys, hidden regions and this user's audience; never live coordinates. */
     apiPresets?: ApiPreset[];
     availableModels?: string[];
     realtimeConfig?: RealtimeConfig;  // 实时感知配置（天气/新闻/Notion）
@@ -4813,6 +4873,7 @@ export interface FullBackupData {
     chatTranslateEnabledByChar?: Record<string, boolean>;
     chatTranslateExpandedByChar?: Record<string, boolean>;
     chatTranslateStyleByChar?: Record<string, 'bubble' | 'subtitle'>;
+    chatSubtitleByChar?: Record<string, import('./utils/chatTranslationStyle').ChatSubtitleSettings>;
     chatArchivePrompts?: any;
     chatActiveArchivePromptId?: string;
     characterRefinePrompts?: any;

@@ -80,18 +80,20 @@ public class AmsgUnifiedPushService extends PushService {
             raw = restored.toString();
         }
 
-        long receivedAt = System.currentTimeMillis();
-        // Same delivery twice (distributor redelivery, or ntfy + the poll fallback both
-        // catching it): the JS inbox dedupes by messageId, but the system notification is
-        // posted here, before JS ever sees the payload, so it must be gated natively too.
-        // The SW path gets the same guarantee from amsg-sw's delivery dedupe.
-        String messageId = payload.optString("messageId", "");
-        if (!messageId.isEmpty() && !AmsgUnifiedPushStore.rememberPollSeen(ctx, messageId)) return;
-        boolean visible = AmsgUnifiedPushPlugin.isAppVisible();
-        maybeShowNotification(ctx, payload, raw, visible);
-        if (!AmsgUnifiedPushPlugin.emitPushReceived(raw)) {
-            AmsgUnifiedPushStore.appendPending(ctx, raw, receivedAt);
+        deliver(ctx, payload, raw, System.currentTimeMillis());
+    }
+
+    static void deliver(Context context, JSONObject payload, String raw, long receivedAt) {
+        String id = AmsgUnifiedPushStore.enqueue(context, payload.optString("messageId", ""), raw, receivedAt);
+        if (id == null) return;
+        String outcome;
+        try {
+            outcome = maybeShowNotification(context, payload, raw, AmsgUnifiedPushPlugin.isAppVisible());
+        } catch (RuntimeException error) {
+            outcome = "failed";
         }
+        AmsgUnifiedPushStore.recordNotification(context, id, outcome);
+        AmsgUnifiedPushPlugin.emitPushReceived();
     }
 
     @Override
@@ -147,10 +149,10 @@ public class AmsgUnifiedPushService extends PushService {
         return value instanceof String ? (String) value : null;
     }
 
-    static void maybeShowNotification(Context ctx, JSONObject payload, String raw, boolean visible) {
+    private static String maybeShowNotification(Context ctx, JSONObject payload, String raw, boolean visible) {
         String intent = notificationIntent(payload);
-        if ("never".equals(intent)) return;
-        if ("when-hidden".equals(intent) && visible) return;
+        if ("never".equals(intent)) return "policy-skipped";
+        if ("when-hidden".equals(intent) && visible) return "policy-skipped";
 
         JSONObject notification = payload.optJSONObject("notification");
         String contactName = optStringOrNull(payload, "contactName");
@@ -181,7 +183,8 @@ public class AmsgUnifiedPushService extends PushService {
             : payload.optBoolean("renotify", false);
 
         NotificationManager manager = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager == null) return;
+        if (manager == null) return "failed";
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && !manager.areNotificationsEnabled()) return "permission-denied";
         ensureChannel(manager);
 
         PendingIntent contentIntent = null;
@@ -235,8 +238,9 @@ public class AmsgUnifiedPushService extends PushService {
         }
         try {
             manager.notify(tag, 0, builder.build());
+            return "requested";
         } catch (SecurityException ignored) {
-            // POST_NOTIFICATIONS revoked: the payload is still delivered to the inbox.
+            return "permission-denied";
         }
     }
 

@@ -29,7 +29,7 @@ var normalizeFreeWeatherSource, WEATHER_SOURCE_LABELS;
 var init_weatherSources = __esm({
   "utils/weatherSources.ts"() {
     "use strict";
-    normalizeFreeWeatherSource = (value) => value === "wttr" ? "wttr" : "open-meteo";
+    normalizeFreeWeatherSource = (value) => value === "open-meteo" ? "open-meteo" : "wttr";
     WEATHER_SOURCE_LABELS = {
       "open-meteo": "\u514D\u8D39\u6E90 1 \xB7 Open-Meteo",
       wttr: "\u514D\u8D39\u6E90 2 \xB7 wttr.in",
@@ -734,6 +734,16 @@ var init_mcpFireCore = __esm({
   }
 });
 
+// utils/appVersion.ts
+var APP_VERSION, APP_VERSION_TAG;
+var init_appVersion = __esm({
+  "utils/appVersion.ts"() {
+    "use strict";
+    APP_VERSION = "v3.17 (Mainland Relay)";
+    APP_VERSION_TAG = APP_VERSION.split(" ")[0];
+  }
+});
+
 // utils/userSpaces.ts
 function assertUserSpaceAvailable(id) {
   if (isUserSpaceDeleting(id)) throw new Error("\u8FD9\u4E2A\u7528\u6237\u6B63\u5728\u5220\u9664\uFF0C\u8BF7\u5728\u7528\u6237\u7A7A\u95F4\u4E2D\u7EE7\u7EED\u5B8C\u6210\u5220\u9664");
@@ -861,6 +871,8 @@ var init_userSpaces = __esm({
       "amsg2_pending_tool_config",
       "amsg2_pending_tool_config_version",
       "amsg2_state_clock_watermark",
+      // 救援模式警告跟着全局那一份 2.0 后台走，切用户空间不能让它消失。
+      "amsg2_rescue_alert_v1",
       "os_api_config",
       "os_api_presets",
       "os_available_models",
@@ -881,6 +893,7 @@ var init_userSpaces = __esm({
       "os_first_use_memory_guide_v1",
       "os_first_use_skip_vector_v1",
       "sullyos_backup_reminder",
+      "os_thinking_help_seen_v1",
       "world_home_api",
       "browser_brave_key",
       "browser_use_real_search",
@@ -913,6 +926,26 @@ var init_userSpaces = __esm({
     isSharedSpaceKey = (key) => sharedKeys.has(key) || /(?:^|_)(?:api_config|api_key|proxy_url)$/.test(key) || /^(?:amsg2_(?:fcm|native|unified|cloud_generations:)|sullyos_(?:update_|notice_)|sully-beauty-author)/.test(key);
     privateKey = (id, key) => id === DEFAULT_SPACE_ID ? key : `${PREFIX}${id}:${key}`;
     isInternalKey = (key) => key.startsWith(PREFIX) || key === CATALOG_KEY || key === ACTIVE_KEY || key === SPACE_DELETIONS_KEY;
+  }
+});
+
+// utils/emojiOriginals.ts
+function hasEmojiCacheStorage() {
+  try {
+    return !!globalThis.caches;
+  } catch {
+    return false;
+  }
+}
+async function clearEmojiOriginals(spaceId) {
+  if (hasEmojiCacheStorage()) await caches.delete(emojiCacheName(spaceId));
+}
+var emojiCacheName;
+var init_emojiOriginals = __esm({
+  "utils/emojiOriginals.ts"() {
+    "use strict";
+    init_userSpaces();
+    emojiCacheName = (spaceId) => spaceDatabaseName("sully-emoji-originals-v1", spaceId);
   }
 });
 
@@ -988,6 +1021,16 @@ var init_localRead = __esm({
 });
 
 // utils/friendFeedMaterial.ts
+function friendCommentKey(authorId, text3) {
+  const folded = text3.normalize("NFKC").toLowerCase().replace(/[\s\u200b\ufe0f]+/gu, "");
+  const words = folded.replace(/\p{P}/gu, "") || folded;
+  return JSON.stringify([Array.from(words).length < 12 ? authorId : "", words]);
+}
+function removedCommentFingerprint(key) {
+  let hash = 2166136261;
+  for (let i = 0; i < key.length; i++) hash = Math.imul(hash ^ key.charCodeAt(i), 16777619);
+  return key.length.toString(36) + "-" + (hash >>> 0).toString(36);
+}
 var FRIEND_FEED_EXCERPT_LIMIT, friendFeedExcerpt;
 var init_friendFeedMaterial = __esm({
   "utils/friendFeedMaterial.ts"() {
@@ -1171,7 +1214,38 @@ var init_activityBackup = __esm({
     init_friendFeedImages();
     init_backupExport();
     init_friendFeedSettings();
-    isActivityTextAsset = (id) => ["friend_feed_v1", "friend_feed_api", "home_visits_v1"].includes(id) || id.startsWith("friend_feed_eval_v1_") || id.startsWith("home_secrets_v1_");
+    isActivityTextAsset = (id) => ["friend_feed_v1", "friend_feed_api", "home_visits_v1"].includes(id) || id.startsWith("friend_feed_eval_v1_") || id.startsWith("home_secrets_v1_") || id.startsWith("font_library_");
+  }
+});
+
+// utils/sullyHelpBackup.ts
+function helpTextHistory(rows) {
+  return rows.map((row) => {
+    const attachment = row.attachment;
+    return attachment && attachment.kind !== "file" ? { ...row, attachment: { ...attachment, url: "" } } : row;
+  });
+}
+function helpMediaHistory(rows) {
+  if (!Array.isArray(rows)) throw new Error("\u5BA2\u670D\u9644\u4EF6\u5907\u4EFD\u683C\u5F0F\u4E0D\u6B63\u786E");
+  return rows.flatMap((row) => {
+    const item = row?.attachment;
+    if (typeof row?.id !== "string" || !item || item.kind !== "image" && item.kind !== "sticker" || typeof item.url !== "string" || !item.url) return [];
+    return [{ id: row.id, attachment: { kind: item.kind, url: item.url } }];
+  });
+}
+function restoreHelpMedia(existing, media) {
+  const byId = new Map(helpMediaHistory(media).map((row) => [row.id, row.attachment]));
+  return existing.map((row) => {
+    const stored2 = byId.get(row.id);
+    const item = row.attachment;
+    return stored2 && item && item.kind !== "file" && stored2.kind === item.kind && !item.url ? { ...row, attachment: { ...item, url: stored2.url } } : row;
+  });
+}
+var HELP_HISTORY_KEY;
+var init_sullyHelpBackup = __esm({
+  "utils/sullyHelpBackup.ts"() {
+    "use strict";
+    HELP_HISTORY_KEY = "sully-11-history-v1";
   }
 });
 
@@ -1187,23 +1261,13 @@ var init_linkPrecision = __esm({
   }
 });
 
-// utils/appVersion.ts
-var APP_VERSION, APP_VERSION_TAG;
-var init_appVersion = __esm({
-  "utils/appVersion.ts"() {
-    "use strict";
-    APP_VERSION = "v3.17 (Mainland Relay)";
-    APP_VERSION_TAG = APP_VERSION.split(" ")[0];
-  }
-});
-
 // utils/buildInfo.ts
 var BUILD_LABEL;
 var init_buildInfo = __esm({
   "utils/buildInfo.ts"() {
     "use strict";
     init_appVersion();
-    BUILD_LABEL = `${"main"}@${"221bc25f"}`;
+    BUILD_LABEL = `${"main"}@${"19da64dc"}`;
   }
 });
 
@@ -1407,7 +1471,8 @@ var init_decorationMediaBackup = __esm({
       "chatSoundBound",
       "thinkingChainStyle",
       "thinkingChainCustomColors",
-      "thinkingChainCustomCss"
+      "thinkingChainCustomCss",
+      "chatProfileAppearance"
     ];
   }
 });
@@ -1439,6 +1504,14 @@ var init_appearance = __esm({
 // utils/meetingAppearance.ts
 var init_meetingAppearance = __esm({
   "utils/meetingAppearance.ts"() {
+    "use strict";
+    init_scopedCss();
+  }
+});
+
+// utils/chatProfileAppearance.ts
+var init_chatProfileAppearance = __esm({
+  "utils/chatProfileAppearance.ts"() {
     "use strict";
     init_scopedCss();
   }
@@ -1476,6 +1549,7 @@ var init_beautyShareContract = __esm({
     "use strict";
     init_appearance();
     init_meetingAppearance();
+    init_chatProfileAppearance();
     BEAUTY_MAX_BYTES = 20 * 1024 * 1024;
     BEAUTY_PLATFORMS = ["\u7CEF\u7C73\u673A\u7F8E\u5316\u7FA4", "\u7CEF\u7C73\u673A\u5B98\u65B9DC"];
     isRecord2 = (value) => !!value && typeof value === "object" && !Array.isArray(value);
@@ -1676,23 +1750,23 @@ function assignHomeContextSegments(previous, input, last, hwm, legacy = []) {
     for (const record4 of assigned) if (ids.includes(record4.id) || !ids.length && record4.turnId === key) inherited.set(record4.id, key);
   }
   const extendable = last?.metadata?.source === "home" && last.metadata.homeContextVersion === 3 && !last.metadata.homeLegacy && !last.metadata.homeContextSealed && last.metadata.homeContextKind === "actions" && last.id > hwm ? last : void 0;
-  let open, end = -Infinity;
+  let open2, end = -Infinity;
   return [...assigned].sort((a, b) => a.at - b.at).map((record4) => {
     const existing = old.get(record4.id) || inherited.get(record4.id);
     if (isSharedHomeRecord(record4)) {
-      open = void 0;
+      open2 = void 0;
       end = record4.at;
       return { ...record4, contextSegmentId: sharedHomeEventKey(record4) };
     }
     if (isRoutineHomeWalk(record4)) return { ...record4, contextSegmentId: existing || record4.id };
     if (existing) {
-      open = extendable && existing === extendable.metadata.homeTurnId && record4.id === extendable.metadata.homeRecordIds.at(-1) ? existing : void 0;
+      open2 = extendable && existing === extendable.metadata.homeTurnId && record4.id === extendable.metadata.homeRecordIds.at(-1) ? existing : void 0;
       end = record4.at;
       return { ...record4, contextSegmentId: existing };
     }
     const action = isHomeActionRecord(record4);
-    const key = action && open && record4.at >= end ? open : record4.id;
-    open = action ? key : void 0;
+    const key = action && open2 && record4.at >= end ? open2 : record4.id;
+    open2 = action ? key : void 0;
     end = record4.at;
     return { ...record4, contextSegmentId: key };
   });
@@ -2178,9 +2252,9 @@ var init_storyTheaterTimeline = __esm({
             }
           }
         };
-        const indexRequest = (open) => {
+        const indexRequest = (open2) => {
           try {
-            const request = open();
+            const request = open2();
             request.onerror = () => {
               if (request.error?.name !== "AbortError") indexReadFailed = true;
             };
@@ -2276,6 +2350,13 @@ var init_episodeOrder = __esm({
   }
 });
 
+// utils/vrWorld/bifangConfig.ts
+var init_bifangConfig = __esm({
+  "utils/vrWorld/bifangConfig.ts"() {
+    "use strict";
+  }
+});
+
 // utils/vrWorld/postOffice.ts
 function exportPostOfficeLocal() {
   try {
@@ -2304,6 +2385,7 @@ var BASE_KEY, DEVICE_KEY;
 var init_postOffice = __esm({
   "utils/vrWorld/postOffice.ts"() {
     "use strict";
+    init_bifangConfig();
     BASE_KEY = "vr_po_base";
     DEVICE_KEY = "vr_po_device";
   }
@@ -2313,6 +2395,17 @@ var init_postOffice = __esm({
 var init_resilientFetch = __esm({
   "utils/resilientFetch.ts"() {
     "use strict";
+  }
+});
+
+// utils/vrWorld/signalRecovery.ts
+var RETRY_MS;
+var init_signalRecovery = __esm({
+  "utils/vrWorld/signalRecovery.ts"() {
+    "use strict";
+    init_postOffice();
+    init_bifangConfig();
+    RETRY_MS = 60 * 6e4;
   }
 });
 
@@ -2342,6 +2435,7 @@ var init_signal = __esm({
     "use strict";
     init_postOffice();
     init_resilientFetch();
+    init_signalRecovery();
     AUTHOR_KEY = "signal_my_authorship";
     MY_LINES_KEY = "signal_my_lines";
     NOTICE_ACK_KEY = "signal_notice_ack";
@@ -2533,8 +2627,8 @@ async function exportAmsg2GlobalConfig(options2 = {}) {
     for (const key of BACKEND_CONNECTION_KEYS) delete stripped[key];
     return Object.keys(stripped).length > 0 ? stripped : void 0;
   } catch (e) {
-    console.warn("[amsg2] \u8BFB\u53D6\u5168\u5C40\u914D\u7F6E\u5931\u8D25\uFF0C\u5907\u4EFD\u5C06\u4E0D\u542B\u8FD9\u4E00\u9879", e);
-    return void 0;
+    console.warn("[amsg2] \u8BFB\u53D6\u5168\u5C40\u914D\u7F6E\u5931\u8D25\uFF0C\u5DF2\u505C\u6B62\u5907\u4EFD", e);
+    throw new Error("\u8BFB\u53D6\u4E3B\u52A8\u6D88\u606F 2.0 \u914D\u7F6E\u5931\u8D25\uFF0C\u672C\u6B21\u5907\u4EFD\u5DF2\u4E2D\u6B62\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5\u3002");
   }
 }
 async function importAmsg2GlobalConfig(config, options2 = {}) {
@@ -2732,6 +2826,30 @@ var init_activeMsgStore = __esm({
       }
     };
     ActiveMsgStore = {
+      /** Deployment recovery only; never stores the Cloudflare API Token. */
+      async getReplacementPlan(accountId, scriptName) {
+        return getKv(`replacement-plan:${JSON.stringify([accountId, scriptName])}`);
+      },
+      async saveReplacementPlan(accountId, scriptName, plan) {
+        const db = await openDB();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_KV, "readwrite"), store = tx.objectStore(STORE_KV);
+          tx.oncomplete = () => resolve();
+          tx.onerror = tx.onabort = () => reject(tx.error || new Error("\u4FDD\u5B58\u91CD\u914D\u8FDB\u5EA6\u5931\u8D25"));
+          store.put({ id: `replacement-plan:${JSON.stringify([accountId, scriptName])}`, value: plan });
+          if (plan) store.put({ id: "replacement-hint", value: { accountId, scriptName } });
+          else {
+            const request = store.get("replacement-hint");
+            request.onsuccess = () => {
+              const hint = request.result?.value;
+              if (hint?.accountId === accountId && hint?.scriptName === scriptName) store.delete("replacement-hint");
+            };
+          }
+        });
+      },
+      async getReplacementHint() {
+        return getKv("replacement-hint");
+      },
       /** 纯动作可以没有聊天产物，需单独保留完成回执，防止补收/ACK 重试重放动作。 */
       async hasAppliedActionResult(charId, messageId) {
         const val = await getKv(`${ACTION_RESULT_APPLIED_PREFIX}${JSON.stringify([charId, messageId])}`);
@@ -2987,6 +3105,69 @@ var init_activeMsgStore = __esm({
     };
     BACKEND_CONNECTION_KEYS = ["enabled", "workerUrl", "serverToken", "masterKey", "userId", "pushMode", "thirdPartyPush", "useRelay", "relayToken"];
     backupHasBackendConnection = (config) => !!config?.workerUrl?.trim();
+  }
+});
+
+// utils/fontLibrary.ts
+var isSavedFontId, writeQueue;
+var init_fontLibrary = __esm({
+  "utils/fontLibrary.ts"() {
+    "use strict";
+    isSavedFontId = (value) => typeof value === "string" && /^font_library_[a-f0-9]{64}$/.test(value);
+    writeQueue = Promise.resolve();
+  }
+});
+
+// utils/chatTranslationStyle.ts
+function normalizeSubtitleSettings(value) {
+  const input = value;
+  const color = (value2, fallback) => typeof value2 === "string" && /^#[\da-f]{6}$/i.test(value2) ? value2.toLowerCase() : fallback;
+  return {
+    fontSize: typeof input?.fontSize === "number" && Number.isFinite(input.fontSize) ? Math.max(12, Math.min(28, Math.round(input.fontSize))) : 16,
+    color: color(input?.color, "#ffffff"),
+    outlineColor: color(input?.outlineColor, "#111111"),
+    font: input?.font === "custom" && isSavedFontId(input.fontId) ? "custom" : input?.font && Object.hasOwn(SUBTITLE_FONTS, input.font) ? input.font : "rounded",
+    ...isSavedFontId(input?.fontId) ? { fontId: input.fontId } : {}
+  };
+}
+function readSubtitleSettings(charId) {
+  try {
+    return normalizeSubtitleSettings(JSON.parse(localStorage.getItem(SUBTITLE_KEY_PREFIX + charId) || "null"));
+  } catch {
+    return { ...DEFAULT_SUBTITLE_SETTINGS };
+  }
+}
+function saveSubtitleSettings(charId, value) {
+  localStorage.setItem(SUBTITLE_KEY_PREFIX + charId, JSON.stringify(normalizeSubtitleSettings(value)));
+}
+function exportSubtitleSettings() {
+  const result = /* @__PURE__ */ Object.create(null);
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(SUBTITLE_KEY_PREFIX) && key.length > SUBTITLE_KEY_PREFIX.length) {
+      const id = key.slice(SUBTITLE_KEY_PREFIX.length);
+      result[id] = readSubtitleSettings(id);
+    }
+  }
+  return result;
+}
+function importSubtitleSettings(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  for (const [id, settings] of Object.entries(value)) if (id) saveSubtitleSettings(id, normalizeSubtitleSettings(settings));
+}
+var SUBTITLE_FONTS, DEFAULT_SUBTITLE_SETTINGS, SUBTITLE_KEY_PREFIX;
+var init_chatTranslationStyle = __esm({
+  "utils/chatTranslationStyle.ts"() {
+    "use strict";
+    init_fontLibrary();
+    SUBTITLE_FONTS = {
+      rounded: { label: "\u5706\u4F53", family: '"Sully Subtitle Rounded", ui-rounded, "PingFang SC", sans-serif' },
+      system: { label: "\u7CFB\u7EDF\u9ED1\u4F53", family: 'system-ui, "PingFang SC", "Microsoft YaHei", sans-serif' },
+      serif: { label: "\u5B8B\u4F53", family: '"Noto Serif SC", "Songti SC", SimSun, serif' },
+      app: { label: "\u8DDF\u968F\u5E94\u7528", family: '"CustomUserFont", system-ui, sans-serif' }
+    };
+    DEFAULT_SUBTITLE_SETTINGS = { fontSize: 16, color: "#ffffff", outlineColor: "#111111", font: "rounded" };
+    SUBTITLE_KEY_PREFIX = "chat_translate_subtitle_";
   }
 });
 
@@ -3796,7 +3977,7 @@ __export(contentFavorites_exports, {
   saveMessageContentFavorite: () => saveMessageContentFavorite,
   sortContentFavorites: () => sortContentFavorites
 });
-var CONTENT_FAVORITES_INDEX_ASSET_ID, CONTENT_FAVORITES_CHANGED_EVENT, writeQueue, withWriteLock, normalizeTimestamp, compactHash, referenceKey, sanitizeReference, sanitizeSnapshot, sanitizeFavorite, loadIndex, saveIndex, notifyChanged, makeChatContentFavoriteId, imageFingerprint, makeImageContentFavoriteId, favoriteImageAssetId, contentFavoriteIdForMessage, sortContentFavorites, listContentFavorites, getContentFavoriteById, saveConversationContentFavorite, saveMessageContentFavorite, saveGalleryImageContentFavorite, removeContentFavoriteById, resolveImageReference, referenceMatchesDeletion, preserveImageFavoritesBeforeDeletion, preserveContentFavoritesBeforeMessageDeletion, preserveContentFavoritesBeforeGalleryDeletion, resolveContentFavorite;
+var CONTENT_FAVORITES_INDEX_ASSET_ID, CONTENT_FAVORITES_CHANGED_EVENT, writeQueue2, withWriteLock, normalizeTimestamp, compactHash, referenceKey, sanitizeReference, sanitizeSnapshot, sanitizeFavorite, loadIndex, saveIndex, notifyChanged, makeChatContentFavoriteId, imageFingerprint, makeImageContentFavoriteId, favoriteImageAssetId, contentFavoriteIdForMessage, sortContentFavorites, listContentFavorites, getContentFavoriteById, saveConversationContentFavorite, saveMessageContentFavorite, saveGalleryImageContentFavorite, removeContentFavoriteById, resolveImageReference, referenceMatchesDeletion, preserveImageFavoritesBeforeDeletion, preserveContentFavoritesBeforeMessageDeletion, preserveContentFavoritesBeforeGalleryDeletion, resolveContentFavorite;
 var init_contentFavorites = __esm({
   "utils/contentFavorites.ts"() {
     "use strict";
@@ -3804,10 +3985,10 @@ var init_contentFavorites = __esm({
     init_blobRef();
     CONTENT_FAVORITES_INDEX_ASSET_ID = "content_favorites_index_v1";
     CONTENT_FAVORITES_CHANGED_EVENT = "sully:content-favorites-changed";
-    writeQueue = Promise.resolve();
+    writeQueue2 = Promise.resolve();
     withWriteLock = async (work) => {
-      const next = writeQueue.then(work, work);
-      writeQueue = next.catch(() => void 0);
+      const next = writeQueue2.then(work, work);
+      writeQueue2 = next.catch(() => void 0);
       return next;
     };
     normalizeTimestamp = (value, fallback) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
@@ -4439,9 +4620,9 @@ function enqueueFriendNotices(feed, post, includeSelf = false) {
   }
   const counts = /* @__PURE__ */ new Map();
   feed.notices = feed.notices.filter((n) => !n.done).reverse().filter((n) => {
-    const count = (counts.get(n.charId) || 0) + 1;
-    counts.set(n.charId, count);
-    return count <= 50;
+    const count2 = (counts.get(n.charId) || 0) + 1;
+    counts.set(n.charId, count2);
+    return count2 <= 50;
   }).reverse();
 }
 var init_friendFeedActivity = __esm({
@@ -4543,7 +4724,7 @@ function parseFriendFeed(raw2) {
   const time = (n) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) < 864e13;
   const ids = (a) => Array.isArray(a) && a.every(text3);
   const comment = (p) => p && text3(p.id) && text3(p.authorId) && !!p.authorId && text3(p.authorName) && text3(p.text) && time(p.createdAt) && (p.editedAt === void 0 || time(p.editedAt)) && (p.accountId === void 0 || text3(p.accountId)) && (p.accountTags === void 0 || ids(p.accountTags)) && (p.sourceReply === void 0 || isFriendSourceReply(p.sourceReply)) && (p.localReply === void 0 || p.localReply && text3(p.localReply.id) && text3(p.localReply.authorId) && text3(p.localReply.authorName) && text3(p.localReply.text));
-  if (data?.version !== 1 || !Array.isArray(data.circles) || !Array.isArray(data.posts) || !data.circles.every((c) => c && text3(c.id) && text3(c.name) && text3(c.description) && ids(c.memberIds) && time(c.createdAt) && (c.interactionPrompt === void 0 || text3(c.interactionPrompt)) && (c.realContentEnabled === void 0 || typeof c.realContentEnabled === "boolean")) || !data.posts.every((p) => comment(p) && text3(p.circleId) && ids(p.audienceIds) && (p.imageCards === void 0 || validFriendImageCards(p.imageCards)) && (p.images === void 0 || Array.isArray(p.images) && p.images.length <= FRIEND_POST_IMAGE_LIMIT && p.images.every((i) => i && (isLocalFriendImage(i.url) || i.url === "") && i.thumbnail === i.url)) && (p.discussionRevision === void 0 || Number.isSafeInteger(p.discussionRevision) && p.discussionRevision >= 0) && Array.isArray(p.comments) && p.comments.every(comment) && (p.source === void 0 || isFriendFeedSource(p.source)) && (p.weiboComments === void 0 || p.source?.platform === "weibo" && isWeiboCommentPage(p.weiboComments)) && (p.synced === void 0 || typeof p.synced === "boolean") && (p.authorKind !== "external" || isFriendFeedSource(p.source))) || data.replyJobs !== void 0 && (!Array.isArray(data.replyJobs) || !data.replyJobs.every((j) => j && text3(j.id) && text3(j.postId) && text3(j.triggerId) && text3(j.charId) && typeof j.replySelf === "boolean" && Number.isInteger(j.npcCount) && j.npcCount >= 0 && j.npcCount <= 6 && (j.createdAt === void 0 || time(j.createdAt)) && (j.delivery === void 0 || j.delivery === "immediate") && (j.done === void 0 || typeof j.done === "boolean") && (j.lease === void 0 || text3(j.lease.id) && time(j.lease.until))))) {
+  if (data?.version !== 1 || !Array.isArray(data.circles) || !Array.isArray(data.posts) || !data.circles.every((c) => c && text3(c.id) && text3(c.name) && text3(c.description) && ids(c.memberIds) && time(c.createdAt) && (c.interactionPrompt === void 0 || text3(c.interactionPrompt)) && (c.realContentEnabled === void 0 || typeof c.realContentEnabled === "boolean")) || !data.posts.every((p) => comment(p) && text3(p.circleId) && ids(p.audienceIds) && (p.imageCards === void 0 || validFriendImageCards(p.imageCards)) && (p.images === void 0 || Array.isArray(p.images) && p.images.length <= FRIEND_POST_IMAGE_LIMIT && p.images.every((i) => i && (isLocalFriendImage(i.url) || i.url === "") && i.thumbnail === i.url)) && (p.discussionRevision === void 0 || Number.isSafeInteger(p.discussionRevision) && p.discussionRevision >= 0) && (p.removedCommentKeys === void 0 || ids(p.removedCommentKeys) && p.removedCommentKeys.length <= 128) && Array.isArray(p.comments) && p.comments.every(comment) && (p.source === void 0 || isFriendFeedSource(p.source)) && (p.weiboComments === void 0 || p.source?.platform === "weibo" && isWeiboCommentPage(p.weiboComments)) && (p.synced === void 0 || typeof p.synced === "boolean") && (p.authorKind !== "external" || isFriendFeedSource(p.source))) || data.replyJobs !== void 0 && (!Array.isArray(data.replyJobs) || !data.replyJobs.every((j) => j && text3(j.id) && text3(j.postId) && text3(j.triggerId) && text3(j.charId) && typeof j.replySelf === "boolean" && Number.isInteger(j.npcCount) && j.npcCount >= 0 && j.npcCount <= 6 && (j.createdAt === void 0 || time(j.createdAt)) && (j.delivery === void 0 || j.delivery === "immediate") && (j.done === void 0 || typeof j.done === "boolean") && (j.lease === void 0 || text3(j.lease.id) && time(j.lease.until))))) {
     throw new Error("\u54D4\u54D4\u6570\u636E\u65E0\u6CD5\u8BFB\u53D6\uFF0C\u8BF7\u4FDD\u7559\u5907\u4EFD\u540E\u91CD\u8BD5");
   }
   if (data.publicFeed !== void 0 && typeof data.publicFeed !== "boolean" || data.refreshLease !== void 0 && (!text3(data.refreshLease?.id) || !time(data.refreshLease?.until))) throw new Error("\u54D4\u54D4\u5237\u65B0\u72B6\u6001\u65E0\u6CD5\u8BFB\u53D6");
@@ -4794,6 +4975,11 @@ async function commentOnFriendPost(postId, authorName, body, id = createLocalId(
   announceFriendFeedHistory(changed);
   return id;
 }
+function rememberReplacedComment(post, comment) {
+  if (comment.authorId === "user") return;
+  const key = removedCommentFingerprint(friendCommentKey(comment.authorId, comment.text));
+  post.removedCommentKeys = [...(post.removedCommentKeys || []).filter((id) => id !== key), key].slice(-128);
+}
 async function editFriendComment(postId, commentId, body, expectedText) {
   const text3 = cleanText(body, FRIEND_COMMENT_TEXT_LIMIT, "\u8BC4\u8BBA");
   await mutate((state) => {
@@ -4802,6 +4988,7 @@ async function editFriendComment(postId, commentId, body, expectedText) {
     if (!post || !comment) throw new Error("\u8FD9\u6761\u8BC4\u8BBA\u5DF2\u88AB\u5220\u9664");
     if (comment.text !== expectedText) throw new Error("\u8BC4\u8BBA\u5DF2\u5728\u5176\u4ED6\u7A97\u53E3\u4FEE\u6539\uFF0C\u8BF7\u8FD4\u56DE\u540E\u91CD\u65B0\u7F16\u8F91");
     if (comment.text === text3) return;
+    rememberReplacedComment(post, comment);
     comment.text = text3;
     comment.editedAt = Date.now();
     post.discussionRevision = (post.discussionRevision || 0) + 1;
@@ -4815,6 +5002,7 @@ async function deleteFriendComment(postId, commentId, expectedText) {
     const comment = post?.comments.find((c) => c.id === commentId);
     if (!post || !comment) return;
     if (comment.text !== expectedText) throw new Error("\u8BC4\u8BBA\u5DF2\u5728\u5176\u4ED6\u7A97\u53E3\u4FEE\u6539\uFF0C\u8BF7\u8FD4\u56DE\u540E\u91CD\u65B0\u786E\u8BA4");
+    rememberReplacedComment(post, comment);
     post.comments = post.comments.filter((c) => c.id !== commentId);
     post.discussionRevision = (post.discussionRevision || 0) + 1;
     const detached = /* @__PURE__ */ new Set();
@@ -4897,7 +5085,7 @@ function clearStaleMemoryMirror(transaction, charId, newId) {
 }
 function makeSpaceOpener(DB_NAME3) {
   let dbPromise2 = null;
-  const open = () => {
+  const open2 = () => {
     if (dbPromise2) return dbPromise2;
     const promise = new Promise((resolve, reject) => {
       const diagnosticRequest = beginDatabaseOpen(DB_VERSION3);
@@ -5255,7 +5443,7 @@ function makeSpaceOpener(DB_NAME3) {
     void promise.catch(reportDatabaseFailure);
     return promise;
   };
-  return { open, close: async () => {
+  return { open: open2, close: async () => {
     if (dbPromise2) {
       try {
         (await dbPromise2).close();
@@ -5273,14 +5461,16 @@ function openSpaceDB(id) {
   }
   return opener.open();
 }
-var DB_NAME2, DB_VERSION3, STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES2, STORE_EMOJIS, STORE_EMOJI_CATEGORIES, STORE_THEMES, STORE_ASSETS2, STORE_BLOB_ASSETS, STORE_SCHEDULED, STORE_GALLERY, STORE_USER, STORE_DIARIES, STORE_TASKS, STORE_TASKS_V2, STORE_CHAR_WALLETS, STORE_WALLET_TX, STORE_CHAR_HOMES, STORE_JOB_SESSIONS, STORE_JOB_POSITIONS, STORE_JOB_NOTES, STORE_JOB_RESUMES, STORE_JOB_PROFILE, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES, STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_NOVELS, STORE_BANK_TX, STORE_BANK_DATA, STORE_XHS_STOCK, STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_SONGS, STORE_QUIZZES, STORE_GUIDEBOOK, STORE_LIFE_SIM, STORE_DAILY_SCHEDULE, STORE_HANDBOOK, STORE_TRACKERS, STORE_TRACKER_ENTRIES, STORE_HOTNEWS, STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS, STORE_API_CALL_LOG, STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIFE_RECORDS, STORE_MED_PLANS, STORE_LIFE_SETTINGS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, API_CALL_LOG_MAX_AGE_MS, API_CALL_LOG_MAX_ENTRIES, SULLY_CATEGORY_ID, SULLY_PRESET_EMOJIS, spaceOpeners, openDB2, normalizeWorldRelationships, DB;
+var DB_NAME2, DB_VERSION3, STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES2, STORE_EMOJIS, STORE_EMOJI_CATEGORIES, STORE_THEMES, STORE_ASSETS2, STORE_BLOB_ASSETS, STORE_SCHEDULED, STORE_GALLERY, STORE_USER, STORE_DIARIES, STORE_TASKS, STORE_TASKS_V2, STORE_CHAR_WALLETS, STORE_WALLET_TX, STORE_CHAR_HOMES, STORE_JOB_SESSIONS, STORE_JOB_POSITIONS, STORE_JOB_NOTES, STORE_JOB_RESUMES, STORE_JOB_PROFILE, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES, STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_NOVELS, STORE_BANK_TX, STORE_BANK_DATA, STORE_XHS_STOCK, STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_SONGS, STORE_QUIZZES, STORE_GUIDEBOOK, STORE_LIFE_SIM, STORE_DAILY_SCHEDULE, STORE_HANDBOOK, STORE_TRACKERS, STORE_TRACKER_ENTRIES, STORE_HOTNEWS, STORE_VR_NOVELS, STORE_VR_ANNOTATIONS, STORE_CC_PARTS, STORE_VR_MUSIC, STORE_VR_GUESTBOOK, STORE_VR_SCRIPTS, STORE_VR_PLAYS, STORE_VR_PRESETS, STORE_VR_LETTERS, STORE_VR_SETTINGS, STORE_API_CALL_LOG, STORE_WORLDS, STORE_WORLD_EPISODES, STORE_LIFE_RECORDS, STORE_MED_PLANS, STORE_LIFE_SETTINGS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, API_CALL_LOG_MAX_AGE_MS, API_CALL_LOG_MAX_ENTRIES, SULLY_CATEGORY_ID, SULLY_PRESET_EMOJIS, withoutRuntimeRecall, spaceOpeners, openDB2, normalizeWorldRelationships, DB;
 var init_db = __esm({
   "utils/db.ts"() {
     "use strict";
     init_userSpaces();
+    init_emojiOriginals();
     init_sharedAssetLock();
     init_localRead();
     init_activityBackup();
+    init_sullyHelpBackup();
     init_linkPrecision();
     init_databaseHealth();
     init_databaseOpenDiagnostics();
@@ -5302,6 +5492,7 @@ var init_db = __esm({
     init_mcpClient();
     init_home3DBackup();
     init_activeMsgStore();
+    init_chatTranslationStyle();
     init_localBackup();
     init_desktopSkinBackup();
     init_library();
@@ -5385,6 +5576,11 @@ var init_db = __esm({
       { name: "Sully\u9053\u6B49", url: "https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/sorry.png", categoryId: SULLY_CATEGORY_ID },
       { name: "Sully\u7B49\u4F60\u6D88\u606F", url: "https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/wait.png", categoryId: SULLY_CATEGORY_ID }
     ];
+    withoutRuntimeRecall = (character2) => {
+      if (!character2 || !("memoryPalaceInjection" in character2) && !("roomPlatesInjection" in character2)) return character2;
+      const { memoryPalaceInjection: _recall, roomPlatesInjection: _plates, ...rest } = character2;
+      return rest;
+    };
     spaceOpeners = /* @__PURE__ */ new Map();
     openDB2 = () => {
       assertUserSpaceAvailable(SESSION_SPACE_ID);
@@ -5409,6 +5605,7 @@ var init_db = __esm({
       deleteDB: async (spaceId = SESSION_SPACE_ID) => {
         await spaceOpeners.get(spaceId)?.close();
         spaceOpeners.delete(spaceId);
+        await clearEmojiOriginals(spaceId);
         return new Promise((resolve, reject) => {
           const req = indexedDB.deleteDatabase(spaceDatabaseName("AetherOS_Data", spaceId));
           req.onsuccess = () => resolve();
@@ -5420,7 +5617,7 @@ var init_db = __esm({
         const db = await openDB2();
         return new Promise((resolve, reject) => {
           const request = db.transaction(STORE_CHARACTERS, "readonly").objectStore(STORE_CHARACTERS).get(id);
-          request.onsuccess = () => resolve(request.result);
+          request.onsuccess = () => resolve(withoutRuntimeRecall(request.result));
           request.onerror = () => reject(request.error);
         });
       },
@@ -5430,13 +5627,13 @@ var init_db = __esm({
           const transaction = db.transaction(STORE_CHARACTERS, "readonly");
           const store = transaction.objectStore(STORE_CHARACTERS);
           const request = store.getAll();
-          request.onsuccess = () => resolve(request.result || []);
+          request.onsuccess = () => resolve((request.result || []).map(withoutRuntimeRecall));
           request.onerror = () => reject(request.error);
         });
       },
       saveCharacter: async (character2) => {
         const db = await openDB2();
-        return persistCharacterWithHomeMessages(db, character2, clearStaleMemoryMirror);
+        return persistCharacterWithHomeMessages(db, withoutRuntimeRecall(character2), clearStaleMemoryMirror);
       },
       /** An asynchronous evaluation updates only emotion fields, never its stale home/history snapshot. */
       saveCharacterEmotion: async (charId, activeBuffs, buffInjection) => {
@@ -6256,6 +6453,27 @@ var init_db = __esm({
         const db = await openDB2();
         const transaction = db.transaction(STORE_EMOJIS, "readwrite");
         transaction.objectStore(STORE_EMOJIS).delete(name);
+      },
+      // A scan may be older than a re-import or a move in another tab.
+      deleteScannedEmojis: async (items) => {
+        const db = await openDB2();
+        return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_EMOJIS, "readwrite");
+          const store = tx.objectStore(STORE_EMOJIS);
+          let removed = 0;
+          for (const item of items) {
+            const request = store.get(item.name);
+            request.onsuccess = () => {
+              const current = request.result;
+              if (current && current.url === item.url && current.categoryId === item.categoryId) {
+                store.delete(item.name);
+                removed++;
+              }
+            };
+          }
+          tx.oncomplete = () => resolve(removed);
+          tx.onabort = () => reject(tx.error || new Error("\u6E05\u9664\u5931\u8D25\uFF0C\u8BF7\u91CD\u8BD5"));
+        });
       },
       // 表情包重命名: name 是主键, 改名 = 删旧键 + 写新键 (保留 url / categoryId)。
       // 新名为空、与旧名相同、或已被占用都会抛错, 让调用方提示用户。
@@ -8302,6 +8520,22 @@ var init_db = __esm({
         });
       },
       appendApiCallLog: async (entry) => {
+        return DB.updateApiCallLog((cur) => {
+          const duplicateIndex = cur.findIndex((e) => e?.id && e.id === entry?.id);
+          if (duplicateIndex < 0) return [entry, ...cur];
+          const existing = cur[duplicateIndex];
+          const metadataKeys = ["appId", "appName", "charId", "charName", "model", "baseUrl", "presetName", "promptBreakdown"];
+          const defined = Object.fromEntries(Object.entries(entry || {}).filter(([key, value]) => value !== void 0 && (existing.cloudCallIndex == null || entry.cloudCallIndex != null || metadataKeys.includes(key))));
+          cur[duplicateIndex] = { ...existing, ...defined, id: existing.id };
+          if (existing.cloudCallIndex === 1 && entry.cloudCallIndex == null) {
+            const { promptBreakdown: _firstInput, ...attribution } = defined;
+            cur = cur.map((e) => e.id?.startsWith(`${existing.id}:call:`) ? { ...e, ...attribution } : e);
+          }
+          return cur;
+        });
+      },
+      /** Atomic mutation also lets cloud round logs replace their pending aggregate in one write. */
+      updateApiCallLog: async (update) => {
         const db = await openDB2();
         if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return;
         return new Promise((resolve, reject) => {
@@ -8309,16 +8543,12 @@ var init_db = __esm({
           const store = tx.objectStore(STORE_API_CALL_LOG);
           const req = store.get("log");
           req.onsuccess = () => {
-            const cur = req.result?.entries ?? [];
-            const duplicateIndex = cur.findIndex((e) => e?.id && e.id === entry?.id);
-            if (duplicateIndex >= 0) {
-              const existing = cur[duplicateIndex];
-              const defined = Object.fromEntries(
-                Object.entries(entry || {}).filter(([, value]) => value !== void 0)
-              );
-              cur[duplicateIndex] = { ...existing, ...defined, id: existing.id };
-            } else {
-              cur.unshift(entry);
+            let cur;
+            try {
+              cur = update(req.result?.entries ?? []);
+            } catch {
+              tx.abort();
+              return;
             }
             const cutoff = Date.now() - API_CALL_LOG_MAX_AGE_MS;
             const pruned2 = cur.filter((e) => (e?.timestamp ?? 0) > cutoff).sort((a, b) => (b?.timestamp ?? 0) - (a?.timestamp ?? 0)).slice(0, API_CALL_LOG_MAX_ENTRIES);
@@ -8802,6 +9032,7 @@ var init_db = __esm({
           // 通用 MCP 服务器配置（存 localStorage）
           amsg2GlobalConfig: await exportAmsg2GlobalConfig(options2),
           // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库；后端连接默认不带走）
+          chatSubtitleByChar: exportSubtitleSettings(),
           beautyAuthorLocal: exportBeautyAuthorBackup(),
           beautyPreferences: exportBeautyPreferences(),
           desktopSkinLocal: await exportDesktopSkinLocal()
@@ -8926,6 +9157,7 @@ var init_db = __esm({
           }
         }
         const plannedSections = [
+          !mediaOnly && data.chatSubtitleByChar !== void 0,
           data.characters !== void 0 || data.mediaAssets !== void 0,
           data.characterGroups !== void 0,
           data.messages !== void 0,
@@ -8935,6 +9167,7 @@ var init_db = __esm({
           data.assets !== void 0,
           data.friendFeed !== void 0 && !mediaOnly,
           data.activityTextAssets !== void 0 && !mediaOnly,
+          data.helpDeskHistory !== void 0 && !mediaOnly,
           data.friendFeedMedia !== void 0,
           data.savedJournalStickers !== void 0,
           data.galleryImages !== void 0,
@@ -9149,10 +9382,20 @@ var init_db = __esm({
         }, data.emojiCategories?.length || 0);
         await runSection("\u7CFB\u7EDF\u8D44\u6E90", data.assets !== void 0, async () => {
           if (mediaOnly) {
-            await mergeStore(STORE_ASSETS2, (data.assets || []).filter((a) => !isActivityTextAsset(a.id)), "\u7CFB\u7EDF\u8D44\u6E90", true);
+            const history = data.assets?.find((a) => a.id === HELP_HISTORY_KEY);
+            if (history) await withStore(STORE_ASSETS2, (store) => {
+              const current = store.get(HELP_HISTORY_KEY);
+              current.onsuccess = () => {
+                if (current.result) store.put({ id: HELP_HISTORY_KEY, data: restoreHelpMedia(current.result.data, history.data) });
+              };
+            });
+            await mergeStore(STORE_ASSETS2, (data.assets || []).filter((a) => a.id !== HELP_HISTORY_KEY && !isActivityTextAsset(a.id)), "\u7CFB\u7EDF\u8D44\u6E90", true);
           } else await clearAndAdd(STORE_ASSETS2, data.assets || [], "\u7CFB\u7EDF\u8D44\u6E90", true);
           data.assets = void 0;
         }, data.assets?.length || 0);
+        await runSection("\u5BA2\u670D\u54A8\u8BE2\u8BB0\u5F55", data.helpDeskHistory !== void 0 && !mediaOnly, async () => {
+          await DB.saveAssetRaw(HELP_HISTORY_KEY, helpTextHistory(data.helpDeskHistory));
+        });
         await runSection("\u6D3B\u52A8\u6587\u5B57\u8BB0\u5F55", data.activityTextAssets !== void 0 && !mediaOnly, async () => {
           const records = data.activityTextAssets;
           if (!Array.isArray(records) || records.some((a) => !a || typeof a.id !== "string" || !isActivityTextAsset(a.id) || a.id === "friend_feed_v1" || typeof a.data !== "string")) {
@@ -9340,6 +9583,10 @@ var init_db = __esm({
             { allowBackendConnection: options2.allowBackendConnection }
           );
           data.amsg2GlobalConfig = void 0;
+        }, 1);
+        await runSection("\u5916\u6302\u5B57\u5E55\u8BBE\u7F6E", !mediaOnly && data.chatSubtitleByChar !== void 0, async () => {
+          importSubtitleSettings(data.chatSubtitleByChar);
+          data.chatSubtitleByChar = void 0;
         }, 1);
         await runSection("\u7F8E\u5316\u504F\u597D", data.beautyPreferences !== void 0, async () => {
           importBeautyPreferences(data.beautyPreferences);
@@ -9885,6 +10132,45 @@ function installAnthropicFetch(browser = false) {
   globalThis.fetch = wrapped;
 }
 
+// utils/monthlyRecall.ts
+var isMonthlyRecallEnabled = (char) => char.monthlyRecallEnabled !== false;
+var stripDisabledMonthlyRecall = (text3, char) => isMonthlyRecallEnabled(char) ? text3 : text3.replace(/\[\[RECALL:[^\]]*\]\]/gi, "").trim();
+
+// utils/amsgApiCallRecords.ts
+var INSTANT_API_CALLS_RESULT_KIND = "instant-api-calls";
+var count = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : void 0;
+function modelCallCauses(names) {
+  return [...new Set(names.map((name) => {
+    if (name === "recall") return "recall";
+    if (["schedule_active_message", "cancel_active_message", "renew_active_message", "list_active_messages"].includes(name)) return "schedule";
+    if (name === "web_search") return "search";
+    if (["notion_read_diary", "feishu_read_diary"].includes(name)) return "diary";
+    if (name === "read_note") return "notes";
+    if (name.startsWith("xhs_")) return "xhs";
+    if (name.startsWith("mcp__")) return "mcp";
+    return "tools";
+  }))];
+}
+function makeModelCall(input) {
+  const response = input.response;
+  const usage = input.usage ?? response?.usage ?? response?.usageMetadata;
+  const promptTokens = count(usage?.prompt_tokens ?? usage?.input_tokens ?? usage?.promptTokenCount);
+  const completionTokens = count(usage?.completion_tokens ?? usage?.output_tokens ?? usage?.candidatesTokenCount);
+  return {
+    index: input.index,
+    completedAt: input.completedAt,
+    causes: input.causes,
+    ok: input.ok,
+    ...input.status !== void 0 ? { status: input.status } : {},
+    promptTokens,
+    completionTokens,
+    totalTokens: count(usage?.total_tokens ?? usage?.totalTokenCount) ?? (promptTokens !== void 0 && completionTokens !== void 0 ? promptTokens + completionTokens : void 0),
+    cacheReadTokens: count(usage?.prompt_tokens_details?.cached_tokens ?? usage?.cache_read_input_tokens ?? usage?.cachedContentTokenCount),
+    cacheWriteTokens: count(usage?.cache_creation_input_tokens ?? usage?.prompt_tokens_details?.cache_write_tokens),
+    ...typeof response?.model === "string" && response.model ? { backendModel: response.model.slice(0, 200) } : {}
+  };
+}
+
 // utils/amsgReproduction.ts
 var DIAGNOSTIC_NAMESPACE = "amsg:diagnostic";
 var DIAGNOSTIC_CHAR_ID = "amsg-diagnostic";
@@ -10159,8 +10445,8 @@ var resolveCount = (value, fallback, ceiling) => {
 var resolveMaxUnansweredSends = (value) => resolveCount(value, DEFAULT_MAX_UNANSWERED_SENDS, 99);
 var resolveAmsgLimits = (settings) => {
   const s = settings ?? {};
-  const gap = s.minSendGapMinutes;
-  const gapMinutes = typeof gap === "number" && Number.isFinite(gap) && gap >= 0 ? Math.min(24 * 60, Math.floor(gap)) : DEFAULT_MIN_SEND_GAP_MINUTES;
+  const gap2 = s.minSendGapMinutes;
+  const gapMinutes = typeof gap2 === "number" && Number.isFinite(gap2) && gap2 >= 0 ? Math.min(24 * 60, Math.floor(gap2)) : DEFAULT_MIN_SEND_GAP_MINUTES;
   const tasks = s.maxActiveTasks;
   return {
     maxUnansweredSends: resolveMaxUnansweredSends(s.maxUnansweredSends),
@@ -10276,12 +10562,22 @@ var checkSelfScheduleRules = (input) => {
     expirePolicy: input.expirePolicy === "force" && !limits.allowSelfForce ? "expire" : input.expirePolicy
   };
 };
+var buildUnansweredLimitRejectMessage = (opts) => {
+  if (opts.context === "chat") {
+    const canManage = opts.canManageTasks !== false;
+    return canManage ? `\u4F60\u540D\u4E0B\u5DF2\u7ECF\u6392\u7740 ${opts.count} \u6B21\u5F85\u53D1\u7684\u540E\u7EED\u8054\u7CFB\uFF0C\u7528\u6237\u8BBE\u7684\u8FDE\u53D1\u4E0A\u9650\u662F ${opts.limit} \u6B21\u2014\u2014\u60F3\u6539\u65F6\u95F4\u6216\u65B9\u5411\u8BF7\u7528 renew_active_message / cancel_active_message \u8C03\u6574\u73B0\u6709\u7684\uFF0C\u8FD9\u6B21\u4E0D\u8981\u518D\u65B0\u6392\u4E86\u3002` : `\u4F60\u540D\u4E0B\u5DF2\u7ECF\u6392\u7740 ${opts.count} \u6B21\u5F85\u53D1\u7684\u540E\u7EED\u8054\u7CFB\uFF0C\u7528\u6237\u8BBE\u7684\u8FDE\u53D1\u4E0A\u9650\u662F ${opts.limit} \u6B21\u2014\u2014\u5F85\u53D1\u540D\u989D\u5DF2\u6EE1\uFF0C\u8FD9\u6B21\u4E0D\u8981\u518D\u65B0\u6392\u4E86\u3002`;
+  }
+  return `\u5BF9\u65B9\u8FD8\u6CA1\u56DE\u590D\uFF0C\u8FD9\u671F\u95F4\u4F60\u5DF2\u7ECF\u4E3B\u52A8\u627E\u4E86 / \u6392\u4E86 ${opts.count} \u6B21\uFF0C\u7528\u6237\u8BBE\u7684\u8FDE\u53D1\u4E0A\u9650\u662F ${opts.limit} \u6B21\u2014\u2014\u8FD9\u6B21\u522B\u6392\u4E86\uFF0C\u7B49 ta \u56DE\u590D\u518D\u8BF4\u3002`;
+};
 var buildLimitsBrief = (input) => {
   const { limits } = input;
   const lines = [];
   if (Number.isFinite(limits.maxUnansweredSends)) {
     const used = Math.min(limits.maxUnansweredSends, Math.max(0, input.committedSends));
-    lines.push(`- \u5BF9\u65B9\u6CA1\u56DE\u671F\u95F4\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u7528 ${used}/${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09` + (used < limits.maxUnansweredSends ? "\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u540E\u624D\u80FD\u518D\u6392\u3002"));
+    const canManage = input.canManageTasks !== false;
+    lines.push(
+      input.context === "chat" ? `- \u4E0B\u6B21\u5BF9\u65B9\u56DE\u590D\u524D\u53EF\u6302\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u6392 ${used}/${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF09` + (used < limits.maxUnansweredSends ? "\u3002" : canManage ? "\uFF0C\u5DF2\u6EE1\uFF1B\u60F3\u6539\u65F6\u95F4\u6216\u65B9\u5411\u8BF7\u7528 renew / cancel \u8C03\u6574\u73B0\u6709\u7684\uFF0C\u4E0D\u8981\u518D\u65B0\u6392\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u8FD9\u6B21\u4E0D\u8981\u518D\u65B0\u6392\u3002") : `- \u5BF9\u65B9\u6CA1\u56DE\u671F\u95F4\u7684\u4E3B\u52A8\u8054\u7CFB\uFF1A\u5DF2\u7528 ${used}/${limits.maxUnansweredSends} \u6B21\uFF08\u4E00\u6B21\u53EF\u4EE5\u8BF4\u597D\u51E0\u53E5\uFF1B\u6392\u597D\u8FD8\u6CA1\u53D1\u7684\u4E5F\u7B97\uFF09` + (used < limits.maxUnansweredSends ? "\u3002" : "\uFF0C\u5DF2\u6EE1\uFF0C\u7B49\u5BF9\u65B9\u56DE\u590D\u540E\u624D\u80FD\u518D\u6392\u3002")
+    );
   }
   if (limits.minSendGapMs > 0) {
     lines.push(`- \u4E24\u6B21\u4E3B\u52A8\u627E\u5BF9\u65B9\u4E4B\u95F4\u81F3\u5C11\u9694 ${describeMinutes(Math.round(limits.minSendGapMs / 6e4))}` + (input.earliestText ? `\uFF0C\u8FD9\u6B21\u6700\u65E9\u6392\u5230 ${input.earliestText}\u3002` : "\u3002"));
@@ -10330,7 +10626,40 @@ var amsgXhsSessionKey = (clientTaskId) => `xhs_session:${clientTaskId}`;
 var AMSG2_INSTANT_STUB_TEMPLATE = "AMSG2_INSTANT_STUB_TEMPLATE\uFF08\u5373\u65F6\u5BF9\u8BDD\u8F7B\u91CF\u5305\uFF1A\u8BE5\u89D2\u8272\u65E0\u5B9A\u65F6\u4EFB\u52A1\uFF0C\u6A21\u677F\u672A\u968F\u53D1\u9001\u91CD\u5EFA\uFF1B\u770B\u5230\u8FD9\u6761\u6B63\u6587\u8BF4\u660E\u6709\u672C\u4E0D\u8BE5\u6E32\u67D3\u6A21\u677F\u7684 fire \u5728\u6E32\u67D3\u5B83\uFF09";
 var AMSG_CHAT_FAIL_KEY = "chat_fail";
 var GZIP_VALUE_PREFIX = "gz1:";
-var canCompress = () => typeof CompressionStream === "function" && typeof DecompressionStream === "function";
+var GZIP_MIN_FRAME_BYTES = 20;
+var MIN_WORTH_PACKING_BYTES = 32;
+var brokenCompressionStreamCtor = null;
+var gzipFallbackCompressor = null;
+var crc32Table = null;
+var getCrc32Table = () => {
+  if (crc32Table) return crc32Table;
+  const table = new Uint32Array(256);
+  for (let i = 0; i < 256; i += 1) {
+    let c = i;
+    for (let k = 0; k < 8; k += 1) {
+      c = c & 1 ? 3988292384 ^ c >>> 1 : c >>> 1;
+    }
+    table[i] = c >>> 0;
+  }
+  crc32Table = table;
+  return table;
+};
+var computeCrc32 = (bytes) => {
+  const table = getCrc32Table();
+  let crc = 4294967295;
+  for (let i = 0; i < bytes.byteLength; i += 1) {
+    crc = table[(crc ^ bytes[i]) & 255] ^ crc >>> 8;
+  }
+  return (crc ^ 4294967295) >>> 0;
+};
+var isValidGzipForInput = (rawBytes, gz) => {
+  if (gz.byteLength < GZIP_MIN_FRAME_BYTES) return false;
+  if (gz[0] !== 31 || gz[1] !== 139 || gz[2] !== 8) return false;
+  const view = new DataView(gz.buffer, gz.byteOffset, gz.byteLength);
+  const expectedSize = rawBytes.byteLength >>> 0;
+  if (view.getUint32(gz.byteLength - 4, true) !== expectedSize) return false;
+  return view.getUint32(gz.byteLength - 8, true) === computeCrc32(rawBytes);
+};
 var CHUNK = 32768;
 var bytesToBase64 = (bytes) => {
   let binary = "";
@@ -10346,14 +10675,52 @@ var base64ToBytes = (base64) => {
   return bytes;
 };
 var streamThrough = async (data, transform) => {
-  const stream = new Blob([data]).stream().pipeThrough(transform);
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+  const readablePromise = new Response(transform.readable).arrayBuffer();
+  const writer = transform.writable.getWriter();
+  const writePromise = writer.write(data.slice()).then(() => writer.close()).catch(async (error) => {
+    try {
+      await writer.abort(error);
+    } catch {
+    }
+    throw error;
+  });
+  const [buffer] = await Promise.all([readablePromise, writePromise]);
+  return new Uint8Array(buffer);
+};
+var compressGzipBytes = async (rawBytes) => {
+  if (typeof CompressionStream === "function" && CompressionStream !== brokenCompressionStreamCtor) {
+    const ctor = CompressionStream;
+    try {
+      const gz = await streamThrough(rawBytes, new CompressionStream("gzip"));
+      if (isValidGzipForInput(rawBytes, gz)) {
+        return gz;
+      }
+      brokenCompressionStreamCtor = ctor;
+      console.warn("[AmsgGzip] \u539F\u751F CompressionStream \u8F93\u51FA\u7684 gzip \u5934\u5C3E\u4E0D\u5B8C\u6574\uFF0C\u5207\u6362\u5907\u7528\u538B\u7F29\u901A\u9053");
+    } catch (error) {
+      brokenCompressionStreamCtor = ctor;
+      console.warn("[AmsgGzip] \u539F\u751F CompressionStream \u538B\u7F29\u5931\u8D25\uFF0C\u5207\u6362\u5907\u7528\u538B\u7F29\u901A\u9053", error);
+    }
+  }
+  if (gzipFallbackCompressor) {
+    try {
+      const fallbackGz = await gzipFallbackCompressor(rawBytes);
+      if (fallbackGz && isValidGzipForInput(rawBytes, fallbackGz)) {
+        return fallbackGz;
+      }
+    } catch {
+    }
+  }
+  return null;
 };
 var packStateValue = async (json) => {
-  if (!canCompress()) return json;
+  const nativeAvailable = typeof CompressionStream === "function" && CompressionStream !== brokenCompressionStreamCtor;
+  if (!nativeAvailable && !gzipFallbackCompressor) return json;
   try {
     const rawBytes = new TextEncoder().encode(json);
-    const gz = await streamThrough(rawBytes, new CompressionStream("gzip"));
+    if (rawBytes.byteLength <= MIN_WORTH_PACKING_BYTES) return json;
+    const gz = await compressGzipBytes(rawBytes);
+    if (!gz) return json;
     const packed = `${GZIP_VALUE_PREFIX}${bytesToBase64(gz)}`;
     return packed.length < rawBytes.length ? packed : json;
   } catch {
@@ -13433,17 +13800,17 @@ async function resolveClientStateEntries(rows, fetchChunkRows, decryptValue, onU
   };
   const entries2 = [];
   for (const row of rows) {
-    const count = parseChunkedRootCount(row.value);
+    const count2 = parseChunkedRootCount(row.value);
     let valueSources = [row.value];
-    if (count !== null) {
+    if (count2 !== null) {
       const map = await loadChunks();
       const chunkRows = [];
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < count2; i++) {
         const chunk = map.get(chunkKeyFor(row.key, i));
         if (!chunk || chunk.updated_at !== row.updated_at) break;
         chunkRows.push(chunk);
       }
-      if (chunkRows.length !== count) continue;
+      if (chunkRows.length !== count2) continue;
       valueSources = chunkRows.map((chunk) => chunk.value);
     }
     let value;
@@ -20010,8 +20377,8 @@ async function buildCloudDataInventory({
     let value, unreadable = metadataInfo.unreadable;
     try {
       const rootMarker = row.value ?? row.value_prefix ?? "";
-      const count = parseChunkedRootCount(rootMarker);
-      if (count === null) {
+      const count2 = parseChunkedRootCount(rootMarker);
+      if (count2 === null) {
         if (typeof row.value === "string" && (!skipFullDecrypt || row.value.length <= 1024)) {
           value = await decryptFromStorage(row.value, userKey);
         } else if (skipFullDecrypt) {
@@ -20032,12 +20399,12 @@ async function buildCloudDataInventory({
           value = await decryptFromStorage(rawValue, userKey);
         }
       } else {
-        if (count > slices.length) throw new Error("Missing state chunks");
+        if (count2 > slices.length) throw new Error("Missing state chunks");
         const sliceByKey = new Map(
           slices.map((candidate) => [candidate.key, candidate])
         );
         const orderedSlices = [];
-        for (let i = 0; i < count; i++) {
+        for (let i = 0; i < count2; i++) {
           const slice = sliceByKey.get(chunkKeyFor(row.key, i));
           if (!slice || slice.updated_at !== row.updated_at)
             throw new Error("Mismatched state chunks");
@@ -20475,9 +20842,9 @@ async function advanceCleanup(ctx, db, userId, key, operation, { maxEntries = 25
       }
       operation.knownResourceIds = [...known];
       operation.cursor = 0;
-      for (const count of operation.counts)
-        count.remaining = operation.entries.filter(
-          (entry) => entry.resource.type === count.type
+      for (const count2 of operation.counts)
+        count2.remaining = operation.entries.filter(
+          (entry) => entry.resource.type === count2.type
         ).length;
       await save(db, userId, key, "operation", operation, { leaseToken });
     }
@@ -20509,11 +20876,11 @@ async function advanceCleanup(ctx, db, userId, key, operation, { maxEntries = 25
           "\u8D44\u6E90\u5728\u6267\u884C\u524D\u53D8\u5316\uFF0C\u5DF2\u505C\u6B62\u6E05\u7406",
           409
         );
-      const count = operation.counts.find(
+      const count2 = operation.counts.find(
         (c) => c.type === entry.resource.type
       );
-      count.deleted++;
-      count.remaining = Math.max(0, count.remaining - 1);
+      count2.deleted++;
+      count2.remaining = Math.max(0, count2.remaining - 1);
       delete entry.locator;
       operation.cursor++;
       operation.updatedAt = Date.now();
@@ -20531,9 +20898,9 @@ async function advanceCleanup(ctx, db, userId, key, operation, { maxEntries = 25
     const remaining = current.entries.filter(
       (e) => operation.mode === "retire-owner" ? ownerEquals(e.resource.owner, operation.owner) || knownIds.has(e.resource.id) : selected.has(e.resource.id)
     );
-    for (const count of operation.counts)
-      count.remaining = remaining.filter(
-        (e) => e.resource.type === count.type
+    for (const count2 of operation.counts)
+      count2.remaining = remaining.filter(
+        (e) => e.resource.type === count2.type
       ).length;
     if (operation.mode === "purge") {
       const processed = new Set(
@@ -20573,7 +20940,7 @@ async function advanceCleanup(ctx, db, userId, key, operation, { maxEntries = 25
     ];
     operation.nextAttemptAt = Date.now() + Math.min(36e5, 3e4 * 2 ** operation.attempts);
     if (terminal)
-      for (const count of operation.counts) count.failed = count.remaining;
+      for (const count2 of operation.counts) count2.failed = count2.remaining;
   } finally {
     if (!leaseLost) {
       operation.updatedAt = Date.now();
@@ -21490,19 +21857,19 @@ function readAssistantMessage(message) {
   return { content: parts.content, reasoning: [...new Set(reasoning)].join("\n\n") };
 }
 function splitInlineThinking(text3) {
-  const open = /<(think|thinking|thought)(?:\s[^>]*)?>/gi;
+  const open2 = /<(think|thinking|thought)(?:\s[^>]*)?>/gi;
   let content = "", cursor = 0;
   const blocks = [];
   let match;
-  while (match = open.exec(text3)) {
+  while (match = open2.exec(text3)) {
     content += text3.slice(cursor, match.index);
-    const close = new RegExp(`<\\/\\s*${match[1]}\\s*>`, "gi");
-    close.lastIndex = open.lastIndex;
-    const end = close.exec(text3);
-    const block = text3.slice(open.lastIndex, end ? end.index : text3.length).trim();
+    const close2 = new RegExp(`<\\/\\s*${match[1]}\\s*>`, "gi");
+    close2.lastIndex = open2.lastIndex;
+    const end = close2.exec(text3);
+    const block = text3.slice(open2.lastIndex, end ? end.index : text3.length).trim();
     if (block) blocks.push(block);
-    cursor = end ? close.lastIndex : text3.length;
-    open.lastIndex = cursor;
+    cursor = end ? close2.lastIndex : text3.length;
+    open2.lastIndex = cursor;
     if (!end) break;
   }
   return { content: content + text3.slice(cursor), reasoning: blocks.join("\n\n") };
@@ -21530,6 +21897,25 @@ function deduplicateVoiceText(text3) {
   }).join("\n").replace(/\u0002VOICE(\d+)\u0002/g, (_, i) => blocks[Number(i)]).trim();
 }
 
+// utils/sullyHelpCommand.ts
+var SULLY_HELP_PREVIEW = "[\u7CEF\u7C73\u673A\u7B54\u7591 \xB7 Sully-11]";
+var open = /[\[［【]/.source;
+var close = /[\]］】]/.source;
+var find = /[fｆ]\s*[iｉ]\s*[nｎ]\s*[dｄ]/.source;
+var find11 = find + /\s*[:：_-]?\s*[1１]\s*[1１]/.source;
+var opening = `${open}(?:\\s*${open}){0,2}`;
+var closing = `${close}(?:\\s*${close}){0,2}`;
+var gap = /[^\S\r\n]*/.source;
+var bareFind11 = /[fｆ][iｉ][nｎ][dｄ][^\S\r\n]*[1１][1１]/.source;
+var SULLY_HELP_COMMAND = new RegExp([
+  // 有开括号时，接受单层、双层、混用括号；行末截断也能恢复。
+  `${opening}\\s*${find11}(?:\\s*${closing}|${gap}$)`,
+  // 两侧括号都漏掉时，只认独占一行的指令，不从一句话中猜动作。
+  `^${gap}${bareFind11}(?:${gap}${closing})?${gap}$`,
+  // 旧版 find 没有工号，只兼容明确的双括号形式。
+  `${open}\\s*${open}\\s*${find}\\s*${close}\\s*${close}`
+].join("|"), "gim");
+
 // utils/friendFeedReplyFormat.ts
 var FRIEND_FEED_MAIN_PROMPT_PREFIX = "\u3010\u987A\u4FBF\u56DE\u597D\u53CB\u5708\u3011";
 function extractFriendFeedReplyTags(raw2, namespace = "FRIEND_FEED_REPLY") {
@@ -21554,13 +21940,13 @@ function extractFriendFeedReplyTags(raw2, namespace = "FRIEND_FEED_REPLY") {
         break;
       }
     }
-    const close = end >= 0 ? /^\s*\]\]/.exec(raw2.slice(end)) : null;
-    if (close) {
+    const close2 = end >= 0 ? /^\s*\]\]/.exec(raw2.slice(end)) : null;
+    if (close2) {
       try {
         actions.push(JSON.parse(raw2.slice(start, end)));
       } catch {
       }
-      cursor = end + close[0].length;
+      cursor = end + close2[0].length;
     } else {
       const fallback = raw2[start] === "{" && end < 0 ? -1 : raw2.indexOf("]]", end >= 0 ? end : start);
       cursor = fallback < 0 ? raw2.length : fallback + 2;
@@ -21742,14 +22128,14 @@ function normalizeVoiceTags(t) {
   });
   result = repairPairedTag(result, /<\/?[语語]音[^>]*>/g, (tok) => /語/.test(tok) ? "\u8A9E\u97F3" : "\u8BED\u97F3", true);
   result = repairPairedTag(result, /<\/?字幕[^>]*>/g, () => "\u5B57\u5E55", false);
-  result = result.replace(/(<[语語]音[^>]*>)([\s\S]*?)(<\/[语語]音>)/g, (block, open, inner, close) => {
+  result = result.replace(/(<[语語]音[^>]*>)([\s\S]*?)(<\/[语語]音>)/g, (block, open2, inner, close2) => {
     const subtitles = [];
     const speech = inner.replace(/<字幕>([\s\S]*?)<\/字幕>/g, (_m, sub) => {
       if (sub.trim()) subtitles.push(sub.trim());
       return "";
     });
     if (subtitles.length === 0) return block;
-    return `${open}${speech.trim()}${close}
+    return `${open2}${speech.trim()}${close2}
 <\u5B57\u5E55>${subtitles.join("\n")}</\u5B57\u5E55>`;
   });
   return result;
@@ -21803,6 +22189,7 @@ function sanitizeForNotification(text3) {
   result = replaceHtmlBlocks(result);
   result = replaceEmojiReverseTag(result);
   result = replaceSendEmoji(result);
+  result = result.replace(SULLY_HELP_COMMAND, SULLY_HELP_PREVIEW);
   result = normalizeTranslationTags(result);
   result = extractTranslationOriginal(result);
   result = stripTimestamps(result);
@@ -21832,6 +22219,7 @@ function sanitizeIntoSegments(text3) {
   const atomSegments = segmentTextWithProtectedBlocks(cleaned, {
     splitText: (plainText2) => [plainText2],
     protectedPatterns: [
+      { pattern: SULLY_HELP_COMMAND, preview: SULLY_HELP_PREVIEW, meta: "sully-help" },
       {
         pattern: /\[html\][\s\S]*?\[\/html\]/i,
         preview: "[HTML \u5361\u7247]"
@@ -21849,8 +22237,13 @@ function sanitizeIntoSegments(text3) {
       }
     ]
   });
+  let hasSullyHelpCard = false;
   cleaned = atomSegments.map((seg) => {
     if (!seg.protect) return seg.raw;
+    if (seg.meta === "sully-help") {
+      if (hasSullyHelpCard) return "";
+      hasSullyHelpCard = true;
+    }
     const idx = atomBlocks.length;
     atomBlocks.push({
       raw: seg.raw,
@@ -22442,7 +22835,7 @@ var EXPIRE_POLICY_DESCRIPTION = [
   'force\uFF1A\u51C6\u70B9\u7167\u53D1\uFF0C\u4E0D\u7B49\u4E5F\u4E0D\u8BA9\u3002\u7528\u5728\u300C\u5230\u90A3\u4E2A\u70B9\u5FC5\u987B\u8BF4\u8FD9\u4EF6\u5177\u4F53\u7684\u4E8B\u300D\u4E0A\uFF0C\u4E24\u79CD\u6765\u6E90\u90FD\u7B97\u2014\u2014\u7528\u6237\u660E\u786E\u8981\u6C42\u7684\uFF08\u5982"8\u70B9\u53EB\u6211\u8D77\u5E8A"\uFF09\uFF0C\u4EE5\u53CA\u4F60\u81EA\u5DF1\u8BB8\u4E0B\u7684\uFF08\u5982"\u6C64\u7096\u4E0A\u4E86\uFF0C\u4E24\u5C0F\u65F6\u540E\u597D\u4E86\u53EB\u4F60""\u4F60\u90A3\u4E2A\u4F1A\u6211\u5230\u70B9\u63D0\u9192\u4F60"\uFF09\u3002',
   "\u8FD9\u7C7B\u5151\u73B0\u7684\u662F\u4E00\u4E2A\u5177\u4F53\u627F\u8BFA\uFF0C\u7528\u6237\u4E2D\u9014\u56DE\u6765\u804A\u8FC7\u5929\u4E5F\u4E0D\u5F71\u54CD\u5B83\u8BE5\u54CD\u3002"
 ].join("\n");
-var buildScheduleToolDescription = (context) => [
+var buildScheduleToolDescription = (context, maxActiveTasks) => [
   ...context === "chat" ? [
     "\u521B\u5EFA\u5B9A\u65F6\u4E3B\u52A8\u6D88\u606F\uFF1A\u5230\u6307\u5B9A\u65F6\u95F4\u540E\uFF0C\u4F60\u4F1A\u6839\u636E\u6700\u65B0\u804A\u5929\u4E0A\u4E0B\u6587\u751F\u6210\u5E76\u63A8\u9001\u6D88\u606F\u7ED9\u7528\u6237\u3002",
     "\u6B63\u5728\u804A\u5929\u65F6\uFF0C\u4F60\u4E5F\u53EF\u4EE5\u56E0\u4E3A\u60E6\u8BB0\u3001\u60F3\u5206\u4EAB\u81EA\u5DF1\u7684\u751F\u6D3B\u3001\u5151\u73B0\u627F\u8BFA\uFF0C\u7ED9\u672A\u6765\u7684\u81EA\u5DF1\u6392\u4E00\u6B21\u8054\u7CFB\uFF0C\u4E0D\u5FC5\u7B49\u7528\u6237\u660E\u786E\u8981\u6C42\u3002"
@@ -22452,7 +22845,7 @@ var buildScheduleToolDescription = (context) => [
   ],
   "\u6392\u4E0B\u7684\u8FD9\u6761\u5230\u70B9\u65F6\u4F1A\u77E5\u9053\u4F60\u8FD9\u6B21\u8BF4\u4E86\u4EC0\u4E48\uFF0C\u80FD\u63A5\u5F97\u4E0A\uFF0C\u4E0D\u7528\u5728\u53C2\u6570\u91CC\u590D\u8FF0\u3002",
   "send_at \u662F\u5F00\u59CB\u751F\u6210\u7684\u65F6\u95F4\uFF0C\u4E0D\u662F\u9001\u8FBE\u65F6\u95F4\uFF08\u751F\u6210\u6709\u5341\u51E0\u79D2\u5EF6\u8FDF\uFF09\uFF0C\u4E14\u5FC5\u987B\u81F3\u5C11\u6BD4\u73B0\u5728\u665A 1 \u5206\u949F\u3002",
-  `\u4E00\u6B21\u6700\u591A\u6392 ${MAX_FIRE_SCHEDULES} \u6761\uFF1B\u6BCF\u4E2A\u89D2\u8272\u540C\u65F6\u6302\u7684\u4EFB\u52A1\u4E5F\u6709\u4E0A\u9650\uFF0C\u6392\u4E0D\u4E0B\u65F6\u4F1A\u544A\u8BC9\u4F60\u3002`,
+  `\u4E00\u6B21\u6700\u591A\u6392 ${MAX_FIRE_SCHEDULES} \u6761\uFF1B${typeof maxActiveTasks === "number" && Number.isFinite(maxActiveTasks) ? `\u6BCF\u4E2A\u89D2\u8272\u6700\u591A\u540C\u65F6\u6302 ${maxActiveTasks} \u4E2A\u4EFB\u52A1` : "\u6BCF\u4E2A\u89D2\u8272\u540C\u65F6\u6302\u7684\u4EFB\u52A1\u4E5F\u6709\u4E0A\u9650"}\uFF0C\u6392\u4E0D\u4E0B\u65F6\u4F1A\u544A\u8BC9\u4F60\u3002`,
   context === "chat" ? "\u672A\u6765\u90A3\u4E2A\u65F6\u523B\u771F\u7684\u60F3\u8054\u7CFB\u5C31\u6392\uFF0C\u5C0A\u91CD\u7528\u6237\u7684\u751F\u6D3B\u548C\u300C\u522B\u6253\u6270\u300D\uFF0C\u4E0D\u8981\u4E3A\u4E86\u6392\u800C\u6392\u3002" : "\u6CA1\u6709\u300C\u63A5\u7740\u8BF4\u300D\u7684\u5FC5\u8981\u5C31\u522B\u6392\u2014\u2014\u4E3A\u4E86\u6392\u800C\u6392\u51FA\u6765\u7684\u540E\u7EED\uFF0C\u7528\u6237\u8BFB\u8D77\u6765\u5C31\u662F\u6CA1\u8BDD\u627E\u8BDD\u3002"
 ].join("\n");
 var buildScheduleParameters = (opts) => ({
@@ -22494,7 +22887,7 @@ var buildFireScheduleTool = (opts) => ({
   type: "function",
   function: {
     name: AMSG_FIRE_SCHEDULE_TOOL,
-    description: buildScheduleToolDescription(opts.context ?? "fire"),
+    description: buildScheduleToolDescription(opts.context ?? "fire", opts.maxActiveTasks),
     parameters: buildParameters(
       buildSendAtExample(opts.nowMs, opts.tz),
       opts.abilities
@@ -22524,7 +22917,7 @@ var buildFireRenewTool = (opts) => ({
     name: AMSG_FIRE_RENEW_TOOL,
     description: [
       "\u7ED9\u4F60\u6302\u7740\u7684\u4E00\u4E2A\u4EFB\u52A1\u6539\u89E6\u53D1\u65F6\u95F4\uFF1A\u53EA\u6362\u65F6\u95F4\uFF0C\u6CBF\u7528\u539F\u6709\u6A21\u5F0F\u4E0E\u63D0\u793A\u65B9\u5411\u3002",
-      "\u4E00\u6B21\u6027\u4EFB\u52A1 = \u6574\u6761\u6539\u5230\u65B0\u65F6\u95F4\uFF08\u7F16\u53F7\u4E0D\u53D8\uFF09\uFF1B\u5FAA\u73AF\u4EFB\u52A1 = \u53EA\u7ED9\u8FD9\u4E00\u6B21\u8865\u53D1\u4E00\u6761\u4E00\u6B21\u6027\u4EFB\u52A1\uFF0C\u539F\u6765\u7684\u6BCF\u5929/\u6BCF\u5468\u8282\u594F\u4E0D\u52A8\u3002",
+      "\u4E00\u6B21\u6027\u4EFB\u52A1 = \u6574\u6761\u6539\u5230\u65B0\u65F6\u95F4\uFF1B\u5FAA\u73AF\u4EFB\u52A1 = \u53EA\u7ED9\u8FD9\u4E00\u6B21\u8865\u53D1\u4E00\u6761\u4E00\u6B21\u6027\u4EFB\u52A1\uFF0C\u539F\u6765\u7684\u6BCF\u5929/\u6BCF\u5468\u8282\u594F\u4E0D\u52A8\u3002",
       "\u60F3\u6539\u7684\u662F\u5FAA\u73AF\u4EFB\u52A1\u672C\u8EAB\u7684\u65F6\u95F4\u3001\u6216\u8005\u60F3\u8BF4\u7684\u5185\u5BB9\u65B9\u5411\u5DF2\u7ECF\u53D8\u4E86\uFF0C\u6539\u7528 cancel_active_message + schedule_active_message \u91CD\u65B0\u521B\u5EFA\u3002",
       `send_at \u81F3\u5C11\u6BD4\u73B0\u5728\u665A 1 \u5206\u949F\uFF08\u5199\u4F60\u672C\u5730\u7684\u5899\u949F\u65F6\u95F4\uFF0C\u5982 ${buildSendAtExample(opts.nowMs, opts.tz)}\uFF0C\u4E0D\u5E26\u65F6\u533A\u540E\u7F00\uFF09\u3002`
     ].join("\n"),
@@ -22723,6 +23116,76 @@ var extractFireScheduleTextCalls = (content) => {
   return calls;
 };
 
+// utils/amsg2ToolLoop.ts
+var TOOL_ROUND_PLACEHOLDER = "(\u8C03\u7528\u5DE5\u5177\u4E2D)";
+var extractToolRoundLeadIn = (content) => {
+  if (typeof content !== "string") return "";
+  const withoutThinking = splitInlineThinking(content).content;
+  return withoutThinking.split(TOOL_ROUND_PLACEHOLDER).join("").trim();
+};
+var isStructuralTagOnlyLine = (line) => /^(?:<\/?[a-zA-Z][^>]*>|\[\/?html\]|```.*)$/i.test(line.trim());
+var meaningfulCharCount = (text3) => Array.from(text3.replace(/[\s\p{P}\p{S}]/gu, "")).length;
+var isSegmentRepeatedInLater = (earlier, later) => {
+  const subLines = earlier.split("\n").map((l) => l.trim()).filter(Boolean);
+  const laterLines = later.split("\n").map((l) => l.trim()).filter(Boolean);
+  if (subLines.length === 0 || laterLines.length === 0) return false;
+  if (subLines.length <= laterLines.length) {
+    for (let start = 0; start <= laterLines.length - subLines.length; start++) {
+      let allMatch = true;
+      for (let j = 0; j < subLines.length; j++) {
+        if (laterLines[start + j] !== subLines[j]) {
+          allMatch = false;
+          break;
+        }
+      }
+      if (allMatch) return true;
+    }
+  }
+  if (subLines.length === 1 && meaningfulCharCount(subLines[0]) >= 6) {
+    return laterLines.some((line) => line.includes(subLines[0]));
+  }
+  return false;
+};
+var appendWithoutBoundaryOverlap = (accLines, nextText) => {
+  const nextLines = nextText.split("\n");
+  if (accLines.length === 0) {
+    accLines.push(...nextLines);
+    return;
+  }
+  const maxOverlap = Math.min(accLines.length, nextLines.length);
+  let overlap = 0;
+  for (let len = maxOverlap; len >= 1; len--) {
+    if (len === 1 && isStructuralTagOnlyLine(nextLines[0])) continue;
+    let matched = true;
+    for (let i = 0; i < len; i++) {
+      if (accLines[accLines.length - len + i].trim() !== nextLines[i].trim()) {
+        matched = false;
+        break;
+      }
+    }
+    if (matched && nextLines.slice(0, len).some((line) => line.trim().length > 0)) {
+      overlap = len;
+      break;
+    }
+  }
+  accLines.push(...nextLines.slice(overlap));
+};
+var mergeToolRoundLeadIns = (leadIns, finalContent) => {
+  const segments = [...leadIns, finalContent].map(extractToolRoundLeadIn).filter(Boolean);
+  const kept = [];
+  for (let i = 0; i < segments.length; i++) {
+    const text3 = segments[i];
+    if (kept.includes(text3)) continue;
+    if (segments.slice(i + 1).some((later) => isSegmentRepeatedInLater(text3, later))) continue;
+    kept.push(text3);
+  }
+  const mergedLines = [];
+  for (const segment of kept) {
+    appendWithoutBoundaryOverlap(mergedLines, segment);
+  }
+  return mergedLines.join("\n");
+};
+
 // utils/vrWorld/sarEnvelopeCore.ts
 var planFromSARModuleSnapshot = (snapshot) => {
   if (!snapshot || !snapshot.character && !snapshot.user) return null;
@@ -22771,6 +23234,59 @@ var parseSARModuleReply = (raw2, plan) => {
     assistantSurface: plan.character?.phase === "active" ? tag(body, "CHAR_SURFACE") : void 0,
     userSurface: plan.user?.phase === "active" ? tag(body, "USER_SURFACE") : void 0,
     enveloped: true
+  };
+};
+var SAR_ENVELOPE_TAG_RE = /<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>/gi;
+var stripSAREnvelopeTags = (text3) => text3.replace(SAR_ENVELOPE_TAG_RE, "").trim();
+var closeOpenSARTag = (text3, name, stoppers) => {
+  const open2 = new RegExp(`<${name}>`, "i").exec(text3);
+  if (!open2 || new RegExp(`</${name}>`, "i").test(text3)) return text3;
+  const after = open2.index + open2[0].length;
+  const stop = new RegExp(stoppers.join("|"), "i").exec(text3.slice(after));
+  const at = stop ? after + stop.index : text3.length;
+  return `${text3.slice(0, at)}</${name}>${text3.slice(at)}`;
+};
+var repairSAREnvelope = (text3) => {
+  let repaired = closeOpenSARTag(text3, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
+  repaired = closeOpenSARTag(repaired, "CHAR_SURFACE", ["<USER_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
+  repaired = closeOpenSARTag(repaired, "USER_SURFACE", ["<CHAR_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
+  return repaired;
+};
+var parseSARModuleReplyRounds = (rounds, plan) => {
+  const texts = rounds.filter((round) => round.trim().length > 0);
+  if (!plan.requiresEnvelope) {
+    return { canonical: texts.join("\n"), enveloped: false, pieces: [] };
+  }
+  const rawPieces = [];
+  let enveloped = false;
+  let userSurface;
+  for (const text3 of texts) {
+    const parsed = parseSARModuleReply(repairSAREnvelope(text3), plan);
+    if (parsed.enveloped) {
+      enveloped = true;
+      if (parsed.userSurface) userSurface = parsed.userSurface;
+    }
+    const canonical = stripSAREnvelopeTags(parsed.canonical);
+    if (!canonical) continue;
+    const surface = parsed.enveloped && parsed.assistantSurface ? stripSAREnvelopeTags(parsed.assistantSurface) : "";
+    rawPieces.push({ canonical, ...surface ? { surface } : {} });
+  }
+  const pieces = [];
+  for (let i = 0; i < rawPieces.length; i++) {
+    const current = rawPieces[i];
+    if (pieces.some((k) => k.canonical === current.canonical)) continue;
+    if (rawPieces.slice(i + 1).some((later) => isSegmentRepeatedInLater(current.canonical, later.canonical))) {
+      continue;
+    }
+    pieces.push(current);
+  }
+  const assistantSurface = pieces.map((p) => p.surface).filter((s) => !!s).join("\n") || void 0;
+  return {
+    canonical: pieces.map((p) => p.canonical).join("\n"),
+    ...assistantSurface ? { assistantSurface } : {},
+    ...userSurface ? { userSurface } : {},
+    enveloped,
+    pieces
   };
 };
 var createSARModuleSurfaceMeta = (state, surface) => {
@@ -22826,44 +23342,13 @@ var maskSarSurfaceBlocks = (text3) => {
     restore: (value) => blocks.length === 0 ? value : value.replace(PLACEHOLDER_RE, (_m, n) => blocks[Number(n)] ?? "")
   };
 };
-var ENVELOPE_TAG_RE = /<\/?(?:SAR_MODULE_OUTPUT|CHAR_TRUE|CHAR_SURFACE|USER_SURFACE)>/gi;
-var stripEnvelopeTags = (text3) => text3.replace(ENVELOPE_TAG_RE, "").trim();
-var closeOpenTag = (text3, name, stoppers) => {
-  const open = new RegExp(`<${name}>`, "i").exec(text3);
-  if (!open || new RegExp(`</${name}>`, "i").test(text3)) return text3;
-  const after = open.index + open[0].length;
-  const stop = new RegExp(stoppers.join("|"), "i").exec(text3.slice(after));
-  const at = stop ? after + stop.index : text3.length;
-  return `${text3.slice(0, at)}</${name}>${text3.slice(at)}`;
-};
-var repairEnvelope = (text3) => {
-  let repaired = closeOpenTag(text3, "CHAR_TRUE", ["<CHAR_SURFACE>", "<USER_SURFACE>", "</SAR_MODULE_OUTPUT>"]);
-  repaired = closeOpenTag(repaired, "CHAR_SURFACE", ["<USER_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
-  repaired = closeOpenTag(repaired, "USER_SURFACE", ["<CHAR_SURFACE>", "<CHAR_TRUE>", "</SAR_MODULE_OUTPUT>"]);
-  return repaired;
-};
 var parseSarEnvelopeRounds = (rounds, plan) => {
-  const texts = rounds.filter((round) => round.trim().length > 0);
-  if (!plan.requiresEnvelope) return { canonical: texts.join("\n"), enveloped: false, pieces: [] };
-  const pieces = [];
-  let enveloped = false;
-  let userSurface;
-  for (const text3 of texts) {
-    const parsed = parseSARModuleReply(repairEnvelope(text3), plan);
-    if (parsed.enveloped) {
-      enveloped = true;
-      if (parsed.userSurface) userSurface = parsed.userSurface;
-    }
-    const canonical = stripEnvelopeTags(parsed.canonical);
-    if (!canonical) continue;
-    const surface = parsed.enveloped && parsed.assistantSurface ? stripEnvelopeTags(parsed.assistantSurface) : "";
-    pieces.push({ canonical, ...surface ? { surface } : {} });
-  }
+  const parsed = parseSARModuleReplyRounds(rounds, plan);
   return {
-    canonical: pieces.map((p) => p.canonical).join("\n"),
-    enveloped,
-    pieces,
-    ...userSurface ? { userSurface } : {}
+    canonical: parsed.canonical,
+    enveloped: parsed.enveloped,
+    pieces: parsed.pieces,
+    ...parsed.userSurface ? { userSurface: parsed.userSurface } : {}
   };
 };
 var isEmojiSegment = (seg) => /^\[\[SEND_EMOJI[:：]/i.test(seg.raw.trim());
@@ -23038,7 +23523,7 @@ function processLLMRound(state, llmOutputText, build, mcp, schedule, iteration, 
   }
   const thisRound = isToolRound ? "" : restoreSurfaces(scanText);
   const rounds = [...state.narrations, thisRound].filter((part) => part.trim().length > 0);
-  const fullText = rounds.join("\n");
+  const fullText = state.narrations.length > 0 ? mergeToolRoundLeadIns(state.narrations, thisRound) : thisRound;
   const sarParse = sarPlan?.requiresEnvelope ? parseSarEnvelopeRounds(rounds, sarPlan) : null;
   const finalScan = sarParse ? classifyLLMOutput(sarParse.canonical) : fullText === scanText ? result : classifyLLMOutput(fullText);
   const cleanedText = finalScan.kind === "finish" ? finalScan.cleanedText : finalScan.prefix;
@@ -23113,7 +23598,7 @@ function buildScheduledPush(message, build, extraMeta, bannerBody) {
 }
 
 // utils/amsgBundleVersion.ts
-var AMSG_BUNDLE_VERSION = "2026-11-14.3";
+var AMSG_BUNDLE_VERSION = "2026-11-19";
 
 // worker/amsg/src/reproduction.ts
 async function writeDiagnosticStage(writeState, runId, event, fields = {}) {
@@ -23553,7 +24038,7 @@ var fetchWeatherJson = async (url, stage, timeoutMs = WEATHER_REQUEST_TIMEOUT_MS
   const request = async () => {
     let response;
     try {
-      response = await fetch(url, { signal: controller.signal });
+      response = await fetch(url, { signal: controller.signal, __sullyHandlesFailure: true });
     } catch {
       throw new Error(`${stage}\u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216\u7A0D\u540E\u91CD\u8BD5`);
     }
@@ -23939,7 +24424,8 @@ var fetchHotNews = async (platforms, perPlatform = 12, total = 240) => {
     const label = HOTNEWS_PLATFORM_LABELS[p] || p;
     try {
       const res = await fetch(`${HOTNEWS_API_BASE_URL}/?platform=${encodeURIComponent(p)}`, {
-        headers: { "Accept": "application/json" }
+        headers: { "Accept": "application/json" },
+        __sullyHandlesFailure: true
       });
       if (!res.ok) {
         console.warn(`[hot_news] ${label}(${p}) HTTP ${res.status}`);
@@ -24456,7 +24942,7 @@ var loadWeather = async (cfg, nowMs, globalRows, pendingWrites) => {
     AMSG_WEATHER_SNAPSHOT_KEY,
     (v) => v && typeof v.city === "string" && v.data && typeof v.fetchedAt === "number"
   );
-  const matches = snap && snap.city === city && normalizeFreeWeatherSource(snap.freeSource) === freeSource;
+  const matches = snap && snap.city === city && (snap.freeSource ?? "open-meteo") === freeSource;
   if (matches && nowMs - snap.fetchedAt < WEATHER_TTL_MS) {
     console.log("[amsg:world] \u5929\u6C14\u547D\u4E2D\u5FEB\u7167", { city, ageMin: Math.round((nowMs - snap.fetchedAt) / 6e4) });
     return snap.data;
@@ -26008,6 +26494,10 @@ var feishuGetDiaryByDate = async (appId, appSecret, baseId, tableId, characterNa
   }
 };
 
+// utils/networkRequestSource.ts
+init_appVersion();
+init_proxyWorker();
+
 // utils/networkFailureDiagnosis.ts
 var readError = (error) => {
   if (error instanceof Error) return { name: error.name || "Error", message: error.message || String(error) };
@@ -26032,8 +26522,10 @@ var parseTargetUrl = (url, base) => {
 var isLoopbackHost = (host) => /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(host);
 var classifyFetchFailure = (ctx) => {
   const { name, message } = readError(ctx.error);
-  if (name === "TimeoutError" || /timed?\s?out|timeout/i.test(message)) return "timeout";
-  if (name === "AbortError" || /aborted|abort/i.test(message)) return "aborted";
+  const isTimeout = name === "TimeoutError" || /timed?\s?out|timeout/i.test(message);
+  if (!isTimeout && (name === "AbortError" || /aborted|abort/i.test(message))) return "aborted";
+  if (ctx.responseHeadersReceived) return "stream-interrupted";
+  if (isTimeout) return "timeout";
   const target = parseTargetUrl(ctx.url);
   if (!target.ok) return "bad-url";
   const pageProtocol = ctx.pageProtocol ?? (typeof location !== "undefined" ? location.protocol : "");
@@ -26984,6 +27476,7 @@ function resolveXhsConfig(char, realtimeConfig) {
 async function runRecall(args, ctx) {
   const { char } = ctx;
   const targetMonth = `${args.year}-${args.month.padStart(2, "0")}`;
+  if (char.monthlyRecallEnabled === false) return { ok: false, reason: "disabled", yearMonth: targetMonth };
   const alreadyActive = !!char.activeMemoryMonths?.includes(targetMonth);
   if (alreadyActive) {
     return { ok: true, alreadyActive: true, yearMonth: targetMonth, logsText: null };
@@ -27144,17 +27637,17 @@ async function xhsBrowseImpl(conf, signal) {
   }
   return { success: true, notes: raw2.map((n) => normalizeNote(n)) };
 }
-function cacheXsecTokensImpl(caches, notes) {
-  if (!caches) return;
+function cacheXsecTokensImpl(caches2, notes) {
+  if (!caches2) return;
   for (const n of notes) {
-    if (n.noteId && n.xsecToken) caches.xsecTokenCache.set(n.noteId, n.xsecToken);
-    if (n.noteId && n.title) caches.noteTitleCache.set(n.noteId, n.title);
+    if (n.noteId && n.xsecToken) caches2.xsecTokenCache.set(n.noteId, n.xsecToken);
+    if (n.noteId && n.title) caches2.noteTitleCache.set(n.noteId, n.title);
   }
 }
-function findXsecToken(caches, lastXhsNotes, noteId) {
+function findXsecToken(caches2, lastXhsNotes, noteId) {
   const fromNotes = lastXhsNotes.find((n) => n.noteId === noteId)?.xsecToken;
   if (fromNotes) return fromNotes;
-  return caches?.xsecTokenCache.get(noteId);
+  return caches2?.xsecTokenCache.get(noteId);
 }
 async function runXhsSearch(args, ctx) {
   const xhsConf = resolveXhsConfig(ctx.char, ctx.realtimeConfig);
@@ -27325,20 +27818,20 @@ async function runXhsDetail(args, ctx) {
     }
     const normalizedComments = normalizeXhsComments(d);
     if (ctx.xhsCaches) {
-      const caches = ctx.xhsCaches;
+      const caches2 = ctx.xhsCaches;
       const cacheComments = (comments) => {
         for (const c of comments) {
-          if (c.commentId && c.userId) caches.commentUserIdCache.set(c.commentId, c.userId);
-          if (c.commentId && c.author) caches.commentAuthorNameCache.set(c.commentId, c.author);
+          if (c.commentId && c.userId) caches2.commentUserIdCache.set(c.commentId, c.userId);
+          if (c.commentId && c.author) caches2.commentAuthorNameCache.set(c.commentId, c.author);
           if (c.commentId && c.parentCommentId) {
-            caches.commentParentIdCache.set(c.commentId, c.parentCommentId);
+            caches2.commentParentIdCache.set(c.commentId, c.parentCommentId);
           }
           cacheComments(c.subComments);
         }
       };
       if (normalizedComments.length > 0) {
         cacheComments(normalizedComments);
-        console.log(`\u{1F4D5} [XHS] \u7F13\u5B58\u4E86 ${caches.commentUserIdCache.size} \u6761\u8BC4\u8BBA\u7684 userId, ${caches.commentAuthorNameCache.size} \u6761 authorName`);
+        console.log(`\u{1F4D5} [XHS] \u7F13\u5B58\u4E86 ${caches2.commentUserIdCache.size} \u6761\u8BC4\u8BBA\u7684 userId, ${caches2.commentAuthorNameCache.size} \u6761 authorName`);
       } else {
         console.warn(`\u{1F4D5} [XHS] \u672A\u627E\u5230\u8BC4\u8BBA\u6570\u7EC4, d keys:`, Object.keys(d), "d.note keys:", d.note ? Object.keys(d.note) : "N/A");
       }
@@ -27585,10 +28078,11 @@ var buildToolResultMessage = (opts) => {
   return [
     ...head,
     `[\u7CFB\u7EDF: \u672C\u6B21\u5DF2\u7ECF\u7528\u8FC7\u7684\u5DE5\u5177\uFF1A${used.join("\u3001")}\u3002\u7ED3\u679C\u90FD\u5728\u4E0A\u9762\u4E86\uFF0C\u540C\u6837\u7684\u8C03\u7528\u4E0D\u8981\u518D\u6765\u4E00\u904D\u3002`,
-    "\u63A5\u4E0B\u6765\u53EA\u6709\u4E24\u6761\u8DEF\uFF1A\u76F4\u63A5\u628A\u8981\u53D1\u7684\u6D88\u606F\u5199\u51FA\u6765\uFF0C\u6216\u8005\u7528\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\u3002",
+    "\u63A5\u4E0B\u6765\uFF1A\u5982\u679C\u8FD8\u6CA1\u8BF4\u5B8C\uFF0C\u76F4\u63A5\u628A\u8981\u53D1\u7684\u6D88\u606F\u5199\u51FA\u6765\uFF08\u53EA\u6709\u786E\u5B9E\u8FD8\u9700\u8981\u522B\u7684\u5DE5\u5177\u65F6\uFF0C\u624D\u8C03\u7528\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\uFF09\u3002",
     // 「把要发的消息写出来」很容易被读成「从头再写一遍」：模型会把已经说出去的几句连同
-    // 里面的标记一起重抄，下游照着标记再执行一次（转账就会真的发两次）。
-    "\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\u2014\u2014\u91CD\u5199\u4E00\u904D\uFF0C\u7528\u6237\u90A3\u8FB9\u5C31\u4F1A\u518D\u6536\u5230\u4E00\u904D\u3002",
+    // 里面的标记一起重抄，下游照着标记再执行一次（转账就会真的发两次）。同时给「工具轮已经
+    // 把话完整说完」留明确出口，避免没话可补时把前文换词复述一遍。
+    "\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\u2014\u2014\u91CD\u5199\u4E00\u904D\uFF0C\u7528\u6237\u90A3\u8FB9\u5C31\u4F1A\u518D\u6536\u5230\u4E00\u904D\uFF1B\u5982\u679C\u524D\u9762\u7684\u8BDD\u5DF2\u7ECF\u628A\u8981\u8BF4\u7684\u5B8C\u6574\u8868\u8FBE\u5B8C\u4E86\u3001\u4E14\u4E0E\u8FD9\u6B21\u5DE5\u5177\u7ED3\u679C\u4E0D\u51B2\u7A81\uFF0C\u4E0D\u5FC5\u518D\u5199\u8865\u5145\u6587\u5B57\uFF0C\u76F4\u63A5\u7559\u7A7A\u7ED3\u675F\u5373\u53EF\u3002",
     "\u522B\u628A\u5DE5\u5177\u8C03\u7528\u5F53\u6210\u56DE\u7B54\u2014\u2014\u7528\u6237\u7B49\u7684\u662F\u4F60\u8BF4\u7684\u8BDD\u3002]"
   ].join("\n");
 };
@@ -27596,8 +28090,8 @@ var buildDuplicateToolMessage = (name) => [
   `[\u7CFB\u7EDF: \u4F60\u521A\u521A\u5DF2\u7ECF${describeTool(name)}\u8FC7\u4E00\u6B21\u4E86\uFF0C\u53C2\u6570\u5B8C\u5168\u76F8\u540C\uFF0C\u7ED3\u679C\u5C31\u5728\u4E0A\u9762\u3002]`,
   // 说「没有再执行」而不是「没有再去查」：这段话现在也管排程/取消/改期这类不是查询的
   // 工具，说成「查」的话，角色收到的交代跟它刚做的事对不上。
-  "[\u7CFB\u7EDF: \u8FD9\u4E00\u6B21\u6CA1\u6709\u518D\u6267\u884C\u3002\u522B\u518D\u91CD\u590D\u540C\u6837\u7684\u8C03\u7528\u4E86\u2014\u2014\u73B0\u5728\u628A\u8981\u53D1\u7684\u6D88\u606F\u5199\u51FA\u6765\uFF0C",
-  "\u6216\u8005\u6362\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\u3002\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\u3002]"
+  "[\u7CFB\u7EDF: \u8FD9\u4E00\u6B21\u6CA1\u6709\u518D\u6267\u884C\u3002\u522B\u518D\u91CD\u590D\u540C\u6837\u7684\u8C03\u7528\u4E86\u2014\u2014\u5982\u679C\u8FD8\u6CA1\u8BF4\u5B8C\uFF0C\u73B0\u5728\u628A\u8981\u53D1\u7684\u6D88\u606F\u5199\u51FA\u6765\uFF08\u53EA\u6709\u786E\u5B9E\u8FD8\u9700\u8981\u522B\u7684\u5DE5\u5177\u65F6\uFF0C\u624D\u6362\u4E00\u4E2A\u8FD8\u6CA1\u7528\u8FC7\u7684\u5DE5\u5177\uFF09\u3002",
+  "\u524D\u9762\u5DF2\u7ECF\u8BF4\u51FA\u53BB\u7684\u5185\u5BB9\u548C\u6807\u7B7E\u4E0D\u8981\u91CD\u5199\uFF0C\u63A5\u7740\u5F80\u4E0B\u5199\u5C31\u884C\uFF1B\u5982\u679C\u524D\u9762\u5DF2\u7ECF\u5B8C\u6574\u8BF4\u5B8C\u4E86\uFF0C\u76F4\u63A5\u7559\u7A7A\u7ED3\u675F\u5373\u53EF\u3002]"
 ].join("\n");
 
 // worker/amsg/src/index.ts
@@ -28063,8 +28557,676 @@ var isFcmConfigured = (env) => Boolean(
   env.FCM_PROJECT_ID?.trim() && env.FCM_SERVICE_ACCOUNT_EMAIL?.trim() && env.FCM_SERVICE_ACCOUNT_PRIVATE_KEY?.trim()
 );
 
+// utils/amsgRescueState.ts
+var AMSG_RESCUE_TOKEN_MIN_LENGTH = 16;
+var AMSG_RESCUE_ALERT_WINDOW_MS = 7 * 24 * 60 * 60 * 1e3;
+var AMSG_RESCUE_RESULT_KIND = "amsg-rescue-alert";
+var toTime = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+var toCount = (value) => typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+var parseAmsgRescueEpisode = (raw2) => {
+  const value = raw2;
+  if (!value || typeof value !== "object") return null;
+  const firstSeenAt = toTime(value.firstSeenAt);
+  if (typeof value.id !== "string" || !value.id || firstSeenAt === null) return null;
+  return {
+    id: value.id,
+    firstSeenAt,
+    lastSeenAt: toTime(value.lastSeenAt) ?? firstSeenAt,
+    endedAt: toTime(value.endedAt),
+    exportCount: toCount(value.exportCount),
+    lastExportAt: toTime(value.lastExportAt),
+    itemReads: toCount(value.itemReads),
+    lastReadAt: toTime(value.lastReadAt),
+    failedAttempts: toCount(value.failedAttempts),
+    pushedAt: toTime(value.pushedAt),
+    pushTargets: toCount(value.pushTargets),
+    pushDelivered: toCount(value.pushDelivered)
+  };
+};
+
+// worker/amsg/src/rescue.ts
+var RESCUE_EPISODE_KEY = "rescue_episode";
+var RESCUE_FAILURES_KEY = "rescue_failures";
+var SEEN_WRITE_INTERVAL_MS = 6e4;
+var RESCUE_LOCKOUT_FAILURES = 10;
+var RESCUE_LOCKOUT_WINDOW_MS = 15 * 6e4;
+var PUSH_TIMEOUT_MS = 8e3;
+var TABLE_PAGE_ROWS = 100;
+var SEP2 = "";
+var CHUNK_NS_PREFIX2 = `${SEP2}amsg-chunks${SEP2}`;
+var ROOT_MARKER_PREFIX2 = `${SEP2}amsg-chunked${SEP2}v1${SEP2}`;
+var EXPORT_TABLES = {
+  scheduled_messages: { encrypted: ["encrypted_payload"], drop: ["lease_token"] },
+  llm_credentials: { encrypted: ["encrypted_value"] },
+  message_outbox: { encrypted: ["payload"] },
+  push_subscriptions: { encrypted: ["subscription"] },
+  cloud_resource_metadata: { encrypted: ["encrypted_value"] }
+};
+var readRescueToken = (env) => {
+  const token = env.AMSG_RESCUE_TOKEN?.trim() ?? "";
+  if (!token) return { state: "off" };
+  if (token.length < AMSG_RESCUE_TOKEN_MIN_LENGTH) return { state: "too-short", length: token.length };
+  return { state: "on", token };
+};
+var isRescueActive = (env) => readRescueToken(env).state === "on";
+var dbOf = (env) => {
+  const db = env.DB;
+  return typeof db?.prepare === "function" ? db : null;
+};
+var changesOf = (result) => {
+  const changes = result?.meta?.changes;
+  return typeof changes === "number" ? changes : 1;
+};
+var readRescueEpisode = async (db) => {
+  if (!db) return null;
+  const raw2 = await readDiagnosticValue(db, RESCUE_EPISODE_KEY);
+  if (!raw2) return null;
+  try {
+    return parseAmsgRescueEpisode(JSON.parse(raw2));
+  } catch {
+    return null;
+  }
+};
+var freshEpisode = (nowMs) => ({
+  id: String(nowMs),
+  firstSeenAt: nowMs,
+  lastSeenAt: nowMs,
+  endedAt: null,
+  exportCount: 0,
+  lastExportAt: null,
+  itemReads: 0,
+  lastReadAt: null,
+  failedAttempts: 0,
+  pushedAt: null,
+  pushTargets: 0,
+  pushDelivered: 0
+});
+var startEpisode = async (db, episode, nowMs) => {
+  await db.prepare(DIAGNOSTICS_TABLE_SQL).run();
+  const result = await db.prepare(
+    `INSERT INTO worker_diagnostics (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+       WHERE json_valid(worker_diagnostics.value) = 0
+          OR json_extract(worker_diagnostics.value, '$.endedAt') IS NOT NULL`
+  ).bind(RESCUE_EPISODE_KEY, JSON.stringify(episode), nowMs).run();
+  return changesOf(result) > 0;
+};
+var patchEpisode = async (db, nowMs, patch) => {
+  const parts = [];
+  const values = [];
+  for (const field of patch.increments ?? []) {
+    parts.push(`'$.${field}', COALESCE(json_extract(value, '$.${field}'), 0) + 1`);
+  }
+  for (const [field, value] of Object.entries(patch.set ?? {})) {
+    parts.push(`'$.${field}', ?`);
+    values.push(value);
+  }
+  if (!parts.length) return;
+  await db.prepare(
+    `UPDATE worker_diagnostics SET value = json_set(value, ${parts.join(", ")}), updated_at = ?
+       WHERE key = ? AND json_valid(value) = 1${patch.onlyIfOpen ? " AND json_extract(value, '$.endedAt') IS NULL" : ""}`
+  ).bind(...values, nowMs, RESCUE_EPISODE_KEY).run();
+};
+var observeRescue = async (env, deps) => {
+  const db = dbOf(env);
+  if (!db) return null;
+  const nowMs = deps.now?.() ?? Date.now();
+  const active = isRescueActive(env);
+  const current = await readRescueEpisode(db);
+  if (active) {
+    if (!current || current.endedAt !== null) {
+      const episode = freshEpisode(nowMs);
+      if (await startEpisode(db, episode, nowMs)) {
+        await pushRescueAlert(db, env, deps, episode, nowMs);
+      }
+      return readRescueEpisode(db);
+    }
+    if (nowMs - current.lastSeenAt >= SEEN_WRITE_INTERVAL_MS) {
+      await patchEpisode(db, nowMs, { set: { lastSeenAt: nowMs }, onlyIfOpen: true });
+      return { ...current, lastSeenAt: nowMs };
+    }
+    return current;
+  }
+  if (current && current.endedAt === null) {
+    await patchEpisode(db, nowMs, { set: { endedAt: nowMs }, onlyIfOpen: true });
+    return { ...current, endedAt: nowMs };
+  }
+  return current;
+};
+var observeRescueQuietly = async (env, deps) => {
+  try {
+    return await observeRescue(env, deps);
+  } catch (error) {
+    console.warn("[amsg:rescue] \u7559\u75D5\u6CA1\u8BB0\u4E0A", error);
+    return null;
+  }
+};
+var buildRescueReport = async (env, deps) => ({
+  active: isRescueActive(env),
+  episode: await observeRescueQuietly(env, deps)
+});
+var RESCUE_ALERT_TITLE = "SullyOS \u5B89\u5168\u63D0\u9192\uFF1A\u6551\u63F4\u6A21\u5F0F\u5DF2\u5F00\u542F";
+var RESCUE_ALERT_BODY = "\u4F60\u7684\u4E3B\u52A8\u6D88\u606F Worker \u521A\u5F00\u542F\u4E86\u6551\u63F4\u6A21\u5F0F\uFF0C\u53EF\u4EE5\u5BFC\u51FA\u5168\u90E8\u4E91\u7AEF\u6570\u636E\uFF08\u542B API Key\uFF09\u3002\u82E5\u975E\u672C\u4EBA\u64CD\u4F5C\uFF0C\u8BF7\u7ACB\u523B\u66F4\u6362\u91CD\u8981\u51ED\u636E\uFF0C\u5E76\u68C0\u67E5 Cloudflare \u8D26\u53F7\u5B89\u5168\u3002";
+var withTimeout = (promise, ms) => new Promise((resolve, reject) => {
+  const timer = setTimeout(() => reject(new Error(`\u8D85\u8FC7 ${ms}ms \u6CA1\u63A8\u51FA\u53BB`)), ms);
+  promise.then(
+    (value) => {
+      clearTimeout(timer);
+      resolve(value);
+    },
+    (error) => {
+      clearTimeout(timer);
+      reject(error);
+    }
+  );
+});
+var decodeSubscription = async (stored2, userKey) => {
+  try {
+    return JSON.parse(await decryptFromStorage(stored2, userKey));
+  } catch {
+    return JSON.parse(stored2);
+  }
+};
+var pushRescueAlert = async (db, env, deps, episode, nowMs) => {
+  let targets = 0;
+  let delivered = 0;
+  try {
+    const masterKey = env.AMSG_MASTER_KEY?.trim();
+    const { results } = await db.prepare("SELECT user_id, subscription FROM push_subscriptions").all();
+    const rows = (results ?? []).filter((row) => typeof row.subscription === "string" && row.subscription);
+    targets = rows.length;
+    const payload = JSON.stringify({
+      messageKind: "result",
+      resultKind: AMSG_RESCUE_RESULT_KIND,
+      messageId: `rescue_${episode.id}`,
+      timestamp: new Date(nowMs).toISOString(),
+      contactName: "SullyOS \u5B89\u5168\u63D0\u9192",
+      message: RESCUE_ALERT_BODY,
+      notification: {
+        title: RESCUE_ALERT_TITLE,
+        body: RESCUE_ALERT_BODY,
+        show: "always",
+        tag: "sullyos-rescue-alert",
+        renotify: true
+      }
+    });
+    const outcomes = await Promise.allSettled(rows.map(async (row) => {
+      if (!masterKey) throw new Error("\u7F3A AMSG_MASTER_KEY");
+      const userKey = await deriveUserEncryptionKey(row.user_id, masterKey);
+      const subscription = await decodeSubscription(row.subscription, userKey);
+      await withTimeout(Promise.resolve(deps.sendPush(subscription, payload)), PUSH_TIMEOUT_MS);
+    }));
+    delivered = outcomes.filter((outcome) => outcome.status === "fulfilled").length;
+    for (const outcome of outcomes) {
+      if (outcome.status === "rejected") console.warn("[amsg:rescue] \u5F00\u542F\u901A\u77E5\u6709\u4E00\u6761\u6CA1\u63A8\u51FA\u53BB", outcome.reason);
+    }
+  } catch (error) {
+    console.warn("[amsg:rescue] \u5F00\u542F\u901A\u77E5\u6CA1\u63A8\u51FA\u53BB", error);
+  }
+  await patchEpisode(db, nowMs, { set: { pushedAt: nowMs, pushTargets: targets, pushDelivered: delivered } });
+};
+var readFailures = async (db) => {
+  const raw2 = await readDiagnosticValue(db, RESCUE_FAILURES_KEY);
+  if (!raw2) return [];
+  try {
+    const value = JSON.parse(raw2);
+    return Array.isArray(value) ? value.filter((at) => typeof at === "number") : [];
+  } catch {
+    return [];
+  }
+};
+var writeFailures = async (db, failures, nowMs) => {
+  await db.prepare(DIAGNOSTICS_TABLE_SQL).run();
+  await db.prepare(
+    `INSERT INTO worker_diagnostics (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
+  ).bind(RESCUE_FAILURES_KEY, JSON.stringify(failures), nowMs).run();
+};
+var rescueLockoutRemainingMs = (failures, nowMs) => {
+  const recent = failures.filter((at) => nowMs - at < RESCUE_LOCKOUT_WINDOW_MS).sort((a, b) => a - b);
+  if (recent.length < RESCUE_LOCKOUT_FAILURES) return 0;
+  const unlockAt = recent[recent.length - RESCUE_LOCKOUT_FAILURES] + RESCUE_LOCKOUT_WINDOW_MS;
+  return Math.max(0, unlockAt - nowMs);
+};
+var checkRescueToken = async (request, db, token, nowMs) => {
+  const failures = await readFailures(db);
+  const lockedMs = rescueLockoutRemainingMs(failures, nowMs);
+  if (lockedMs > 0) {
+    return {
+      ok: false,
+      status: 429,
+      code: "RESCUE_LOCKED",
+      message: `\u53E3\u4EE4\u9519\u8BEF\u6B21\u6570\u592A\u591A\uFF0C\u5DF2\u9501\u5B9A\u3002\u8BF7 ${Math.ceil(lockedMs / 6e4)} \u5206\u949F\u540E\u518D\u8BD5\u3002`
+    };
+  }
+  const provided = request.headers.get("X-Rescue-Token")?.trim() ?? "";
+  if (provided && await constantTimeEqual2(provided, token)) {
+    if (failures.length) await writeFailures(db, [], nowMs);
+    return { ok: true };
+  }
+  const recent = [...failures.filter((at) => nowMs - at < RESCUE_LOCKOUT_WINDOW_MS), nowMs].slice(-RESCUE_LOCKOUT_FAILURES);
+  await writeFailures(db, recent, nowMs);
+  await patchEpisode(db, nowMs, { increments: ["failedAttempts"] });
+  return { ok: false, status: 401, code: "RESCUE_TOKEN_INVALID", message: "\u6551\u63F4\u53E3\u4EE4\u4E0D\u5BF9\u3002" };
+};
+var base64UrlEncode = (text3) => {
+  const bytes = new TextEncoder().encode(text3);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+var base64UrlDecode = (value) => {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - value.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+};
+var listTables = async (db) => {
+  const { results } = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all();
+  return new Set((results ?? []).map((row) => row.name));
+};
+var userKeyCache = (masterKey) => {
+  const cache = /* @__PURE__ */ new Map();
+  return (userId) => {
+    let key = cache.get(userId);
+    if (!key) {
+      key = deriveUserEncryptionKey(userId, masterKey);
+      cache.set(userId, key);
+    }
+    return key;
+  };
+};
+var STORAGE_CIPHERTEXT_RE = /^[0-9a-f]+:[0-9a-f]+:[0-9a-f]*$/i;
+var decodePlaintext = async (text3) => {
+  let unpacked = text3;
+  try {
+    unpacked = await unpackStateValue(text3);
+  } catch {
+    unpacked = text3;
+  }
+  let value;
+  try {
+    value = JSON.parse(unpacked);
+  } catch {
+    return { value: unpacked, format: "text" };
+  }
+  await unpackNestedFirePacks(value);
+  return { value, format: "json" };
+};
+var unpackNestedFirePacks = async (value) => {
+  const holders = [value, value?.taskInput];
+  for (const holder of holders) {
+    if (!holder || typeof holder !== "object") continue;
+    const record4 = holder;
+    if (typeof record4.packedFirePack !== "string") continue;
+    try {
+      record4.packedFirePack = JSON.parse(await unpackStateValue(record4.packedFirePack));
+    } catch {
+    }
+  }
+};
+var decodeCell = async (raw2, userKey) => {
+  if (typeof raw2 !== "string") return { status: "plain", format: "json", value: raw2 ?? null };
+  if (STORAGE_CIPHERTEXT_RE.test(raw2)) {
+    try {
+      return { status: "decrypted", ...await decodePlaintext(await decryptFromStorage(raw2, userKey)) };
+    } catch {
+      return { status: "undecryptable" };
+    }
+  }
+  return { status: "plain", ...await decodePlaintext(raw2) };
+};
+var buildRescueManifest = async (db, nowMs) => {
+  const tables = await listTables(db);
+  const items = [];
+  if (tables.has("client_state")) {
+    const { results } = await db.prepare(
+      `SELECT user_id, namespace, key, updated_at, length(value) AS bytes, substr(value, 1, ?) = ? AS chunked
+         FROM client_state WHERE substr(namespace, 1, 1) <> ?
+         ORDER BY user_id, namespace, key`
+    ).bind(ROOT_MARKER_PREFIX2.length, ROOT_MARKER_PREFIX2, SEP2).all();
+    for (const row of results ?? []) {
+      items.push({
+        id: `cs:${base64UrlEncode(JSON.stringify([row.user_id, row.namespace, row.key]))}`,
+        source: "client_state",
+        userId: row.user_id,
+        namespace: row.namespace,
+        key: row.key,
+        updatedAt: typeof row.updated_at === "number" ? row.updated_at : null,
+        bytes: typeof row.bytes === "number" ? row.bytes : null,
+        chunked: Boolean(row.chunked)
+      });
+    }
+  }
+  for (const table of Object.keys(EXPORT_TABLES)) {
+    if (!tables.has(table)) continue;
+    const row = await db.prepare(`SELECT COUNT(*) AS n FROM "${table}"`).first();
+    const total = Number(row?.n ?? 0);
+    for (let offset = 0; offset < total; offset += TABLE_PAGE_ROWS) {
+      items.push({
+        id: `t:${table}:${offset}`,
+        source: table,
+        offset,
+        rows: Math.min(TABLE_PAGE_ROWS, total - offset)
+      });
+    }
+  }
+  return { format: "sullyos-amsg-rescue", version: 1, generatedAt: new Date(nowMs).toISOString(), items };
+};
+var readClientStateItem = async (db, keyOf, userId, namespace, key) => {
+  const root = await db.prepare("SELECT value, updated_at FROM client_state WHERE user_id = ? AND namespace = ? AND key = ?").bind(userId, namespace, key).first();
+  if (!root) return { ok: false, status: 404, code: "RESCUE_ITEM_GONE", message: "\u8FD9\u4E00\u6761\u5DF2\u7ECF\u4E0D\u5728\u5E93\u91CC\u4E86\u3002" };
+  const base = { source: "client_state", userId, namespace, key, updatedAt: root.updated_at };
+  const userKey = await keyOf(userId);
+  let sources = [root.value];
+  if (typeof root.value === "string" && root.value.startsWith(ROOT_MARKER_PREFIX2)) {
+    const count2 = Number(root.value.slice(ROOT_MARKER_PREFIX2.length));
+    const prefix = `${key}${SEP2}`;
+    const { results } = await db.prepare("SELECT key, value, updated_at FROM client_state WHERE user_id = ? AND namespace = ? AND substr(key, 1, ?) = ?").bind(userId, `${CHUNK_NS_PREFIX2}${namespace}`, prefix.length, prefix).all();
+    const byKey = new Map((results ?? []).map((row) => [row.key, row]));
+    sources = [];
+    for (let i = 0; i < count2; i += 1) {
+      const chunk = byKey.get(`${prefix}${i}`);
+      if (!chunk || chunk.updated_at !== root.updated_at) break;
+      sources.push(chunk.value);
+    }
+    if (!Number.isInteger(count2) || count2 < 1 || sources.length !== count2) {
+      return { ok: true, data: { ...base, status: "chunks-incomplete", expectedChunks: count2, foundChunks: sources.length } };
+    }
+  }
+  try {
+    const plain = (await Promise.all(sources.map((slice) => decryptFromStorage(slice, userKey)))).join("");
+    return { ok: true, data: { ...base, status: "decrypted", ...await decodePlaintext(plain) } };
+  } catch {
+    return { ok: true, data: { ...base, status: "undecryptable" } };
+  }
+};
+var readTablePage = async (db, keyOf, table, offset) => {
+  const spec = EXPORT_TABLES[table];
+  const { results } = await db.prepare(`SELECT * FROM "${table}" ORDER BY rowid LIMIT ? OFFSET ?`).bind(TABLE_PAGE_ROWS, offset).all();
+  const rows = [];
+  for (const row of results ?? []) {
+    const userId = typeof row.user_id === "string" ? row.user_id : "";
+    const userKey = userId ? await keyOf(userId) : "";
+    const plain = {};
+    const decoded = {};
+    for (const [column, value] of Object.entries(row)) {
+      if (spec.drop?.includes(column)) continue;
+      if (spec.encrypted.includes(column)) decoded[column] = userKey ? await decodeCell(value, userKey) : { status: "undecryptable" };
+      else plain[column] = value;
+    }
+    rows.push({ ...plain, decoded });
+  }
+  return { ok: true, data: { source: table, offset, rows } };
+};
+var readRescueItem = async (db, masterKey, id) => {
+  const keyOf = userKeyCache(masterKey);
+  if (id.startsWith("cs:")) {
+    let parts;
+    try {
+      parts = JSON.parse(base64UrlDecode(id.slice(3)));
+    } catch {
+      parts = null;
+    }
+    if (!Array.isArray(parts) || parts.length !== 3 || !parts.every((part) => typeof part === "string")) {
+      return { ok: false, status: 400, code: "RESCUE_ITEM_INVALID", message: "\u6761\u76EE\u7F16\u53F7\u4E0D\u5BF9\u3002" };
+    }
+    return readClientStateItem(db, keyOf, parts[0], parts[1], parts[2]);
+  }
+  const match = /^t:([a-z_]+):(\d+)$/.exec(id);
+  if (match && Object.prototype.hasOwnProperty.call(EXPORT_TABLES, match[1])) {
+    const tables = await listTables(db);
+    if (!tables.has(match[1])) return { ok: false, status: 404, code: "RESCUE_ITEM_GONE", message: "\u8FD9\u5F20\u8868\u4E0D\u5728\u5E93\u91CC\u3002" };
+    return readTablePage(db, keyOf, match[1], Number(match[2]));
+  }
+  return { ok: false, status: 400, code: "RESCUE_ITEM_INVALID", message: "\u6761\u76EE\u7F16\u53F7\u4E0D\u5BF9\u3002" };
+};
+var RESCUE_SECURITY_HEADERS = {
+  "Cache-Control": "no-store",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY"
+};
+var rescueJson = (status, body) => new Response(JSON.stringify(body), {
+  status,
+  headers: { "Content-Type": "application/json; charset=utf-8", ...RESCUE_SECURITY_HEADERS }
+});
+var rescueError = (status, code2, message) => rescueJson(status, { success: false, error: { code: code2, message } });
+var matchRescueRoute = (pathname) => {
+  if (pathname.endsWith("/rescue")) return "page";
+  if (pathname.endsWith("/rescue/manifest")) return "manifest";
+  if (pathname.endsWith("/rescue/item")) return "item";
+  return null;
+};
+var handleRescueRequest = async (request, env, deps, route) => {
+  const tokenState = readRescueToken(env);
+  if (tokenState.state === "off") {
+    return new Response("Not Found", { status: 404, headers: RESCUE_SECURITY_HEADERS });
+  }
+  if (tokenState.state === "too-short") {
+    return route === "page" ? rescuePage(`AMSG_RESCUE_TOKEN \u592A\u77ED\u4E86\uFF08\u73B0\u5728 ${tokenState.length} \u4E2A\u5B57\u7B26\uFF09\uFF0C\u81F3\u5C11\u8981 ${AMSG_RESCUE_TOKEN_MIN_LENGTH} \u4E2A\u3002\u4E3A\u4E86\u9632\u6B62\u53E3\u4EE4\u88AB\u731C\u4E2D\uFF0C\u6551\u63F4\u9875\u4E0D\u4F1A\u5DE5\u4F5C\u3002\u53BB Cloudflare \u9762\u677F\u628A\u5B83\u6362\u6210\u4E00\u4E32\u66F4\u957F\u7684\u968F\u673A\u5B57\u7B26\u3002`) : rescueError(403, "RESCUE_TOKEN_TOO_SHORT", `AMSG_RESCUE_TOKEN \u81F3\u5C11\u8981 ${AMSG_RESCUE_TOKEN_MIN_LENGTH} \u4E2A\u5B57\u7B26\u3002`);
+  }
+  const db = dbOf(env);
+  const masterKey = env.AMSG_MASTER_KEY?.trim();
+  if (!db || !masterKey) {
+    const message = "\u8FD9\u53F0 Worker \u6CA1\u7ED1 D1 \u6570\u636E\u5E93\u6216\u6CA1\u6709 AMSG_MASTER_KEY\uFF0C\u6CA1\u6709\u53EF\u4EE5\u6551\u56DE\u7684\u6570\u636E\u3002";
+    return route === "page" ? rescuePage(message) : rescueError(503, "RESCUE_NOTHING_TO_EXPORT", message);
+  }
+  let episode;
+  try {
+    episode = await observeRescue(env, deps);
+  } catch (error) {
+    console.warn("[amsg:rescue] \u7559\u75D5\u5199\u4E0D\u8FDB\u53BB\uFF0C\u62D2\u7EDD\u5BFC\u51FA", error);
+    episode = null;
+  }
+  if (!episode) {
+    const message = "\u6551\u63F4\u8BB0\u5F55\u5199\u4E0D\u8FDB\u6570\u636E\u5E93\uFF0C\u4E3A\u4E86\u5B89\u5168\u6682\u4E0D\u5BFC\u51FA\u3002\u7A0D\u540E\u518D\u8BD5\uFF0C\u6216\u8005\u68C0\u67E5 D1 \u662F\u5426\u6B63\u5E38\u3002";
+    return route === "page" ? rescuePage(message) : rescueError(503, "RESCUE_AUDIT_UNAVAILABLE", message);
+  }
+  if (route === "page") {
+    if (request.method.toUpperCase() !== "GET") return rescueError(405, "METHOD_NOT_ALLOWED", "/rescue \u53EA\u63A5\u53D7 GET");
+    return rescuePage(null);
+  }
+  if (request.method.toUpperCase() !== "POST") return rescueError(405, "METHOD_NOT_ALLOWED", "\u53EA\u63A5\u53D7 POST");
+  const nowMs = deps.now?.() ?? Date.now();
+  const gate = await checkRescueToken(request, db, tokenState.token, nowMs);
+  if (!gate.ok) return rescueError(gate.status, gate.code, gate.message);
+  if (route === "manifest") {
+    await patchEpisode(db, nowMs, { increments: ["exportCount"], set: { lastExportAt: nowMs } });
+    return rescueJson(200, { success: true, data: await buildRescueManifest(db, nowMs) });
+  }
+  let id;
+  try {
+    id = (await request.json())?.id;
+  } catch {
+    id = void 0;
+  }
+  if (typeof id !== "string" || !id) return rescueError(400, "RESCUE_ITEM_INVALID", '\u8BF7\u6C42\u4F53\u8981\u662F { "id": "\u2026" }');
+  await patchEpisode(db, nowMs, { increments: ["itemReads"], set: { lastReadAt: nowMs } });
+  const result = await readRescueItem(db, masterKey, id);
+  return result.ok ? rescueJson(200, { success: true, data: result.data }) : rescueError(result.status, result.code, result.message);
+};
+var escapeHtml = (text3) => text3.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+var randomNonce = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+};
+var rescuePage = (blockedMessage) => {
+  const nonce = randomNonce();
+  const blocked = blockedMessage ? `<p class="blocked">${escapeHtml(blockedMessage)}</p>` : "";
+  const form = blockedMessage ? "" : `
+  <label for="token">\u6551\u63F4\u53E3\u4EE4\uFF08\u5C31\u662F\u4F60\u586B\u8FDB AMSG_RESCUE_TOKEN \u7684\u90A3\u4E32\uFF09</label>
+  <input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button id="start" type="button">\u5F00\u59CB\u5BFC\u51FA</button>
+  <p id="status" class="status"></p>
+  <p id="download" class="download"></p>
+  <div id="chars"></div>`;
+  const script = blockedMessage ? "" : `<script nonce="${nonce}">${RESCUE_PAGE_SCRIPT}</script>`;
+  const html = `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>SullyOS \u4E3B\u52A8\u6D88\u606F \xB7 \u6570\u636E\u6551\u63F4</title>
+<style nonce="${nonce}">${RESCUE_PAGE_STYLE}</style></head>
+<body><main>
+  <h1>\u4E3B\u52A8\u6D88\u606F \xB7 \u6570\u636E\u6551\u63F4</h1>
+  <p class="warn">\u8FD9\u4E2A\u9875\u9762\u80FD\u5BFC\u51FA\u8FD9\u53F0 Worker \u91CC\u7684<strong>\u5168\u90E8\u4E91\u7AEF\u6570\u636E\uFF0C\u5305\u62EC API Key \u548C\u5DE5\u5177\u51ED\u636E</strong>\u3002\u5BFC\u51FA\u5B8C\u6210\u540E\uFF0C\u8BF7\u7ACB\u523B\u56DE Cloudflare \u9762\u677F\u5220\u6389 AMSG_RESCUE_TOKEN\uFF0C\u5E76\u59A5\u5584\u4FDD\u7BA1\u4E0B\u8F7D\u7684\u6587\u4EF6\u3002</p>
+  <p class="note">\u80FD\u6551\u56DE\u7684\u53EA\u6709\u4E3B\u52A8\u6D88\u606F 2.0 \u540C\u6B65\u5230\u4E91\u7AEF\u7684\u5185\u5BB9\uFF1A\u6BCF\u4E2A\u89D2\u8272\u7684\u540D\u5B57\u3001\u65E5\u8BB0\u3001\u4E91\u7AEF\u51ED\u636E\u548C\u89D2\u8272\u53D1\u8FC7\u7684\u6D88\u606F\uFF1B\u5F00\u7740\u5B9A\u65F6\u4E3B\u52A8\u6D88\u606F\u6216\u6302\u7740\u6392\u7A0B\u7684\u89D2\u8272\uFF0C\u8FD8\u6709\u6700\u540E\u4E00\u6B21\u540C\u6B65\u65F6\u7684\u63D0\u793A\u8BCD\u5FEB\u7167\uFF08\u89D2\u8272\u5361\u3001\u4E16\u754C\u4E66\u3001\u6708\u5EA6\u603B\u7ED3\u3001\u6700\u8FD1\u4E00\u6BB5\u5BF9\u8BDD\uFF09\u3002\u5B8C\u6574\u804A\u5929\u8BB0\u5F55\u3001\u56FE\u7247\u548C\u5176\u4ED6 App \u7684\u6570\u636E\u4E0D\u5728\u4E91\u7AEF\uFF0C\u6551\u4E0D\u56DE\u6765\u3002</p>
+  <p class="note">\u4E0B\u8F7D\u7684\u6587\u4EF6\u53EF\u4EE5\u76F4\u63A5\u5BFC\u56DE SullyOS\uFF1A\u8BBE\u7F6E \u2192 \u5907\u4EFD\u4E0E\u6062\u590D \u2192 \u300C\u4ECE\u5176\u4ED6\u7F51\u5740 / App \u8FC1\u5165\u72EC\u7ACB\u7528\u6237\u300D\uFF0C\u4F1A\u65B0\u5EFA\u4E00\u4E2A\u7528\u6237\uFF0C\u4E0D\u78B0\u73B0\u6709\u6570\u636E\u3002</p>
+  ${blocked}${form}
+</main>${script}</body></html>`;
+  return new Response(html, {
+    status: blockedMessage ? 503 : 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      ...RESCUE_SECURITY_HEADERS
+    }
+  });
+};
+var RESCUE_PAGE_STYLE = `
+:root{color-scheme:light}
+body{margin:0;background:#f6f7f9;color:#1f2933;font:15px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}
+main{max-width:720px;margin:0 auto;padding:24px 16px 64px}
+h1{font-size:22px;margin:0 0 16px}
+.warn{background:#fdecea;color:#8a1c12;border:1px solid #f5b5ad;border-radius:10px;padding:12px 14px}
+.note{color:#52606d;font-size:14px}
+.blocked{background:#fff4e5;color:#7a4100;border:1px solid #f7c98b;border-radius:10px;padding:12px 14px}
+label{display:block;margin:20px 0 6px;font-weight:600}
+input{box-sizing:border-box;width:100%;padding:10px 12px;border:1px solid #cbd2d9;border-radius:8px;font-size:15px;background:#fff;color:#1f2933}
+button{margin-top:12px;padding:10px 18px;border:0;border-radius:8px;background:#1f2933;color:#fff;font-size:15px;cursor:pointer}
+button[disabled]{opacity:.5;cursor:default}
+.status{margin-top:14px;white-space:pre-wrap}
+.download a{display:inline-block;margin-top:4px;padding:10px 18px;border-radius:8px;background:#0b6e4f;color:#fff;text-decoration:none}
+.char{background:#fff;border:1px solid #e4e7eb;border-radius:10px;padding:12px 14px;margin-top:12px}
+.char h2{font-size:16px;margin:0 0 4px}
+.char small{color:#7b8794;display:block;margin-bottom:8px;word-break:break-all}
+.char button{margin:6px 8px 0 0;padding:6px 12px;font-size:13px;background:#3e4c59}
+.char textarea{box-sizing:border-box;width:100%;height:220px;margin-top:8px;font:12px/1.5 ui-monospace,Menlo,monospace;border:1px solid #cbd2d9;border-radius:8px;padding:8px;background:#fff;color:#1f2933}
+`;
+var RESCUE_PAGE_SCRIPT = `
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var base = location.pathname.replace(/\\/+$/, '');
+  var token = '';
+  function call(path, body){
+    return fetch(base + path, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'X-Rescue-Token': token },
+      body: JSON.stringify(body || {})
+    }).then(function(res){
+      return res.json().catch(function(){ return null; }).then(function(data){
+        if (!res.ok || !data || data.success !== true) {
+          throw new Error((data && data.error && data.error.message) || ('\u8BF7\u6C42\u5931\u8D25\uFF08HTTP ' + res.status + '\uFF09'));
+        }
+        return data.data;
+      });
+    });
+  }
+  function userOf(out, id){
+    if (!out.users[id]) out.users[id] = { clientState: {}, tables: {} };
+    return out.users[id];
+  }
+  function messageText(content){
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) return content.map(function(part){ return part && part.type === 'text' ? part.text : '[' + (part && part.type) + ']'; }).join('\\n');
+    return JSON.stringify(content);
+  }
+  function copy(text, area){
+    area.value = text; area.hidden = false;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function(){ area.dataset.copied = '1'; }, function(){});
+    }
+  }
+  function renderChars(out){
+    var box = $('chars'); box.textContent = '';
+    Object.keys(out.users).forEach(function(userId){
+      var cs = out.users[userId].clientState;
+      Object.keys(cs).forEach(function(ns){
+        if (ns.indexOf('amsg:char:') !== 0) return;
+        var entry = cs[ns]; var pack = entry.fire_pack; var tool = entry.tool_pack;
+        var card = document.createElement('div'); card.className = 'char';
+        var title = document.createElement('h2');
+        title.textContent = (tool && tool.charName) || '\u672A\u547D\u540D\u89D2\u8272';
+        var meta = document.createElement('small');
+        meta.textContent = '\u89D2\u8272 ID\uFF1A' + ns.slice('amsg:char:'.length) + (pack && pack.builtAt ? ' \xB7 \u5FEB\u7167\u65F6\u95F4\uFF1A' + new Date(pack.builtAt).toLocaleString() : '');
+        var area = document.createElement('textarea'); area.readOnly = true; area.hidden = true;
+        card.appendChild(title); card.appendChild(meta);
+        if (pack && typeof pack.template === 'string') {
+          var b1 = document.createElement('button'); b1.type = 'button'; b1.textContent = '\u67E5\u770B\u5E76\u590D\u5236\u63D0\u793A\u8BCD\u5FEB\u7167';
+          b1.onclick = function(){ copy(pack.template, area); };
+          card.appendChild(b1);
+        }
+        if (pack && pack.chat && Array.isArray(pack.chat.messages)) {
+          var b2 = document.createElement('button'); b2.type = 'button'; b2.textContent = '\u67E5\u770B\u5E76\u590D\u5236\u6700\u8FD1\u5BF9\u8BDD';
+          b2.onclick = function(){ copy(pack.chat.messages.map(function(m){ return m.role + '\uFF1A' + messageText(m.content); }).join('\\n\\n'), area); };
+          card.appendChild(b2);
+        }
+        if (tool && Array.isArray(tool.memories) && tool.memories.length) {
+          var b3 = document.createElement('button'); b3.type = 'button'; b3.textContent = '\u67E5\u770B\u5E76\u590D\u5236\u65E5\u8BB0';
+          b3.onclick = function(){ copy(JSON.stringify(tool.memories, null, 2), area); };
+          card.appendChild(b3);
+        }
+        card.appendChild(area);
+        box.appendChild(card);
+      });
+    });
+  }
+  $('start').onclick = function(){
+    token = $('token').value.trim();
+    if (!token) { $('status').textContent = '\u5148\u586B\u6551\u63F4\u53E3\u4EE4\u3002'; return; }
+    var button = $('start'); button.disabled = true;
+    $('download').textContent = ''; $('chars').textContent = '';
+    var out = { format: 'sullyos-amsg-rescue', version: 1, exportedAt: new Date().toISOString(), worker: location.host,
+      notice: '\u8FD9\u4EFD\u6587\u4EF6\u542B API Key \u548C\u5DE5\u5177\u51ED\u636E\uFF0C\u8BF7\u59A5\u5584\u4FDD\u7BA1\uFF0C\u4E0D\u8981\u53D1\u7ED9\u522B\u4EBA\u3002', users: {}, errors: [] };
+    $('status').textContent = '\u6B63\u5728\u8BFB\u53D6\u6E05\u5355\u2026';
+    call('/manifest').then(function(manifest){
+      var items = manifest.items || []; var done = 0;
+      function next(){
+        if (done >= items.length) return Promise.resolve();
+        var item = items[done];
+        $('status').textContent = '\u6B63\u5728\u5BFC\u51FA ' + (done + 1) + ' / ' + items.length + '\u2026';
+        return call('/item', { id: item.id }).then(function(data){
+          if (data.source === 'client_state') {
+            var user = userOf(out, data.userId);
+            if (!user.clientState[data.namespace]) user.clientState[data.namespace] = {};
+            user.clientState[data.namespace][data.key] = data.status === 'decrypted' ? data.value : { _rescueStatus: data.status, updatedAt: data.updatedAt };
+            if (data.status !== 'decrypted') out.errors.push({ id: item.id, namespace: data.namespace, key: data.key, status: data.status });
+          } else {
+            (data.rows || []).forEach(function(row){
+              var user = userOf(out, row.user_id || '(unknown)');
+              if (!user.tables[data.source]) user.tables[data.source] = [];
+              user.tables[data.source].push(row);
+            });
+          }
+        }, function(error){
+          out.errors.push({ id: item.id, source: item.source, message: String(error && error.message || error) });
+        }).then(function(){ done += 1; return next(); });
+      }
+      return next().then(function(){
+        var blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+        var link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'sullyos-amsg-rescue-' + new Date().toISOString().slice(0, 10) + '.json';
+        link.textContent = '\u4E0B\u8F7D\u5BFC\u51FA\u6587\u4EF6\uFF08JSON\uFF09';
+        $('download').appendChild(link);
+        $('status').textContent = '\u5BFC\u51FA\u5B8C\u6210\uFF0C\u5171 ' + items.length + ' \u9879' + (out.errors.length ? '\uFF0C\u5176\u4E2D ' + out.errors.length + ' \u9879\u6CA1\u80FD\u5B8C\u6574\u8BFB\u51FA\uFF08\u8BE6\u89C1\u6587\u4EF6\u91CC\u7684 errors\uFF09' : '') + '\u3002\\n\u4E0B\u8F7D\u540E\u8BF7\u56DE Cloudflare \u9762\u677F\u5220\u6389 AMSG_RESCUE_TOKEN\u3002';
+        renderChars(out);
+        link.click();
+      });
+    }).catch(function(error){
+      $('status').textContent = '\u5BFC\u51FA\u5931\u8D25\uFF1A' + (error && error.message || error);
+    }).then(function(){ button.disabled = false; });
+  };
+})();
+`;
+
 // worker/amsg/src/index.ts
 installAnthropicFetch(false);
+var rescueDeps = (env) => ({
+  sendPush: (subscription, payload) => buildWorkerConfig(env).webpush.sendNotification(subscription, payload)
+});
 var getFireStash = (scratch) => scratch?.fire;
 var REPLY_IN_FLIGHT_DEFER_MS = 45e3;
 var AWAY_DUE_TOLERANCE_MS = 6e4;
@@ -28076,6 +29238,7 @@ var buildToolCtx = (pack, config) => {
     name: pack.charName,
     xhsEnabled: pack.xhsEnabled,
     activeMemoryMonths: pack.activeMemoryMonths,
+    monthlyRecallEnabled: pack.monthlyRecallEnabled,
     memories: pack.memories
   };
   return {
@@ -28319,6 +29482,35 @@ var amsgFireSettled = async (info) => {
   if (cancelled) stash.selfLogTexts = null;
   const committed = !cancelled && (info.outboxed === true || stash.actionResultCommitted === true);
   const delivered = committed || (info.sentCount ?? 0) > 0;
+  if (stash.instant && stash.taskUuid && !committed && !stash.modelCallsReceiptSent) {
+    const calls = stash.modelCalls ?? (stash.modelCalls = []);
+    const attempted = typeof info.llmCalls === "number" && Number.isInteger(info.llmCalls) ? Math.min(info.llmCalls, 32) : calls.length;
+    while (calls.length < attempted) {
+      const status = info.error?.llmStatus;
+      calls.push(makeModelCall({
+        index: calls.length + 1,
+        completedAt: Date.now(),
+        causes: stash.nextCallCauses ?? [],
+        ok: false,
+        ...typeof status === "number" ? { status } : {}
+      }));
+    }
+    if (calls.length && info.emitResult) {
+      try {
+        await info.emitResult({
+          resultKind: INSTANT_API_CALLS_RESULT_KIND,
+          charId: stash.charId,
+          charName: stash.toolCtx.char.name,
+          taskUuid: stash.taskUuid,
+          calls,
+          notification: { show: false }
+        });
+        stash.modelCallsReceiptSent = true;
+      } catch (error) {
+        console.warn("[amsg:usage] \u9010\u6B21\u8C03\u7528\u8BB0\u5F55\u5199\u5165\u7ED3\u679C\u7BB1\u5931\u8D25", error);
+      }
+    }
+  }
   const stateWrites = [];
   if (!stash.instant && !stash.dailyCounted) {
     stash.dailyCounted = true;
@@ -28492,7 +29684,7 @@ var condenseToolTrace = (calls) => {
     if (call.ran === false) continue;
     counts.set(call.name, (counts.get(call.name) ?? 0) + 1);
   }
-  return [...counts].map(([name, count]) => ({ name, count }));
+  return [...counts].map(([name, count2]) => ({ name, count: count2 }));
 };
 var EMOTION_EVAL_LATE_REASON = "\u60C5\u7EEA\u8BC4\u4F30\u6CA1\u8D76\u4E0A\u8FD9\u6761\u56DE\u590D\uFF08\u526F API \u592A\u6162\uFF09\uFF0C\u8FD9\u4E00\u8F6E\u5148\u4E0D\u66F4\u65B0";
 var raceEmotionEval = (promise, lateNote = "\u8BC4\u4F30\u6CA1\u8D76\u4E0A\u8FD9\u6761\u56DE\u590D\uFF0C\u5148\u628A\u8BDD\u53D1\u51FA\u53BB\uFF08\u8FD9\u4E00\u8F6E\u4E0D\u66F4\u65B0\u60C5\u7EEA\uFF09") => {
@@ -28528,7 +29720,12 @@ var runFireScheduleTool = async (stash, scheduleTask, args, nowMs) => {
     return {
       ok: false,
       reason: "unanswered_limit",
-      message: `\u5BF9\u65B9\u8FD8\u6CA1\u56DE\u590D\uFF0C\u8FD9\u671F\u95F4\u4F60\u5DF2\u7ECF\u4E3B\u52A8\u627E\u4E86 / \u6392\u4E86 ${committedSends} \u6B21\uFF0C\u7528\u6237\u8BBE\u7684\u8FDE\u53D1\u4E0A\u9650\u662F ${unansweredLimit} \u6B21\u2014\u2014\u8FD9\u6B21\u522B\u6392\u4E86\uFF0C\u7B49 ta \u56DE\u590D\u518D\u8BF4\u3002`
+      message: buildUnansweredLimitRejectMessage({
+        count: committedSends,
+        limit: unansweredLimit,
+        context: stash.instant ? "chat" : "fire",
+        canManageTasks: stash.fireToolNames?.has(AMSG_FIRE_CANCEL_TOOL) ?? false
+      })
     };
   }
   if (stash.scheduledTasks.length >= MAX_FIRE_SCHEDULES) {
@@ -29196,7 +30393,9 @@ var amsgHooks = {
         selfScheduleBusyTimes(stash, nowMs)
       ), tz) : void 0,
       // 正在发的这一条（定时触发）发完就占掉今天的一个名额。
-      dailyRemaining: Number.isFinite(limits.dailySendCap) ? Math.max(0, limits.dailySendCap - sentToday - (instant ? 0 : 1)) : void 0
+      dailyRemaining: Number.isFinite(limits.dailySendCap) ? Math.max(0, limits.dailySendCap - sentToday - (instant ? 0 : 1)) : void 0,
+      context: instant ? "chat" : "fire",
+      canManageTasks: canManageTasks && mcpNative
     }) : "";
     const scheduleBlock = canSelfSchedule ? buildFireScheduleBlock(mcpNative ? "native" : "text", {
       nowMs: ctx.now.getTime(),
@@ -29208,7 +30407,13 @@ var amsgHooks = {
     const abilities = { allowRecurring: limits.allowSelfRecurring, allowForce: limits.allowSelfForce };
     const fireTools = [
       ...mcpResolve && mcpNative ? buildMcpFireTools(mcpResolve) : [],
-      ...canSelfSchedule && mcpNative ? [buildFireScheduleTool({ nowMs: ctx.now.getTime(), tz, abilities, context: instant ? "chat" : "fire" })] : [],
+      ...canSelfSchedule && mcpNative ? [buildFireScheduleTool({
+        nowMs: ctx.now.getTime(),
+        tz,
+        abilities,
+        context: instant ? "chat" : "fire",
+        maxActiveTasks: limits.maxActiveTasks
+      })] : [],
       ...canManageTasks && mcpNative ? [buildFireCancelTool(), buildFireRenewTool({ nowMs: ctx.now.getTime(), tz })] : []
     ];
     const replyScopeBlock = fireTools.length > 0 || mcpBlock || scheduleBlock ? `
@@ -29216,7 +30421,7 @@ ${buildReplyScopeRule(instant ? "user" : "scheduled")}
 ` : "";
     stash.fireToolNames = new Set(fireTools.map((t) => t?.function?.name).filter((n) => typeof n === "string" && !n.startsWith(MCP_FIRE_NAME_PREFIX)));
     stash.allowedToolNames = /* @__PURE__ */ new Set([
-      ...DATA_TOOL_NAMES,
+      ...DATA_TOOL_NAMES.filter((name) => name !== "recall" || isMonthlyRecallEnabled(stash.toolCtx.char)),
       ...mcpResolve ? [...mcpResolve.keys()].map((name) => `${MCP_FIRE_NAME_PREFIX}${name}`) : [],
       ...canSelfSchedule ? [AMSG_FIRE_SCHEDULE_TOOL] : [],
       ...canManageTasks ? [AMSG_FIRE_CANCEL_TOOL, AMSG_FIRE_RENEW_TOOL] : []
@@ -29332,6 +30537,17 @@ ${userHoliday}` });
     const session2 = stash.session;
     stash.llmRounds = (stash.llmRounds ?? 0) + 1;
     const roundRawUsage = ctx.usage ?? ctx.llmResponse?.usage;
+    if (stash.instant) {
+      const calls = stash.modelCalls ?? (stash.modelCalls = []);
+      calls.push(makeModelCall({
+        index: calls.length + 1,
+        completedAt: Date.now(),
+        causes: stash.nextCallCauses ?? [],
+        ok: true,
+        usage: roundRawUsage,
+        response: ctx.llmResponse
+      }));
+    }
     if (roundRawUsage && typeof roundRawUsage === "object") {
       const pt = typeof roundRawUsage.prompt_tokens === "number" && Number.isFinite(roundRawUsage.prompt_tokens) ? roundRawUsage.prompt_tokens : void 0;
       const ct = typeof roundRawUsage.completion_tokens === "number" && Number.isFinite(roundRawUsage.completion_tokens) ? roundRawUsage.completion_tokens : void 0;
@@ -29342,7 +30558,9 @@ ${userHoliday}` });
       }
     }
     const roundReasoning = readAssistantThinking(llmMessage && "content" in llmMessage ? llmMessage : { ...llmMessage, content: rawContent });
-    session2.finalReasoning = roundReasoning || null;
+    if (content.length > 0 || session2.narrations.length === 0) {
+      session2.finalReasoning = roundReasoning || null;
+    }
     const rawToolCalls = ctx.llmResponse?.choices?.[0]?.message?.tool_calls;
     const nativeCalls = classifyNativeToolCalls(rawToolCalls, stash.fireToolNames, stash.mcpResolve);
     for (const droppedName of nativeCalls.dropped) {
@@ -29354,7 +30572,7 @@ ${userHoliday}` });
     }
     let decision = processLLMRound(
       session2,
-      content,
+      stripDisabledMonthlyRecall(content, stash.toolCtx.char),
       {
         // 名字取 tool_pack 里的那份：它跟着每轮聊天重新上云，改名当天就是新的。
         // ctx.contactName 是排程那一刻冻进任务行的快照，用户改完名字之后，之前排的
@@ -29390,6 +30608,7 @@ ${userHoliday}` });
       stash.maxToolIterations
     );
     if (decision.decision === "tool-request") {
+      stash.nextCallCauses = modelCallCauses(decision.toolCalls.map((tc) => tc.function.name));
       console.log("[amsg:agentic]", {
         type: "tool_request",
         sessionId: ctx.sessionId,
@@ -29445,6 +30664,7 @@ ${userHoliday}` });
         ...stripSarSnapshot(stripEmotionEvalSpec(ctx.metadata)),
         ...decision.sideEffects,
         amsgOccurrenceMs: stash.occurrenceMs,
+        ...stash.instant && stash.modelCalls?.length ? { amsgModelCalls: stash.modelCalls } : {},
         ...stash.scheduledTasks.length ? { amsgSelfScheduled: stash.scheduledTasks } : {},
         ...stash.cancelledTasks.length || stash.renewedTasks.length ? {
           amsgTaskMutations: { cancelled: stash.cancelledTasks, renewed: stash.renewedTasks }
@@ -29572,6 +30792,7 @@ ${userHoliday}` });
       }
       if (stash.instant && payloads.length > 0) {
         const lastMeta = {};
+        if (stash.modelCalls?.length) lastMeta.amsgModelCalls = stash.modelCalls;
         const toolTrace = condenseToolTrace(session2.toolCalls);
         if (toolTrace.length > 0) lastMeta.amsgToolTrace = toolTrace;
         const stashUsage = readStashUsage(stash);
@@ -29814,6 +31035,16 @@ var inspectWorkerEnv = (env) => {
       message: "\u6CA1\u8BBE AMSG_SERVER_TOKEN\uFF0C\u8FD9\u4E2A Worker \u5730\u5740\u5BF9\u516C\u7F51\u5F00\u653E\uFF0C\u77E5\u9053\u5730\u5740\u7684\u4EBA\u90FD\u80FD\u8BFB\u5199\u4F60\u7684\u4EFB\u52A1\u3002"
     });
   }
+  const rescueToken = env.AMSG_RESCUE_TOKEN?.trim();
+  if (rescueToken) {
+    warnings.push(isRescueActive(env) ? {
+      code: "RESCUE_ACTIVE",
+      message: "\u6551\u63F4\u6A21\u5F0F\u5F00\u7740\uFF08\u8BBE\u4E86 AMSG_RESCUE_TOKEN\uFF09\uFF1A\u51ED\u53E3\u4EE4\u53EF\u4EE5\u5BFC\u51FA\u5168\u90E8\u4E91\u7AEF\u6570\u636E\uFF0C\u5B9A\u65F6\u6D88\u606F\u6682\u505C\u6295\u9012\u3002\u6551\u5B8C\u6570\u636E\u8BF7\u7ACB\u523B\u5220\u6389\u8FD9\u4E2A\u53D8\u91CF\u3002"
+    } : {
+      code: "RESCUE_TOKEN_TOO_SHORT",
+      message: "AMSG_RESCUE_TOKEN \u592A\u77ED\uFF0C\u6551\u63F4\u9875\u4E0D\u4F1A\u5DE5\u4F5C\u3002\u8981\u6551\u6570\u636E\u5C31\u6362\u4E00\u4E32\u81F3\u5C11 16 \u4E2A\u5B57\u7B26\u7684\u968F\u673A\u53E3\u4EE4\uFF0C\u4E0D\u7528\u5C31\u5220\u6389\u5B83\u3002"
+    });
+  }
   return {
     ok: absent.length === 0,
     missing: absent.map((item) => item.key),
@@ -30003,6 +31234,9 @@ var src_default = {
   async fetch(request, env, ctx) {
     const pathname = new URL(request.url).pathname.replace(/\/+$/, "") || "/";
     const method = request.method.toUpperCase();
+    const rescueRoute = matchRescueRoute(pathname);
+    if (rescueRoute) return handleRescueRequest(request, env, rescueDeps(env), rescueRoute);
+    if (isRescueActive(env) && !pathname.endsWith("/config-check")) await observeRescueQuietly(env, rescueDeps(env));
     if (pathname.endsWith("/config-check")) {
       if (method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
       return jsonWithCors(200, {
@@ -30026,7 +31260,10 @@ var src_default = {
           selfUpdate: {
             supported: Boolean(env.CF_API_TOKEN?.trim()),
             state: await readSelfUpdateState(env.DB)
-          }
+          },
+          // 救援模式的开关和留痕（形状见 utils/amsgRescueState.ts）。前端据此强制弹窗警告 7 天。
+          // 这里只有时刻和次数，不含口令或任何数据；不设防是因为警告必须在共享密钥丢了时也看得到。
+          rescue: await buildRescueReport(env, rescueDeps(env))
         }
       });
     }
@@ -30259,12 +31496,17 @@ var src_default = {
       console.error(`[amsg] \u5B9A\u65F6\u4EFB\u52A1\u6574\u8F6E\u8DF3\u8FC7\uFF1A${report.message}`);
       return;
     }
+    await observeRescueQuietly(env, rescueDeps(env));
     await runScheduledAfterUpdate(
       () => runAutoUpdate(env, env.DB, {
         source: "cron",
         scriptName: env.CF_SCRIPT_NAME?.trim() || null
       }),
       async () => {
+        if (isRescueActive(env)) {
+          console.warn("[amsg:rescue] \u6551\u63F4\u6A21\u5F0F\u5F00\u7740\uFF0C\u8FD9\u4E00\u8DF3\u4E0D\u6295\u9012\u3001\u4E0D\u6E05\u7406");
+          return;
+        }
         await ensureSchemaOnce(env.DB, SCHEMA_VERSION, () => upstream.ensureSchema(env));
         const outcome = await upstream.scheduled(event, env);
         await recordTickOutcome(env.DB, outcome);

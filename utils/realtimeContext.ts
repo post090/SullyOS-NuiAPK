@@ -68,61 +68,15 @@ export interface CharRegionOverride {
     };
 }
 
-export interface RealtimeConfig {
-    userHolidays?: UserHolidayConfig;
-    // 天气配置
-    weatherEnabled: boolean;
-    weatherApiKey: string;  // OpenWeatherMap API Key（可选；留空走所选免费源）
-    weatherFreeSource?: import('./weatherSources').FreeWeatherSource;
-    weatherCities?: Record<string, string>; // Per-character override; missing/blank inherits weatherCity.
-    weatherCity: string;    // 城市名 (如 "北京"、"Beijing"，Open-Meteo 支持中文)
-
-    // 新闻配置
-    newsEnabled: boolean;
-    newsApiKey?: string;    // 可选，Brave Search 回落源用
-    newsPlatforms?: string[]; // hot_news 热榜平台 key（默认主源，免鉴权），留空用内置默认
-    // RSS 订阅源：内置勾选走 rssUrls（URL 数组，label 从 RSS_BUILTIN_SOURCES 查），
-    // 用户自定义源走 rssCustom（带名字，可编辑 / 删除 / 启用切换）。
-    // 两批都走 worker /rss 代理抓取，跟 orz.ai 热榜混合存入同一份分时段快照。
-    rssUrls?: string[];
-    rssCustom?: { url: string; name: string; enabled?: boolean }[];
-
-    // Notion 配置
-    notionEnabled: boolean;
-    notionApiKey: string;   // Notion Integration Token
-    notionDatabaseId: string; // 日记数据库ID
-    notionNotesDatabaseId?: string; // 用户笔记数据库ID（可选）
-
-    // 飞书配置
-    feishuEnabled?: boolean;
-    feishuAppId?: string;
-    feishuAppSecret?: string;
-    feishuBaseId?: string;
-    feishuTableId?: string;
-
-    // 小红书配置 (xiaohongshu-skills)
-    xhsEnabled?: boolean;
-    xhsMcpConfig?: {
-        enabled: boolean;
-        mode?: 'local' | 'lite';
-        serverUrl: string;
-        cookie?: string;        // Lite 模式：登录后的完整小红书 cookie
-        platform?: 'xhs' | 'rednote'; // Lite 自动识别出的国内 / 全球后端
-        rnoteApiKey?: string;   // Lite 模式：用户自备的 Rnote Key，用于真实评论
-        loggedInNickname?: string;
-        loggedInUserId?: string;
-        userXsecToken?: string; // 从 feed 列表自动获取，用于 getUserProfile 等
-    };
-
-    // 缓存配置
-    cacheMinutes: number;   // 缓存时长（分钟）
-}
+import type { RealtimeConfig } from '../types';
+export type { RealtimeConfig } from '../types';
 
 // 默认配置
 export const defaultRealtimeConfig: RealtimeConfig = {
     weatherEnabled: false,
     weatherApiKey: '',
-    weatherFreeSource: 'open-meteo',
+    weatherFreeSource: 'wttr',
+    weatherFreeSourceMigration: 1,
     weatherCity: 'Beijing',
     newsEnabled: false,
     newsApiKey: '',
@@ -130,6 +84,11 @@ export const defaultRealtimeConfig: RealtimeConfig = {
     notionEnabled: false,
     notionApiKey: '',
     notionDatabaseId: '',
+    feishuEnabled: false,
+    feishuAppId: '',
+    feishuAppSecret: '',
+    feishuBaseId: '',
+    feishuTableId: '',
     xhsEnabled: false,
     xhsMcpConfig: {
         enabled: false,
@@ -738,13 +697,11 @@ export const RealtimeContextManager = {
                 headers: {
                     'Accept': 'application/json',
                     'X-Brave-API-Key': apiKey  // Worker 需要这个 header
-                }
-            });
+                }, __sullyHandlesFailure: true
+            } as RequestInit);
 
             if (!response.ok) {
                 const errorText = await response.text();
-                // warn 而非 error：新闻失败有回落链（hot_news → Brave → HN），
-                // console.error 会被全局拦截器抓进 systemLogs 红字吓用户。
                 console.warn('Brave API error:', response.status, errorText);
                 return [];
             }
@@ -762,7 +719,7 @@ export const RealtimeContextManager = {
             }
             return [];
         } catch (e) {
-            console.error('Brave Search failed:', e);
+            console.warn('Brave Search failed:', e);
             return [];
         }
     },
@@ -807,6 +764,7 @@ export const RealtimeContextManager = {
             console.log(`%c[hot_news] 本次新闻源 = Hacker News 兜底（${news.length} 条，英文）`, 'color:#dc2626;font-weight:bold');
             newsCache = { data: news, timestamp: now };
         }
+        if (!news.length) console.error('[hot_news] 所有新闻源均未返回内容');
         return news;
     },
 
@@ -815,7 +773,7 @@ export const RealtimeContextManager = {
      */
     fetchBackupNews: async (): Promise<NewsItem[]> => {
         try {
-            const response = await fetchWithTimeout('https://hacker-news.firebaseio.com/v0/topstories.json');
+            const response = await fetchWithTimeout('https://hacker-news.firebaseio.com/v0/topstories.json', 10_000, { __sullyHandlesFailure: true } as RequestInit);
             if (!response.ok) return [];
 
             const ids = await safeResponseJson(response);
@@ -823,7 +781,7 @@ export const RealtimeContextManager = {
 
             const stories = await Promise.all(
                 topIds.map(async (id: number) => {
-                    const storyRes = await fetchWithTimeout(`https://hacker-news.firebaseio.com/v0/item/${id}.json`);
+                    const storyRes = await fetchWithTimeout(`https://hacker-news.firebaseio.com/v0/item/${id}.json`, 10_000, { __sullyHandlesFailure: true } as RequestInit);
                     return safeResponseJson(storyRes);
                 })
             );

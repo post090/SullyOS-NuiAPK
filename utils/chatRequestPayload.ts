@@ -19,13 +19,8 @@ import type { AudioApiConfig, CharacterProfile, UserProfile, GroupProfile, Emoji
 import { ChatPrompts, detectChatModeTransition } from './chatPrompts';
 import { ContextBuilder } from './context';
 import { injectMemoryPalace } from './memoryPalace/pipeline';
-import { renderLocalContextGuidance } from './memoryPalace/recallRouter';
-import { renderInteractionAdaptationGuidance } from './memoryPalace/interactionAdaptation';
-import { renderDeepEngagementGuidance } from './memoryPalace/deepEngagement';
-import { renderConversationEngagementGuidance } from './memoryPalace/conversationEngagement';
-import type { ConversationEngagementAnalysis } from './memoryPalace/conversationEngagement';
-import type { DeepEngagementAnalysis } from './memoryPalace/deepEngagement';
-import { buildChatOutputStylePrompt } from './chatOutputStylePrompt';
+import { palaceRecallInputKey, renderSmartContextGuidance, type PreparedPalaceRecall } from './memoryPalace/smartContext';
+import { BILINGUAL_TAIL_REMINDER, buildChatOutputStylePrompt } from './chatOutputStylePrompt';
 import { buildMcdMiniAppContextBlock } from './mcdToolBridge';
 import type { McdMiniAppSnapshot } from './mcdToolBridge';
 import { buildLuckinMiniAppContextBlock, buildLuckinChatSystemBlock } from './luckinToolBridge';
@@ -150,6 +145,8 @@ export interface BuildChatPayloadResult {
     volatileTailIndex: number;
     /** 本轮记忆召回的脱敏 Trace；Prompt Build 被整体跳过时不存在。 */
     recallTrace?: RecallTrace;
+    /** 本轮召回正文、门牌与智能语境分析，供主动消息模板在同输入同配置时复用。 */
+    palaceRecall?: PreparedPalaceRecall;
     /** 调试用：bilingual / mcd 是否实际注入 */
     flags: {
         bilingualActive: boolean;
@@ -485,17 +482,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     // 私聊与 3D 家园共用本地语境分析：它告诉主模型“这句话此刻在做什么”，
     // 不指定具体记忆答案、不改变角色人格，也不进入其他 App 的专属写作提示。
     if (isChatConversationEntry(input.recallEntryPoint)) {
-        volatileTail += renderLocalContextGuidance(recallTrace.contextAnalyzer);
-        volatileTail += renderInteractionAdaptationGuidance(recallTrace.interactionAdaptation?.analysis);
-        const engagementTrace = recallTrace.deepEngagement;
-        if (engagementTrace?.engine === 'legacy_depth') {
-            volatileTail += renderDeepEngagementGuidance(engagementTrace.analysis as DeepEngagementAnalysis | undefined);
-        } else if (engagementTrace?.engine === 'conversation_v2') {
-            // M3 核心原则常驻；分析结果只决定是否在后面追加当轮状态策略。
-            volatileTail += renderConversationEngagementGuidance(
-                engagementTrace.analysis as ConversationEngagementAnalysis | undefined,
-            );
-        }
+        volatileTail += renderSmartContextGuidance(recallTrace);
         if (char.chatCollaborationEnabled) {
             volatileTail += await prepare('collaboration',()=>loadCollaborationFileCabinetBlock(
                 char.id,
@@ -527,7 +514,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             role: 'system',
             content: sarEnvelopeActive
                 ? `[Reminder: 最外层输出 <SAR_MODULE_OUTPUT>；CHAR_TRUE 和 CHAR_SURFACE 内的每个气泡都分别使用完整的 <翻译><原文>...</原文><译文>...</译文></翻译>，原文/译文语义一致，一句一个标签。]`
-                : `[Reminder: 每句话必须用 <翻译><原文>...</原文><译文>...</译文></翻译> 标签包裹。一句一个标签。绝对不能省略。]`,
+                : BILINGUAL_TAIL_REMINDER,
         });
     }
     if (mcpChatActive && !input.timelyByWorker) {
@@ -597,6 +584,12 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         volatileTailIndex: finalMessages === fullMessages ? volatileTailIndex : -1,
         amsg2ExpiredNoticeIds,
         recallTrace,
+        palaceRecall: {
+            memoryPalaceInjection: char.memoryPalaceInjection || '',
+            roomPlatesInjection: char.roomPlatesInjection || '',
+            trace: recallTrace,
+            inputKey: palaceRecallInputKey(char, recentMsgsHint, userProfile?.name, input.recallQueryHint),
+        },
         flags: { bilingualActive, mcdActive, luckinActive, luckinChatActive, mcpChatActive, htmlActive, thinkingActive, sarModuleActive: !!sarModuleBlock, promptBuildSkipped: false },
     };
 }

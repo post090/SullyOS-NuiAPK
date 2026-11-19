@@ -1,4 +1,5 @@
 import type {Message, MessageType} from '../types';
+import {BUILTIN_SULLY_ID} from './sullyIdentity';
 import {BEAUTY_PREVIEW_AVATAR} from './beautyPreviewAssets';
 
 // Synthetic only: no DB reads, real identities, API calls, payments or app navigation.
@@ -10,7 +11,7 @@ export const CHAT_TYPE_SAMPLES = {
  image:msg(2,'image',BEAUTY_PREVIEW_AVATAR),
  emoji:msg(3,'emoji',BEAUTY_PREVIEW_AVATAR),
  voice:msg(4,'voice','晚安，明天见。',{duration:6}),
- audio:msg(31,'audio','',{fileName:'海边录音.mp3',mimeType:'audio/mpeg',fileSize:1843200,duration:46},'user'),
+ audio:msg(33,'audio','',{fileName:'海边录音.mp3',mimeType:'audio/mpeg',fileSize:1843200,duration:46},'user'),
  collaboration_file:msg(5,'collaboration_file','一起整理的旅行手册.pdf',{fileName:'一起整理的旅行手册.pdf',mimeType:'application/pdf',fileSize:286720,format:'pdf'}),
  interaction:msg(6,'interaction','戳了戳'),
  transfer:msg(7,'transfer','给你买一杯热饮',{amount:25,note:'给你买一杯热饮',status:'pending'}),
@@ -37,8 +38,9 @@ export const CHAT_TYPE_SAMPLES = {
  group_topic_card:msg(28,'group_topic_card','群聊回忆',{groupTopicBox:{title:'周末野餐',summary:'大家约好了带上各自拿手的食物。',groupName:'朋友们',messageCount:12}}),
  secret_note:msg(31,'secret_note','窗台夹了一张小纸条',{source:'home',secretKind:'note'}),
  task_proposal:msg(29,'task_proposal','每天读书半小时',{title:'每天读书半小时',type:'recurring',frequency:'daily',reminderEnabled:true,reminderTime:'21:00',rewardCoins:10,penaltyCoins:3,supervisorId:'whitebox-preview',status:'pending'}),
- job_card:msg(30,'job_card','更新了求职工作台',{source:'job-event',charName:'示例角色',jobCards:[{jobKind:'update',code:'JD-01',created:true,stageLabel:'简历',nextStep:'投递简历'},{jobKind:'note',noteKind:'job',noteKindLabel:'岗位笔记',title:'面试复盘',preview:'记下一道被追问的问题。'}]}),
+ job_card:msg(34,'job_card','更新了求职工作台',{source:'job-event',charName:'示例角色',jobCards:[{jobKind:'update',code:'JD-01',created:true,stageLabel:'简历',nextStep:'投递简历'},{jobKind:'note',noteKind:'job',noteKindLabel:'岗位笔记',title:'面试复盘',preview:'记下一道被追问的问题。'}]},'system'),
  friend_feed_card:msg(32,'friend_feed_card','[好友圈记录] 你评论：那我带杯子过来。',{source:'friend_feed',friendFeedComment:{postId:'preview-coffee',commentId:'preview-comment',postAuthor:'小雨',postExcerpt:'今天终于把咖啡机研究明白了。先声明：上次的焦味不算。',comment:'那我带杯子过来。焦味的那杯先留给你。'}},'system'),
+ sully_help_card:{...msg(35,'sully_help_card','Sully-11 咨询'),charId:BUILTIN_SULLY_ID},
 } satisfies Record<MessageType, Message>;
 
 export interface ChatPreviewScene {id:string;label:string;messages:Message[];expanded?:boolean;voiceLoading?:boolean;voicePlaying?:boolean}
@@ -59,7 +61,7 @@ export const CHAT_PREVIEW_SCENES:ChatPreviewScene[] = [
  scene('voice-loading','语音 · 加载',[msg(131,'text','<语音>晚安。</语音>')],{voiceLoading:true}),
  scene('voice-playing','语音 · 播放与字幕',[msg(132,'text','<语音>晚安，明天见。</语音>')],{voicePlaying:true,expanded:true}),
  scene('reply','引用与双语',[{...msg(140,'text','%%BILINGUAL%%\n[LANG_A]明天一起看海。[/LANG_A]\n[LANG_B]Let’s see the sea tomorrow.[/LANG_B]'),replyTo:{id:0,name:'我',content:'周末有什么安排？'}}]),
- ...Object.entries(CHAT_TYPE_SAMPLES).filter(([type])=>!['text','transfer','voice'].includes(type)).map(([type,message])=>scene(type,({friend_feed_share_card:'好友圈分享',friend_feed_card:'好友圈评论',image:'图片',emoji:'表情',audio:'音频',collaboration_file:'协同文件',interaction:'互动',system:'系统提示',social_card:'动态分享',chat_forward:'聊天转发',xhs_card:'小红书',score_card:'写歌',music_card:'音乐',mcd_card:'麦当劳',luckin_card:'瑞幸',html_card:'HTML 卡片',news_card:'资讯',vr_card:'彼方',trpg_card:'跑团',novel_card:'笔友会',world_card:'世界',sim_card:'人生体验',phone_card:'查手机',webpage_card:'网页',theater_card:'剧场',room_card:'小屋',life_card:'生活记录',group_topic_card:'群聊话题',secret_note:'密语纸条',task_proposal:'时光契约',job_card:'求职工作台'} as Record<string,string>)[type], [message])),
+ ...Object.entries(CHAT_TYPE_SAMPLES).filter(([type])=>!['text','transfer','voice'].includes(type)).map(([type,message])=>scene(type,({friend_feed_share_card:'好友圈分享',friend_feed_card:'好友圈评论',image:'图片',emoji:'表情',audio:'音频',collaboration_file:'协同文件',interaction:'互动',system:'系统提示',social_card:'动态分享',chat_forward:'聊天转发',xhs_card:'小红书',score_card:'写歌',music_card:'音乐',mcd_card:'麦当劳',luckin_card:'瑞幸',html_card:'HTML 卡片',news_card:'资讯',vr_card:'彼方',trpg_card:'跑团',novel_card:'笔友会',world_card:'世界',sim_card:'人生体验',phone_card:'查手机',webpage_card:'网页',theater_card:'剧场',room_card:'小屋',life_card:'生活记录',group_topic_card:'群聊话题',secret_note:'密语纸条',task_proposal:'时光契约',job_card:'求职工作台',sully_help_card:'Sully-11 咨询'} as Record<string,string>)[type], [message])),
  scene('quiz','答题报告',[score(150,'quiz_card',{score:9,total:10,scorePercent:90,courseTitle:'文学小测',chapterTitle:'第一章'})]),
  scene('guidebook','攻略本',[score(151,'guidebook_card',{title:'心动练习',charName:'示例角色',initialAffinity:20,finalAffinity:35,charVerdict:'今天更了解你了。',charNewInsight:'你会记住每一件小事。',rounds:5})]),
  scene('whiteday','白色情人节',[score(152,'whiteday_card',{charName:'示例角色',score:8,total:10,passed:true,finalDialogue:'这份巧克力送给你。'})]),

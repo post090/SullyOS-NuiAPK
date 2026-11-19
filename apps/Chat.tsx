@@ -1,16 +1,24 @@
+import { clearLocationPin } from '../utils/userLocation';
+import { appShortcutLaunch } from '../utils/appShortcutLaunch';
+import { SULLY_HELP_DESK_ID } from '../utils/sullyIdentity';
 import {avatarFrameLayer} from '../utils/avatarFrameTarget';
 import ChatRuntimeStyle from '../components/chat/ChatRuntimeStyle';
 import { ChatSubtitleLayer } from '../components/chat/ChatSubtitleLayer';
-import { readChatTranslationStyle, type ChatTranslationStyle } from '../utils/chatTranslationStyle';
+import { readChatTranslationStyle, readSubtitleSettings, saveSubtitleSettings, type ChatTranslationStyle } from '../utils/chatTranslationStyle';
+import { subscribePageForeground } from '../utils/pageForeground';
 import {homePhoneAppearance,HOME_PHONE_BUBBLES} from './room3d/homePhoneAppearance';
 
 import { publishReplyDisplay, stopReplyRuns } from '../utils/chatReplyCancellation';
 import { stopInstantChat } from '../utils/amsgInstantChat';
 import {resolvePsycheAppearance} from '../utils/psycheAppearance';
-import { startsNewMessageGroup } from '../utils/chatMessageGrouping';
+import { translateThinkingMessage } from '../utils/thinkingTranslation';
+import { resolveDialogueApi } from '../utils/characterApi';
+import { computeTimeSegmentStarts, startsNewMessageGroup, startsNewTimeSegment } from '../utils/chatMessageGrouping';
 import EmojiExportDialog from '../components/chat/EmojiExportDialog';
 import BlobRefStyle from '../components/chat/BlobRefStyle';
-import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react';
+import ChatSendProgress from '../components/chat/ChatSendProgress';
+import { getChatSendProgress, subscribeChatSendProgress, cancelChatSendProgress } from '../utils/chatSendProgress';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { loadMusicControl } from '../context/MusicContext';
@@ -58,9 +66,12 @@ import LuckinHelpModal from '../components/luckin/LuckinHelpModal';
 import { PRESET_THEMES, DEFAULT_ARCHIVE_PROMPTS } from '../components/chat/ChatConstants';
 import { resolveChatTheme } from '../utils/groupChat/theme';
 import ChatHeader from '../components/chat/ChatHeaderShell';
+import {useChatTailProfileGesture} from '../hooks/useChatTailProfileGesture';
+import ChatCharacterProfile from '../components/chat/ChatCharacterProfile';
 import CharacterEntryTransition from '../components/chat/CharacterEntryTransition';
 import {resolveDecorationTheme} from '../utils/chatDecoration';
 import {DecorationTab} from '../components/chat/ChatDecorationPanel';
+import {ChatTrialControls, type ChatDecorationTrial} from '../components/chat/ChatDecorationTrial';
 import ChatAppearanceWardrobe from '../components/chat/ChatAppearanceWardrobe';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import ConfirmDialog from '../components/os/ConfirmDialog';
@@ -167,9 +178,18 @@ const INSTANT_VOICE_SCAN_WINDOW_MS = 30_000;
 export interface HomePhoneChatProps {characterId:string;getContext:()=>string;onBack:()=>void}
 const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const playChatNotificationSound = useChatNotificationSound();
-    const { activeApp, characters, activeCharacterId: osActiveCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, openApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: baseOsTheme, openDateWithChar } = useOS();
-    const activeCharacterId=homePhone?.characterId??osActiveCharacterId;
-    const osTheme = useMemo(()=>homePhone?homePhoneAppearance(baseOsTheme):resolveDecorationTheme(baseOsTheme,characters.find(c=>c.id===activeCharacterId)||characters[0]),[baseOsTheme,characters,activeCharacterId,!!homePhone]);
+    const { appearancePresets = [] } = useOS();
+    const osAppearanceFonts = useMemo(() => appearancePresets.flatMap(preset => preset.theme.customFont?.startsWith('data:')
+        ? [{ name: preset.name, source: preset.theme.customFont }] : []), [appearancePresets]);
+    const { activeApp, characters, activeCharacterId: osActiveCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, updateApiConfig, apiPresets, availableModels, addApiPreset, closeApp, openApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: baseOsTheme, openDateWithChar } = useOS();
+    const wardrobeCharacter = characters.find(c=>c.id===osActiveCharacterId) || characters[0];
+    const [trial,setTrial] = useState<(ChatDecorationTrial & {ownerId:string}) | null>(null);
+    const liveTrial = !homePhone && activeApp===AppID.Chat && trial?.ownerId===wardrobeCharacter?.id && characters.some(c=>c.id===trial?.characterId) ? trial : null;
+    const activeCharacterId=homePhone?.characterId??liveTrial?.characterId??osActiveCharacterId;
+    const savedCharacter = characters.find(c=>c.id===activeCharacterId) || characters[0];
+    const char = useMemo(()=>liveTrial && savedCharacter ? {...savedCharacter,...liveTrial.patch} : savedCharacter,[savedCharacter,liveTrial]);
+    const sendProgress = useSyncExternalStore(subscribeChatSendProgress, () => getChatSendProgress(activeCharacterId), () => null);
+    const osTheme = useMemo(()=>homePhone?homePhoneAppearance(baseOsTheme):resolveDecorationTheme(baseOsTheme,char),[baseOsTheme,char,!!homePhone]);
     const localDateKey = useLocalDateKey();
 
     // 记忆宫殿高水位（用于清空聊天时的安全检查）
@@ -198,6 +218,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [collaborationOpen, setCollaborationOpen] = useState(false);
     const [collaborationPreviewAssetId, setCollaborationPreviewAssetId] = useState<string | null>(null);
     const [memoryRepairOpen, setMemoryRepairOpen] = useState(false);
+    const [profileCharacterId, setProfileCharacterId] = useState<string | null>(null);
+    const [profileTabOnOpen, setProfileTabOnOpen] = useState<'当前' | '日程'>('当前');
     const [favoritesOpen, setFavoritesOpen] = useState(false);
     
     // Emoji State
@@ -253,6 +275,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     // 小剧场（窥视演出）：正在播放的时段索引（null = 未打开），以及生成中标志
     const [theaterSlotIdx, setTheaterSlotIdx] = useState<number | null>(null);
     const [isTheaterGenerating, setIsTheaterGenerating] = useState(false);
+    const [theaterError, setTheaterError] = useState('');
+    const pendingTheater = useRef<{ scheduleId: string; index: number } | null>(null);
     const [isScheduleGenerating, setIsScheduleGenerating] = useState(false);
     const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
     const [transferAmt, setTransferAmt] = useState('');
@@ -386,10 +410,20 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         try { return JSON.parse(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) || 'false'); } catch { return false; }
     });
     const [translationStyle, setTranslationStyle] = useState<ChatTranslationStyle>(() => readChatTranslationStyle(activeCharacterId));
+    const [subtitleSettings, setSubtitleSettings] = useState(() => readSubtitleSettings(activeCharacterId));
     // Which messages are currently showing "译" version (toggle state only, no API calls)
     const [showingTargetIds, setShowingTargetIds] = useState<Set<number>>(new Set());
 
-    const char = characters.find(c => c.id === activeCharacterId) || characters[0];
+    useEffect(()=>{if(trial && (!liveTrial || modalType!=='chrome-css'))setTrial(null);},[trial,liveTrial,modalType]);
+    const profileOpen = !!char && (profileCharacterId === char.id || !!liveTrial?.showProfile);
+    const openCharacterProfile = useCallback(() => {
+        if (!char?.id) return;
+        trackEvent('打开聊天角色名片');
+        setShowPanel('none');
+        setProfileTabOnOpen('当前');
+        setProfileCharacterId(char.id);
+    }, [char?.id]);
+    useEffect(() => { setProfileCharacterId(null); }, [char?.id, activeApp]);
     const memoryRepairRound = useMemo(() => {
         let assistantIndex = -1;
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -421,6 +455,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         };
     }, [messages]);
     const charDateKey = useLocalDateKey(resolveCharTimeZone(char));
+    useEffect(() => { setTheaterSlotIdx(null); setTheaterError(''); }, [char?.id, charDateKey, activeApp]);
     charRef.current = char; // Keep ref in sync for async callbacks
     const historyContextRange = useMemo(() => {
         if (!char) return undefined;
@@ -459,8 +494,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const currentThemeId = char?.bubbleStyle || osTheme.chatDefaultBubbleStyle || 'default';
     // 解析逻辑抽到 utils/groupChat/theme.ts（群聊共用），行为不变
     const activeTheme = useMemo(
-        () => homePhone?HOME_PHONE_BUBBLES:resolveChatTheme(currentThemeId, customThemes, PRESET_THEMES),
-        [currentThemeId, customThemes,!!homePhone],
+        () => homePhone?HOME_PHONE_BUBBLES:liveTrial?.bubble ?? resolveChatTheme(currentThemeId, customThemes, PRESET_THEMES),
+        [currentThemeId, customThemes,!!homePhone,liveTrial?.bubble],
     );
     const draftKey = `chat_draft_${activeCharacterId}`;
     const scrollKey = `chat_scroll_${activeCharacterId}`;
@@ -1265,6 +1300,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 setTranslationExpanded(JSON.parse(localStorage.getItem(`chat_translate_expanded_${activeCharacterId}`) || 'false'));
             } catch { setTranslationExpanded(false); }
             setTranslationStyle(readChatTranslationStyle(activeCharacterId));
+            setSubtitleSettings(readSubtitleSettings(activeCharacterId));
             lastMsgIdRef.current = null;
             scrollThrottleRef.current = 0;
             setLastTokenUsage(null);
@@ -1325,7 +1361,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             setScheduleData(null);
             return;
         }
+        let current = true;
         getDailyScheduleForChar(char).then(existing => {
+            if (!current) return;
             if (!existing) {
                 // Generate in background, don't block chat
                 generateDailySchedule(char, false);
@@ -1333,6 +1371,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 setScheduleData(existing);
             }
         }).catch(() => {});
+        return () => { current = false; };
     }, [activeCharacterId, char?.scheduleFeatureEnabled, char?.customTimezoneEnabled, char?.customTimezone, charDateKey]);
 
     // ⑦ 日程被事件修订后（情绪顺风车/独立调用/群聊/通话/见面/家园）刷新日程 modal 的 diff 角标
@@ -1408,6 +1447,16 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         window.addEventListener('storage', onStorage);
         return () => window.removeEventListener('storage', onStorage);
     }, [reloadMessages]);
+
+    // Resume in the same mounted chat: another page may already have persisted the reply
+    // and consumed its inbox event. Read the current records without re-entering the app.
+    useEffect(() => {
+        if (!activeCharacterId || (activeApp !== AppID.Chat && !homePhone)) return;
+        return subscribePageForeground(() => {
+            setInstantChatPending(!!getInstantChatPending(activeCharacterId));
+            if (!historyWindowRangeRef.current) void reloadMessages(visibleCountRef.current);
+        });
+    }, [activeCharacterId, activeApp, homePhone, reloadMessages]);
 
     useEffect(() => {
         visibleCountRef.current = visibleCount;
@@ -1932,6 +1981,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const handleManualTrigger = () => {
         autoReply.cancel();
         if (isTyping || instantChatPending) {
+            cancelChatSendProgress(char.id);
             stopReplyRuns(char.id);
             void stopInstantChat(char.id).catch(error => {
                 console.warn('[Chat] remote stop failed', error);
@@ -2359,17 +2409,15 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     }, [char, reloadMessages]);
 
     // --- Schedule Handlers ---
-    const loadSchedule = async () => {
-        if (!char) return;
+    useEffect(() => {
+        if (!char || (!profileOpen && modalType !== 'schedule')) return;
         if (!isScheduleFeatureOn(char)) { setScheduleData(null); return; }
-        const s = await getDailyScheduleForChar(char);
-        setScheduleData(s);
-    };
-
-    // Load schedule when modal opens
-    React.useEffect(() => {
-        if (modalType === 'schedule') loadSchedule();
-    }, [modalType]);
+        let current = true;
+        getDailyScheduleForChar(char).then(schedule => {
+            if (current) setScheduleData(schedule);
+        }).catch(() => { if (current) setScheduleData(null); });
+        return () => { current = false; };
+    }, [modalType, profileOpen, char?.id, char?.scheduleFeatureEnabled, char?.scheduleStyle, char?.customTimezoneEnabled, char?.customTimezone, charDateKey]);
 
     // 日程表随 fire_pack 一起上云（角色到点按它说自己在干嘛），改完要让云端那份跟上：
     // 用户把「健身」改成「在家养病」，角色晚上还说「刚从健身房回来」就穿帮了。
@@ -2401,9 +2449,16 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
     // 小剧场：点某个时段的播放按钮。有缓存直接放；没有则先生成再放（forceRegenerate=重演）。
     const runTheater = async (index: number, forceRegenerate: boolean) => {
-        if (!char || !scheduleData) return;
+        if (!char || scheduleData?.charId !== char.id || scheduleData.date !== charDateKey) return;
         const slot = scheduleData.slots[index];
         if (!slot) return;
+        if (pendingTheater.current) {
+            if (pendingTheater.current.scheduleId === scheduleData.id && pendingTheater.current.index === index) {
+                setTheaterSlotIdx(index);
+            } else addToast('上一个时段的小剧场还在生成', 'info');
+            return;
+        }
+        setTheaterError('');
         trackEvent('打开日程小剧场', { mode: forceRegenerate ? 'replay' : 'play' });
         // 命中缓存且非重演：直接打开，不烧 token
         if (!forceRegenerate && slot.theater && slot.theater.lines.length > 0) {
@@ -2411,20 +2466,21 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             return;
         }
         setTheaterSlotIdx(index);
+        pendingTheater.current = { scheduleId: scheduleData.id, index };
         setIsTheaterGenerating(true);
         try {
             const updated = await generateSlotTheater(char, userProfile, scheduleData, index, apiConfig, forceRegenerate);
+            if (activeCharIdRef.current !== char.id) return;
             if (updated) {
-                setScheduleData(updated);
+                setScheduleData(previous => previous?.id === updated.id ? updated : previous);
             } else {
-                addToast('小剧场生成失败，稍后再试', 'error');
-                setTheaterSlotIdx(null);
+                setTheaterError('小剧场生成失败，请检查 API 配置或稍后重试。');
             }
         } catch (e) {
             console.error('[Theater] play failed:', e);
-            addToast('小剧场生成失败，稍后再试', 'error');
-            setTheaterSlotIdx(null);
+            if (activeCharIdRef.current === char.id) setTheaterError('小剧场生成失败，请稍后重试。');
         } finally {
+            pendingTheater.current = null;
             setIsTheaterGenerating(false);
         }
     };
@@ -2456,6 +2512,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         });
         // 关掉播放器 + 日程 modal，回到聊天看到卡片（但不强行触发回复）
         setTheaterSlotIdx(null);
+        setProfileCharacterId(null);
         setModalType('none');
         await reloadMessages(visibleCountRef.current);
         addToast(exposed ? '已让 TA 发现你在看 👀' : '已悄悄记下 · TA 不知道你看了 🙈', 'info');
@@ -2467,7 +2524,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         try {
             const result = await generateDailyScheduleForChar(targetChar, userProfile, apiConfig, forceRegenerate);
             if (result) {
-                setScheduleData(result);
+                if (activeCharIdRef.current === targetChar.id) setScheduleData(result);
                 // 跨天后台重新生成也要刷云端：不刷的话角色到点照着昨天的作息表说话
                 markAmsgStateDirty({ char: targetChar, userProfile, groups, realtimeConfig });
             }
@@ -3762,6 +3819,18 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         return displayMessages.filter(message => !pending.has(message.id));
     }, [displayMessages, streamingBubbles, streamingThinking, streamingHandoverIds, selectionMode]);
 
+    const segmentByDay = osTheme.chatTimestampPosition === 'below_avatar';
+    const timeSegmentStarts = useMemo(() => computeTimeSegmentStarts(renderedMessages, segmentByDay), [renderedMessages, segmentByDay]);
+    const lastNonSystemRenderedMessage = useMemo(() => {
+        for (let i = renderedMessages.length - 1; i >= 0; i--) {
+            if (renderedMessages[i].role !== 'system') return renderedMessages[i];
+        }
+        return null;
+    }, [renderedMessages]);
+
+    const sendProgressInList = sendProgress?.messageId != null
+        && renderedMessages.some(message => message.id === sendProgress.messageId && message.role === 'user');
+
     useLayoutEffect(() => {
         publishReplyDisplay(activeCharacterId, renderedMessages.map(message => message.id), streamingBubbles);
     }, [activeCharacterId, renderedMessages, streamingBubbles]);
@@ -3824,16 +3893,32 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         }
     }, [displayMessages]);
 
-    // 稳定的思维链配置对象：只在角色/样式变化时重建，避免每次渲染新建对象击穿 MessageItem.memo。
+    const handleTranslateThinking = useCallback(async (message: Message) => {
+        if (!apiConfig.thinkingTranslationApi && !message.metadata?.thinkingChainTranslation) {
+            setShowThinkingChainModal(true);
+            throw new Error('请先配置翻译 API，然后再长按翻译。');
+        }
+        const translation = await translateThinkingMessage(message, apiConfig.thinkingTranslationApi, char?.name);
+        const source = String(message.metadata?.thinkingChain || '').trim();
+        setMessages(previous => previous.map(row => row.id === message.id && row.charId === message.charId
+            && String(row.metadata?.thinkingChain || '').trim() === source
+            ? { ...row, metadata: { ...row.metadata, thinkingChainTranslation: translation } } : row));
+        return translation;
+    }, [apiConfig.thinkingTranslationApi, char?.name]);
+
+    // Stable options preserve MessageItem memoization while typing or streaming.
     const thinkingChainOptions = useMemo(() => ({
         ...resolvePsycheAppearance(osTheme, char),
         onOpenSettings: () => setShowThinkingChainModal(true),
-    }), [char?.thinkingChainStyle, char?.thinkingChainCustomColors, osTheme.chatPsyche]);
+        onTranslate: handleTranslateThinking,
+    }), [char?.thinkingChainStyle, char?.thinkingChainCustomColors, osTheme.chatPsyche, handleTranslateThinking]);
 
     // 工具痕迹那行灰字要贴着气泡走，所以把气泡自带的组间距（MessageItem 里那组
     // mb-3 / mb-6 / mb-8）抵掉大半。组内的气泡本来就挨着，不用抵。
+    const topCenterTimestamp = osTheme.chatTimestampPosition === 'top_center';
     const toolTracePullClass = osTheme.chatMessageSpacing === 'compact' ? '-mt-2'
-        : osTheme.chatMessageSpacing === 'spacious' ? '-mt-6' : '-mt-5';
+        : osTheme.chatMessageSpacing === 'spacious' ? (topCenterTimestamp ? '-mt-5' : '-mt-6')
+        : (topCenterTimestamp ? '-mt-2.5' : '-mt-5');
 
     // Reset active category if it becomes invisible for the current character
     useEffect(() => {
@@ -3856,7 +3941,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         conversationId: activeCharacterId || null,
         active: (activeApp === AppID.Chat || !!homePhone) && !!char,
         blocked: isInputFocused || !!input.trim() || showPanel !== 'none' || modalType !== 'none'
-            || selectionMode || isSummarizing || collaborationOpen || memoryRepairOpen || favoritesOpen
+            || selectionMode || isSummarizing || collaborationOpen || memoryRepairOpen || profileOpen || favoritesOpen
             || showActiveMsg2Modal || showAwayMessageModal || showThinkingChainModal
             || mcdAppOpen || luckinAppOpen || showForwardModal,
         generating: isTyping || instantChatPending,
@@ -3871,6 +3956,17 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const mergedFineTune = useMemo(() => mergeChatFineTune(osTheme, homePhone?undefined:char?.chatFineTune), [osTheme, char?.chatFineTune,!!homePhone]);
     const chatFineTuneCss = useMemo(() => buildChatFineTuneCss(mergedFineTune), [mergedFineTune]);
     const selectedAvatarFrameCss=useMemo(()=>avatarFrameLayer([osTheme.chatChromeCustomCss,char?.chromeCustomCss].filter(Boolean).join('\n')),[osTheme.chatChromeCustomCss,char?.chromeCustomCss]);
+    const openSullyHelp = useCallback(() => {
+        trackEvent('打开 Sully-11', { 入口: '聊天转接卡' });
+        appShortcutLaunch.request({ appId: AppID.FAQ, entryId: SULLY_HELP_DESK_ID });
+        openApp(AppID.FAQ);
+    }, [openApp]);
+    const tailProfileGesture = useChatTailProfileGesture(char?.id, !selectionMode && !profileOpen && modalType === 'none' && showPanel === 'none' && windowedFocusMsgId === null && !isInputFocused && messages.length > 0, openCharacterProfile);
+    const locatingChat = isTyping || instantChatPending;
+    React.useEffect(() => {
+        if (!locatingChat && char?.id) clearLocationPin(char.id);
+    }, [locatingChat, char?.id]);
+    const locationMessage = locatingChat ? [...messages].reverse().find(message => message.role === 'user') : undefined;
     if (!char) {
         return (
             <div className="flex flex-col items-center justify-center h-full bg-[#f1f5f9] text-center px-8 gap-3">
@@ -4050,7 +4146,12 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                  </div>
              )}
 
-             {homePhone?<header className="home-phone-chat-header"><span className="home-phone-chat-avatar" aria-hidden="true">{char.name.slice(0,1)}</span><div><strong>{chatCharacterDisplayName(char)}</strong><small>{isTyping||instantChatPending?'正在输入…':'在家，也想给你发消息'}</small></div><button onClick={handleManualTrigger} disabled={isTyping} aria-label="让对方回复">↗</button></header>:<ChatHeader
+
+             {homePhone ? <header className="home-phone-chat-header">
+                 <span className="home-phone-chat-avatar" aria-hidden="true">{char.name.slice(0, 1)}</span>
+                 <div><strong>{chatCharacterDisplayName(char)}</strong><small>{isTyping || instantChatPending ? '正在输入…' : '在家，也想给你发消息'}</small></div>
+                 <button onClick={handleManualTrigger} disabled={isTyping} aria-label="让对方回复">↗</button>
+             </header> : <ChatHeader
                 selectionMode={selectionMode}
                 selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
                 onCancelSelection={() => { setSelectionMode(false); setSelectedMsgIds(new Set()); setSelectedThinkingMsgIds(new Set()); }}
@@ -4085,10 +4186,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
              />}
 
             <StreamingVoiceBar state={streamingVoice.state} onStop={stopStreamingVoice} />
-            {/* onScroll 两件事都要做：handleScrollSnapshot 防抖保存阅读位置（单聊滚动恢复），
-                handleChatScroll 在历史窗口模式下按边界扩展更早/更新的消息。 */}
-            <div ref={scrollRef} onScroll={() => { handleScrollSnapshot(); handleChatScroll(); }} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
-                <ChatSubtitleLayer enabled={translationEnabled && translationExpanded && translationStyle === 'subtitle'}>
+            <div ref={scrollRef} {...tailProfileGesture} onScroll={() => { handleScrollSnapshot(); handleChatScroll(); }} onClick={() => setShowPanel('none')} className="sully-chat-messages flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+                <ChatSubtitleLayer enabled={translationEnabled && translationExpanded && translationStyle === 'subtitle'} settings={subtitleSettings}>
                 <div ref={chatContentRef} className="flow-root">
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
@@ -4154,11 +4253,14 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             }}
                         >
                         <MessageItem
+                            onOpenSullyHelp={openSullyHelp}
                             msg={m}
+                            locationPinCharId={locationMessage?.id === m.id ? char.id : undefined}
                             isFirstInGroup={breaksWithPrevious}
                             isLastInGroup={breaksWithNext}
                             activeTheme={activeTheme}
                             charAvatar={char.avatar}
+                            onOpenCharacterProfile={openCharacterProfile}
                             charName={char.name}
                             userAvatar={userProfile.perCharAvatars?.[char.id] || userProfile.avatar}
                             isLatestMessage={!nextMessage}
@@ -4186,6 +4288,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             bubbleVariant={osTheme.chatBubbleStyle}
                             messageSpacing={osTheme.chatMessageSpacing}
                             showTimestamp={osTheme.chatShowTimestamp}
+                            timestampPosition={osTheme.chatTimestampPosition}
+                            avatarPlacement={mergedFineTune.chatAvatarPlacement}
+                            startsTimeSegment={timeSegmentStarts[i]}
                             suppressEntranceAnimation={suppressEntranceAnimation}
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
@@ -4196,6 +4301,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             onOpenJobHunt={handleOpenJobHunt}
                             onOpenCollaborationFile={handleOpenCollaborationFile}
                             thinkingChainOptions={thinkingChainOptions}
+                            sendPhase={m.role === 'user' && sendProgress?.messageId === m.id ? sendProgress.phase : undefined}
                         />
                         {showToolTrace && (
                             <div className={`px-3 mb-4 ${breaksWithNext ? toolTracePullClass : ''}`}>
@@ -4244,6 +4350,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         {streamingBubbles.map((bubble, i) => (
                             <div key={`stream-preview-${i}`} data-stream-preview={i} className="transition-all duration-300">
                                 <MessageItem
+                                    onOpenSullyHelp={openSullyHelp}
                                     msg={{
                                         id: -(i + 1),
                                         charId: char.id,
@@ -4256,6 +4363,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                                     isLastInGroup={i === streamingBubbles.length - 1}
                                     activeTheme={activeTheme}
                                     charAvatar={char.avatar}
+                                    onOpenCharacterProfile={openCharacterProfile}
                                     charName={char.name}
                                     userAvatar={userProfile.perCharAvatars?.[char.id] || userProfile.avatar}
                                     onLongPress={() => {}}
@@ -4269,6 +4377,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                                     bubbleVariant={osTheme.chatBubbleStyle}
                                     messageSpacing={osTheme.chatMessageSpacing}
                                     showTimestamp={osTheme.chatShowTimestamp}
+                                    timestampPosition={osTheme.chatTimestampPosition}
+                                    avatarPlacement={mergedFineTune.chatAvatarPlacement}
+                                    startsTimeSegment={i === 0 && startsNewTimeSegment(lastNonSystemRenderedMessage, { timestamp: Date.now() }, segmentByDay)}
                                     thinkingChainOptions={thinkingChainOptions}
                                 />
                             </div>
@@ -4278,7 +4389,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 {/* instantChatPending：这一轮在云端跑，本机可以关页面，指示灯靠落盘记录活着。 */}
                 {(isTyping || instantChatPending || recallStatus || searchStatus || diaryStatus) && !selectionMode && (
                     <div className="flex items-end gap-3 px-3 mb-6 animate-fade-in">
-                        <TokenImg value={char.avatar} className={chatPendingAvatarClass} />
+                        <button type="button" onClick={openCharacterProfile} aria-label={`查看${char.name}的角色名片`} className="shrink-0"><TokenImg value={char.avatar} className={chatPendingAvatarClass} /></button>
                         <div className="bg-white px-4 py-3 rounded-2xl shadow-sm">
                             {inboxStatus ? (
                                 <div role="status" className="flex items-center gap-2 text-xs text-slate-500 font-medium">
@@ -4368,6 +4479,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
                 {apiFailure && char && <ChatApiRecovery key={char.id} failure={apiFailure} character={char}
                     busy={isTyping || instantChatPending} onRetry={retryFailedReply} />}
+                {/* 续答没有新的用户气泡，才在输入栏上沿显示同一个紧凑状态。 */}
+                {!selectionMode && !sendProgressInList && sendProgress && !['accepted', 'cancelled'].includes(sendProgress.phase) &&
+                    <div className="text-right px-4 text-[10px] text-slate-400"><ChatSendProgress phase={sendProgress.phase} /></div>}
 
                 <ChatInputArea
                     compactHome={!!homePhone}
@@ -4391,6 +4505,15 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     emojis={filteredEmojis}
                     emojiSuggestionsEnabled={inputPreferences.emojiSuggestions}
                     suggestionEmojis={aiVisibleEmojis}
+                    fullEmojiLibrary={emojis}
+                    onRemoveInvalidEmojis={async items => {
+                        const count = await DB.deleteScannedEmojis(items);
+                        if (count) {
+                            markEmojiLibraryChanged();
+                            await loadEmojiData();
+                        }
+                        return count;
+                    }}
                     characters={characters} activeCharacterId={activeCharacterId}
                     onCharSelect={handleCharSelectCallback}
                     unreadMessages={unreadMessages}
@@ -4591,13 +4714,19 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 translateTargetLang={translateTargetLang}
                 translationExpanded={translationExpanded}
                 translationStyle={translationStyle}
-                onSetTranslationStyle={(style) => {
+                subtitleSettings={subtitleSettings}
+                appearanceFonts={osAppearanceFonts}
+                onSetSubtitleSettings={settings => {
+                    if (!activeCharacterId) return;
+                    saveSubtitleSettings(activeCharacterId, settings);
+                    setSubtitleSettings(settings);
+                }}
+                onSetTranslationMode={mode => {
+                    const next = mode !== 'collapsed';
+                    const style = mode === 'subtitle' ? 'subtitle' : 'bubble';
+                    setTranslationExpanded(next);
                     setTranslationStyle(style);
                     localStorage.setItem(`chat_translate_style_${activeCharacterId}`, style);
-                }}
-                onToggleTranslationExpanded={() => {
-                    const next = !translationExpanded;
-                    setTranslationExpanded(next);
                     localStorage.setItem(`chat_translate_expanded_${activeCharacterId}`, JSON.stringify(next));
                     setShowingTargetIds(new Set());
                     trackEvent('切换翻译展开模式', { enabled: next ? 'on' : 'off' });
@@ -4687,12 +4816,13 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             />
 
             {/* 小剧场播放器：窥视某个日程时段的角色行为演出 */}
-            {theaterSlotIdx !== null && scheduleData && createPortal(
+            {theaterSlotIdx !== null && scheduleData?.charId === char.id && scheduleData.date === charDateKey && createPortal(
                 <TheaterPlayer
                     character={char}
                     slot={scheduleData.slots[theaterSlotIdx] || null}
                     lines={scheduleData.slots[theaterSlotIdx]?.theater?.lines || null}
                     isGenerating={isTheaterGenerating}
+                    error={theaterError}
                     onReplay={() => runTheater(theaterSlotIdx, true)}
                     onSendCard={(exposed) => handleSendTheaterCard(theaterSlotIdx, exposed)}
                     onClose={() => setTheaterSlotIdx(null)}
@@ -4940,8 +5070,14 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             {/* 思考链设置 Modal — 入口：聊天加号面板「展示思考」按钮长按 / 思考链卡片右上齿轮 */}
             {char && (
                 <ThinkingChainSettingsModal
+                    key={char.id}
                     isOpen={showThinkingChainModal}
                     onClose={() => setShowThinkingChainModal(false)}
+                    translationApi={apiConfig.thinkingTranslationApi}
+                    dialogueApi={resolveDialogueApi(apiConfig, char)}
+                    apiPresets={apiPresets}
+                    onChangeTranslationApi={thinkingTranslationApi => updateApiConfig({ thinkingTranslationApi })}
+                    onAddApiPreset={(name, config) => addApiPreset(name, config, { group: '心象翻译' })}
                     value={{
                         enabled: !!(char as any).showThinkingChain,
                         styleId: ((char as any).thinkingChainStyle as any) || 'echo',
@@ -4966,8 +5102,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             )}
 
             {char && modalType === 'chrome-css' && <ChatAppearanceWardrobe
-                key={`appearance-wardrobe:${char.id}`}
-                character={char} theme={baseOsTheme} onSaveBubble={addCustomTheme} themes={[...Object.values(PRESET_THEMES), ...customThemes]}
+                key={`appearance-wardrobe:${wardrobeCharacter?.id || char.id}`}
+                trialActive={!!liveTrial} onTrial={homePhone?undefined:next=>setTrial({...next,ownerId:wardrobeCharacter.id})}
+                character={homePhone?char:wardrobeCharacter} theme={baseOsTheme} onSaveBubble={addCustomTheme} themes={[...Object.values(PRESET_THEMES), ...customThemes]}
                 initialTab={decorationTab} updateCharacter={patch=>updateCharacter(char.id,patch)}
                 updateTheme={updateTheme} onBgUpload={handleBgUpload} backgroundUrl={resolvedChatBackground}
                 onOpenWorkshop={()=>{setModalType('none');openApp(AppID.ThemeMaker);}}
@@ -4976,7 +5113,18 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
             {/* 情绪设置已嵌入日程 Modal（与日程强制同步开/关），不再单独渲染 */}
 
-            {/* 🍔 麦当劳小程序 - MCP 数据流按钮驱动, 协同聊天走主 pipeline (完整人设/记忆/日程) */}
+            {profileOpen && theaterSlotIdx === null && <ChatCharacterProfile key={`profile:${char.id}`} character={char} customCss={(char.chatProfileAppearance ?? osTheme.chatProfileAppearance)?.customCss}
+                initialTab={profileTabOnOpen}
+                schedule={scheduleData?.charId === char.id && scheduleData.date === charDateKey ? scheduleData : null}
+                onClose={() => setProfileCharacterId(null)}
+                onSchedule={() => { setProfileCharacterId(null); setModalType('schedule'); }}
+                onPlayTheater={index => { setProfileTabOnOpen('日程'); handlePlayTheater(index); }}
+                onMemory={() => { setProfileCharacterId(null); setMemoryRepairOpen(true); }} />}
+            {liveTrial && <ChatTrialControls onReturn={()=>setTrial(null)} onScroll={pixels=>scrollRef.current?.scrollBy(0,pixels)} onUse={async()=>{
+                await liveTrial.commit();
+                if(liveTrial.characterId!==osActiveCharacterId)setActiveCharacterId(liveTrial.characterId);
+                setTrial(null);setModalType('none');
+            }}/>}
             {memoryRepairOpen && char && (
                 <MemoryRepairPortal
                     inline={!!homePhone}

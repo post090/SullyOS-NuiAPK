@@ -1,7 +1,9 @@
 import { spaceDatabaseName, SESSION_SPACE_ID, DEFAULT_SPACE_ID, createSpaceStorage, rawSpaceStorage, listUserSpaces, assertUserSpaceAvailable } from './userSpaces';
+import { clearEmojiOriginals } from './emojiOriginals';
 import { withSharedAssetLock, canCoordinateAssetDeletion } from './sharedAssetLock';
 import { readLocalCursor } from './localRead';
 import { applyFriendFeedMedia, collectFriendFeedMedia, isActivityTextAsset } from './activityBackup';
+import { HELP_HISTORY_KEY, helpTextHistory, restoreHelpMedia } from './sullyHelpBackup';
 import { compactMemoryLink } from './memoryPalace/linkPrecision';
 import { reportDatabaseFailure } from './databaseHealth';
 import { associateDatabaseOpen, beginDatabaseOpen, recordDatabaseOpen } from './databaseOpenDiagnostics';
@@ -41,6 +43,7 @@ import { exportMcdLocal, importMcdLocal } from './mcdMcpClient';
 import { exportMcpLocal, importMcpLocal } from './mcpClient';
 import { exportHome3DLocal, importHome3DLocal, HOME3D_LOCAL_KEYS } from './home3DBackup';
 import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgStore';
+import { exportSubtitleSettings, importSubtitleSettings } from './chatTranslationStyle';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
 import { editLibrary, VR_LIBRARY_RECORD, type LibraryEdit } from './vrWorld/library';
@@ -156,6 +159,18 @@ const SULLY_PRESET_EMOJIS = [
 // (含 Service Worker 的 dedupe / inbox 库) 可能跟着开不了或被强关, 推送消息因此确认超时。
 // 改成复用同一条连接, 并在连接被外部失效 (另一 tab 升级版本 / 浏览器强制关闭) 时
 // 清掉缓存, 下次 openDB 自动重开 —— 一处改, 全部 ~165 个调用点受益。
+/**
+ * 召回结果与门牌只对算出它们的那一次请求有效，进出数据库都剥掉。
+ * 很多 App 直接在共享的角色对象上跑召回，随后的任意一次保存会把这份结果写进库，
+ * 下次加载后别的入口（含主动消息打包）会把几周前、别处话题的召回当成当前记忆。
+ * 读的时候也剥，是为了让库里已经存下的旧值一并作废。
+ */
+const withoutRuntimeRecall = <T extends CharacterProfile | undefined>(character: T): T => {
+    if (!character || (!('memoryPalaceInjection' in character) && !('roomPlatesInjection' in character))) return character;
+    const { memoryPalaceInjection: _recall, roomPlatesInjection: _plates, ...rest } = character;
+    return rest as T;
+};
+
 /** 和新消息同事务失效镜像，防止后台把刚清掉的旧水位重新恢复。 */
 function clearStaleMemoryMirror(transaction: IDBTransaction, charId: string, newId: number): void {
     const assets = transaction.objectStore(STORE_ASSETS);
@@ -634,6 +649,7 @@ export const DB = {
       // 删库前先关掉单例连接, 否则这条还开着的连接会 block 掉 deleteDatabase。
       await spaceOpeners.get(spaceId)?.close();
       spaceOpeners.delete(spaceId);
+      await clearEmojiOriginals(spaceId);
       return new Promise((resolve, reject) => {
           const req = indexedDB.deleteDatabase(spaceDatabaseName('AetherOS_Data', spaceId));
           req.onsuccess = () => resolve();
@@ -646,7 +662,7 @@ export const DB = {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const request = db.transaction(STORE_CHARACTERS, 'readonly').objectStore(STORE_CHARACTERS).get(id);
-      request.onsuccess = () => resolve(request.result);
+      request.onsuccess = () => resolve(withoutRuntimeRecall(request.result));
       request.onerror = () => reject(request.error);
     });
   },
@@ -657,14 +673,14 @@ export const DB = {
       const transaction = db.transaction(STORE_CHARACTERS, 'readonly');
       const store = transaction.objectStore(STORE_CHARACTERS);
       const request = store.getAll();
-      request.onsuccess = () => resolve(request.result || []);
+      request.onsuccess = () => resolve((request.result || []).map(withoutRuntimeRecall));
       request.onerror = () => reject(request.error);
     });
   },
 
   saveCharacter: async (character: CharacterProfile): Promise<void> => {
     const db = await openDB();
-    return persistCharacterWithHomeMessages(db, character, clearStaleMemoryMirror);
+    return persistCharacterWithHomeMessages(db, withoutRuntimeRecall(character), clearStaleMemoryMirror);
   },
 
   /** An asynchronous evaluation updates only emotion fields, never its stale home/history snapshot. */
@@ -1506,6 +1522,28 @@ export const DB = {
     const db = await openDB();
     const transaction = db.transaction(STORE_EMOJIS, 'readwrite');
     transaction.objectStore(STORE_EMOJIS).delete(name);
+  },
+
+  // A scan may be older than a re-import or a move in another tab.
+  deleteScannedEmojis: async (items: Emoji[]): Promise<number> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_EMOJIS, 'readwrite');
+          const store = tx.objectStore(STORE_EMOJIS);
+          let removed = 0;
+          for (const item of items) {
+              const request = store.get(item.name);
+              request.onsuccess = () => {
+                  const current: Emoji | undefined = request.result;
+                  if (current && current.url === item.url && current.categoryId === item.categoryId) {
+                      store.delete(item.name);
+                      removed++;
+                  }
+              };
+          }
+          tx.oncomplete = () => resolve(removed);
+          tx.onabort = () => reject(tx.error || new Error('清除失败，请重试'));
+      });
   },
 
   // 表情包重命名: name 是主键, 改名 = 删旧键 + 写新键 (保留 url / categoryId)。
@@ -3712,6 +3750,28 @@ export const DB = {
   },
 
   appendApiCallLog: async (entry: any): Promise<void> => {
+      return DB.updateApiCallLog(cur => {
+          const duplicateIndex = cur.findIndex(e => e?.id && e.id === entry?.id);
+          if (duplicateIndex < 0) return [entry, ...cur];
+          const existing = cur[duplicateIndex];
+          // A delayed pending/legacy aggregate must not overwrite an already split model call.
+          const metadataKeys = ['appId', 'appName', 'charId', 'charName', 'model', 'baseUrl', 'presetName', 'promptBreakdown'];
+          const defined = Object.fromEntries(Object.entries(entry || {}).filter(([key, value]) =>
+              value !== undefined && (existing.cloudCallIndex == null || entry.cloudCallIndex != null || metadataKeys.includes(key))));
+          cur[duplicateIndex] = { ...existing, ...defined, id: existing.id };
+          if (existing.cloudCallIndex === 1 && entry.cloudCallIndex == null) {
+              // Pending registration can finish after a very fast cloud response. Its local API
+              // attribution belongs to every request, but the captured input belongs only to #1.
+              const { promptBreakdown: _firstInput, ...attribution } = defined;
+              cur = cur.map(e => e.id?.startsWith(`${existing.id}:call:`)
+                  ? { ...e, ...attribution } : e);
+          }
+          return cur;
+      });
+  },
+
+  /** Atomic mutation also lets cloud round logs replace their pending aggregate in one write. */
+  updateApiCallLog: async (update: (entries: any[]) => any[]): Promise<void> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_API_CALL_LOG)) return;
       // 必须在同一个 readwrite 事务里完成“读 → 合并/去重 → 写”。
@@ -3722,19 +3782,9 @@ export const DB = {
           const store = tx.objectStore(STORE_API_CALL_LOG);
           const req = store.get('log');
           req.onsuccess = () => {
-              const cur: any[] = req.result?.entries ?? [];
-              const duplicateIndex = cur.findIndex((e) => e?.id && e.id === entry?.id);
-              if (duplicateIndex >= 0) {
-                  // 显式 safeFetch 记录和全局 clone 兜底可能先后抵达；合并非空字段，
-                  // 既不重复计费，也能让后到的 usage/backendModel 补齐早到的简版记录。
-                  const existing = cur[duplicateIndex];
-                  const defined = Object.fromEntries(
-                      Object.entries(entry || {}).filter(([, value]) => value !== undefined),
-                  );
-                  cur[duplicateIndex] = { ...existing, ...defined, id: existing.id };
-              } else {
-                  cur.unshift(entry);
-              }
+              let cur: any[];
+              try { cur = update(req.result?.entries ?? []); }
+              catch { tx.abort(); return; }
               const cutoff = Date.now() - API_CALL_LOG_MAX_AGE_MS;
               const pruned = cur
                   .filter((e) => (e?.timestamp ?? 0) > cutoff)
@@ -4227,6 +4277,7 @@ export const DB = {
           home3DLocal: exportHome3DLocal(),
           mcpLocal: exportMcpLocal(),             // 通用 MCP 服务器配置（存 localStorage）
           amsg2GlobalConfig: await exportAmsg2GlobalConfig(options), // 主动消息 2.0 全局配置（存独立的 ActiveMsg 库；后端连接默认不带走）
+          chatSubtitleByChar: exportSubtitleSettings(),
           beautyAuthorLocal: exportBeautyAuthorBackup(),
           beautyPreferences: exportBeautyPreferences(),
           desktopSkinLocal: await exportDesktopSkinLocal(), // 桌面皮肤：界面配色 + 看板 banner（看板图令牌解析为 data URL）
@@ -4326,6 +4377,7 @@ export const DB = {
           }
       }
       const plannedSections = [
+          !mediaOnly && data.chatSubtitleByChar !== undefined,
           data.characters !== undefined || data.mediaAssets !== undefined,
           data.characterGroups !== undefined,
           data.messages !== undefined,
@@ -4335,6 +4387,7 @@ export const DB = {
           data.assets !== undefined,
           data.friendFeed !== undefined && !mediaOnly,
           data.activityTextAssets !== undefined && !mediaOnly,
+          data.helpDeskHistory !== undefined && !mediaOnly,
           data.friendFeedMedia !== undefined,
           data.savedJournalStickers !== undefined,
           data.galleryImages !== undefined,
@@ -4589,10 +4642,20 @@ export const DB = {
       }, data.emojiCategories?.length || 0);
       await runSection('系统资源', data.assets !== undefined, async () => {
           if (mediaOnly) {
-              await mergeStore(STORE_ASSETS, (data.assets || []).filter(a => !isActivityTextAsset(a.id)), '系统资源', true);
+              const history = data.assets?.find(a => a.id === HELP_HISTORY_KEY);
+              if (history) await withStore(STORE_ASSETS, store => {
+                  const current = store.get(HELP_HISTORY_KEY);
+                  current.onsuccess = () => {
+                      if (current.result) store.put({ id: HELP_HISTORY_KEY, data: restoreHelpMedia(current.result.data, history.data) });
+                  };
+              });
+              await mergeStore(STORE_ASSETS, (data.assets || []).filter(a => a.id !== HELP_HISTORY_KEY && !isActivityTextAsset(a.id)), '系统资源', true);
           } else await clearAndAdd(STORE_ASSETS, data.assets || [], '系统资源', true);
           data.assets = undefined as any;
       }, data.assets?.length || 0);
+      await runSection('客服咨询记录', data.helpDeskHistory !== undefined && !mediaOnly, async () => {
+          await DB.saveAssetRaw(HELP_HISTORY_KEY, helpTextHistory(data.helpDeskHistory!));
+      });
       await runSection('活动文字记录', data.activityTextAssets !== undefined && !mediaOnly, async () => {
           const records = data.activityTextAssets!;
           if (!Array.isArray(records) || records.some(a => !a || typeof a.id !== 'string'
@@ -4792,6 +4855,10 @@ export const DB = {
               { allowBackendConnection: options.allowBackendConnection },
           );
           (data as any).amsg2GlobalConfig = undefined;
+      }, 1);
+      await runSection('外挂字幕设置', !mediaOnly && data.chatSubtitleByChar !== undefined, async () => {
+          importSubtitleSettings(data.chatSubtitleByChar);
+          data.chatSubtitleByChar = undefined;
       }, 1);
       await runSection('美化偏好', data.beautyPreferences !== undefined, async () => {
           importBeautyPreferences(data.beautyPreferences);data.beautyPreferences=undefined;

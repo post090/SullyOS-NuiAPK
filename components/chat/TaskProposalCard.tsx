@@ -204,7 +204,7 @@ const TaskProposalCard: React.FC<TaskProposalCardProps> = ({
     if (isFinal) {
         const isConfirmed = finalStatus === 'confirmed';
         return commonLayout(
-            <div className={theme.container}>
+            <div className={`sully-chat-card-face ${theme.container}`}>
                 <div className={`${theme.headerBar} px-3.5 pt-3 pb-2.5`}>
                     <div className="flex items-center gap-2">
                         <div className={`shrink-0 w-2 h-2 rounded-full ${isConfirmed ? 'bg-emerald-400' : 'bg-slate-400'}`} />
@@ -239,7 +239,7 @@ const TaskProposalCard: React.FC<TaskProposalCardProps> = ({
 
     // ── pending 编辑态 ────────────────────────────────────────────────────
     return commonLayout(
-        <div className={theme.container}>
+        <div className={`sully-chat-card-face ${theme.container}`}>
             <div className={`${theme.headerBar} px-3.5 pt-3 pb-2.5`}>
                 <div className="flex items-center gap-2">
                     <div className="shrink-0 w-2 h-2 rounded-full bg-amber-400 animate-pulse" />

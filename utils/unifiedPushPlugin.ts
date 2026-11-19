@@ -12,6 +12,10 @@ export interface UnifiedPushSubscription {
 }
 
 export interface UnifiedPushStatus {
+  bridgeVersion?: number;
+  supportsNativePoll?: boolean;
+  registrationRevision?: string;
+  acknowledgedRegistration?: string;
   native: boolean;
   distributors: string[];
   distributor: string | null;
@@ -21,15 +25,17 @@ export interface UnifiedPushStatus {
 }
 
 export interface UnifiedPushStoredMessage {
+  id: string;
   payload: string;
   receivedAt: number;
+  notificationAt?: number;
+  notificationOutcome?: 'requested' | 'policy-skipped' | 'permission-denied' | 'invalid' | 'failed';
 }
 
 interface UnifiedPushNativePlugin {
   getStatus(): Promise<Omit<UnifiedPushStatus, 'permission'>>;
   register(options: { vapidPublicKey: string }): Promise<{ pending: boolean }>;
   unregister(): Promise<void>;
-  drainPendingPushes(): Promise<{ messages: UnifiedPushStoredMessage[]; launchPayload?: string }>;
   configurePoll(options: {
     workerUrl?: string;
     serverToken?: string;
@@ -37,8 +43,11 @@ interface UnifiedPushNativePlugin {
     userKey?: string;
   }): Promise<void>;
   getPollStatus(): Promise<{ enabled: boolean; cursor: number; adopted: boolean; lastRunAt: number; lastError: string | null }>;
+  peekPendingPushes(): Promise<{ messages: UnifiedPushStoredMessage[]; launchPayload?: string }>;
+  acknowledgePush(options: { id: string }): Promise<void>;
+  acknowledgeRegistration(options: { revision: string }): Promise<void>;
   addListener(
-    eventName: 'pushReceived' | 'notificationTapped' | 'registrationChanged',
+    eventName: 'pushReceived' | 'notificationTapped' | 'registrationChanged' | 'foreground',
     listener: (event: any) => void,
   ): Promise<PluginListenerHandle>;
 }
@@ -202,11 +211,15 @@ const fetchPollUserKey = async (workerUrl: string, serverToken: string, userId: 
 
 const configurePollFromConfig = async (): Promise<boolean> => {
   const config = await ActiveMsgStore.getGlobalConfig();
+  if (config.enabled === false || config.pushMode === 'third-party') return false;
   const workerUrl = config.workerUrl?.trim();
   if (!workerUrl) return false;
   const serverToken = config.serverToken?.trim() || '';
   const userId = await ActiveMsgStore.ensureUserId();
   const userKey = await fetchPollUserKey(workerUrl, serverToken, userId);
+  const latest = await ActiveMsgStore.getGlobalConfig();
+  if (latest.enabled === false || latest.pushMode === 'third-party' || latest.workerUrl?.trim() !== workerUrl ||
+      (latest.serverToken?.trim() || '') !== serverToken || latest.userId !== userId) return false;
   await NativeUnifiedPush.configurePoll({ workerUrl, serverToken, userId, userKey });
   return true;
 };
@@ -216,6 +229,8 @@ export const enableNativePollPull = async (): Promise<
   { endpoint: string; keys: { p256dh: string; auth: string } }
 > => {
   if (!isUnifiedPushPlatform()) throw new Error('内置拉取仅用于 Android 原生 App。');
+  const status = await NativeUnifiedPush.getStatus();
+  if (status.bridgeVersion && !status.supportsNativePoll) throw new Error('请先连接 ntfy 或选择第三方推送。');
   await requireNotificationPermission();
   if (!(await configurePollFromConfig())) throw new Error('内置拉取需要先在主动消息 2.0 里连上 Worker。');
   return { endpoint: NATIVE_POLL_SUBSCRIPTION.endpoint, keys: { ...NATIVE_POLL_SUBSCRIPTION.keys } };
@@ -229,6 +244,7 @@ export const syncNativePollMode = async (): Promise<boolean> => {
   if (!isUnifiedPushPlatform()) return false;
   try {
     const status = await NativeUnifiedPush.getStatus();
+    if (status.supportsNativePoll === false || (status.bridgeVersion && !status.supportsNativePoll)) return false;
     if (status.subscription?.endpoint) {
       await NativeUnifiedPush.configurePoll({});
       return false;
@@ -242,9 +258,12 @@ export const syncNativePollMode = async (): Promise<boolean> => {
   }
 };
 
-export const drainUnifiedPushMessages = () => NativeUnifiedPush.drainPendingPushes();
+export const peekUnifiedPushMessages = () => NativeUnifiedPush.peekPendingPushes();
+export const acknowledgeUnifiedPushMessage = (id: string) => NativeUnifiedPush.acknowledgePush({ id });
+export const readUnifiedPushTransportStatus = () => NativeUnifiedPush.getStatus();
+export const acknowledgeUnifiedPushRegistration = (revision: string) => NativeUnifiedPush.acknowledgeRegistration({ revision });
 
 export const addUnifiedPushListener = (
-  eventName: 'pushReceived' | 'notificationTapped' | 'registrationChanged',
+  eventName: 'pushReceived' | 'notificationTapped' | 'registrationChanged' | 'foreground',
   listener: (event: any) => void,
 ) => NativeUnifiedPush.addListener(eventName, listener);

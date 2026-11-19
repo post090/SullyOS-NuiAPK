@@ -41,6 +41,7 @@ public class AmsgUnifiedPushPlugin extends Plugin {
     @Override
     protected void handleOnResume() {
         appVisible = true;
+        notifyListeners("foreground", new JSObject());
     }
 
     @Override
@@ -77,14 +78,11 @@ public class AmsgUnifiedPushPlugin extends Plugin {
         return instance != null && appVisible;
     }
 
-    /** Returns false when no live WebView can take the payload; the caller then queues it. */
-    static boolean emitPushReceived(String payload) {
+    static void emitPushReceived() {
         AmsgUnifiedPushPlugin plugin = instance;
-        if (plugin == null || plugin.getBridge() == null) return false;
-        JSObject data = new JSObject();
-        data.put("payload", payload);
-        plugin.notifyListeners("pushReceived", data, true);
-        return true;
+        if (plugin != null && plugin.getBridge() != null) {
+            plugin.notifyListeners("pushReceived", new JSObject());
+        }
     }
 
     static void emitRegistrationChanged() {
@@ -103,6 +101,8 @@ public class AmsgUnifiedPushPlugin extends Plugin {
         Context ctx = getContext();
         JSObject ret = new JSObject();
         ret.put("native", true);
+        ret.put("bridgeVersion", 2);
+        ret.put("supportsNativePoll", true);
         JSArray distributors = new JSArray();
         try {
             List<String> list = UnifiedPush.getDistributors(ctx);
@@ -115,6 +115,8 @@ public class AmsgUnifiedPushPlugin extends Plugin {
         ret.put("subscription", subscription == null ? JSONObject.NULL : subscription);
         String lastError = AmsgUnifiedPushStore.readLastError(ctx);
         ret.put("lastError", lastError == null ? JSONObject.NULL : lastError);
+        ret.put("registrationRevision", AmsgUnifiedPushStore.registrationRevision(ctx));
+        ret.put("acknowledgedRegistration", AmsgUnifiedPushStore.acknowledgedRegistration(ctx));
         call.resolve(ret);
     }
 
@@ -189,9 +191,9 @@ public class AmsgUnifiedPushPlugin extends Plugin {
     }
 
     @PluginMethod
-    public void drainPendingPushes(PluginCall call) {
+    public void peekPendingPushes(PluginCall call) {
         Context ctx = getContext();
-        JSONArray pending = AmsgUnifiedPushStore.drainPending(ctx);
+        JSONArray pending = AmsgUnifiedPushStore.peekPending(ctx);
         JSArray messages = new JSArray();
         for (int i = 0; i < pending.length(); i++) {
             Object item = pending.opt(i);
@@ -202,6 +204,18 @@ public class AmsgUnifiedPushPlugin extends Plugin {
         String launchPayload = AmsgUnifiedPushStore.takeLaunchPayload(ctx);
         if (launchPayload != null) ret.put("launchPayload", launchPayload);
         call.resolve(ret);
+    }
+
+    @PluginMethod
+    public void acknowledgePush(PluginCall call) {
+        AmsgUnifiedPushStore.acknowledgePush(getContext(), call.getString("id"));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void acknowledgeRegistration(PluginCall call) {
+        AmsgUnifiedPushStore.acknowledgeRegistration(getContext(), call.getString("revision"));
+        call.resolve();
     }
 
     /**

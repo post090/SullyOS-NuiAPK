@@ -12,6 +12,7 @@ import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.UUID;
 
 /**
  * Persistent state for the AMSG UnifiedPush bridge.
@@ -25,6 +26,8 @@ import java.util.Iterator;
 final class AmsgUnifiedPushStore {
     private static final String PREFS = "amsg_unified_push";
     private static final String KEY_SUBSCRIPTION = "subscription";
+    private static final String KEY_REGISTRATION_REVISION = "registration_revision";
+    private static final String KEY_ACKNOWLEDGED_REGISTRATION = "acknowledged_registration";
     private static final String KEY_VAPID = "vapid";
     private static final String KEY_LAST_ERROR = "last_error";
     private static final String KEY_PENDING = "pending";
@@ -69,6 +72,7 @@ final class AmsgUnifiedPushStore {
     static synchronized void saveSubscription(Context context, JSONObject subscription) {
         prefs(context).edit()
             .putString(KEY_SUBSCRIPTION, subscription.toString())
+            .putString(KEY_REGISTRATION_REVISION, UUID.randomUUID().toString())
             .remove(KEY_LAST_ERROR)
             .apply();
     }
@@ -84,7 +88,7 @@ final class AmsgUnifiedPushStore {
     }
 
     static synchronized void clearSubscription(Context context) {
-        prefs(context).edit().remove(KEY_SUBSCRIPTION).apply();
+        prefs(context).edit().remove(KEY_SUBSCRIPTION).remove(KEY_REGISTRATION_REVISION).remove(KEY_ACKNOWLEDGED_REGISTRATION).apply();
     }
 
     static synchronized void saveLastError(Context context, String error) {
@@ -99,27 +103,104 @@ final class AmsgUnifiedPushStore {
         prefs(context).edit().remove(KEY_LAST_ERROR).apply();
     }
 
-    static synchronized void appendPending(Context context, String payload, long receivedAt) {
-        JSONArray current = readArray(prefs(context).getString(KEY_PENDING, null));
-        JSONArray next = new JSONArray();
-        int start = Math.max(0, current.length() - (MAX_PENDING - 1));
-        for (int i = start; i < current.length(); i++) {
-            Object item = current.opt(i);
-            if (item != null) next.put(item);
+    static synchronized String registrationRevision(Context context) {
+        SharedPreferences storage = prefs(context);
+        String revision = storage.getString(KEY_REGISTRATION_REVISION, null);
+        if (revision == null && readSubscription(context) != null) {
+            revision = UUID.randomUUID().toString();
+            storage.edit().putString(KEY_REGISTRATION_REVISION, revision).apply();
         }
-        try {
-            JSONObject entry = new JSONObject();
-            entry.put("payload", payload);
-            entry.put("receivedAt", receivedAt);
-            next.put(entry);
-        } catch (Exception ignored) {}
-        prefs(context).edit().putString(KEY_PENDING, next.toString()).apply();
+        return revision;
     }
 
-    static synchronized JSONArray drainPending(Context context) {
-        JSONArray current = readArray(prefs(context).getString(KEY_PENDING, null));
-        prefs(context).edit().remove(KEY_PENDING).apply();
-        return current;
+    static synchronized String acknowledgedRegistration(Context context) {
+        return prefs(context).getString(KEY_ACKNOWLEDGED_REGISTRATION, null);
+    }
+
+    static synchronized void acknowledgeRegistration(Context context, String revision) {
+        if (revision != null && revision.equals(registrationRevision(context))) {
+            prefs(context).edit().putString(KEY_ACKNOWLEDGED_REGISTRATION, revision).apply();
+        }
+    }
+
+    /** Use one durable commit for cross-transport deduplication and queue insertion. */
+    static synchronized String enqueue(Context context, String messageId, String payload, long receivedAt) {
+        SharedPreferences storage = prefs(context);
+        JSONArray seen = readArray(storage.getString(KEY_POLL_SEEN, null));
+        for (int i = 0; !messageId.isEmpty() && i < seen.length(); i++) {
+            if (messageId.equals(seen.optString(i, null))) return null;
+        }
+        JSONArray pending = peekPending(context);
+        JSONArray next = new JSONArray();
+        for (int i = Math.max(0, pending.length() - MAX_PENDING + 1); i < pending.length(); i++) {
+            next.put(pending.opt(i));
+        }
+        String id = UUID.randomUUID().toString();
+        try {
+            JSONObject entry = new JSONObject();
+            entry.put("id", id).put("payload", payload).put("receivedAt", receivedAt);
+            next.put(entry);
+        } catch (org.json.JSONException error) {
+            throw new IllegalStateException("Unable to queue push", error);
+        }
+        SharedPreferences.Editor write = storage.edit().putString(KEY_PENDING, next.toString());
+        if (!messageId.isEmpty()) {
+            JSONArray recent = new JSONArray();
+            recent.put(messageId);
+            for (int i = Math.max(0, seen.length() - POLL_MAX_SEEN + 1); i < seen.length(); i++) {
+                recent.put(seen.opt(i));
+            }
+            write.putString(KEY_POLL_SEEN, recent.toString());
+        }
+        if (!write.commit()) throw new IllegalStateException("Unable to persist push");
+        return id;
+    }
+
+    static synchronized JSONArray peekPending(Context context) {
+        SharedPreferences storage = prefs(context);
+        JSONArray pending = readArray(storage.getString(KEY_PENDING, null));
+        boolean migrated = false;
+        for (int i = 0; i < pending.length(); i++) {
+            JSONObject item = pending.optJSONObject(i);
+            if (item == null || item.has("id")) continue;
+            try {
+                item.put("id", UUID.randomUUID().toString());
+                migrated = true;
+            } catch (org.json.JSONException error) {
+                throw new IllegalStateException("Unable to migrate push queue", error);
+            }
+        }
+        if (migrated && !storage.edit().putString(KEY_PENDING, pending.toString()).commit()) {
+            throw new IllegalStateException("Unable to persist push queue migration");
+        }
+        return pending;
+    }
+
+    static synchronized void acknowledgePush(Context context, String id) {
+        if (id == null || id.isEmpty()) return;
+        JSONArray pending = peekPending(context);
+        JSONArray next = new JSONArray();
+        for (int i = 0; i < pending.length(); i++) {
+            JSONObject item = pending.optJSONObject(i);
+            if (item != null && !id.equals(item.optString("id"))) next.put(item);
+        }
+        if (next.length() != pending.length()) {
+            prefs(context).edit().putString(KEY_PENDING, next.toString()).apply();
+        }
+    }
+
+    static synchronized void recordNotification(Context context, String id, String outcome) {
+        JSONArray pending = peekPending(context);
+        for (int i = 0; i < pending.length(); i++) {
+            JSONObject item = pending.optJSONObject(i);
+            if (item == null || !id.equals(item.optString("id"))) continue;
+            try {
+                item.put("notificationAt", System.currentTimeMillis());
+                item.put("notificationOutcome", outcome);
+                prefs(context).edit().putString(KEY_PENDING, pending.toString()).apply();
+            } catch (org.json.JSONException ignored) {}
+            return;
+        }
     }
 
     static synchronized void saveLaunchPayload(Context context, String payload) {
@@ -300,21 +381,4 @@ final class AmsgUnifiedPushStore {
         return status;
     }
 
-    /** 记一条已上过通知的 messageId。返回 false = 以前见过（该跳过，防部分失败后重拉重弹）。 */
-    static synchronized boolean rememberPollSeen(Context context, String messageId) {
-        if (messageId == null || messageId.trim().isEmpty()) return false;
-        JSONArray seen = readArray(prefs(context).getString(KEY_POLL_SEEN, null));
-        for (int i = 0; i < seen.length(); i++) {
-            if (messageId.equals(seen.optString(i, null))) return false;
-        }
-        JSONArray next = new JSONArray();
-        next.put(messageId);
-        int start = Math.max(0, seen.length() - (POLL_MAX_SEEN - 1));
-        for (int i = start; i < seen.length(); i++) {
-            Object item = seen.opt(i);
-            if (item != null) next.put(item);
-        }
-        prefs(context).edit().putString(KEY_POLL_SEEN, next.toString()).apply();
-        return true;
-    }
 }

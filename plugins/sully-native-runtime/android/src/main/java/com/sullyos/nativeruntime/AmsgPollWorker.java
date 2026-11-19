@@ -113,13 +113,7 @@ public class AmsgPollWorker extends Worker {
         if (messageId.isEmpty()) return;
         long createdAt = entry.optLong("createdAt", 0);
         if (createdAt > 0 && now - createdAt > AmsgUnifiedPushStore.POLL_MAX_AGE_MS) return;
-        if (!AmsgUnifiedPushStore.rememberPollSeen(ctx, messageId)) return;
-
-        String raw = push.toString();
-        AmsgUnifiedPushService.maybeShowNotification(ctx, push, raw, AmsgUnifiedPushPlugin.isAppVisible());
-        if (!AmsgUnifiedPushPlugin.emitPushReceived(raw)) {
-            AmsgUnifiedPushStore.appendPending(ctx, raw, now);
-        }
+        AmsgUnifiedPushService.deliver(ctx, push, push.toString(), now);
     }
 
     private static JSONObject fetchOutbox(String base, String serverToken, String userId, long since) throws Exception {
