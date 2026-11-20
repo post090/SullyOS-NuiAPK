@@ -553,6 +553,7 @@ function detachListeners() {
 }
 
 export const ProactiveChat = {
+  checkDue: checkOverdueSchedules,
   /**
    * Register the callback that fires when it's time for a proactive message.
    * Call this once from app code. The callback should inject a system hint

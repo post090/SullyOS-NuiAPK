@@ -74,8 +74,11 @@ public class AmsgUnifiedPushPlugin extends Plugin {
         }
     }
 
-    static boolean isAppVisible() {
-        return instance != null && appVisible;
+    static boolean isAppVisible(Context context) {
+        if (instance == null || !appVisible) return false;
+        android.os.PowerManager power = (android.os.PowerManager) context.getSystemService(Context.POWER_SERVICE);
+        android.app.KeyguardManager lock = (android.app.KeyguardManager) context.getSystemService(Context.KEYGUARD_SERVICE);
+        return (power == null || power.isInteractive()) && (lock == null || !lock.isKeyguardLocked());
     }
 
     static void emitPushReceived() {

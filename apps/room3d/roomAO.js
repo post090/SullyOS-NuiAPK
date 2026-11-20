@@ -16,33 +16,32 @@ export function createRoomAO(renderer,scene,camera){
  const vertexShader='varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}';
  const material=new T.ShaderMaterial({depthTest:false,depthWrite:false,toneMapped:false,
   uniforms:{image:{value:null},depth:{value:null},mask:{value:null},
-   uNear:{value:.1},uFar:{value:200},uRadius:{value:.02},uStrength:{value:.5},
+   uNear:{value:.1},uFar:{value:200},uRadius:{value:new T.Vector2()},uStrength:{value:.5},
    uShade:{value:new T.Color('#b9b6dd')},uToon:{value:1}},
   vertexShader,
   fragmentShader:`varying vec2 vUv;uniform sampler2D image;uniform sampler2D depth;uniform sampler2D mask;
-   uniform float uNear,uFar,uRadius,uStrength,uToon;uniform vec3 uShade;
+   uniform float uNear,uFar,uStrength,uToon;uniform vec2 uRadius;uniform vec3 uShade;
    vec3 srgbToLinear(vec3 c){return mix(c/12.92,pow((c+.055)/1.055,vec3(2.4)),step(.04045,c));}
-   float zOf(vec2 uv){return uNear+texture2D(depth,uv).x*(uFar-uNear);}
+   float contact(vec2 uv,float center){
+    float dz=(center-texture2D(depth,uv).x)*(uFar-uNear);
+    return smoothstep(.015,.065,dz)*(1.-smoothstep(.45,1.1,dz));
+   }
+   float occlusion(){
+    float center=texture2D(depth,vUv).x;
+    float coverage=texture2D(mask,vUv).r;
+    if(center>=1.||coverage>=1.)return 0.;
+    // 两圈错开半个方向，平衡横竖向细节；近邻深度比接收阴影的表面小。
+    float sum=0.;
+    for(int i=0;i<8;i++){
+     float a=float(i)*.78539816;
+     sum+=contact(vUv+uRadius*.45*vec2(cos(a),sin(a)),center);
+     sum+=contact(vUv+uRadius*vec2(cos(a+.39269908),sin(a+.39269908)),center);
+    }
+    return (sum/16.)*(1.-coverage);
+   }
    void main(){
     vec3 base=srgbToLinear(texture2D(image,vUv).rgb);
-    float zc=zOf(vUv);
-    float occ=0.;float wsum=0.;
-    for(int i=0;i<12;i++){
-     float a=float(i)*6.2831853/12.;
-     for(int r=1;r<=3;r++){
-      float w=float(r)/3.;
-      vec2 off=vec2(cos(a),sin(a))*uRadius*w;
-      float dz=zOf(vUv+off)-zc;
-      // 近处遮挡计入（先给一点点自遮挡偏置）；高差超过一个家具高度后衰减，
-      // 隔墙/分层看到的另一间房不会在本侧投出假阴影。
-      occ+=clamp((dz-.015)/.05,0.,1.)*(1.-smoothstep(.45,1.1,dz));
-      wsum+=1.;
-     }
-    }
-    occ/=max(wsum,1.);
-    // 人物像素跳过遮蔽合成（蒙版由含人遍在同一深度上补画，见 render）——
-    // 深度遍藏了人物，角色像素算出的遮蔽其实是身后家具的纹路。
-    occ*=1.-step(.5,texture2D(mask,vUv).r);
+    float occ=occlusion();
     vec3 col;
     if(uToon>.5){
      // 卡渲：二值遮蔽带，smoothstep 出干净边缘；乘冷调阴影色（同色阶暗档思路）。
@@ -76,8 +75,8 @@ export function createRoomAO(renderer,scene,camera){
     width=w;height=h;
    }
    material.uniforms.uNear.value=camera.near;material.uniforms.uFar.value=camera.far;
-   // 正交视野宽 = (right-left)/zoom；半径换算成屏幕 UV 比例（RT 与屏幕同宽高比）。
-   material.uniforms.uRadius.value=Math.max(.004,radius/((camera.right-camera.left)/camera.zoom));
+   const worldRadius=radius*camera.zoom;
+   material.uniforms.uRadius.value.set(worldRadius/(camera.right-camera.left),worldRadius/(camera.top-camera.bottom));
    material.uniforms.uStrength.value=strength;
    material.uniforms.uToon.value=toon?1:0;
    const target=renderer.getRenderTarget(),autoClear=renderer.autoClear,background=scene.background,shadows=renderer.shadowMap.enabled;
@@ -103,8 +102,7 @@ export function createRoomAO(renderer,scene,camera){
     if(swap.length){
      const layerMask=camera.layers.mask;
      camera.layers.set(MASK_LAYER);
-     renderer.render(scene,camera);
-     camera.layers.mask=layerMask;
+     try{renderer.render(scene,camera);}finally{camera.layers.mask=layerMask;}
     }
     for(const [mesh,material] of swap){mesh.material=material;mesh.layers.disable(MASK_LAYER);}
     swap.length=0;
@@ -118,6 +116,6 @@ export function createRoomAO(renderer,scene,camera){
     renderer.setClearColor(clearColor,clearAlpha);renderer.setRenderTarget(target);
    }
   },
-  dispose(){image?.dispose();depthTarget?.dispose();quad.dispose();material.dispose();image=depthTarget=null;width=height=0;}
+  dispose(){image?.dispose();depthTarget?.dispose();quad.dispose();material.dispose();maskMaterial.dispose();image=depthTarget=null;width=height=0;}
  };
 }

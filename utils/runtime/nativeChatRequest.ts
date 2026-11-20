@@ -76,11 +76,12 @@ export async function sendNativeChatAttempt(input: {
   };
 }
 
-export function markNativeChatCompleted(chatJobId: string | undefined, data: any): void {
+export function markNativeChatCompleted(chatJobId: string | undefined, data: any, nativeReplyNotification = false): void {
   if (!chatJobId || !data || typeof data !== 'object') return;
   markChatJobNativeCompleted(chatJobId);
   try {
     Object.defineProperty(data, '__sullyChatJobId', { value: chatJobId, enumerable: false });
+    Object.defineProperty(data, '__sullyNativeReplyNotification', { value: nativeReplyNotification, enumerable: false });
   } catch {
     data.__sullyChatJobId = chatJobId;
   }

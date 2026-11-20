@@ -19,13 +19,23 @@ export function createRoomFinishPass(renderer){
   uniforms:{source:{value:null}},
   vertexShader,
   fragmentShader:`varying vec2 vUv;uniform sampler2D source;
-   vec3 bright(vec2 p){vec3 c=sRGBTransferEOTF(texture2D(source,p)).rgb;return c*smoothstep(.5,.88,max(c.r,max(c.g,c.b)));}
+   vec3 bright(vec2 p){
+    vec3 c=sRGBTransferEOTF(texture2D(source,p)).rgb;
+    float luminance=dot(c,vec3(.2126,.7152,.0722));
+    float highlight=mix(luminance,max(c.r,max(c.g,c.b)),.2);
+    return c*smoothstep(.5,.88,highlight);
+   }
    void main(){gl_FragColor=vec4(bright(vUv),1.);}`});
  const blurMaterial=new T.ShaderMaterial({depthTest:false,depthWrite:false,toneMapped:false,
   uniforms:{image:{value:null},pixel:{value:new T.Vector2()}},
   vertexShader,
   fragmentShader:`varying vec2 vUv;uniform sampler2D image;uniform vec2 pixel;
-   void main(){vec3 c=texture2D(image,vUv).rgb;for(int i=0;i<8;i++){float a=float(i)*6.2831853/8.;c+=texture2D(image,vUv+vec2(cos(a),sin(a))*pixel*2.).rgb;}gl_FragColor=vec4(c/9.,1.);}`});
+   void main(){
+    vec2 d=pixel;
+    vec3 c=texture2D(image,vUv+d).rgb+texture2D(image,vUv-d).rgb;
+    c+=texture2D(image,vUv+vec2(d.x,-d.y)).rgb+texture2D(image,vUv+vec2(-d.x,d.y)).rgb;
+    gl_FragColor=vec4(c*.25,1.);
+   }`});
  const material=new T.ShaderMaterial({depthTest:false,depthWrite:false,toneMapped:false,
   uniforms:{source:{value:null},r2:{value:null},r4:{value:null},r8:{value:null},glow:{value:.14},warmth:{value:0},veilTop:{value:new T.Color('#dcedff')},veilBottom:{value:new T.Color('#fff2de')},veilAmount:{value:.05}},
   vertexShader,

@@ -14,7 +14,7 @@ vi.mock('./runtime/nativeChatRequest', () => ({
 vi.mock('./runtime/runtimeState', () => ({ msSinceForeground: m.fg }));
 import { safeFetchJson } from './safeApi';
 const U = 'https://api.test/v1/chat/completions';
-const ok = { statusCode: 200, headers: {}, body: JSON.stringify({ choices: [{ message: { content: 'hi' } }] }), totalMs: 1, headersMs: 1 };
+const ok = { statusCode: 200, headers: {}, body: JSON.stringify({ choices: [{ message: { content: 'hi' } }] }), job: { nativeReplyNotification: false }, totalMs: 1, headersMs: 1 };
 beforeEach(() => { m.send.mockReset(); m.fg.mockReturnValue(Infinity); m.native.on = true; });
 describe('safeFetchJson 重试上限（原生聊天 / 回前台补枪）', () => {
   it('native sampling 400 -> strip and retry once', async () => {

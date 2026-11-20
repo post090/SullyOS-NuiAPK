@@ -84,12 +84,17 @@ let focusListener: (() => void) | null = null;
 let mainThreadTimer: ReturnType<typeof setInterval> | null = null;
 
 function checkDue() {
+    checkDueForWorld();
+}
+
+function checkDueForWorld(onlyWorldId?: string) {
     if (!triggerCallback) return;
     const slotsMap = load<SlotsMap>(SLOTS_KEY);
     const firedMap = load<FiredMap>(FIRED_KEY);
     let changed = false;
 
     for (const [worldId, raw] of Object.entries(slotsMap)) {
+        if (onlyWorldId && worldId !== onlyWorldId) continue;
         const { slots, tz } = normalizeEntry(raw);
         if (slots.length === 0) continue;
         // 时段/日历日按这个世界自己的时区判定
@@ -181,6 +186,7 @@ function detachListeners() {
 }
 
 export const WorldScheduler = {
+    checkDueForWorld,
     /** 注册触发回调（应用启动时调一次）。 */
     onTrigger(callback: (worldId: string, trigger: 'observe' | 'tick') => void | Promise<void>) {
         triggerCallback = callback;

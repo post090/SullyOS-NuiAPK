@@ -2181,9 +2181,30 @@ export const DB = {
       return new Promise((resolve, reject) => {
           const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
           transaction.objectStore(STORE_SCHEDULED).put(msg);
-          transaction.oncomplete = () => resolve();
+          transaction.oncomplete = () => {
+              if (typeof window !== 'undefined') window.dispatchEvent(new Event('sully-scheduled-message-saved'));
+              resolve();
+          };
           transaction.onerror = () => reject(transaction.error || new Error('定时消息未能保存'));
           transaction.onabort = () => reject(transaction.error || new Error('定时消息未能保存'));
+      });
+  },
+
+  getScheduledDeliveryPlan: async (): Promise<{ dueCharacters: Set<string>; nextDueAt: number }> => {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const request = db.transaction(STORE_SCHEDULED).objectStore(STORE_SCHEDULED).getAll();
+          request.onsuccess = () => {
+              const now = Date.now();
+              const dueCharacters = new Set<string>();
+              let nextDueAt = Infinity;
+              for (const msg of request.result as ScheduledMessage[]) {
+                  if (msg.dueAt <= now) dueCharacters.add(msg.charId);
+                  else if (msg.dueAt < nextDueAt) nextDueAt = msg.dueAt;
+              }
+              resolve({ dueCharacters, nextDueAt });
+          };
+          request.onerror = () => reject(request.error);
       });
   },
 

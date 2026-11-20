@@ -745,6 +745,7 @@ export const useChatAI = ({
         const prevNotifier = (window as any).__sullyRetryNotifier;
         // 原生 chat job 标记：声明在 try 外，catch 里也要标记消费（否则 ReferenceError）。
         let nativeChatJobId: string | undefined;
+        let nativeNotificationHandled = false;
 
         // 本轮的 amsg2 工具会话：角色一轮里可能连着排/取消多个任务，任务清单要在这一轮内
         // 累加，所以由 session 兜住最新 config，别从 char 快照上读写（char 是生成开始的
@@ -1654,6 +1655,7 @@ export const useChatAI = ({
                 }
             }
             nativeChatJobId = data?.__sullyChatJobId;
+            nativeNotificationHandled = data?.__sullyNativeReplyNotification === true;
             if (extractContent(data).trim() || data.choices?.[0]?.message?.tool_calls?.length) markDialogueApiVerified(effectiveApi);
             console.log(`⏱ [API call] ${Math.round(performance.now() - apiT0)}ms`);
             updateTokenUsage(data, historyMsgCount, 'initial');
@@ -2371,7 +2373,7 @@ export const useChatAI = ({
             // 当前挂载的 Chat（可能是切走又切回后新 mount 的实例，本闭包的 setMessages
             // 对它已失效）会重新 reloadMessages；用户不在该会话时补未读 + toast。
             // 即时对话路径不发：它的落库回落走 'active-msg-received'（activeMsgRuntime）。
-            announceChatGen(CHAT_GEN_EVENTS.replyArrived, { charId: char.id, charName: char.name });
+            announceChatGen(CHAT_GEN_EVENTS.replyArrived, { charId: char.id, charName: char.name, nativeNotificationHandled });
 
             // 防穿帮闸：仅当这轮请求真的成功、回执确实进了模型上下文并产出已落库的
             // 回复，才标记已告知；失败/中断路径不标，下轮重新注入（回执不丢）。

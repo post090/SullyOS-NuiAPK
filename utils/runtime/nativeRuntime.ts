@@ -15,6 +15,8 @@ export interface NativeJobRecord {
   response?: { statusCode: number; headers?: Record<string, string>; body?: string };
   meta?: Record<string, unknown>;
   error?: string;
+  nativeReplyNotification?: boolean;
+  enqueueToken?: string;
 }
 
 interface EnqueueHttpJobInput {
@@ -43,10 +45,11 @@ interface SullyNativeRuntimePlugin {
   startForegroundTask(options: { id: string; kind?: NativeRuntimeTaskKind; title: string; text: string; ongoing?: boolean }): Promise<void>;
   stopForegroundTask(options?: { id?: string }): Promise<void>;
   enqueueHttpJob(options: EnqueueHttpJobInput): Promise<{ jobId: string }>;
-  getJob(options: { jobId: string }): Promise<{ job: NativeJobRecord | null }>;
-  listJobs(): Promise<{ jobs: NativeJobRecord[] }>;
+  enqueueTimer(options: NativeTimerInput): Promise<void>;
+  getJob(options: { jobId: string; omitPendingPayload?: boolean }): Promise<{ job: NativeJobRecord | null }>;
+  listJobs(options: { timersOnly: boolean }): Promise<{ jobs: NativeJobRecord[] }>;
   cancelJob(options: { jobId: string }): Promise<void>;
-  clearJob(options: { jobId: string }): Promise<void>;
+  clearJob(options: { jobId: string; expectedStatus?: NativeJobStatus; expectedToken?: string; expectedUpdatedAt?: number }): Promise<void>;
   showEventNotification(options: { title: string; body: string; tag?: string; route?: string }): Promise<void>;
   setPersistentEnabled(options: { enabled: boolean }): Promise<void>;
   getLaunchRoute(): Promise<{ route?: string }>;
@@ -226,15 +229,27 @@ export async function enqueueNativeHttpJob(options: EnqueueHttpJobInput): Promis
   });
 }
 
-export async function getNativeJob(jobId: string): Promise<NativeJobRecord | null> {
+interface NativeTimerInput {
+  jobId: string;
+  runAt: number;
+  title: string;
+  meta: Record<string, unknown>;
+}
+
+export async function enqueueNativeTimer(options: NativeTimerInput): Promise<void> {
+  if (!(await isNativeRuntimeAvailable())) throw new Error('NativeRuntime unavailable');
+  await NativeRuntime.enqueueTimer(options);
+}
+
+export async function getNativeJob(jobId: string, omitPendingPayload = false): Promise<NativeJobRecord | null> {
   if (!(await isNativeRuntimeAvailable())) return null;
-  const res = await NativeRuntime.getJob({ jobId });
+  const res = await NativeRuntime.getJob({ jobId, omitPendingPayload });
   return res.job || null;
 }
 
-export async function listNativeJobs(): Promise<NativeJobRecord[]> {
+export async function listNativeJobs(timersOnly = false): Promise<NativeJobRecord[]> {
   if (!(await isNativeRuntimeAvailable())) return [];
-  const res = await NativeRuntime.listJobs();
+  const res = await NativeRuntime.listJobs({ timersOnly });
   return Array.isArray(res.jobs) ? res.jobs : [];
 }
 
@@ -243,9 +258,9 @@ export async function cancelNativeJob(jobId: string): Promise<void> {
   await NativeRuntime.cancelJob({ jobId });
 }
 
-export async function clearNativeJob(jobId: string): Promise<void> {
+export async function clearNativeJob(jobId: string, expected?: NativeJobRecord): Promise<void> {
   if (!(await isNativeRuntimeAvailable())) return;
-  await NativeRuntime.clearJob({ jobId });
+  await NativeRuntime.clearJob({ jobId, expectedStatus: expected?.status, expectedToken: expected?.enqueueToken, expectedUpdatedAt: expected?.updatedAt });
 }
 
 export async function startNativeCallNotification(input: { charName: string; charId: string; startedAt?: number; avatar?: string }): Promise<void> {

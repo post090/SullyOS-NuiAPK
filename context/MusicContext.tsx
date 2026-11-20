@@ -14,7 +14,8 @@ import React, {
 import { cachedCall as _cachedCall, invalidate as _invalidateCache, clearAll as _clearAllCache } from '../utils/musicCache';
 import { neteaseCacheClearAll } from '../utils/neteaseCache';
 import { DB } from '../utils/db';
-import { isNativeRuntimePlatform } from '../utils/runtime/nativeRuntime';
+import { getPendingNativeMusicAction, isNativeRuntimePlatform } from '../utils/runtime/nativeRuntime';
+import { watchNativeQueue } from '../utils/runtime/nativeQueueWake';
 import { getProxyWorkerUrl, DEFAULT_PROXY_WORKER, PROXY_WORKER_CHANGED_EVENT, isLegacyProxyWorkerUrl } from '../utils/proxyWorker';
 import type { PostProcessMusicHooks } from '../utils/applyAssistantPostProcessing';
 import { resolveRefToDataUrl } from '../utils/blobRef';
@@ -1143,20 +1144,16 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => { if (nativeMusicSyncRef.current === send) nativeMusicSyncRef.current = null; };
   }, [current?.id, current?.name, current?.artists, current?.album, playing, liked]);
 
-  // 有媒体会话才轮询；暂停歌曲仍保留通知栏恢复播放功能。
-  const nativeMusicPollInFlightRef = useRef(false);
+  const nativeMusicControls = useRef({ prevSong, nextSong, togglePlay, toggleLike });
+  nativeMusicControls.current = { prevSong, nextSong, togglePlay, toggleLike };
   const hasMusicSession = !!current;
   useEffect(() => {
     if (!hasMusicSession || !isNativeRuntimePlatform()) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | null = null;
-    const poll = async () => {
-      if (cancelled || nativeMusicPollInFlightRef.current) return;
-      nativeMusicPollInFlightRef.current = true;
-      try {
-        const { getPendingNativeMusicAction } = await import('../utils/runtime/nativeRuntime');
+    const stopWatching = watchNativeQueue('sully-native-music-action', async () => {
         const action = await getPendingNativeMusicAction();
         if (cancelled || !action) return;
+        const { prevSong, nextSong, togglePlay, toggleLike } = nativeMusicControls.current;
         // 系统媒体卡片拖动进度条 → 原生写入 "seek:<ms>"，这里应用到 audio 元素
         if (action.startsWith('seek:')) {
           const ms = Number(action.slice(5));
@@ -1183,16 +1180,12 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             void toggleLike();
             break;
         }
-      } catch { /* ignore */ }
-      finally { nativeMusicPollInFlightRef.current = false; }
-    };
-    // 每 1s 轮询一次 pending action，通知栏点击后 10s 内有效
-    timer = setInterval(() => { void poll(); }, 1000);
+    });
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      stopWatching();
     };
-  }, [hasMusicSession, prevSong, nextSong, togglePlay, toggleLike]);
+  }, [hasMusicSession]);
 
   // 把当前播放状态写到模块级快照，供非 React 调用者（OSContext.runProactive
   // 等位于 MusicProvider 上层的代码）读取。useMusic() 在那一层用不了。

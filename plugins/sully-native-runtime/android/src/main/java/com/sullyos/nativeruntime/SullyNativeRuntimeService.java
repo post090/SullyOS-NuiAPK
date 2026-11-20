@@ -16,11 +16,13 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
+import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.StringReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -77,7 +79,7 @@ public class SullyNativeRuntimeService extends Service {
     private static final ConcurrentHashMap<String, HttpURLConnection> CONNECTIONS = new ConcurrentHashMap<>();
     // Jobs whose runAt is farther than this are scheduled via AlarmManager instead of
     // parking a worker thread on Thread.sleep (survives Doze / process death).
-    private static final long ALARM_THRESHOLD_MS = 60_000L;
+    static final long ALARM_THRESHOLD_MS = 60_000L;
     private static volatile boolean manualForeground = false;
     // Call tracking for resume
     private static volatile long callStartedAtMs = 0;
@@ -210,10 +212,7 @@ public class SullyNativeRuntimeService extends Service {
             boolean silent = intent.getBooleanExtra("silent", false);
             if (musicAction != null && !musicAction.trim().isEmpty()) {
                 // Store pending action for JS to consume on resume
-                getSharedPreferences("sully_native_runtime", MODE_PRIVATE).edit()
-                    .putString("pending_music_action", musicAction)
-                    .putLong("pending_music_action_at", System.currentTimeMillis())
-                    .apply();
+                handleMediaButton(musicAction);
                 if ("like".equals(musicAction) || "unlike".equals(musicAction)) {
                     // Optimistically flip the heart on the notification while JS persists it.
                     musicLiked = "like".equals(musicAction);
@@ -324,14 +323,14 @@ public class SullyNativeRuntimeService extends Service {
         if (files == null) return;
         long now = System.currentTimeMillis();
         for (File file : files) {
-            try {
-                JSONObject job = new JSONObject(readAll(new FileInputStream(file)));
+            try (FileInputStream stream = new FileInputStream(file)) {
+                JSONObject job = new JSONObject(readAll(stream));
                 String status = job.optString("status", "");
                 if (!"queued".equals(status) && !"running".equals(status)) continue;
                 String jobId = job.optString("jobId", "");
                 if (jobId.isEmpty()) continue;
                 long runAt = job.optLong("runAt", 0L);
-                if (runAt > now + ALARM_THRESHOLD_MS) {
+                if (runAt > now && (isLocalTimer(job) || runAt - now > ALARM_THRESHOLD_MS)) {
                     // Not due yet: (re)schedule an alarm instead of parking a worker thread.
                     scheduleExactAlarm(this, jobId, runAt);
                     continue;
@@ -361,9 +360,9 @@ public class SullyNativeRuntimeService extends Service {
         return PendingIntent.getBroadcast(ctx, jobId.hashCode(), i, flags);
     }
 
-    static void scheduleExactAlarm(Context ctx, String jobId, long runAt) {
+    static boolean scheduleExactAlarm(Context ctx, String jobId, long runAt) {
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
-        if (am == null || jobId == null) return;
+        if (am == null || jobId == null) return false;
         PendingIntent pi = alarmPendingIntent(ctx, jobId);
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -380,8 +379,22 @@ public class SullyNativeRuntimeService extends Service {
             }
         } catch (Exception e) {
             try { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, runAt, pi); }
-            catch (Exception ignored) {}
+            catch (Exception ignored) { return false; }
         }
+        return true;
+    }
+
+    static synchronized boolean completeAlarmTimer(Context context, String jobId) throws Exception {
+        JSONObject job = readJob(context, jobId);
+        if (job == null) return true;
+        if (!isLocalTimer(job)) return false;
+        String status = job.optString("status");
+        if (!"queued".equals(status) && !"running".equals(status)) return true;
+        long runAt = job.optLong("runAt");
+        if (runAt > System.currentTimeMillis()) return scheduleExactAlarm(context, jobId, runAt);
+        writeJob(context, jobId, baseFinishedJob(job, "completed"));
+        SullyNativeRuntimePlugin.signalWindow("sully-native-timer-ready");
+        return true;
     }
 
     static void cancelAlarm(Context ctx, String jobId) {
@@ -444,10 +457,12 @@ public class SullyNativeRuntimeService extends Service {
 
     private void handleMediaButton(String action) {
         if (action == null || action.trim().isEmpty()) return;
-        getSharedPreferences("sully_native_runtime", MODE_PRIVATE).edit()
-            .putString("pending_music_action", action)
-            .putLong("pending_music_action_at", System.currentTimeMillis())
-            .apply();
+        android.content.SharedPreferences prefs = getSharedPreferences("sully_native_runtime", MODE_PRIVATE);
+        synchronized (prefs) {
+            prefs.edit().putString("pending_music_action", action)
+                .putLong("pending_music_action_at", System.currentTimeMillis()).apply();
+        }
+        SullyNativeRuntimePlugin.signalWindow("sully-native-music-action");
     }
 
     private android.media.session.MediaSession ensureMediaSession() {
@@ -649,6 +664,12 @@ public class SullyNativeRuntimeService extends Service {
         });
     }
 
+    static boolean isLocalTimer(JSONObject job) {
+        JSONObject meta = job.optJSONObject("meta");
+        return job.optString("jobId").startsWith("sully-timer-")
+            && meta != null && "native-timer".equals(meta.optString("type"));
+    }
+
     private void runHttpJob(String jobId) {
         // Token of the enqueue this run belongs to. Every write below is conditional on the
         // job file still existing with this token: if JS cleared the job (or replaced it under
@@ -675,6 +696,13 @@ public class SullyNativeRuntimeService extends Service {
                 markCancelledIfCurrent(this, jobId, token);
                 return;
             }
+            // Includes timers persisted by older APKs with a placeholder HTTP request.
+            if (isLocalTimer(job)) {
+                if (writeJobIfCurrent(this, jobId, token, baseFinishedJob(job, "completed"))) {
+                    SullyNativeRuntimePlugin.signalWindow("sully-native-timer-ready");
+                }
+                return;
+            }
             JSONObject request = job.getJSONObject("request");
             updateJobStatus(job, "running", null);
             if (!writeJobIfCurrent(this, jobId, token, job)) return;
@@ -691,14 +719,27 @@ public class SullyNativeRuntimeService extends Service {
             response.put("headers", result.headers);
             response.put("body", result.body);
             done.put("response", response);
-            writeJobIfCurrent(this, jobId, token, done);
+            boolean notifyReply = shouldNotifyChatReply(job, result);
+            done.put("nativeReplyNotification", notifyReply);
+            if (writeJobIfCurrent(this, jobId, token, done)) {
+                SullyNativeRuntimePlugin.signalWindow("sully-native-job-finished");
+                if (notifyReply) {
+                    JSONObject meta = job.getJSONObject("meta");
+                    try {
+                        showEventNotification(meta.optString("charName", "SullyOS"), "后台回复已收到，点此查看",
+                            "reply-" + jobId, "chat-reply:" + meta.getString("charId"));
+                    } catch (RuntimeException ignored) { /* Notification access cannot fail a completed reply. */ }
+                }
+            }
         } catch (Exception e) {
             try {
                 JSONObject job = readJob(this, jobId);
                 if (job != null) {
                     JSONObject failed = baseFinishedJob(job, "failed");
                     failed.put("error", e.getMessage() == null ? String.valueOf(e) : e.getMessage());
-                    writeJobIfCurrent(this, jobId, token, failed);
+                    if (writeJobIfCurrent(this, jobId, token, failed)) {
+                        SullyNativeRuntimePlugin.signalWindow(isLocalTimer(job) ? "sully-native-timer-ready" : "sully-native-job-finished");
+                    }
                 }
             } catch (Exception ignored) {}
         } finally {
@@ -807,10 +848,65 @@ public class SullyNativeRuntimeService extends Service {
         return out.toString("UTF-8");
     }
 
+    private boolean shouldNotifyChatReply(JSONObject job, HttpResult result) {
+        JSONObject meta = job.optJSONObject("meta");
+        if (meta == null || meta.optString("charId").isEmpty() || !"消息".equals(meta.optString("appName"))
+            || !"聊天回复".equals(meta.optString("purpose")) || result.statusCode < 200 || result.statusCode >= 300
+            || AmsgUnifiedPushPlugin.isAppVisible(this)) return false;
+        return hasFinishedReply(result.body);
+    }
+
+    // Intermediaries may send SSE even for a non-streaming request. Announce a
+    // completed text turn only. Tool execution and protocol errors stay with the WebView.
+    static boolean hasFinishedReply(String body) {
+        if (body == null) return false;
+        try {
+            String trimmed = body.trim();
+            if (trimmed.startsWith("{")) {
+                JSONObject choice = new JSONObject(trimmed).getJSONArray("choices").getJSONObject(0);
+                JSONObject message = choice.getJSONObject("message");
+                return !hasContinuation(choice, message) && hasText(message);
+            }
+            boolean text = false, finished = false;
+            try (BufferedReader reader = new BufferedReader(new StringReader(trimmed))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!line.startsWith("data:")) continue;
+                    String data = line.substring(5).trim();
+                    if (data.isEmpty()) continue;
+                    if ("[DONE]".equals(data)) return text;
+                    JSONObject chunk = new JSONObject(data);
+                    if (chunk.has("error")) return false;
+                    JSONArray choices = chunk.optJSONArray("choices");
+                    if (choices == null || choices.length() == 0) continue;
+                    JSONObject choice = choices.getJSONObject(0);
+                    JSONObject part = choice.optJSONObject("delta");
+                    if (part == null) part = choice.optJSONObject("message");
+                    if (hasContinuation(choice, part)) return false;
+                    text |= hasText(part);
+                    finished |= "stop".equals(choice.optString("finish_reason"));
+                }
+            }
+            return finished && text;
+        } catch (org.json.JSONException | java.io.IOException ignored) { return false; }
+    }
+
+    private static boolean hasText(JSONObject part) {
+        Object content = part != null ? part.opt("content") : null;
+        return content instanceof String && !((String) content).trim().isEmpty();
+    }
+
+    private static boolean hasContinuation(JSONObject choice, JSONObject part) {
+        String reason = choice.optString("finish_reason", "");
+        return (!choice.isNull("finish_reason") && !reason.isEmpty() && !"stop".equals(reason) && !"length".equals(reason))
+            || (part != null && (!part.isNull("tool_calls") || !part.isNull("function_call")));
+    }
+
     private static JSONObject baseFinishedJob(JSONObject job, String status) throws Exception {
         JSONObject out = new JSONObject();
         long now = System.currentTimeMillis();
         out.put("jobId", job.getString("jobId"));
+        if (job.has(ENQUEUE_TOKEN_KEY)) out.put(ENQUEUE_TOKEN_KEY, job.getString(ENQUEUE_TOKEN_KEY));
         out.put("status", status);
         out.put("createdAt", job.optLong("createdAt", now));
         out.put("updatedAt", now);
@@ -860,7 +956,10 @@ public class SullyNativeRuntimeService extends Service {
 
     /** Write only if the job was neither cleared nor replaced since this run read it. */
     static synchronized boolean writeJobIfCurrent(Context context, String jobId, String token, JSONObject job) throws Exception {
-        if (!isCurrentJob(context, jobId, token)) return false;
+        JSONObject current = readJob(context, jobId);
+        if (current == null || !current.optString(ENQUEUE_TOKEN_KEY).equals(token == null ? "" : token)) return false;
+        String status = current.optString("status");
+        if (!"running".equals(status) && !"queued".equals(status)) return false;
         writeJob(context, jobId, job);
         return true;
     }
@@ -1119,6 +1218,11 @@ public class SullyNativeRuntimeService extends Service {
             // Anchor the service's foreground on the media notification so playback
             // controls keep working with the app in background / screen off.
             startForegroundTyped(NOTIFICATION_MUSIC_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+            if (!isPlaying && RUNNING_JOBS.get() == 0) {
+                // Keep the paused media controls without holding foreground priority through idle.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) stopForeground(STOP_FOREGROUND_DETACH);
+                else stopForeground(false);
+            }
         }
         if (art == null) maybeFetchMusicArt();
     }
@@ -1245,9 +1349,17 @@ public class SullyNativeRuntimeService extends Service {
             // rewrote the extras of every earlier notification to the newest route.
             pendingIntent = PendingIntent.getActivity(this, hasRoute ? routeRequestCode(route) : 0, launchIntent, flags);
         }
+        String channelId = ongoing ? CHANNEL_FG_SILENT : CHANNEL_ID;
         if (ongoing) ensureSilentForegroundChannel(this);
+        if (!ongoing && route != null && route.startsWith("chat-reply:") && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            channelId = "sully_chat_replies";
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager.getNotificationChannel(channelId) == null) {
+                manager.createNotificationChannel(new NotificationChannel(channelId, "聊天回复", NotificationManager.IMPORTANCE_DEFAULT));
+            }
+        }
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-            ? new Notification.Builder(this, ongoing ? CHANNEL_FG_SILENT : CHANNEL_ID)
+            ? new Notification.Builder(this, channelId)
             : new Notification.Builder(this);
         builder
             .setContentTitle(title)
@@ -1379,11 +1491,12 @@ public class SullyNativeRuntimeService extends Service {
         }
     }
 
-    public static synchronized JSONArray listJobs(Context context) throws Exception {
+    public static synchronized JSONArray listJobs(Context context, boolean timersOnly) throws Exception {
         JSONArray arr = new JSONArray();
         File[] files = jobsDir(context).listFiles();
         if (files == null) return arr;
         for (File f : files) {
+            if (timersOnly && !f.getName().startsWith("sully-timer-")) continue;
             if (!f.isFile() || !f.getName().endsWith(".json")) continue;
             try (FileInputStream fis = new FileInputStream(f)) {
                 // Summary only: request/response bodies can be megabytes each and the

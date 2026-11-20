@@ -88,7 +88,7 @@ public class AmsgUnifiedPushService extends PushService {
         if (id == null) return;
         String outcome;
         try {
-            outcome = maybeShowNotification(context, payload, raw, AmsgUnifiedPushPlugin.isAppVisible());
+            outcome = maybeShowNotification(context, payload, raw, AmsgUnifiedPushPlugin.isAppVisible(context));
         } catch (RuntimeException error) {
             outcome = "failed";
         }

@@ -3,10 +3,8 @@
  *
  * Why this file exists:
  * - WebView JS timers are throttled in background / killed when Android reclaims WebView.
- * - Native Runtime already has a recoverable HTTP job queue with `runAt` that survives process death
- *   and is resumed on START_FOREGROUND / BOOT_COMPLETED.
- * - We reuse that queue as a durable timer: enqueue a tiny 204 request with future runAt.
- *   When it completes, JS layer sees `completed` status and triggers the real work (LLM, VR, etc).
+ * - Android persists the timer locally and signals the WebView when it comes due.
+ *   If the WebView was reclaimed, the completed record is recovered on return.
  *
  * This does NOT run LLM in native - it just makes the *trigger* durable. The actual
  * generation still happens in JS via existing OSContext runProactive/runVR flows,
@@ -14,16 +12,16 @@
  */
 
 import {
-  enqueueNativeHttpJob,
+  enqueueNativeTimer,
   listNativeJobs,
   clearNativeJob,
   isNativeRuntimePlatform,
   getPersistentNativeRuntimeUserEnabled,
 } from './nativeRuntime';
 
-const TIMER_URL = 'https://www.gstatic.com/generate_204';
 const TIMER_TAG_PREFIX = 'sully-timer-';
 const TIMER_JOB_PREFIX = 'sully-timer-';
+const scheduledTimes = new Map<string, number>();
 
 export type NativeTimerKind = 'proactive' | 'vr' | 'world' | 'task' | 'generic';
 
@@ -60,23 +58,15 @@ export async function scheduleNativeTimer(input: {
   if (!isNativeRuntimePlatform()) return;
   if (!getPersistentNativeRuntimeUserEnabled()) return; // only when always-on enabled
   const jobId = toJobId(input.tag);
+  if (scheduledTimes.get(jobId) === input.runAt) return;
+  scheduledTimes.set(jobId, input.runAt);
   const runAt = Math.max(Date.now() + 1000, input.runAt);
-  try {
-    // Best effort: clear previous timer with same tag to keep queue clean
-    // (list is small, linear scan is fine)
-    await clearNativeJob(jobId).catch(() => {});
-  } catch { /* ignore */ }
 
   try {
-    await enqueueNativeHttpJob({
+    await enqueueNativeTimer({
       jobId,
-      url: TIMER_URL,
-      method: 'GET',
-      timeoutMs: 15000,
       runAt,
-      responseType: 'text',
       title: input.title || 'SullyOS 正在运行',
-      text: '',
       meta: {
         type: 'native-timer',
         kind: input.kind,
@@ -84,9 +74,10 @@ export async function scheduleNativeTimer(input: {
         worldId: input.worldId,
         taskId: input.taskId,
         tag: input.tag,
-      } as unknown as Record<string, unknown>,
+      },
     });
   } catch (e) {
+    if (scheduledTimes.get(jobId) === input.runAt) scheduledTimes.delete(jobId);
     console.warn('[NativeScheduler] schedule failed', { tag: input.tag, error: e });
   }
 }
@@ -94,6 +85,7 @@ export async function scheduleNativeTimer(input: {
 export async function cancelNativeTimer(tag: string): Promise<void> {
   if (!isNativeRuntimePlatform()) return;
   const jobId = toJobId(tag);
+  scheduledTimes.delete(jobId);
   try {
     await clearNativeJob(jobId);
   } catch { /* ignore */ }
@@ -106,13 +98,14 @@ export async function cancelNativeTimer(tag: string): Promise<void> {
  * Returns the number of timer jobs cleared.
  */
 export async function clearAllNativeTimers(): Promise<number> {
+  scheduledTimes.clear();
   if (!isNativeRuntimePlatform()) return 0;
   let cleared = 0;
   try {
-    const jobs = await listNativeJobs();
+    const jobs = await listNativeJobs(true);
     for (const job of jobs) {
       if (!isTimerJobId(job.jobId)) continue;
-      await clearNativeJob(job.jobId).catch(() => {});
+      await clearNativeJob(job.jobId, job);
       cleared += 1;
     }
   } catch (e) {
@@ -130,57 +123,25 @@ export async function drainNativeTimers(): Promise<number> {
   if (!getPersistentNativeRuntimeUserEnabled()) return 0;
   let drained = 0;
   try {
-    const jobs = await listNativeJobs();
-    const timerJobs = jobs.filter(j => isTimerJobId(j.jobId) && j.status === 'completed');
-    for (const job of timerJobs) {
-      const meta = (job.meta || {}) as any;
-      // Only handle our native-timer type; ignore stray timer jobs
-      if (meta?.type !== 'native-timer') {
-        // Still clean up old timer jobs without meta to avoid leak
-        if (isTimerJobId(job.jobId)) {
-          await clearNativeJob(job.jobId).catch(() => {});
-        }
-        continue;
-      }
-      const kind = String(meta.kind || 'generic') as NativeTimerKind;
-      const tag = String(meta.tag || job.jobId);
-      const detail: NativeTimerMeta & { jobId: string } = {
-        kind,
-        charId: meta.charId,
-        worldId: meta.worldId,
-        taskId: meta.taskId,
-        tag,
-        jobId: job.jobId,
-      };
-      try {
+    const jobs = await listNativeJobs(true);
+    for (const job of jobs) {
+      if (!getPersistentNativeRuntimeUserEnabled()) break;
+      if (!isTimerJobId(job.jobId) || job.status === 'queued' || job.status === 'running') continue;
+      scheduledTimes.delete(job.jobId);
+      const meta = job.meta;
+      if (meta?.type === 'native-timer') {
+        const detail = {
+          kind: meta.kind ?? 'generic',
+          charId: meta.charId, worldId: meta.worldId, taskId: meta.taskId,
+          tag: meta.tag ?? job.jobId,
+          jobId: job.jobId,
+          failed: job.status !== 'completed',
+        };
         window.dispatchEvent(new CustomEvent('sully-native-timer', { detail }));
         drained += 1;
-      } catch { /* ignore */ }
-      // Clean up after dispatch
-      await clearNativeJob(job.jobId).catch(() => {});
-    }
-    // Also clean up failed timer jobs (e.g., network failure on 204) -> treat as firing anyway
-    const failedTimers = jobs.filter(j => isTimerJobId(j.jobId) && (j.status === 'failed' || j.status === 'cancelled'));
-    for (const job of failedTimers) {
-      const meta = (job.meta || {}) as any;
-      if (meta?.type === 'native-timer') {
-        const kind = String(meta.kind || 'generic') as NativeTimerKind;
-        const tag = String(meta.tag || job.jobId);
-        const detail: NativeTimerMeta & { jobId: string; failed: boolean } = {
-          kind,
-          charId: meta.charId,
-          worldId: meta.worldId,
-          taskId: meta.taskId,
-          tag,
-          jobId: job.jobId,
-          failed: true,
-        } as any;
-        try {
-          window.dispatchEvent(new CustomEvent('sully-native-timer', { detail }));
-          drained += 1;
-        } catch {}
       }
-      await clearNativeJob(job.jobId).catch(() => {});
+      // Dispatch may have already armed the next occurrence under the same ID.
+      await clearNativeJob(job.jobId, job);
     }
   } catch (e) {
     console.warn('[NativeScheduler] drain failed', e);

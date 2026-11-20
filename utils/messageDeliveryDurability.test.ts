@@ -4,6 +4,18 @@ import { DB, openDB } from './db';
 afterEach(() => vi.restoreAllMocks());
 
 describe('通知前必须确认消息/定时任务已提交', () => {
+    it('一次队列读取找出所有到期角色和最近的未来时间，空队列没有到期角色', async () => {
+        const future = Date.now() + 600_000;
+        await DB.saveScheduledMessage({ id: 'plan-past', charId: 'past', content: '到了', dueAt: 1, createdAt: 1 });
+        await DB.saveScheduledMessage({ id: 'plan-future', charId: 'future', content: '稍后', dueAt: future, createdAt: 1 });
+        try {
+            expect(await DB.getScheduledDeliveryPlan()).toEqual({ dueCharacters: new Set(['past']), nextDueAt: future });
+        } finally {
+            await DB.deleteScheduledMessage('plan-past');
+            await DB.deleteScheduledMessage('plan-future');
+        }
+        expect(await DB.getScheduledDeliveryPlan()).toEqual({ dueCharacters: new Set(), nextDueAt: Infinity });
+    });
     it('定时任务写入事务中止时不能报告成功', async () => {
         await openDB();
         const originalPut = IDBObjectStore.prototype.put;

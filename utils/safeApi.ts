@@ -58,7 +58,7 @@ export function isSseResponseText(text: string, contentType?: string | null): bo
 }
 
 /** safeResponseJson 的纯文本内核：HTML/空响应/SSE/JSON 判定与解析（流式路径复用） */
-function parseRawBodyText(text: string, status: number, contentType?: string | null): any {
+export function parseRawBodyText(text: string, status: number, contentType?: string | null): any {
     // Detect HTML / XML responses
     const trimmed = text.trimStart();
     if (trimmed.startsWith('<')) {
@@ -563,7 +563,7 @@ export async function safeFetchJson(
                 }
 
                 const data = parseRawBodyText(nativeResult.body || '', nativeResult.statusCode, responseHeaders['content-type']);
-                markNativeChatCompleted(nativeResult.chatJobId, data);
+                markNativeChatCompleted(nativeResult.chatJobId, data, nativeResult.job.nativeReplyNotification);
                 if (isChatCompletionUrl(urlStr)) {
                     console.log(`⏱ [API timing] native=1 total=${nativeResult.totalMs}ms${streamHooks ? ' streamed=0(native)' : ''}`);
                     appendDevDebugApiLog({

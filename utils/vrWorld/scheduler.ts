@@ -196,6 +196,7 @@ function detachListeners() {
 }
 
 export const VRScheduler = {
+    checkDue: checkOverdue,
     /** 注册触发回调（应用启动时调一次）。manual=true 表示用户手动发起（不受睡眠跳过限制）。 */
     onTrigger(callback: (charId: string, room?: string, letterId?: string, manual?: boolean, sarActivity?: VRSARActivity) => void | Promise<void>) {
         triggerCallback = callback;

@@ -18,12 +18,24 @@ import java.util.Iterator;
 
 @CapacitorPlugin(name = "SullyNativeRuntime")
 public class SullyNativeRuntimePlugin extends Plugin {
+    private static volatile SullyNativeRuntimePlugin instance;
 
     @Override
     public void load() {
+        instance = this;
         // Cold start from a notification tap: the route rides on the launching Intent.
         Activity activity = getActivity();
         if (activity != null) captureLaunchRoute(activity.getIntent());
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (instance == this) instance = null;
+    }
+
+    static void signalWindow(String event) {
+        SullyNativeRuntimePlugin plugin = instance;
+        if (plugin != null && plugin.getBridge() != null) plugin.getBridge().triggerWindowJSEvent(event);
     }
 
     @Override
@@ -90,6 +102,15 @@ public class SullyNativeRuntimePlugin extends Plugin {
 
     @PluginMethod
     public void enqueueHttpJob(PluginCall call) {
+        enqueueJob(call, false);
+    }
+
+    @PluginMethod
+    public void enqueueTimer(PluginCall call) {
+        enqueueJob(call, true);
+    }
+
+    private void enqueueJob(PluginCall call, boolean timer) {
         try {
             String jobId = call.getString("jobId");
             String url = call.getString("url");
@@ -97,7 +118,7 @@ public class SullyNativeRuntimePlugin extends Plugin {
                 call.reject("jobId is required");
                 return;
             }
-            if (url == null || url.trim().isEmpty()) {
+            if (!timer && (url == null || url.trim().isEmpty())) {
                 call.reject("url is required");
                 return;
             }
@@ -116,17 +137,30 @@ public class SullyNativeRuntimePlugin extends Plugin {
             // jobId detect that it was cleared/replaced and skip writing stale results.
             job.put(SullyNativeRuntimeService.ENQUEUE_TOKEN_KEY, SullyNativeRuntimeService.newEnqueueToken());
 
-            JSONObject request = new JSONObject();
-            request.put("url", url);
-            request.put("method", call.getString("method", "POST"));
-            request.put("headers", toJsonObject(call.getObject("headers", new JSObject())));
-            request.put("body", call.getString("body", ""));
-            job.put("request", request);
+            if (!timer) {
+                JSONObject request = new JSONObject();
+                request.put("url", url);
+                request.put("method", call.getString("method", "POST"));
+                request.put("headers", toJsonObject(call.getObject("headers", new JSObject())));
+                request.put("body", call.getString("body", ""));
+                job.put("request", request);
+            }
 
             JSObject meta = call.getObject("meta", null);
             if (meta != null) job.put("meta", toJsonObject(meta));
+            if (timer && (!SullyNativeRuntimeService.isLocalTimer(job) || runAt <= 0)) {
+                call.reject("Invalid native timer");
+                return;
+            }
 
-            SullyNativeRuntimeService.writeJob(getContext(), jobId, job);
+            synchronized (SullyNativeRuntimeService.class) {
+                if (timer) SullyNativeRuntimeService.clearJob(getContext(), jobId);
+                SullyNativeRuntimeService.writeJob(getContext(), jobId, job);
+                if (timer && SullyNativeRuntimeService.scheduleExactAlarm(getContext(), jobId, runAt)) {
+                    call.resolve();
+                    return;
+                }
+            }
 
             Intent intent = new Intent(getContext(), SullyNativeRuntimeService.class);
             intent.setAction(SullyNativeRuntimeService.ACTION_ENQUEUE_HTTP);
@@ -152,6 +186,10 @@ public class SullyNativeRuntimePlugin extends Plugin {
         }
         try {
             JSONObject job = SullyNativeRuntimeService.readJob(getContext(), jobId);
+            if (job != null && call.getBoolean("omitPendingPayload", false) && !"completed".equals(job.optString("status"))) {
+                job.remove("request");
+                job.remove("response");
+            }
             JSObject ret = new JSObject();
             ret.put("job", job == null ? null : JSObject.fromJSONObject(job));
             call.resolve(ret);
@@ -163,7 +201,7 @@ public class SullyNativeRuntimePlugin extends Plugin {
     @PluginMethod
     public void listJobs(PluginCall call) {
         try {
-            JSONArray arr = SullyNativeRuntimeService.listJobs(getContext());
+            JSONArray arr = SullyNativeRuntimeService.listJobs(getContext(), call.getBoolean("timersOnly", false));
             JSArray js = JSArray.from(arr.toString());
             JSObject ret = new JSObject();
             ret.put("jobs", js);
@@ -357,8 +395,22 @@ public class SullyNativeRuntimePlugin extends Plugin {
             call.reject("jobId is required");
             return;
         }
-        SullyNativeRuntimeService.clearJob(getContext(), jobId);
-        call.resolve();
+        try {
+            synchronized (SullyNativeRuntimeService.class) {
+                String expected = call.getString("expectedStatus");
+                if (expected != null) {
+                    JSONObject job = SullyNativeRuntimeService.readJob(getContext(), jobId);
+                    if (job == null || !expected.equals(job.optString("status"))
+                        || job.optLong("updatedAt") != readLong(call, "expectedUpdatedAt", -1)
+                        || !job.optString(SullyNativeRuntimeService.ENQUEUE_TOKEN_KEY).equals(call.getString("expectedToken", ""))) {
+                        call.resolve();
+                        return;
+                    }
+                }
+                SullyNativeRuntimeService.clearJob(getContext(), jobId);
+            }
+            call.resolve();
+        } catch (Exception error) { call.reject(error.getMessage(), error); }
     }
 
     @PluginMethod
@@ -465,17 +517,14 @@ public class SullyNativeRuntimePlugin extends Plugin {
 
     @PluginMethod
     public void getPendingMusicAction(PluginCall call) {
-        String action = getContext().getSharedPreferences("sully_native_runtime", Context.MODE_PRIVATE)
-            .getString("pending_music_action", null);
-        long at = getContext().getSharedPreferences("sully_native_runtime", Context.MODE_PRIVATE)
-            .getLong("pending_music_action_at", 0L);
-        // Only return if within last 10 seconds to avoid stale actions
         JSObject result = new JSObject();
-        if (action != null && System.currentTimeMillis() - at < 10000) {
-            result.put("action", action);
-            // Clear after reading
-            getContext().getSharedPreferences("sully_native_runtime", Context.MODE_PRIVATE)
-                .edit().remove("pending_music_action").remove("pending_music_action_at").apply();
+        android.content.SharedPreferences prefs = getContext().getSharedPreferences("sully_native_runtime", Context.MODE_PRIVATE);
+        synchronized (prefs) {
+            String action = prefs.getString("pending_music_action", null);
+            if (action != null) {
+                if (System.currentTimeMillis() - prefs.getLong("pending_music_action_at", 0L) < 10000) result.put("action", action);
+                prefs.edit().remove("pending_music_action").remove("pending_music_action_at").apply();
+            }
         }
         call.resolve(result);
     }

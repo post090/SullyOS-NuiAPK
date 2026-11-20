@@ -33,6 +33,7 @@ import { buildRescueImportAnalytics, isAmsgRescueExport, rescueExportToBackup } 
 import type { VRSARActivity } from '../types';
 import { APIConfig, AppID, OSTheme, VirtualTime, CharacterProfile, CharacterGroup, ChatTheme, Toast, FullBackupData, UserProfile, ApiPreset, GroupProfile, SystemLog, Worldbook, NovelBook, SongSheet, Message, RealtimeConfig, AppearancePreset, CloudBackupConfig, CloudBackupFile, CallAutoStartConfig, MemoryPalaceFeatureFlags, SuspendedDate } from '../types';
 import { DB } from '../utils/db';
+import { watchNativeQueue } from '../utils/runtime/nativeQueueWake';
 import { ChatPrompts } from '../utils/chatPrompts';
 import { ChatParser } from '../utils/chatParser';
 import { resolveDialogueApi } from '../utils/characterApi';
@@ -123,7 +124,7 @@ import { prepareFriendFeedEmotionTask, releaseFriendFeedEmotionTask, acknowledge
 import { isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { evaluateEmotionBackground } from '../hooks/useChatAI';
 import {HOME_SECRETS_UPDATED} from '../utils/homeSecrets';
-import { CHAT_GEN_EVENTS, setChatViewSnapshot, isEmbeddedChatVisible } from '../utils/chatGenEvents';
+import { CHAT_GEN_EVENTS, setChatViewSnapshot, isEmbeddedChatVisible, type ChatGenDetail } from '../utils/chatGenEvents';
 import { runLocalAwayMessages } from '../utils/awayMessage';
 import { mergePalaceFragmentsIntoMemories } from '../utils/memoryPalace/pipeline';
 import { applyLinkedArchiveDeletion, LINKED_ARCHIVE_DELETED, type LinkedArchiveDeletionDetail } from '../utils/memoryPalace/linkedArchiveDeletion';
@@ -1099,7 +1100,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       try { const s = localStorage.getItem('os_cloud_backup_config'); return s ? { ...defaultCloudBackupConfig, ...JSON.parse(s) } : defaultCloudBackupConfig; } catch { return defaultCloudBackupConfig; }
   });
 
-  const schedulerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const scheduledDeliveryInFlightRef = useRef(false);
   const interceptorsInitialized = useRef(false);
   
@@ -1142,14 +1142,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     runNativeRecovery();
   }, [runNativeRecovery]);
 
-  // Native Scheduler: drain durable timers (proactive/VR/world) that fired while WebView was dead.
-  // This complements runNativeRecovery (which handles chat jobs). The native queue uses a tiny 204 request
-  // with future runAt; when it completes we dispatch sully-native-timer.
+  // Recover durable proactive/VR/world timers on a native signal or a WebView restart.
   useEffect(() => {
-    if (!isNativeRuntimePlatform()) return;
+    if (!isDataLoaded || !isNativeRuntimePlatform()) return;
     let cancelled = false;
-    let interval: ReturnType<typeof setInterval> | null = null;
-    let loopsStarted = false;
+    let stopWatching: (() => void) | undefined;
 
     const drain = async () => {
       if (cancelled) return;
@@ -1164,35 +1161,18 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       }
     };
 
-    const startLoops = () => {
-      if (loopsStarted) return;
-      loopsStarted = true;
-      // Initial drain shortly after enabling / boot
-      setTimeout(() => { void drain(); }, 1500);
-      // Poll every 45s while always-on is enabled (foreground service keeps JS alive somewhat,
-      // but WebView timers may be throttled; this is a safety net).
-      interval = setInterval(() => { void drain(); }, 45_000);
-    };
-    const stopLoops = () => {
-      if (interval) { clearInterval(interval); interval = null; }
-      loopsStarted = false;
-    };
-
-    // Also drain on visibility changes (user returns)
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void drain();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-
-    // React to the always-on toggle without requiring an app restart.
-    const onPersistentChanged = (e: Event) => {
-      const enabled = !!((e as CustomEvent).detail?.enabled);
-      if (enabled) startLoops(); else stopLoops();
+    const onPersistentChanged = () => {
+      if (getPersistentNativeRuntimeUserEnabled()) {
+        stopWatching ??= watchNativeQueue('sully-native-timer-ready', drain);
+      } else {
+        stopWatching?.();
+        stopWatching = undefined;
+      }
     };
     window.addEventListener('sully-persistent-runtime-changed', onPersistentChanged as EventListener);
 
     // Start immediately if always-on is already enabled at mount.
-    if (getPersistentNativeRuntimeUserEnabled()) startLoops();
+    onPersistentChanged();
 
     // Listen for native timer events dispatched by the drain itself (or by other code calling schedule)
     const onNativeTimer = (e: Event) => {
@@ -1200,27 +1180,22 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       if (!detail) return;
       const kind = detail.kind;
       if (kind === 'proactive' && detail.charId) {
-        // Trigger proactive via the same global callback path: ProactiveChat's triggerCallback is private,
-        // so we dispatch a synthetic event that OSContext's runProactive listens? Instead, we directly
-        // try to run proactive by firing the scheduler's overdue check: set lastFire to 0 to force trigger
-        // or just call the global handler via custom event 'proactive-native-wake'.
-        window.dispatchEvent(new CustomEvent('proactive-native-wake', { detail: { charId: detail.charId } }));
+        ProactiveChat.checkDue();
       } else if (kind === 'vr' && detail.charId) {
-        window.dispatchEvent(new CustomEvent('vr-native-wake', { detail: { charId: detail.charId } }));
+        VRScheduler.checkDue();
       } else if (kind === 'world' && detail.worldId) {
-        window.dispatchEvent(new CustomEvent('world-native-wake', { detail: { worldId: detail.worldId } }));
+        WorldScheduler.checkDueForWorld(detail.worldId);
       }
     };
     window.addEventListener('sully-native-timer', onNativeTimer as EventListener);
 
     return () => {
       cancelled = true;
-      stopLoops();
-      document.removeEventListener('visibilitychange', onVisible);
+      stopWatching?.();
       window.removeEventListener('sully-native-timer', onNativeTimer as EventListener);
       window.removeEventListener('sully-persistent-runtime-changed', onPersistentChanged as EventListener);
     };
-  }, []);
+  }, [isDataLoaded]);
 
   // 持续运行模式：APK 重启/WebView 重建后重新拉起常驻前台服务。
   // 服务本身不依赖 WebView 存活；这里仅负责把用户选择同步到 Android Runtime。
@@ -1234,7 +1209,9 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     const openRoute = (route: string) => {
       const value = String(route || '');
       if (!value) return;
-      if (value.startsWith('task:')) {
+      if (value.startsWith('chat-reply:')) {
+        void import('../utils/nativeNotificationNavigation').then(m => m.requestNativeNotificationOpen(value.slice(11)));
+      } else if (value.startsWith('task:')) {
         setActiveApp(AppID.Schedule);
       } else if (value.startsWith('vr:')) {
         setActiveApp(AppID.VRWorld);
@@ -1331,7 +1308,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   title: charName,
                   body,
                   id: Math.abs(h) & 0x3FFFFFFF,
-                  schedule: { at: new Date(Date.now() + 250) },
                   smallIcon: 'ic_stat_icon_config_sample',
                   extra: { charId, source: 'proactive-chat' }
               }]
@@ -1352,6 +1328,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       const handle = LocalNotifications.addListener('localNotificationActionPerformed', (event) => {
           try {
               const extra = event.notification?.extra as Record<string, unknown> | undefined;
+              if (extra?.source === 'proactive-chat' && typeof extra.charId === 'string') {
+                  const charId = extra.charId;
+                  void import('../utils/nativeNotificationNavigation').then(m => m.requestNativeNotificationOpen(charId));
+                  return;
+              }
               if (!isTaskReminderNotification(extra)) return;
               const charId = getCharIdFromReminder(extra);
               if (!charId) return;
@@ -2578,14 +2559,33 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   useEffect(() => {
       if (!isDataLoaded || characters.length === 0) return;
       let cancelled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      let refreshRequested = false;
+      // Bulk imports and other tabs can write directly to IndexedDB. Normal saves wake us immediately.
+      const idleInterval = isNativeRuntimePlatform() ? 60_000 : 5000;
+      const scheduleCheck = (delay: number) => {
+          clearTimeout(timer);
+          if (!cancelled) timer = setTimeout(checkAllSchedules, Math.max(0, delay));
+      };
       const checkAllSchedules = async () => {
-          if (cancelled || scheduledDeliveryInFlightRef.current) return;
+          if (cancelled) return;
+          if (scheduledDeliveryInFlightRef.current) {
+              scheduleCheck(250);
+              return;
+          }
           scheduledDeliveryInFlightRef.current = true;
+          refreshRequested = false;
+          let nextCheckAt = Date.now() + 5000;
           try {
+          const { dueCharacters, nextDueAt } = await DB.getScheduledDeliveryPlan();
+          if (cancelled) return;
+          nextCheckAt = Math.min(nextDueAt, Date.now() + (dueCharacters.size ? 5000 : idleInterval));
+          if (!dueCharacters.size) return;
           let hasNewMessage = false;
           const unreadUpdates: Record<string, number> = {};
 
           for (const char of characters) {
+              if (!dueCharacters.has(char.id)) continue;
               try {
                   // 用户正在 DateApp 里和这个角色见面 —— 角色之前排好的定时消息
                   // ([schedule_message] 指令) 这轮先压着不投递（不删不读），
@@ -2609,7 +2609,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                       if (cancelled) return;
                       hasNewMessage = true;
                       // Use refs for latest state (avoids stale closure & unnecessary deps)
-                      const isChattingWithThisChar = activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === char.id;
+                      const isChattingWithThisChar = !document.hidden && activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === char.id;
 
                       // If not chatting specifically with this char right now, mark as unread
                       if (!isChattingWithThisChar) {
@@ -2655,13 +2655,24 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
                   return next;
               });
           }
+          } catch (error) {
+              console.warn('[ScheduledMessages] queue read failed', error);
           } finally {
               scheduledDeliveryInFlightRef.current = false;
+              scheduleCheck(refreshRequested ? 0 : nextCheckAt - Date.now());
           }
       };
-      schedulerRef.current = setInterval(checkAllSchedules, 5000);
+      const wake = () => { refreshRequested = true; scheduleCheck(0); };
+      const onVisible = () => { if (!document.hidden) wake(); };
+      window.addEventListener('sully-scheduled-message-saved', wake);
+      document.addEventListener('visibilitychange', onVisible);
       checkAllSchedules();
-      return () => { cancelled = true; if (schedulerRef.current) clearInterval(schedulerRef.current); };
+      return () => {
+          cancelled = true;
+          clearTimeout(timer);
+          window.removeEventListener('sully-scheduled-message-saved', wake);
+          document.removeEventListener('visibilitychange', onVisible);
+      };
   }, [isDataLoaded, characters]);
 
   const clearUnread = useCallback((charId: string) => {
@@ -2693,7 +2704,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           const { charId, charName, body, roundKey, nativeNotificationHandled } = (e as CustomEvent).detail as { charId: string; charName: string; body?: string; roundKey?: string; nativeNotificationHandled?: boolean };
           setLastMsgTimestamp(Date.now());
 
-          const isChattingWithThisChar = (activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId) || isEmbeddedChatVisible(charId);
+          const isChattingWithThisChar = !document.hidden && ((activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId) || isEmbeddedChatVisible(charId));
           if (!isChattingWithThisChar) {
               const isVisible = document.visibilityState === 'visible';
               const repeatRound = isRepeatRound(charId, roundKey);
@@ -2704,7 +2715,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
               }
               setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
               const preview = (body || `${charName} sent an active message`).replace(/\s+/g, ' ').trim() || `${charName} sent an active message`;
-              if (!nativeNotificationHandled) void sendProactiveNativeNotification(charId, charName, preview);
+              if (!nativeNotificationHandled && !repeatRound) void sendProactiveNativeNotification(charId, charName, preview);
               // SW push handler 已经 fire 过系统通知（不在前台时露出真实内容、在前台时
               // silent + close 静默），这里不再补一次，避免重复弹窗。
           }
@@ -2800,14 +2811,16 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       //   - replyEnd（finally，含失败路径）→ 只 bump 时间戳，把 catch 里落库的
       //     错误系统消息也刷出来。
       const chatReplyArrivedHandler = (e: Event) => {
-          const { charId, charName } = ((e as CustomEvent).detail || {}) as { charId?: string; charName?: string };
+          const { charId, charName, nativeNotificationHandled } = ((e as CustomEvent).detail || {}) as Partial<ChatGenDetail>;
           if (!charId) return;
           setLastMsgTimestamp(Date.now());
-          const isChattingWithThisChar = (activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId) || isEmbeddedChatVisible(charId);
+          const isChattingWithThisChar = !document.hidden && ((activeAppRef.current === AppID.Chat && activeCharIdScheduleRef.current === charId) || isEmbeddedChatVisible(charId));
           if (!isChattingWithThisChar) {
               setUnreadMessages(prev => ({ ...prev, [charId]: (prev[charId] || 0) + 1 }));
               if (document.visibilityState === 'visible') {
                   addToast(`${charName || '角色'} 回复了消息`, 'success');
+              } else if (!nativeNotificationHandled) {
+                  void sendProactiveNativeNotification(charId, charName || '角色', '回复已收到，点此查看');
               }
           }
       };
@@ -2878,6 +2891,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
       window.addEventListener('amsg-tool-config-conflict', toolConfigConflictHandler);
       window.addEventListener('active-msg-received', handler);
+      window.addEventListener('proactive-message-sent', handler);
       window.addEventListener('active-msg-process-failed', inboxFailHandler);
       window.addEventListener('active-msg-backfill-stale', backfillStaleHandler);
       window.addEventListener('active-msg-progress', progressHandler);
@@ -2885,7 +2899,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       // Dynamic import keeps the native-only handoff off the regular web startup path.
       let disposeNativeOpen: (() => void) | undefined;
       let nativeOpenCancelled = false;
-      if (import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true') {
+      if (import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true' || isNativeRuntimePlatform()) {
           void import('../utils/nativeNotificationNavigation').then(({ subscribeNativeNotificationOpen }) => {
               if (!nativeOpenCancelled) disposeNativeOpen = subscribeNativeNotificationOpen(charId => {
                   void openHandler(new CustomEvent('active-msg-open', { detail: { charId } }));
@@ -2907,6 +2921,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       document.addEventListener('visibilitychange', onVisible);
       return () => {
           window.removeEventListener('active-msg-received', handler);
+          window.removeEventListener('proactive-message-sent', handler);
           window.removeEventListener('active-msg-process-failed', inboxFailHandler);
           window.removeEventListener('amsg-tool-config-conflict', toolConfigConflictHandler);
           window.removeEventListener('active-msg-backfill-stale', backfillStaleHandler);
@@ -3678,25 +3693,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       };
       window.addEventListener('world-reroll-request', onRerollRequest as EventListener);
 
-      // Native timer wakeups: when durable native timers fire (after WebView was killed),
-      // they dispatch proactive-native-wake / vr-native-wake / world-native-wake.
-      // Here we bridge them to the existing runProactive/runVR/runWorld callbacks.
-      const onProactiveNativeWake = (e: Event) => {
-        const charId = (e as CustomEvent).detail?.charId;
-        if (charId) void runProactive(charId);
-      };
-      const onVrNativeWake = (e: Event) => {
-        const charId = (e as CustomEvent).detail?.charId;
-        if (charId) void runVR(charId);
-      };
-      const onWorldNativeWake = (e: Event) => {
-        const worldId = (e as CustomEvent).detail?.worldId;
-        if (worldId) void runWorld(worldId, 'tick');
-      };
-      window.addEventListener('proactive-native-wake', onProactiveNativeWake as EventListener);
-      window.addEventListener('vr-native-wake', onVrNativeWake as EventListener);
-      window.addEventListener('world-native-wake', onWorldNativeWake as EventListener);
-
       // 调度表存 localStorage 不随备份迁移，按 IndexedDB 里的世界配置对账
       void DB.getWorlds()
           .then(async worlds => {
@@ -3713,9 +3709,6 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           VRScheduler.onTrigger(() => {});
           WorldScheduler.onTrigger(() => {});
           window.removeEventListener('world-reroll-request', onRerollRequest as EventListener);
-          window.removeEventListener('proactive-native-wake', onProactiveNativeWake as EventListener);
-          window.removeEventListener('vr-native-wake', onVrNativeWake as EventListener);
-          window.removeEventListener('world-native-wake', onWorldNativeWake as EventListener);
       };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDataLoaded]);

@@ -42,6 +42,7 @@ export const CHAT_GEN_EVENTS = {
 } as const;
 
 export interface ChatGenDetail {
+    nativeNotificationHandled?: boolean;
     charId: string;
     charName: string;
     /** emotionFailed 专用：失败原因（人话，可直接展示给用户） */

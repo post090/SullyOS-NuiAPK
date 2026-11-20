@@ -4,6 +4,7 @@ import { ChatParser } from '../chatParser';
 import { CHAT_GEN_EVENTS, announceChatGen } from '../chatGenEvents';
 import { appendDevDebugLog } from '../devDebug';
 import { sanitizeForNotification } from '../sanitize';
+import { extractContent, parseRawBodyText } from '../safeApi';
 import { clearNativeJob, getNativeJob } from './nativeRuntime';
 import {
   getRecoverableChatJobs,
@@ -66,7 +67,16 @@ async function recoverCompletedJob(job: ChatGenerationJob): Promise<boolean> {
     return true;
   }
 
-  const raw = extractAssistantContent(native.response?.body || '');
+  const response = native.response;
+  if (!response || response.statusCode < 200 || response.statusCode >= 300) {
+    return failCompletedJob(job, '后台请求未成功');
+  }
+  let raw: string;
+  try {
+    raw = extractContent(parseRawBodyText(response.body || '', response.statusCode, response.headers?.['content-type']));
+  } catch {
+    return failCompletedJob(job, '后台回复无法解析');
+  }
   if (!raw) return failCompletedJob(job, '后台回复为空');
 
   const saved = await replayRecoveredAssistant(job, raw);
@@ -81,7 +91,7 @@ async function recoverCompletedJob(job: ChatGenerationJob): Promise<boolean> {
     charName: job.charName,
     messages: saved,
   });
-  announceChatGen(CHAT_GEN_EVENTS.replyArrived, { charId: job.charId, charName: job.charName || '角色' });
+  announceChatGen(CHAT_GEN_EVENTS.replyArrived, { charId: job.charId, charName: job.charName || '角色', nativeNotificationHandled: native.nativeReplyNotification });
   return true;
 }
 
@@ -181,30 +191,6 @@ async function markInterrupted(job: ChatGenerationJob, reason: string): Promise<
     reason,
   });
   try { await clearNativeJob(job.nativeJobId); } catch { /* ignore */ }
-}
-
-function extractAssistantContent(body: string): string {
-  if (!body.trim()) return '';
-  try {
-    const json = JSON.parse(body);
-    return String(json?.choices?.[0]?.message?.content || json?.choices?.[0]?.message?.reasoning_content || '').trim();
-  } catch {
-    return body.trimStart().startsWith('data:') ? extractFromSse(body) : body.trim();
-  }
-}
-
-function extractFromSse(body: string): string {
-  let out = '';
-  for (const line of body.split(/\r?\n/)) {
-    if (!line.startsWith('data:')) continue;
-    const payload = line.slice(5).trim();
-    if (!payload || payload === '[DONE]') continue;
-    try {
-      const chunk = JSON.parse(payload);
-      out += chunk?.choices?.[0]?.delta?.content || chunk?.choices?.[0]?.message?.content || '';
-    } catch { /* ignore */ }
-  }
-  return out.trim();
 }
 
 function pruneOldJobs(): void {

@@ -24,13 +24,23 @@ export interface NativeHttpResult {
 
 const abortError = () => new DOMException('Native job aborted', 'AbortError');
 
-/** 可被 signal 打断的等待：轮询间隔里点了停止，不必等满这一拍。 */
-const sleep = (ms: number, signal?: AbortSignal | null) => new Promise<void>((resolve, reject) => {
-  if (signal?.aborted) { reject(abortError()); return; }
-  const onAbort = () => { clearTimeout(timer); reject(abortError()); };
-  const timer = setTimeout(() => { signal?.removeEventListener('abort', onAbort); resolve(); }, ms);
-  signal?.addEventListener('abort', onAbort, { once: true });
-});
+function waitForNativeUpdate(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise(resolve => {
+    const wake = () => {
+      clearTimeout(timer);
+      globalThis.window?.removeEventListener('sully-native-job-finished', wake);
+      globalThis.document?.removeEventListener('visibilitychange', resume);
+      signal?.removeEventListener('abort', wake);
+      resolve();
+    };
+    const resume = () => { if (!document.hidden) wake(); };
+    const timer = setTimeout(wake, ms);
+    globalThis.window?.addEventListener('sully-native-job-finished', wake);
+    globalThis.document?.addEventListener('visibilitychange', resume);
+    signal?.addEventListener('abort', wake, { once: true });
+    if (signal?.aborted) wake();
+  });
+}
 
 export async function enqueueAndWaitNativeHttp(request: NativeHttpRequest): Promise<NativeHttpResult> {
   const { signal, ...jobInput } = request;
@@ -52,9 +62,9 @@ async function waitNativeHttp(request: NativeHttpRequest, signal?: AbortSignal |
   const startedAt = Date.now();
   const timeoutMs = Math.max(15_000, request.timeoutMs ?? 120_000);
   let delay = 350;
-  while (Date.now() - startedAt <= timeoutMs + 5_000) {
+  for (;;) {
     if (signal?.aborted) throw abortError();
-    const job = await getNativeJob(request.jobId);
+    const job = await getNativeJob(request.jobId, true);
     // 轮询返回前点了停止：即使已经完成也不交付。
     if (signal?.aborted) throw abortError();
     if (!job) throw new Error(`Native job not found: ${request.jobId}`);
@@ -70,11 +80,12 @@ async function waitNativeHttp(request: NativeHttpRequest, signal?: AbortSignal |
     if (job.status === 'failed' || job.status === 'cancelled') {
       throw new Error(job.error || `Native job ${job.status}`);
     }
-    await sleep(delay, signal);
-    delay = Math.min(1500, Math.round(delay * 1.25));
+    // A frozen WebView can resume long after the deadline with a successful reply already on disk.
+    const remaining = startedAt + timeoutMs + 5_000 - Date.now();
+    if (remaining <= 0) throw new Error(`Native job timeout: ${request.jobId}`);
+    await waitForNativeUpdate(Math.min(delay, remaining), signal);
+    delay = Math.min(8000, delay * 2);
   }
-
-  throw new Error(`Native job timeout: ${request.jobId}`);
 }
 
 function normalizeHeaders(headers: unknown): Record<string, string> {
