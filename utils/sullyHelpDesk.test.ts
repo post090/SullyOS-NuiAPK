@@ -22,6 +22,7 @@ const { openApp } = vi.hoisted(() => ({ openApp: vi.fn() }));
 vi.mock('../context/OSContext', () => ({
     useOS: () => ({
         openApp, isDataLoaded: true, activeCharacterId: 'first',
+        registerBackHandler: () => () => {},
         characters: [
             { id: 'first', name: '角色甲', systemPrompt: 'PRIVATE-PERSONA', memoryPalaceEnabled: true },
             { id: 'second', name: '角色乙', dialogueApi: { baseUrl: 'https://override.test', apiKey: 'PRIVATE-KEY', model: 'second-model' } },
@@ -153,10 +154,10 @@ it.each([
     ['怎么让某一个角色换模型', '神经链接', '为角色使用独立 API'],
     ['自动回复的开关在哪', 'Message', '发完后自动生成回复'],
     ['同一个 API 地址怎么复制预设换模型', '设置', '保存副本'],
-    ['表情包都裂了，在哪刷新清掉失效的？', 'Message', '清除失效表情'],
-    ['我想给一个角色分配专属表情包，在哪开', 'Message', '设置可见角色'],
-    ['角色能看到表情包的图吗，还是只看到名字', 'Message', '只传文字'],
-    ['表情包怎么下载整个分类的动图原图？', 'Message', '下载分类全部原图'],
+    ['表情包都裂了，在哪刷新清掉失效的？', 'Message', '点「一键清理」再次确认'],
+    ['我想给一个角色分配专属表情包，在哪开', 'Message', '「角色分配」先选角色，再勾选允许 TA 使用的分组'],
+    ['角色能看到表情包的图吗，还是只看到名字', 'Message', '让 TA 看懂我发的表情图片'],
+    ['表情包怎么下载整个分类的动图原图？', 'Message', '多张导出 ZIP 并保留分组'],
     ['表情包在本机存的是什么格式，图床挂了还能用吗？', 'Message', '原图字节'],
     ['全自动记忆在哪开', '记忆宫殿', '保存副 API 配置'],
     ['哪里可以手动安排明天的主动消息', '主动消息 2.0', '新建定时任务'],
@@ -250,7 +251,7 @@ it('opens from chat, looks up missing areas once, and resumes the same local que
     const payload = (index: number) => JSON.parse(String(transport.mock.calls[index][1].body)).messages;
     try {
         await DB.deleteAsset('sully-11-history-v1');
-        await act(async () => root.render(React.createElement(SullyHelpCard)));
+        await act(async () => root.render(React.createElement(SullyHelpCard, { onOpen: () => openApp(AppID.FAQ) })));
         expect(host.querySelector('img')?.getAttribute('src')).toBe('sully/sully-11.png');
         await act(async () => host.querySelector('button')!.click());
         expect(openApp).toHaveBeenCalledWith(AppID.FAQ);

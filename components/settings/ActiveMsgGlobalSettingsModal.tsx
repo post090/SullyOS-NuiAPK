@@ -11,6 +11,7 @@ import type { AmsgConnection } from '../../utils/amsgConnectionCode';
 import { detectCapacitorNative } from '../../utils/pushSubscribeShared';
 import { AmsgIcon } from './AmsgArtwork';
 import { useLocalBackHandler } from '../../hooks/useLocalBackHandler';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import ConfirmDialog from '../os/ConfirmDialog';
 import AmsgIntroDemo from './AmsgIntroDemo';
 import { ActiveMsg2GlobalConfig, CharacterGroup, CharacterProfile, RealtimeConfig } from '../../types';
@@ -29,7 +30,12 @@ import {
 import { ActiveMsgStore, isInstantChatSwitchedOn, maskActiveMsgUserId } from '../../utils/activeMsgStore';
 import { showInstantChatSendHelp } from '../../utils/instantChatSendHelp';
 import { AmsgRescueSettingsBanner } from '../AmsgRescueAlert';
-import { AMSG_GLOBAL_CONFIG_EVENT, isAmsg2GloballyEnabled, isAmsg2WorkerActive } from '../../utils/amsgGlobalGate';
+import {
+  AMSG_CRON_TRIGGER_EVENT,
+  AMSG_GLOBAL_CONFIG_EVENT,
+  isAmsg2GloballyEnabled,
+  isAmsg2WorkerActive,
+} from '../../utils/amsgGlobalGate';
 import { setAmsg2GlobalEnabled } from '../../utils/amsgGlobalSwitch';
 import { formatTaskTime } from '../../utils/amsg2Tasks';
 import { isWorkerUrlCleared } from '../../utils/amsgStateSync';
@@ -304,6 +310,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   onReenabledAfterConnect,
   onOpenPushStatus,
 }) => {
+  const { requestConfirm, confirmDialog } = useConfirmDialog({ portal: true });
   const [config, setConfig] = useState<ActiveMsg2GlobalConfig | null>(null);
   const [configLoadError, setConfigLoadError] = useState('');
   const configRequestIdRef = useRef(0);
@@ -415,6 +422,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   /** 「暂停后台任务」的确认框开着没有。恢复不用确认。 */
   const [pauseConfirmOpen, setPauseConfirmOpen] = useState(false);
   const [relayConfirmOpen, setRelayConfirmOpen] = useState(false);
+  const [showThirdPartyToken, setShowThirdPartyToken] = useState(false);
   /** 中转令牌近 30 天的用量；null = 还没查（或没开中转、令牌格式不对）。 */
   const [relayUsage, setRelayUsage] = useState<RelayUsageResult | null>(null);
   useLocalBackHandler(() => { setPauseConfirmOpen(false); return true; }, 60, isOpen && !covered && pauseConfirmOpen);
@@ -618,6 +626,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     setGeneratedServerToken('');
     // CF Token 更要清：它比上面两个都重，绝不留到下次打开。
     setCfToken('');
+    setShowThirdPartyToken(false);
     setDiscoveryRequest(null);
     setExistingSetup(false);
     setReconfigure(null); reconfigureOrigin.current = null; setVerifiedConnection(null);
@@ -643,7 +652,22 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   }, [isOpen]);
 
   useEffect(() => {
+    if (!isOpen) return;
+    const onCronChanged = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ enabled?: boolean }>).detail;
+      if (detail && typeof detail.enabled === 'boolean') {
+        setCronState({ kind: 'known', enabled: detail.enabled });
+      }
+    };
+    window.addEventListener(AMSG_CRON_TRIGGER_EVENT, onCronChanged);
+    return () => window.removeEventListener(AMSG_CRON_TRIGGER_EVENT, onCronChanged);
+  }, [isOpen]);
+
+  useEffect(() => {
     if (isOpen && !covered && workspaceSection === 'push' && config) void refreshPushStatus(config);
+    if (isOpen && !covered && config && config.initializedAt && isAmsg2WorkerActive(config)) {
+      void ActiveMsgClient.getCronTriggerState().then(applyCronTriggerState);
+    }
     // Re-entering the device page rechecks permissions without saving or registering a subscription.
   }, [workspaceSection, covered]);
 
@@ -661,7 +685,19 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
    * 再没有别的地方记得它，用户想回去清都找不到门。
    */
   const confirmDetachWorker = async (previousUrl: string): Promise<boolean> => {
-    const ok = confirm(`清空 Worker 地址之后，那台 Worker 上已经排好的定时任务不会被取消——它们仍会按时触发、照常推送，只是这边管不到了。\n\n地址：${previousUrl}\n\n想连任务一起停掉的话，请先用下面「高级信息」里的「清空云端数据」清一遍，再回来清空地址。\n\n仍然清空吗？`);
+    const ok = await requestConfirm({
+      title: '清空 Worker 地址？',
+      message: (
+        <div className="space-y-2">
+          <p>清空 Worker 地址之后，那台 Worker 上已经排好的定时任务不会被取消——它们仍会按时触发、照常推送，只是这边管不到了。</p>
+          <p className="font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 break-all text-slate-700">{previousUrl}</p>
+          <p>想连任务一起停掉的话，请先用下面「高级信息」里的「清空云端数据」清一遍，再回来清空地址。</p>
+        </div>
+      ),
+      confirmText: '仍然清空',
+      cancelText: '保留地址',
+      variant: 'warning',
+    });
     if (!ok) return false;
     rememberDetachedWorker(previousUrl);
     addToast('地址已清空，云端那份没动。想清的话把地址填回来，用「清空云端数据」清一遍。', 'info');
@@ -759,6 +795,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const handleSwitchPushMode = async (nextMode: 'web-push' | 'third-party') => {
     if (!config) return;
     setShowNtfyInfo(false);
+    setShowThirdPartyToken(false);
     const nextThirdParty = config.thirdPartyPush || { provider: 'wxpusher' as const, token: '' };
     patchConfig({ pushMode: nextMode, thirdPartyPush: nextThirdParty });
     await ActiveMsgStore.saveGlobalConfig({
@@ -775,6 +812,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
   const handleSelectThirdPartyProvider = async (nextProvider: ThirdPartyPushProvider) => {
     if (!config) return;
     setShowNtfyInfo(false);
+    setShowThirdPartyToken(false);
     const prevTp = config.thirdPartyPush || { provider: 'wxpusher' as const, token: '' };
     const nextThirdParty = {
       ...prevTp,
@@ -1306,7 +1344,21 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     addToast(next ? '已开启全局即时对话，角色各自关闭的设置会保留。' : '已关闭全局即时对话，所有角色的聊天回到本机生成。', 'success');
   };
 
-  const handleGenerateServerToken = () => {
+  const handleGenerateServerToken = async () => {
+    const hasExisting = Boolean(
+      config?.serverToken?.trim()
+      || savedServerTokenRef.current.trim()
+      || (config?.initializedAt && config?.workerUrl?.trim()),
+    );
+    if (hasExisting) {
+      const ok = await requestConfirm({
+        title: '重新生成共享密钥？',
+        message: '生成新密钥会覆盖当前共享密钥。在把新密钥同步更新到 Cloudflare Worker 的 AMSG_SERVER_TOKEN 之前，现有 Worker 的请求都会返回 401。',
+        confirmText: '确认重新生成',
+        variant: 'warning',
+      });
+      if (!ok) return;
+    }
     const token = generateClientToken();
     patchConfig({ serverToken: token });
     trackEvent('生成 2.0 Worker 密钥', { which: 'server_token' });
@@ -1351,10 +1403,17 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
         await onToggleGlobalEnabled(next);
       } else {
         const res = await setAmsg2GlobalEnabled(next, { realtimeConfig });
-        addToast(
-          res.cronNotice || (next ? '已恢复主动消息 2.0。' : '已暂停主动消息 2.0，连接配置已保留。'),
-          res.cronNotice ? 'info' : 'success',
-        );
+        if (!res.ok) {
+          addToast(
+            res.errorMessage || '网络波动，未成功开启主动消息 2.0，请稍后重试。',
+            'error',
+          );
+        } else {
+          addToast(
+            res.cronNotice || (next ? '已恢复主动消息 2.0。' : '已暂停主动消息 2.0，连接配置已保留。'),
+            res.cronNotice ? 'info' : 'success',
+          );
+        }
       }
       await refresh();
     } finally {
@@ -1574,8 +1633,14 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
             <button
               type="button"
               disabled={provisioning || !cfToken.trim()}
-              onClick={() => {
-                if (!confirm('旧数据库里的数据会全部清掉（已排的主动消息、云端保存的角色状态和凭据），清了找不回来。\n\n确定清空并继续部署吗？')) return;
+              onClick={async () => {
+                const ok = await requestConfirm({
+                  title: '清空旧数据库并继续部署？',
+                  message: '旧数据库里的数据会全部清掉（已排的主动消息、云端保存的角色状态和凭据），清了找不回来。',
+                  confirmText: '清空并部署',
+                  variant: 'danger',
+                });
+                if (!ok) return;
                 void handleOneClickDeploy(staleDatabase.accountId, true);
               }}
               className="w-full py-2.5 rounded-xl text-xs font-bold bg-white border border-rose-300 text-rose-600 active:scale-95 transition-transform disabled:opacity-50"
@@ -2074,20 +2139,35 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
                   </p>
 
                   <div>
-                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 block pl-1">
-                      {providerMeta.tokenLabel}
-                    </label>
+                    <div className="flex items-center justify-between mb-1 pl-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                        {providerMeta.tokenLabel}
+                      </label>
+                      {tp.token ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowThirdPartyToken((v) => !v)}
+                          className="text-[10px] font-medium text-slate-500 hover:text-slate-700 px-1"
+                        >
+                          {showThirdPartyToken ? '隐藏' : '显示'}
+                        </button>
+                      ) : null}
+                    </div>
                     <input
-                      type="text"
+                      type={showThirdPartyToken ? 'text' : 'password'}
                       value={tp.token || ''}
-                      onChange={(e) => patchConfig({
-                        pushMode: 'third-party',
-                        thirdPartyPush: {
-                          ...tp,
-                          provider: providerMeta.id,
-                          token: e.target.value,
-                        },
-                      })}
+                      onChange={(e) => {
+                        const nextToken = e.target.value;
+                        if (!nextToken) setShowThirdPartyToken(false);
+                        patchConfig({
+                          pushMode: 'third-party',
+                          thirdPartyPush: {
+                            ...tp,
+                            provider: providerMeta.id,
+                            token: nextToken,
+                          },
+                        });
+                      }}
                       placeholder={providerMeta.tokenPlaceholder}
                       autoComplete="off"
                       className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-mono"
@@ -2484,8 +2564,8 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
 
   const modernTabs = [
     { id: 'connection', label: '连接与迁移' },
-    { id: 'maintenance', label: '后台地址与维护' },
-    { id: 'diagnostics', label: '运行体检' },
+    { id: 'maintenance', label: '后台地址与维护', attention: !isConnected || workerOutdated || workerVersion?.state === 'outdated' || cronPaused },
+    { id: 'diagnostics', label: '运行体检', attention: diagnosticLevel === 'bad' || diagnosticLevel === 'warn' },
     { id: 'cloud', label: '云端数据' },
     { id: 'advanced', label: '高级维护' },
   ];
@@ -2539,8 +2619,9 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
     <div hidden={workspaceSection !== 'overview'} className="amsg-section-body">
       <AmsgVisitedPanel active={isOpen && workspaceSection === 'overview'}>
       <AmsgConnectionGate connected={isConnected} onConnect={() => onSelectWorkspace?.('config')}>
-        <AmsgOverview connected={isConnected} active={isOpen && !covered && workspaceSection === 'overview'} enabled={globallyEnabled} instantEnabled={instantChatOn} busy={loading || provisioning} instantBlockedReason={instantChatBlockedReason}
-          characters={characters} characterGroups={characterGroups} onConfigureCharacter={isConnected ? onConfigureCharacter : undefined} onToggleEnabled={() => void handleToggleMasterSwitch()} onToggleInstant={() => void handleToggleInstantChat()} />
+        <AmsgOverview connected={isConnected} active={isOpen && !covered && workspaceSection === 'overview'} enabled={globallyEnabled} cronPaused={cronPaused} instantEnabled={instantChatOn} busy={loading || provisioning} instantBlockedReason={instantChatBlockedReason}
+          characters={characters} characterGroups={characterGroups} onConfigureCharacter={isConnected ? onConfigureCharacter : undefined} onToggleEnabled={() => void handleToggleMasterSwitch()} onToggleInstant={() => void handleToggleInstantChat()}
+          onResumeCron={() => void applyCronTrigger(true)} onOpenMaintenance={() => { setFeatureTab('maintenance'); onSelectWorkspace?.('features'); }} />
       </AmsgConnectionGate>
       </AmsgVisitedPanel>
     </div>
@@ -2672,6 +2753,7 @@ const ActiveMsgGlobalSettingsModal: React.FC<ActiveMsgGlobalSettingsModalProps> 
       }}
       onCancel={() => setRelayConfirmOpen(false)}
     />
+    {confirmDialog}
     </>
   );
 };

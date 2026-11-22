@@ -1,3 +1,4 @@
+import { INIT_SQL, getVectorSyncProgress, subscribeVectorSync, syncLocalToRemote, testConnection } from '../utils/memoryPalace/supabaseVector';
 import { ContextBuilder } from '../utils/context';
 
 import MemoryMaintenancePanel from '../components/chat/MemoryMaintenancePanel';
@@ -44,6 +45,7 @@ import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } fr
 import GlassSelect from '../components/os/GlassSelect';
 import ApiConnectionPicker from '../components/os/ApiConnectionPicker';
 import TokenImg from '../components/os/TokenImg';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import {
     CONTEXT_RANGE_POLICY_VERSION,
     DEFAULT_MANUAL_CONTEXT_LIMIT,
@@ -758,6 +760,7 @@ const MemoryWaterlineEditor: React.FC<{
 export default function MemoryPalaceApp() {
     const guideStep = useFirstUseGuideStep();
     const { activeCharacterId, characters, updateCharacter, setActiveCharacterId, closeApp, apiPresets, userProfile, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, updateRemoteVectorConfig, addToast, apiConfig, characterGroups, groups, realtimeConfig } = useOS();
+    const { requestConfirm, confirmDialog } = useConfirmDialog({ portal: true });
     const char = characters.find(c => c.id === activeCharacterId);
     const [selectGroupId, setSelectGroupId] = useState(GROUP_FILTER_ALL); // 选角色页的分组筛选
 
@@ -1086,7 +1089,10 @@ export default function MemoryPalaceApp() {
     const [rvKey, setRvKey] = useState(remoteVectorConfig.supabaseAnonKey);
     const [rvTestResult, setRvTestResult] = useState('');
     const [rvTesting, setRvTesting] = useState(false);
-    const [rvSyncing, setRvSyncing] = useState(false);
+    const rvSync = React.useSyncExternalStore(subscribeVectorSync, () => getVectorSyncProgress(remoteVectorConfig));
+    const rvSyncing = !!rvSync?.running;
+    const rvTestAttempt = useRef(0);
+    const rvCredentialsSaved = rvUrl === remoteVectorConfig.supabaseUrl && rvKey === remoteVectorConfig.supabaseAnonKey;
     const [showInitSQL, setShowInitSQL] = useState(false);
 
     // 全局配置变更时同步到本地状态
@@ -1294,7 +1300,13 @@ export default function MemoryPalaceApp() {
 
     const handleDeleteAnticipation = async () => {
         if (!editingAnticipation) return;
-        if (!window.confirm('确定删除这条窗台期盼吗？删除后不会自动恢复。')) return;
+        const confirmed = await requestConfirm({
+            title: '删除窗台期盼？',
+            message: '确定删除这条窗台期盼吗？删除后不会自动恢复。',
+            confirmText: '删除',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
         setSavingAnticipation(true);
         try {
             await AnticipationDB.delete(editingAnticipation.id);
@@ -1432,11 +1444,17 @@ export default function MemoryPalaceApp() {
             addToast('盒内没有可用于重新整合的原始记忆', 'error');
             return;
         }
-        if (!window.confirm(
-            `重新整合「${box.name || '未命名事件'}」？\n\n`
-            + `副 API 会重新读取盒内全部 ${sourceCount} 条原始记忆，不使用当前整合回忆；`
-            + `随后重新生成记忆索引。成功后，本次参与整合的近期片段会合入总结（保留原文），累计合入满 12 条会封盒；失败则保持原样。`,
-        )) return;
+        const confirmed = await requestConfirm({
+            title: `重新整合「${box.name || '未命名事件'}」？`,
+            message: (
+                <span className="whitespace-pre-line">
+                    {`副 API 会重新读取盒内全部 ${sourceCount} 条原始记忆，不使用当前整合回忆；随后重新生成记忆索引。\n\n成功后，本次参与整合的近期片段会合入总结（保留原文），累计合入满 12 条会封盒；失败则保持原样。`}
+                </span>
+            ),
+            confirmText: '重新整合',
+            variant: 'warning',
+        });
+        if (!confirmed) return;
 
         setRegeneratingBoxId(box.id);
         try {
@@ -1480,11 +1498,17 @@ export default function MemoryPalaceApp() {
         if (!char) return;
         const liveCount = box.liveMemoryIds.length;
         if (liveCount === 0) return;
-        if (!confirm(
-            `把「${box.name || '未命名'}」里的 ${liveCount} 条近期片段全部移出？\n\n`
-            + `这些记忆不会被删除，只是脱离当前事件盒、变回普通独立记忆。\n`
-            + `整合回忆和已合入总结的旧片段保持不动。`
-        )) return;
+        const confirmed = await requestConfirm({
+            title: '一键移出近期片段？',
+            message: (
+                <span className="whitespace-pre-line">
+                    {`把「${box.name || '未命名'}」里的 ${liveCount} 条近期片段全部移出？\n\n这些记忆不会被删除，只是脱离当前事件盒、变回普通独立记忆。整合回忆和已合入总结的旧片段保持不动。`}
+                </span>
+            ),
+            confirmText: '全部移出',
+            variant: 'warning',
+        });
+        if (!confirmed) return;
         try {
             await unbindAllLiveMemories(box.id);
             // 刷新 allBoxes + 展开态（盒可能已被整个删掉）
@@ -1787,7 +1811,14 @@ export default function MemoryPalaceApp() {
     };
     useAppShortcut(ShortcutAppID.MemoryPalace, (intent, isCurrent) => {
         setSelectedRoom(null); setSelectedNode(null); setShowCharPicker(false);
-        if (intent.entryId === 'globalSettings') { setView('globalSettings'); return; }
+        if (intent.entryId === 'globalSettings') {
+            setView('globalSettings');
+            if (intent.resourceId === 'remoteVector') requestAnimationFrame(() => {
+                const section = document.querySelector<HTMLDetailsElement>('[data-remote-vector-settings]');
+                if (section) { section.open = true; section.scrollIntoView({ block: 'start' }); }
+            });
+            return;
+        }
         const target = characters.find(c => c.id === intent.characterId);
         if (!target) { setView('picker'); return; }
         setActiveCharacterId(target.id);
@@ -2000,21 +2031,21 @@ export default function MemoryPalaceApp() {
 
     // 远程向量：测试连接
     const handleTestRemoteVector = async () => {
+        const attempt = ++rvTestAttempt.current;
         setRvTesting(true);
         setRvTestResult('');
         try {
-            const { testConnection } = await import('../utils/memoryPalace/supabaseVector');
             const result = await testConnection({ enabled: true, supabaseUrl: rvUrl, supabaseAnonKey: rvKey, initialized: false });
+            if (attempt !== rvTestAttempt.current) return;
             if (result.ok && result.tableExists) setRvTestResult('[ok]' + result.message);
-            else if (result.ok) setRvTestResult('[warn]' + result.message);
             else setRvTestResult('[err]' + result.message);
-        } catch (e: any) { setRvTestResult('[err]' + e.message); }
-        setRvTesting(false);
+        } catch (e: any) { if (attempt === rvTestAttempt.current) setRvTestResult('[err]' + e.message); }
+        if (attempt === rvTestAttempt.current) setRvTesting(false);
     };
 
     // 远程向量：保存配置
     const handleSaveRemoteVector = () => {
-        const initialized = rvTestResult.startsWith('[ok]');
+        const initialized = rvTestResult.startsWith('[ok]') || (!rvTestResult && rvCredentialsSaved && remoteVectorConfig.initialized);
         updateRemoteVectorConfig({ enabled: true, supabaseUrl: rvUrl, supabaseAnonKey: rvKey, initialized });
         addToast('远程向量存储配置已保存', 'success');
     };
@@ -2027,46 +2058,31 @@ export default function MemoryPalaceApp() {
 
     // 远程向量：同步本地到远程
     const handleSyncToRemote = async () => {
-        setRvSyncing(true);
         trackEvent('同步记忆向量到云端');
         try {
-            const { syncLocalToRemote } = await import('../utils/memoryPalace/supabaseVector');
-            const { MemoryNodeDB } = await import('../utils/memoryPalace/db');
-            const result = await syncLocalToRemote(
-                remoteVectorConfig,
-                async () => {
-                    const allVectors = await (await import('../utils/db')).openDB().then(db => new Promise<any[]>((resolve, reject) => {
-                        const tx = db.transaction('memory_vectors', 'readonly');
-                        const req = tx.objectStore('memory_vectors').getAll();
-                        req.onsuccess = () => resolve(req.result || []);
-                        req.onerror = () => reject(req.error);
-                    }));
-                    const items = [];
-                    for (const v of allVectors) {
-                        const node = await MemoryNodeDB.getById(v.memoryId);
-                        if (node) items.push({ memoryId: v.memoryId, charId: node.charId, vector: v.vector, node, dimensions: v.dimensions, model: v.model });
-                    }
-                    return items;
-                },
-                () => {},
-            );
-            addToast(`同步完成: ${result.synced} 条成功, ${result.failed} 条失败`, result.failed > 0 ? 'error' : 'success');
-        } catch (e: any) { addToast(`同步失败: ${e.message}`, 'error'); }
-        setRvSyncing(false);
+            const result = await syncLocalToRemote(remoteVectorConfig);
+            trackEvent('记忆向量同步结果', { 结果: result.reason ? (result.synced ? '部分完成' : '失败') : '完成' });
+            const summary = `同步结束：成功 ${result.synced} 条，失败 ${result.failed} 条`;
+            addToast(result.reason ? `${summary}。${result.reason}` : summary, result.reason ? 'error' : 'success');
+        } catch (error) {
+            addToast(error instanceof Error ? error.message : '同步未启动', 'error');
+        }
     };
 
     // 远程向量：复制初始化 SQL
     const handleCopyInitSQL = async () => {
         try {
-            const { INIT_SQL } = await import('../utils/memoryPalace/supabaseVector');
-            await navigator.clipboard.writeText(INIT_SQL).catch(() => {
+            try {
+                await navigator.clipboard.writeText(INIT_SQL);
+            } catch {
                 const ta = document.createElement('textarea');
                 ta.value = INIT_SQL;
                 document.body.appendChild(ta);
                 ta.select();
-                document.execCommand('copy');
-                document.body.removeChild(ta);
-            });
+                try {
+                    if (!document.execCommand('copy')) throw new Error('复制失败');
+                } finally { ta.remove(); }
+            }
             addToast('SQL 已复制到剪贴板', 'success');
         } catch { addToast('复制失败', 'error'); }
     };
@@ -2325,6 +2341,13 @@ export default function MemoryPalaceApp() {
     /** 批量删除选中的记忆 */
     const handleBatchDelete = async () => {
         if (selectedIds.size === 0 || !char) return;
+        const confirmed = await requestConfirm({
+            title: '批量删除记忆？',
+            message: `确定删除选中的 ${selectedIds.size} 条记忆吗？删除后无法恢复。`,
+            confirmText: '删除',
+            variant: 'danger',
+        });
+        if (!confirmed) return;
         setDeleting(true);
         try {
             const deletedIds = new Set<string>();
@@ -2393,8 +2416,20 @@ export default function MemoryPalaceApp() {
             : '即将清空【本地】所有记忆宫殿数据（云端保留）。\n\n' +
               '包括所有角色的记忆节点、向量、关联、事件盒、高水位标记。\n\n' +
               '此操作不可撤销。确定继续？';
-        if (!confirm(firstPrompt)) return;
-        if (!confirm('再次确认：真的要清空？')) return;
+        const firstConfirmed = await requestConfirm({
+            title: includeRemote ? '清空本地与云端记忆宫殿？' : '清空本地记忆宫殿？',
+            message: <span className="whitespace-pre-line">{firstPrompt}</span>,
+            confirmText: '继续',
+            variant: 'danger',
+        });
+        if (!firstConfirmed) return;
+        const secondConfirmed = await requestConfirm({
+            title: '再次确认清空',
+            message: '再次确认：真的要清空？此操作不可撤销。',
+            confirmText: '确定清空',
+            variant: 'danger',
+        });
+        if (!secondConfirmed) return;
 
         setWiping(true);
         setWipeResult(null);
@@ -2484,12 +2519,17 @@ export default function MemoryPalaceApp() {
             }
             const totalNodes = data.characters.reduce((s, c) => s + (c.nodes?.length || 0), 0);
             const hadVectors = data.includeVectors;
-            if (!confirm(
-                `即将把文件里的 ${totalNodes} 条记忆合并进【${char.name}】的记忆宫殿。\n\n`
-                + `· 不会覆盖现有记忆，是追加合并（重复导入会得到多份副本）。\n`
-                + (hadVectors ? '· 文件含向量，将一并导入。\n' : '· 文件不含向量，导入后这些记忆需重建向量才能被语义检索。\n')
-                + `\n确定继续？`
-            )) return;
+            const confirmed = await requestConfirm({
+                title: `导入 ${totalNodes} 条记忆？`,
+                message: (
+                    <span className="whitespace-pre-line">
+                        {`即将把文件里的 ${totalNodes} 条记忆合并进【${char.name}】的记忆宫殿。\n\n· 不会覆盖现有记忆，是追加合并（重复导入会得到多份副本）。\n${hadVectors ? '· 文件含向量，将一并导入。' : '· 文件不含向量，导入后这些记忆需重建向量才能被语义检索。'}`}
+                    </span>
+                ),
+                confirmText: '导入合并',
+                variant: 'warning',
+            });
+            if (!confirmed) return;
 
             const result = await importMemoryPalace(data, char.id);
             trackEvent('导入记忆宫殿备份');
@@ -2605,6 +2645,7 @@ export default function MemoryPalaceApp() {
         });
     };
 
+    const renderView = () => {
     // ─── 入口页：选角色（picker）─ view='picker' 或未选择 activeCharacterId 时渲染 ─────
     //     退出按钮在这里才真正关闭 App；其它 view 的"← 返回"只回到这一层
 
@@ -4223,7 +4264,7 @@ export default function MemoryPalaceApp() {
                 </details>
 
                 {/* 远程向量存储（Supabase，可选）— 默认折叠 */}
-                <details style={{ marginTop: 16, background: '#faf5ff', borderRadius: 16, padding: 16, border: '1px solid #e9d5ff' }}>
+                <details data-remote-vector-settings style={{ marginTop: 16, background: '#faf5ff', borderRadius: 16, padding: 16, border: '1px solid #e9d5ff' }}>
                     <summary style={{ cursor: 'pointer', userSelect: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
                         <span style={{ fontSize: 12, fontWeight: 700, color: '#7c3aed', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                             <Icon name="cloud" size={14} />
@@ -4235,7 +4276,7 @@ export default function MemoryPalaceApp() {
                                 color: remoteVectorConfig.initialized ? '#15803d' : '#92400e',
                                 background: remoteVectorConfig.initialized ? '#dcfce7' : '#fef3c7',
                             }}>
-                                {remoteVectorConfig.initialized ? '已连接' : '待初始化'}
+                                {remoteVectorConfig.initialized ? '已配置' : '待验证'}
                             </span>
                         )}
                     </summary>
@@ -4276,7 +4317,7 @@ export default function MemoryPalaceApp() {
 
                     {/* 3 步操作提示 */}
                     <div style={{ marginTop: 12, padding: 12, borderRadius: 12, background: '#f5f3ff', fontSize: 11, color: '#5b21b6', lineHeight: 1.8 }}>
-                        <b>3 步搞定：</b><br/>
+                        <b>首次创建项目：</b><br/>
                         1. 注册 Supabase（GitHub 一键登录，见上方教程）<br/>
                         2. 在 Supabase SQL Editor 里运行下方初始化 SQL<br/>
                         3. 填入 Project URL 和 anon key，点测试连接
@@ -4292,7 +4333,7 @@ export default function MemoryPalaceApp() {
                     {/* 初始化 SQL */}
                     <div style={{ marginTop: 12 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                            <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>初始化 SQL</span>
+                            <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 600 }}>初始化 / 升级 SQL</span>
                             <div style={{ display: 'flex', gap: 8 }}>
                                 <button onClick={() => setShowInitSQL(!showInitSQL)} style={{
                                     fontSize: 10, color: '#7c3aed', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer',
@@ -4311,38 +4352,27 @@ export default function MemoryPalaceApp() {
                             <pre style={{
                                 background: '#0f172a', color: '#86efac', fontSize: 9, padding: 12, borderRadius: 10,
                                 overflow: 'auto', maxHeight: 200, lineHeight: 1.6, whiteSpace: 'pre-wrap',
-                            }}>{`create extension if not exists vector;
-create table if not exists memory_vectors (
-  memory_id text primary key, char_id text not null,
-  content text not null default '', vector vector(1024),
-  dimensions int default 1024, model text, room text,
-  importance int default 5, tags text[] default '{}',
-  mood text default '',
-  created_at bigint default (extract(epoch from now()) * 1000)::bigint,
-  last_accessed_at bigint default 0,
-  access_count int default 0
-);
--- 完整 SQL 请点"复制"按钮获取`}</pre>
+                            }}>{INIT_SQL}</pre>
                         )}
-                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>复制此 SQL → Supabase Dashboard → SQL Editor → 运行</div>
+                        <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 4 }}>已配置的项目由 SullyOS 自动适配。首次建库可复制这份 SQL，默认向量维度为 1024。</div>
                     </div>
 
                     {/* Project URL & anon key */}
                     <div style={{ marginTop: 12 }}>
                         <label className={labelClass}>PROJECT URL</label>
-                        <input type="url" value={rvUrl} onChange={e => setRvUrl(e.target.value)}
+                        <input type="url" value={rvUrl} onChange={e => { ++rvTestAttempt.current; setRvTesting(false); setRvTestResult(''); setRvUrl(e.target.value); }}
                             placeholder="https://xxxxx.supabase.co" className={inputClass} />
                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2, paddingLeft: 4 }}>Settings → API → Project URL</div>
                     </div>
                     <div style={{ marginTop: 10 }}>
                         <label className={labelClass}>ANON / PUBLIC KEY</label>
-                        <input type="password" value={rvKey} onChange={e => setRvKey(e.target.value)}
+                        <input type="password" value={rvKey} onChange={e => { ++rvTestAttempt.current; setRvTesting(false); setRvTestResult(''); setRvKey(e.target.value); }}
                             placeholder="eyJhbGciOiJIUzI1NiIs..." className={inputClass} />
                         <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2, paddingLeft: 4 }}>Settings → API → anon public key</div>
                     </div>
 
                     {/* 测试 + 保存 */}
-                    <button onClick={handleTestRemoteVector} disabled={rvTesting || !rvUrl || !rvKey}
+                    <button onClick={handleTestRemoteVector} disabled={rvSyncing || rvTesting || !rvUrl || !rvKey}
                         style={{
                             width: '100%', marginTop: 12, padding: '10px 0', borderRadius: 12,
                             border: '1px solid #e5e7eb', fontWeight: 600, fontSize: 12,
@@ -4366,7 +4396,7 @@ create table if not exists memory_vectors (
                             <StatusMessage msg={rvTestResult} />
                         </div>
                     )}
-                    <button onClick={handleSaveRemoteVector} disabled={!rvUrl || !rvKey}
+                    <button onClick={handleSaveRemoteVector} disabled={rvSyncing || rvTesting || !rvUrl || !rvKey}
                         style={{
                             width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 12,
                             border: 'none', fontWeight: 700, fontSize: 13, color: 'white',
@@ -4378,7 +4408,7 @@ create table if not exists memory_vectors (
                     </button>
 
                     {/* 已启用后的操作 */}
-                    {remoteVectorConfig.enabled && remoteVectorConfig.initialized && (
+                    {rvCredentialsSaved && remoteVectorConfig.enabled && remoteVectorConfig.initialized && (
                         <button onClick={handleSyncToRemote} disabled={rvSyncing}
                             style={{
                                 width: '100%', marginTop: 8, padding: '10px 0', borderRadius: 12,
@@ -4396,8 +4426,15 @@ create table if not exists memory_vectors (
                             )}
                         </button>
                     )}
+                    {rvCredentialsSaved && rvSync && (
+                        <div role="status" aria-live="polite" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.6 }}>
+                            <div>{rvSyncing ? '本次上传进度' : '最近一次上传'} · {rvSync.synced + rvSync.failed} / {rvSync.total} 条</div>
+                            <div>成功 {rvSync.synced} · 失败 {rvSync.failed} {rvSync.uploading > 0 && `· 上传中 ${rvSync.uploading} `}· 尚未尝试 {rvSync.total - rvSync.synced - rvSync.failed - rvSync.uploading}</div>
+                            {rvSync.reason && <div style={{ color: '#b91c1c' }}>{rvSync.reason}。修复后可重新同步，已写入的记录按原 ID 更新。</div>}
+                        </div>
+                    )}
                     {remoteVectorConfig.enabled && (
-                        <button onClick={handleDisableRemoteVector}
+                        <button onClick={handleDisableRemoteVector} disabled={rvSyncing}
                             style={{
                                 width: '100%', marginTop: 8, padding: '8px 0',
                                 border: 'none', background: 'none',
@@ -4998,9 +5035,15 @@ create table if not exists memory_vectors (
                     </button>
 
                     <button
-                        onClick={() => {
-                            if (confirm('确定清除所有从旧版总结迁移过来的记忆吗？（平时聊天产生的记忆不受影响）')) {
-                                handleClearMigrated();
+                        onClick={async () => {
+                            const confirmed = await requestConfirm({
+                                title: '清除已迁移数据？',
+                                message: '确定清除所有从旧版总结迁移过来的记忆吗？（平时聊天产生的记忆不受影响）',
+                                confirmText: '清除',
+                                variant: 'danger',
+                            });
+                            if (confirmed) {
+                                void handleClearMigrated();
                             }
                         }}
                         disabled={deleting}
@@ -6819,14 +6862,26 @@ create table if not exists memory_vectors (
                                                 onClick={async () => {
                                                     if (isLegacy) {
                                                         // 遗留 causal link 删除
-                                                        if (confirm('解除这条早期关联？（不会删除记忆本身）')) {
+                                                        const confirmed = await requestConfirm({
+                                                            title: '解除早期关联？',
+                                                            message: '确定解除这条早期关联吗？（不会删除记忆本身）',
+                                                            confirmText: '解除',
+                                                            variant: 'warning',
+                                                        });
+                                                        if (confirmed) {
                                                             await MemoryLinkDB.delete(id);
                                                             setLinkedMemories(prev => prev.filter(l => l.id !== id));
                                                         }
                                                     } else if (isSummary) {
                                                         alert('整合回忆是事件盒的压缩产物，不能单独解除；若要重建请删除事件盒所有成员。');
                                                     } else {
-                                                        if (confirm('把这条记忆移出事件盒？（记忆本身不删，会变回普通独立记忆）')) {
+                                                        const confirmed = await requestConfirm({
+                                                            title: '移出事件盒？',
+                                                            message: '确定把这条记忆移出事件盒吗？（记忆本身不删，会变回普通独立记忆）',
+                                                            confirmText: '移出',
+                                                            variant: 'warning',
+                                                        });
+                                                        if (confirmed) {
                                                             await removeMemoryFromBox(linkedNode.id);
                                                             await loadLinkedMemories(selectedNode!.id);
                                                         }
@@ -6853,9 +6908,15 @@ create table if not exists memory_vectors (
 
                             {/* 删除按钮 */}
                             <button
-                                onClick={() => {
-                                    if (confirm('确定删除这条记忆？（删除后无法恢复）')) {
-                                        handleDeleteSingle(selectedNode.id);
+                                onClick={async () => {
+                                    const confirmed = await requestConfirm({
+                                        title: '删除这条记忆？',
+                                        message: '确定删除这条记忆吗？（删除后无法恢复）',
+                                        confirmText: '删除',
+                                        variant: 'danger',
+                                    });
+                                    if (confirmed) {
+                                        void handleDeleteSingle(selectedNode.id);
                                     }
                                 }}
                                 disabled={deleting}
@@ -6882,6 +6943,14 @@ create table if not exists memory_vectors (
     }
 
     return null;
+    };
+
+    return (
+        <>
+            {renderView()}
+            {confirmDialog}
+        </>
+    );
 }
 import { useAppShortcut } from '../utils/appShortcutLaunch';
 import { AppID as ShortcutAppID } from '../types';

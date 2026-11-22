@@ -14,6 +14,7 @@ import {resolvePsycheAppearance} from '../utils/psycheAppearance';
 import { translateThinkingMessage } from '../utils/thinkingTranslation';
 import { resolveDialogueApi } from '../utils/characterApi';
 import { computeTimeSegmentStarts, startsNewMessageGroup, startsNewTimeSegment } from '../utils/chatMessageGrouping';
+import StickerLibrary from '../components/chat/StickerLibrary';
 import EmojiExportDialog from '../components/chat/EmojiExportDialog';
 import BlobRefStyle from '../components/chat/BlobRefStyle';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback, useSyncExternalStore } from 'react';
@@ -75,6 +76,7 @@ import {ChatTrialControls, type ChatDecorationTrial} from '../components/chat/Ch
 import ChatAppearanceWardrobe from '../components/chat/ChatAppearanceWardrobe';
 import ChatInputArea from '../components/chat/ChatInputArea';
 import ConfirmDialog from '../components/os/ConfirmDialog';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { loadChatInputPreferences, saveChatInputPreferences } from '../utils/chatInputPreferences';
 import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
@@ -228,6 +230,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [activeCategory, setActiveCategory] = useState<string>('default');
     const [newCategoryName, setNewCategoryName] = useState('');
     const [emojiExport, setEmojiExport] = useState<{ emojis: Emoji[]; title: string } | null>(null);
+    const [stickerManager, setStickerManager] = useState<{startImport?:string}|null>(null);
     const [newEmojiName, setNewEmojiName] = useState(''); // 表情包重命名输入框
 
     const scrollRef = useRef<HTMLDivElement>(null);
@@ -265,7 +268,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     // Reply Logic
     const [replyTarget, setReplyTarget] = useState<Message | null>(null);
 
-    const [modalType, setModalType] = useState<'none' | 'transfer' | 'emoji-import' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'archive-legacy-warning' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'rename-category' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
+    const [modalType, setModalType] = useState<'none' | 'transfer' | 'chat-settings' | 'message-options' | 'edit-message' | 'delete-emoji' | 'delete-category' | 'add-category' | 'history-manager' | 'archive-settings' | 'archive-legacy-warning' | 'prompt-editor' | 'category-options' | 'category-visibility' | 'emoji-options' | 'rename-emoji' | 'rename-category' | 'schedule' | 'chrome-css' | 'chrome-sound' | 'memory-vectorize-confirm' | 'memory-vectorize-result'>('none');
     // 「聊天装扮」悬浮态：不走全屏 modal——圆气泡挂在聊天上，点开小面板边看真聊天边调。
     const [decorationTab, setDecorationTab] = useState<DecorationTab>('layout');
     // 切换角色时收掉装扮气泡：定制是 per-character 的，避免误改到下一个角色
@@ -281,7 +284,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
     const [transferAmt, setTransferAmt] = useState('');
     const [transferNote, setTransferNote] = useState('');
-    const [emojiImportText, setEmojiImportText] = useState('');
     const [settingsContextLimit, setSettingsContextLimit] = useState(500);
     const [settingsContextRangeMode, setSettingsContextRangeMode] = useState<ContextRangeMode>('manual');
     const [settingsHideSysLogs, setSettingsHideSysLogs] = useState(false);
@@ -376,6 +378,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         [!!selectedMessage, () => setSelectedMessage(null)],
         [showPanel !== 'none', () => setShowPanel('none')],
     ]);
+    const { requestConfirm, confirmDialog } = useConfirmDialog();
 
     // Archive Prompts State
     const [archivePrompts, setArchivePrompts] = useState<{id: string, name: string, content: string}[]>(DEFAULT_ARCHIVE_PROMPTS);
@@ -558,9 +561,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     }), [categories, activeCharacterId]);
 
     const aiVisibleEmojis = useMemo(() => {
-        const hiddenIds = new Set(categories.filter(c => !visibleCategories.some(vc => vc.id === c.id)).map(c => c.id));
+        const hiddenIds = new Set(categories.filter(c => c.personalOnly || !visibleCategories.some(vc => vc.id === c.id)).map(c => c.id));
         if (hiddenIds.size === 0) return emojis;
-        return emojis.filter(e => !e.categoryId || !hiddenIds.has(e.categoryId));
+        return emojis.filter(e => !hiddenIds.has(e.categoryId || 'default'));
     }, [emojis, categories, visibleCategories]);
 
 
@@ -616,6 +619,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         updateCharacter,
         updateUserProfile,
     });
+    const isTypingRef = useRef(isTyping);
+    isTypingRef.current = isTyping;
 
     // --- Voice TTS for chat messages ---
     interface VoiceData { url: string; originalText: string; spokenText?: string; lang?: string; favorite?: boolean; recording?: StreamedVoice; }
@@ -1914,17 +1919,25 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         if (!char) return;
         // 只处理仍待复核的卡片，避免重复点击。
         if (msg.metadata?.reviewStatus && msg.metadata.reviewStatus !== 'active') return;
+        if (action === 'rejected') {
+            if (!(await requestConfirm({
+                title: '否决这条代记记录？',
+                message: '否决后对应的账本流水也会一并删除，无法恢复。',
+                confirmText: '确认否决',
+            }))) return;
+        }
         try {
             await resolveLifeRecordCard(msg, action);
             // 否决会把这条记录踢出注入摘要、回滚银行流水，生活记录是注入给所有开了开关的
             // 角色的共享素材，所以逐个打脏（同表情库）。
             markAmsgStateDirtyForAll({ characters, userProfile, groups, realtimeConfig });
+            trackEvent('处理角色代记的生活记录', { result: action });
             addToast(action === 'confirmed' ? '已确认记录' : '已否决，记录撤销', action === 'confirmed' ? 'success' : 'info');
         } catch (e) {
             console.error('[LifeRecord] resolve failed:', e);
         }
         await reloadMessages(visibleCountRef.current);
-    }, [char, reloadMessages, addToast, characters, userProfile, groups, realtimeConfig]);
+    }, [char, reloadMessages, addToast, characters, userProfile, groups, realtimeConfig, requestConfirm]);
 
     // 用户在「时光契约提议」卡片上确认建立契约：
     // 1) 用编辑后的 meta 构造 TaskV2 落库（createTask 内部会塞一条 system 消息告诉监督人）
@@ -1993,8 +2006,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     };
 
     const handleReroll = async () => {
+        if (!canReroll) return;
         if (isTyping || messages.length === 0) return;
-        autoReply.cancel();
 
         const lastMsg = messages[messages.length - 1];
         if (lastMsg.role !== 'assistant') return;
@@ -2008,6 +2021,15 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
         if (toDeleteIds.length === 0) return;
 
+        if (!(await requestConfirm({
+            title: '重新生成上一轮回复？',
+            message: '当前最后一轮角色回复（及已合成的语音）将被删除并重新生成。',
+            confirmText: '重新生成',
+            variant: 'warning',
+        }))) return;
+        if (isTyping || isTypingRef.current) return;
+
+        autoReply.cancel();
         await DB.deleteMessages(toDeleteIds);
         discardVoiceForMessages(toDeleteIds);
         // 重 roll 也删了消息：正常路径下这轮生成结束会再打脏一次，这里先打是兜住
@@ -2111,8 +2133,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             case 'chrome-css': setShowPanel('none'); setDecorationTab('library'); setModalType('chrome-css'); break;
             case 'chrome-sound': setShowPanel('none'); setDecorationTab('sound'); setModalType('chrome-css'); break;
             case 'fine-tune': setShowPanel('none'); setDecorationTab('layout'); setModalType('chrome-css'); break;
-            case 'emoji-import': setModalType('emoji-import'); break;
-            case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji'); break;
+            case 'emoji-import': setStickerManager({startImport:activeCategory}); break;
+            case 'send-emoji': if (payload) handleSendText(payload.url, 'emoji', {stickerName:payload.name}); break;
             case 'delete-emoji-req': setSelectedEmoji(payload); setModalType('delete-emoji'); break;
             case 'emoji-options': setSelectedEmoji(payload); setModalType('emoji-options'); break;
             case 'add-category': setModalType('add-category'); break;
@@ -2164,7 +2186,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 break;
             }
             case 'thinking-settings': {
-                // 「展示思考」按钮 → 打开思考链设置 modal（开关 / 卡片风格 / 配色 / 追加提示词）
+                // 「展示思考」按钮 → 打开思考链设置 modal（开关 / 翻译 API / 心象提示词）
                 if (!char) break;
                 setShowThinkingChainModal(true);
                 break;
@@ -2537,6 +2559,14 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
 
     const handleScheduleStyleChange = async (style: 'lifestyle' | 'mindful') => {
         if (!char) return;
+        if (scheduleData?.slots?.length && char.scheduleStyle !== style) {
+            if (!(await requestConfirm({
+                title: '切换日程风格并重新生成？',
+                message: '今日已生成的日程将被替换。',
+                confirmText: '确认切换',
+                variant: 'warning',
+            }))) return;
+        }
         // 与情绪/意识流强制同步：启用日程时自动启用情绪感知
         const prevEmotion = char.emotionConfig;
         const nextEmotion = { ...(prevEmotion || {}), enabled: true };
@@ -2615,31 +2645,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         addToast('分类创建成功', 'success');
     };
 
-    const handleImportEmoji = async () => {
-        if (!emojiImportText.trim()) return;
-        const lines = emojiImportText.split('\n');
-        const targetCatId = activeCategory === 'default' ? undefined : activeCategory;
-
-        for (const line of lines) {
-            const parts = line.split('--');
-            if (parts.length >= 2) {
-                const name = parts[0].trim();
-                const url = parts.slice(1).join('--').trim();
-                if (name && url) {
-                    // 粘进来的可能是 data: 图（复制粘贴的图片），也可能是图床外链。
-                    // 前者转成令牌只留二进制，后者是别人服务器上的地址，原样存。
-                    const stored = url.startsWith('data:') ? await migrateDataUrlToRef(url) : url;
-                    await DB.saveEmoji(name, stored, targetCatId);
-                }
-            }
-        }
-        await loadEmojiData();
-        markEmojiLibraryChanged();
-        setModalType('none');
-        setEmojiImportText('');
-        addToast('表情包导入成功', 'success');
-    };
-
     const handleRenameCategory = async () => {
         if (!selectedCategory || selectedCategory.isSystem || selectedCategory.id === 'default') return;
         const name = newCategoryName.trim();
@@ -2673,7 +2678,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const handleSaveCategoryVisibility = async (categoryId: string, allowedCharacterIds: string[] | undefined) => {
         const cat = categories.find(c => c.id === categoryId);
         if (!cat) return;
-        await DB.saveEmojiCategory({ ...cat, allowedCharacterIds });
+        await DB.saveEmojiCategory({ ...cat, personalOnly:false, allowedCharacterIds });
         await loadEmojiData();
         markEmojiLibraryChanged();
         setSelectedCategory(null);
@@ -2701,11 +2706,17 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         setEditingPrompt(null);
     };
 
-    const handleDeletePrompt = (id: string) => {
+    const handleDeletePrompt = async (id: string) => {
         if (id.startsWith('preset_')) {
             addToast('默认预设不可删除', 'error');
             return;
         }
+        const target = archivePrompts.find(p => p.id === id);
+        if (!(await requestConfirm({
+            title: `删除归档提示词「${target?.name || ''}」？`,
+            message: '删除后不可恢复。',
+            confirmText: '删除',
+        }))) return;
         setArchivePrompts(prev => {
             const next = prev.filter(p => p.id !== id);
             const customOnly = next.filter(p => !p.id.startsWith('preset_'));
@@ -3291,6 +3302,11 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     const handleDeleteMessage = async () => {
         if (!selectedMessage) return;
         const deletedId = selectedMessage.id;
+        if (!(await requestConfirm({
+            title: '删除这条消息？',
+            message: '删除后不可恢复，关联的合成语音也会一并清除。',
+            confirmText: '删除',
+        }))) return;
         await DB.deleteMessage(deletedId);
         discardVoiceForMessages([deletedId]);
         // 满血主动消息：云端 fire_pack 里带最近对话原文，删了消息不打脏的话，角色到点
@@ -3423,6 +3439,20 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         });
         if (msgIdsToDelete.size === 0 && thinkingIdsToClear.size === 0) return;
 
+        const summaryParts: string[] = [];
+        if (msgIdsToDelete.size > 0) summaryParts.push(`删除选中的 ${msgIdsToDelete.size} 条消息`);
+        if (thinkingIdsToClear.size > 0) summaryParts.push(`清除选中的 ${thinkingIdsToClear.size} 条思维链`);
+        const confirmMessage = msgIdsToDelete.size > 0 && thinkingIdsToClear.size > 0
+            ? `将永久删除选中的 ${msgIdsToDelete.size} 条消息，并清除选中的 ${thinkingIdsToClear.size} 条思维链，操作后不可恢复。`
+            : msgIdsToDelete.size > 0
+                ? `将永久删除选中的 ${msgIdsToDelete.size} 条消息，关联的合成语音也会一并清除，操作后不可恢复。`
+                : `将清除选中的 ${thinkingIdsToClear.size} 条思维链，操作后不可恢复。`;
+        if (!(await requestConfirm({
+            title: `确认${summaryParts.join('并')}？`,
+            message: confirmMessage,
+            confirmText: '确认删除',
+        }))) return;
+
         // 删消息时，如果它身上的思维链没被勾选，就尝试迁移到同一轮里下一条 assistant 消息上，
         // 让"只想删第一条输出，但想留思维链"成立
         const sorted = [...messages].sort((a, b) => a.id - b.id);
@@ -3481,6 +3511,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         if (msgIdsToDelete.size > 0) parts.push(`已删除 ${msgIdsToDelete.size} 条消息`);
         if (thinkingIdsToClear.size > 0) parts.push(`已清除 ${thinkingIdsToClear.size} 条思维链`);
         addToast(parts.join('，'), 'success');
+        trackEvent('批量删除选中的消息');
 
         setSelectionMode(false);
         setSelectedMsgIds(new Set());
@@ -3928,10 +3959,11 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     }, [visibleCategories, activeCategory]);
 
     // Suggestions span all visible categories; the picker still uses its selected tab.
-    const filteredEmojis = useMemo(() => aiVisibleEmojis.filter(e => {
+    const pickerEmojis = useMemo(() => emojis.filter(e => visibleCategories.some(g => g.id === (e.categoryId || 'default'))), [emojis,visibleCategories]);
+    const filteredEmojis = useMemo(() => pickerEmojis.filter(e => {
         if (activeCategory === 'default') return !e.categoryId || e.categoryId === 'default';
         return e.categoryId === activeCategory;
-    }), [aiVisibleEmojis, activeCategory]);
+    }), [pickerEmojis, activeCategory]);
 
     // Memoize ChatInputArea callbacks
     const handleSendCallback = useCallback(() => handleSendText(), [char, input, replyTarget, inputPreferences]);
@@ -4504,7 +4536,8 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     selectedCount={selectedMsgIds.size + Array.from(selectedThinkingMsgIds).filter(id => !selectedMsgIds.has(id)).length}
                     emojis={filteredEmojis}
                     emojiSuggestionsEnabled={inputPreferences.emojiSuggestions}
-                    suggestionEmojis={aiVisibleEmojis}
+                    suggestionEmojis={pickerEmojis}
+                    onManageEmojis={()=>setStickerManager({})}
                     fullEmojiLibrary={emojis}
                     onRemoveInvalidEmojis={async items => {
                         const count = await DB.deleteScannedEmojis(items);
@@ -4655,18 +4688,23 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
             )}
 
             {showHistoryCleanup && <ChatHistoryCleanupModal key={`history-cleanup:${char.id}`} character={char} onClose={() => setShowHistoryCleanup(false)} onDeleted={handleHistoryCleanupDone} />}
-            {emojiExport && <EmojiExportDialog {...emojiExport} onClose={() => setEmojiExport(null)} />}
+            {stickerManager && <StickerLibrary key={`sticker-library-${char.id}`} emojis={emojis} groups={categories} characters={characters} characterId={char.id}
+                api={apiConfig} startImport={stickerManager.startImport} onClose={()=>setStickerManager(null)}
+                characterGroups={characterGroups}
+                onVision={async(id,enabled)=>{await updateCharacter(id,{stickerVision:enabled});}}
+                onChange={async()=>{await loadEmojiData();markEmojiLibraryChanged();}}/>}
+            {emojiExport && <EmojiExportDialog {...emojiExport} groups={categories} onClose={() => setEmojiExport(null)} />}
             <ConfirmDialog isOpen={linkCardQuestion !== null}
                 title={linkCardQuestion === 'xhsCards' ? '小红书链接解析' : '分享链接解析'}
                 message="检测到分享链接，要关闭自动转卡片吗？关闭后，本条及之后的链接会按原文发送，方便角色用你配置的 MCP 读取。保留卡片也会带上原链接。两类解析可在加号 → 设置中分别调整。"
                 confirmText="关闭，发送原文" cancelText="保留卡片"
                 onConfirm={() => answerLinkCard(false)} onCancel={() => answerLinkCard(true)} />
+            {confirmDialog}
             <ChatModals
                 compactHome={!!homePhone}
                 modalType={modalType} setModalType={setModalType}
                 transferAmt={transferAmt} setTransferAmt={setTransferAmt}
                 transferNote={transferNote} setTransferNote={setTransferNote}
-                emojiImportText={emojiImportText} setEmojiImportText={setEmojiImportText}
                 settingsContextLimit={settingsContextLimit} setSettingsContextLimit={setSettingsContextLimit}
                 settingsContextRangeMode={settingsContextRangeMode} setSettingsContextRangeMode={setSettingsContextRangeMode}
                 settingsHideSysLogs={settingsHideSysLogs} setSettingsHideSysLogs={setSettingsHideSysLogs}
@@ -4690,7 +4728,6 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 selectedCategory={selectedCategory}
 
                 onTransfer={() => { if(transferAmt) handleSendText(`[转账]`, 'transfer', { amount: transferAmt, note: transferNote.trim() || undefined, status: 'pending' }); setTransferNote(''); setModalType('none'); }}
-                onImportEmoji={handleImportEmoji}
                 onSaveSettings={saveSettings}
                 onOpenHistoryCleanup={() => { setModalType('none'); setShowHistoryCleanup(true); }} onArchive={handleFullArchive}
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
@@ -5078,26 +5115,12 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                     apiPresets={apiPresets}
                     onChangeTranslationApi={thinkingTranslationApi => updateApiConfig({ thinkingTranslationApi })}
                     onAddApiPreset={(name, config) => addApiPreset(name, config, { group: '心象翻译' })}
-                    value={{
-                        enabled: !!(char as any).showThinkingChain,
-                        styleId: ((char as any).thinkingChainStyle as any) || 'echo',
-                        customColors: {
-                            bg: (char as any).thinkingChainCustomColors?.bg || '#1f2937',
-                            accent: (char as any).thinkingChainCustomColors?.accent || '#fbbf24',
-                            text: (char as any).thinkingChainCustomColors?.text || '#f1f5f9',
-                        },
-                        customPrompt: (char as any).thinkingChainCustomPrompt || '',
-                        customCss: (char as any).thinkingChainCustomCss || '',
-                    }}
-                    onChange={(next) => {
-                        const patch: any = {};
-                        if (next.enabled !== undefined) patch.showThinkingChain = next.enabled;
-                        if (next.styleId !== undefined) patch.thinkingChainStyle = next.styleId;
-                        if (next.customColors !== undefined) patch.thinkingChainCustomColors = next.customColors;
-                        if (next.customPrompt !== undefined) patch.thinkingChainCustomPrompt = next.customPrompt;
-                        if (next.customCss !== undefined) patch.thinkingChainCustomCss = next.customCss;
-                        if (Object.keys(patch).length) updateCharacter(char.id, patch as any);
-                    }}
+                    character={char}
+                    sharedPrompt={userProfile.thinkingChainPrompt}
+                    onChangeCharacter={patch => updateCharacter(char.id, patch)}
+                    onChangeSharedPrompt={patch => updateUserProfile(prev => ({
+                        thinkingChainPrompt: { ...prev.thinkingChainPrompt, ...patch },
+                    }))}
                 />
             )}
 

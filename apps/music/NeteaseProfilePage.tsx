@@ -15,6 +15,7 @@ import { neteaseCacheGet, neteaseCacheSet } from '../../utils/neteaseCache';
 import TokenImg from '../../components/os/TokenImg';
 import { isBlobRef } from '../../utils/blobRef';
 import { trackEvent } from '../../utils/analytics';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 export interface Playlist {
   id: number;
@@ -48,7 +49,7 @@ interface LocalAlbumCardProps {
   currentId: number | null;
   playing: boolean;
   onPlay: (song: Song, idx: number) => void;
-  onRemove: (id: number) => void;
+  onRemove: (song: Song) => void;
 }
 const LocalAlbumCard: React.FC<LocalAlbumCardProps> = ({ songs, expanded, setExpanded, currentId, playing, onPlay, onRemove }) => (
   <div
@@ -137,12 +138,7 @@ const LocalAlbumCard: React.FC<LocalAlbumCardProps> = ({ songs, expanded, setExp
                 </div>
               </button>
               <button
-                onClick={() => {
-                  if (typeof window !== 'undefined' && window.confirm(`从专辑移除《${s.name}》？`)) {
-                    onRemove(s.id);
-                    trackEvent('从本地专辑移除一首歌');
-                  }
-                }}
+                onClick={() => onRemove(s)}
                 className="text-[10px] px-1.5 py-0.5 rounded shrink-0 transition-colors"
                 style={{ color: C.faint }}
                 title="移除"
@@ -159,6 +155,7 @@ const LocalAlbumCard: React.FC<LocalAlbumCardProps> = ({ songs, expanded, setExp
 
 const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearch, onOpenSettings, onVisitChar, onOpenPlaylist }) => {
   const { addToast, characters, userProfile } = useOS();
+  const { requestConfirm, confirmDialog } = useConfirmDialog({ portal: true });
   const {
     cfg, setCfg, profile, refreshProfile, playSong,
     profileLoading, profileError,
@@ -167,6 +164,17 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
     localAlbumSongs, removeLocalSong,
     regeneratingId, regeneratingStatus,
   } = useMusic();
+  const handleRemoveLocalSong = useCallback(async (song: Song) => {
+    const confirmed = await requestConfirm({
+      title: '从专辑移除歌曲？',
+      message: `确定从「一起写的歌」移除《${song.name}》吗？`,
+      confirmText: '移除',
+      variant: 'danger',
+    });
+    if (!confirmed) return;
+    removeLocalSong(song.id);
+    trackEvent('从本地专辑移除一首歌');
+  }, [requestConfirm, removeLocalSong]);
   const [localAlbumExpanded, setLocalAlbumExpanded] = useState(false);
   const [showNeteaseLogin, setShowNeteaseLogin] = useState(false);
 
@@ -357,7 +365,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                 currentId={current?.id ?? null}
                 playing={playing}
                 onPlay={(s, idx) => playSong(s, { alsoSetQueue: true, replaceQueue: localAlbumSongs, startIdx: idx })}
-                onRemove={removeLocalSong}
+                onRemove={(song) => void handleRemoveLocalSong(song)}
               />
             )}
             <button
@@ -401,6 +409,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
               regenStatus={current.id === regeneratingId ? regeneratingStatus : undefined}
             />
           )}
+          {confirmDialog}
         </div>
       );
     }
@@ -438,7 +447,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
               playSong(s, { alsoSetQueue: true, replaceQueue: localAlbumSongs, startIdx: idx });
               trackEvent('播放「我的」页列表里的一首歌', { source: 'local' });
             }}
-            onRemove={removeLocalSong}
+            onRemove={(s) => void handleRemoveLocalSong(s)}
           />
           {/* 登录入口卡 */}
           <button
@@ -473,6 +482,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
             regenStatus={current.id === regeneratingId ? regeneratingStatus : undefined}
           />
         )}
+        {confirmDialog}
       </div>
     );
   }
@@ -741,7 +751,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
                   playSong(s, { alsoSetQueue: true, replaceQueue: localAlbumSongs, startIdx: idx });
                   trackEvent('播放「我的」页列表里的一首歌', { source: 'local' });
                 }}
-                onRemove={removeLocalSong}
+                onRemove={(s) => void handleRemoveLocalSong(s)}
               />
             )}
             {(() => {
@@ -930,6 +940,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
           </div>
         </div>
       )}
+      {confirmDialog}
     </div>
   );
 };

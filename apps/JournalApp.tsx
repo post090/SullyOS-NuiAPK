@@ -21,8 +21,8 @@ import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } fr
 import { trackEvent } from '../utils/analytics';
 import JournalAppearanceButton, { JournalAppearanceStyle } from '../components/journal/JournalAppearanceEditor';
 import JournalThemeArtwork from '../components/journal/JournalThemeArtwork';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
-const INTRO_SEEN_KEY = 'journal_app_intro_seen_v4';
 
 const TWEMOJI_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72';
 const twemojiUrl = (codepoint: string) => `${TWEMOJI_BASE}/${codepoint}.png`;
@@ -73,6 +73,7 @@ const getLocalDateStr = () => {
 
 const JournalApp: React.FC = () => {
     const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, memoryPalaceConfig, characterGroups, theme } = useOS();
+    const { requestConfirm, confirmDialog } = useConfirmDialog({ portal: true });
     // 预览草稿只活在当前 JournalApp 会话里，不写 theme/localStorage。状态放在
     // App 顶层，才能在选择页、列表页与书写页之间切换时继续预览同一套 CSS。
     const [previewJournalAppearance, setPreviewJournalAppearance] = useState<JournalAppearance | undefined>();
@@ -97,14 +98,6 @@ const JournalApp: React.FC = () => {
     const [currentEntry, setCurrentEntry] = useState<DiaryEntry | null>(null);
     const [selectedDate, setSelectedDate] = useState<string>(getLocalDateStr());
 
-    // Onboarding popup (一次性)
-    const [showIntro, setShowIntro] = useState<boolean>(() => {
-        try { return !localStorage.getItem(INTRO_SEEN_KEY); } catch { return false; }
-    });
-    const dismissIntro = () => {
-        try { localStorage.setItem(INTRO_SEEN_KEY, '1'); } catch {}
-        setShowIntro(false);
-    };
 
     // Editor State
     const [isThinking, setIsThinking] = useState(false);
@@ -465,6 +458,15 @@ const JournalApp: React.FC = () => {
         }
 
         const isRewrite = Boolean(currentEntry.charPage);
+        if (isRewrite) {
+            const confirmed = await requestConfirm({
+                title: '重新写角色日记？',
+                message: '现有的角色日记回复与上面贴的贴纸将被覆盖。',
+                confirmText: '重新写',
+                variant: 'warning',
+            });
+            if (!confirmed) return;
+        }
         setIsThinking(true);
         addToast(isRewrite ? `正在请 ${selectedChar.name} 重新写这篇日记…` : `正在请 ${selectedChar.name} 写交换日记…`, 'info');
         trackEvent(isRewrite ? '重新生成角色日记' : '邀请角色交换日记');
@@ -865,31 +867,6 @@ ${charPart}
         </div>
     );
 
-    // 一次性弹窗:讲清楚新版交换日记的行为变化(自动同步 / 归档移到列表 / 宫殿入向量)
-    const introModal = showIntro ? (
-        <Modal
-            isOpen={showIntro}
-            title="交换日记 · 更新了"
-            onClose={dismissIntro}
-            footer={
-                <button onClick={dismissIntro} className="w-full py-3 bg-amber-500 text-white font-bold rounded-2xl active:scale-95 transition-transform">
-                    我知道了
-                </button>
-            }
-        >
-            <div className="space-y-3 text-sm text-slate-700 leading-relaxed">
-                <p className="font-bold text-amber-700">几个新变化,先看一眼:</p>
-                <div className="rounded-2xl bg-amber-50 border border-amber-100 px-4 py-3 space-y-2">
-                    <p><span className="font-bold text-amber-700">① 自动同步聊天:</span> 角色回复了你的日记之后,会自动变成一张漂亮卡片出现在和这个角色的聊天里 —— 不用再手动发送。你之后在日记本里改文字 / 删日记,聊天里那张卡片也会跟着同步。</p>
-                    <p><span className="font-bold text-amber-700">② 单向日记不进记忆:</span> 如果你只是单方面写给角色看(没让 ta 回复),这一篇就不会进入任何记忆,按以前的方式存着就好。</p>
-                    <p><span className="font-bold text-amber-700">③ 新日记不用管归档:</span> 本次更新<b>之后</b>新写的日记走的就是上面"自动同步聊天"那条线 —— 卡片进了聊天后，系统会像处理普通消息一样自动帮你整理。不需要也<b>不应该</b>再手动归档一次。所以新日记你看不到归档入口, 这是故意的。</p>
-                    <p><span className="font-bold text-amber-700">④ 老日记还能手动归档:</span> 本次更新<b>之前</b>留下的老日记里, 如果是角色回复过的, <b>点进那篇日记, 右上角会有一个"归档"按钮</b>, 点一下就行 —— 就会把这篇日记整理进角色的记忆里，开了记忆宫殿的角色会记得更细。</p>
-                </div>
-                <p className="text-xs text-slate-400">这条提示只出现一次。</p>
-            </div>
-        </Modal>
-    ) : null;
-
     // 归档结果弹窗: 让用户清楚知道生成了哪些内容、被送去了哪里
     const archiveResultModal = archiveResult ? (() => {
         const p = archiveResult.palace;
@@ -1007,7 +984,6 @@ ${charPart}
         return (
             <div className={`sully-journal-root sully-journal-select h-full w-full bg-amber-50 flex flex-col font-light${journalLayoutClass}`}>
                 <JournalAppearanceStyle appearance={effectiveJournalAppearance} />
-                {introModal}
                 {archiveResultModal}
                 <JournalThemeArtwork preset={effectiveJournalPreset} scene="select" />
                 <div className="sully-journal-header border-b border-amber-100 bg-amber-50/80 backdrop-blur-sm sticky top-0 z-20 shrink-0" style={{ paddingTop: 'var(--chrome-top)' }}>
@@ -1035,6 +1011,7 @@ ${charPart}
                         </div>
                     ))}
                 </div>
+                {confirmDialog}
             </div>
         );
     }
@@ -1043,7 +1020,6 @@ ${charPart}
         return (
             <div className={`sully-journal-root sully-journal-calendar h-full w-full bg-white flex flex-col font-light relative${journalLayoutClass}`}>
                 <JournalAppearanceStyle appearance={effectiveJournalAppearance} />
-                {introModal}
                 {archiveResultModal}
                 <JournalThemeArtwork preset={effectiveJournalPreset} scene="calendar" />
                 <div className="sully-journal-calendar-hero pb-6 px-6 bg-amber-500 shadow-lg shrink-0 rounded-b-[2rem] z-20" style={{ paddingTop: 'max(3rem, var(--safe-top))' }}>
@@ -1117,6 +1093,7 @@ ${charPart}
                         确定删除 {deletingDiary?.date} 的日记吗？删除后无法恢复。
                     </p>
                 </Modal>
+                {confirmDialog}
             </div>
         );
     }
@@ -1125,7 +1102,6 @@ ${charPart}
     return (
         <div className={`sully-journal-root sully-journal-write h-full w-full bg-[#1a1a1a] flex flex-col relative overflow-hidden${journalLayoutClass}`}>
             <JournalAppearanceStyle appearance={effectiveJournalAppearance} />
-            {introModal}
             {archiveResultModal}
             <JournalThemeArtwork preset={effectiveJournalPreset} scene="write" />
 
@@ -1331,6 +1307,7 @@ ${charPart}
                     <p className="text-sm text-slate-600">确定要删除这个贴纸素材吗？(不会影响已使用的日记)</p>
                 </div>
             </Modal>
+            {confirmDialog}
         </div>
     );
 };

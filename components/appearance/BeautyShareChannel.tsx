@@ -12,7 +12,6 @@ import {trackEvent} from '../../utils/analytics';
 import {BUILTIN_WHITEBOX_PRESETS} from '../../utils/builtinWhitebox';
 import {BUILTIN_APPEARANCE_PRESETS} from '../../utils/builtinAppearance';
 import DecorationGuide from '../chat/DecorationGuide';
-import BeautyUpdateNotice, { BEAUTY_CATALOG_NOTICE, needsBeautyNotice } from '../share/BeautyUpdateNotice';
 import {needsDecorationGuide,finishDecorationGuide} from '../../utils/decorationGuide';
 import {useFirstUseGuideStep} from '../../utils/firstUseGuide';
 import {SCHEDULE_CARD_PRESETS} from '../../utils/scheduleAppearance';
@@ -30,6 +29,7 @@ import { useOS, DEFAULT_PAPER_APPEARANCE, DEFAULT_WALLPAPER } from '../../contex
 import { resetChatDecoration } from '../../utils/decorationReset';
 import { DB } from '../../utils/db';
 import { validateDecoration, type DecorationPart, type DecorationPreset } from '../../utils/chatDecoration';
+import { embeddedWhiteboxParts } from '../../utils/whiteboxParts';
 import { prepareDecorationApplication } from '../../utils/decorationApplication';
 import { beautyRequest,downloadBeauty,readBeautyPackage } from '../../utils/beautyShareClient';
 import type { BeautyShare } from '../../utils/beautyShareContract';
@@ -80,7 +80,6 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
   const trackedOpen=useRef(false);
   useEffect(()=>{if(!trackedOpen.current){trackedOpen.current=true;trackBeauty('library',libraryContext==='chat'?'chat':'appearance');if(initialMaker)trackBeauty('maker',initialMaker);}},[]);
   const firstGuideActive=useFirstUseGuideStep()!==null;
-  const [catalogNotice, setCatalogNotice] = useState(() => !initialMaker && !!targetCharacterId && needsBeautyNotice(BEAUTY_CATALOG_NOTICE));
   const [guideStep,setGuideStep]=useState<number|null>(()=>!initialMaker&&targetCharacterId&&needsDecorationGuide()?0:null);
   const endGuide=()=>{finishDecorationGuide();setGuideStep(null);};
   const [saveCurrent,setSaveCurrent]=useState<{preset:DecorationPreset;key:string}|null>(null);
@@ -151,6 +150,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
     } catch (e) { setError(e instanceof Error ? e.message : '恢复失败，请重试'); }
     finally { setBusy(false); onBusyChange(false); }
   };
+  const [restoreConfirm,setRestoreConfirm]=useState(false);
   const [deleteEntry,setDeleteEntry]=useState<WardrobeEntry|null>(null);
   const [updateEntry,setUpdateEntry]=useState<{entry:WardrobeEntry;share:BeautyShare;previous:string}|null>(null);
   const [desktopEdit,setDesktopEdit]=useState<{entry:WardrobeEntry;name:string;origin:DecorationOrigin;useCurrent:boolean}|null>(null);
@@ -265,7 +265,22 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
           }
         }else{
           slots[part]=key;
-          if(part==='css'){delete slots['css:avatar'];delete slots['css:avatar:user'];delete slots['css:avatar:ai'];delete slots['css:background'];}
+          if(part==='css'){
+            const owned=embeddedWhiteboxParts(css||'');
+            if(slots['css:avatar']){
+              for(const side of ['user','ai'])slots['css:avatar:'+side]??=slots['css:avatar'];
+              delete slots['css:avatar'];
+            }
+            if(appliedPreset.parts.layout && appliedPreset.parts.bubbles && componentBlocks.some(block=>block[1]==='avatar')){
+              delete slots['css:avatar:user'];delete slots['css:avatar:ai'];
+            }
+            for(const part of owned){
+              if(part.startsWith('avatar:'))slots['css:'+part]=key;
+              else if(part==='background'){slots['css:background']=key;slots.background=key;}
+              else slots[part]=key;
+            }
+          }
+          if(part==='background'&&!componentBlocks.some(block=>block[1]==='background')&&!embeddedWhiteboxParts(css||'').has('background'))delete slots['css:background'];
           if(part==='bubbles'&&!appliedPreset.parts.css&&!appliedPreset.parts.layout&&appliedPreset.parts.bubbles){
             for(const side of ['user','ai'] as const)if(appliedPreset.parts.bubbles[side].avatarDecoration){
               if(slots['css:avatar']){slots['css:avatar:user']??=slots['css:avatar'];slots['css:avatar:ai']??=slots['css:avatar'];delete slots['css:avatar'];}
@@ -392,6 +407,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
   };
   const goBack = () => {
     if (busy || applying) return;
+    if (restoreConfirm) { setRestoreConfirm(false); return; }
     if (deleteEntry) { setDeleteEntry(null); return; }
     if (updateEntry) { setUpdateEntry(null); return; }
     if (desktopEdit) { setDesktopEdit(null); return; }
@@ -422,7 +438,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
       <button data-dress-guide="import" disabled={busy} onClick={() => {setPage('receive');if(guideStep!==null)setGuideStep(5);}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5M8 8h8v8H8z"/></svg><span>导入装扮</span><small>›</small></button>
       <button data-dress-guide="share" disabled={busy} onClick={() => {setPage('mine');if(guideStep!==null)setGuideStep(7);}}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V3m-5 5 5-5 5 5M5 14v6h14v-6"/></svg><span>分享装扮</span><small>›</small></button>
     </div>}
-    {page==='library'&&<div className="wardrobe-file-actions">{category==='collaboration'&&<button disabled={busy} onClick={async()=>{setBusy(true);try{const preset=createDraft?await createDraft():{format:'sullyos-chat-decoration' as const,version:1 as const,name:'我的协同工作',parts:{collaboration:validateCollaborationAppearance(await CollaborationStore.loadSettings())}};setSaveCurrent({preset,key:'decoration_global_collaboration'});}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>保存当前样式</button>}{category!=='all'&&category!=='chat'&&<button disabled={busy||applying|| (!!targetCharacterId&&!targetCharacter)} onClick={()=>void restoreCategory()}>恢复默认</button>}{!targetCharacterId&&(category==='schedule'||category==='journal')&&<button disabled={busy} onClick={()=>setSaveCurrent({preset:makeAppPreset(category,'我的'+(category==='schedule'?'日程表':'交换日记'),category==='schedule'?theme.scheduleCardAppearance:theme.journalAppearance),key:'decoration_global_'+category})}>保存当前样式</button>}{DECORATION_WORKSHOPS.filter(([id])=>id===category&&belongsInBeautyLibrary([id],libraryContext)).map(([id,label])=><button key={id} disabled={busy} onClick={()=>openMaker(id)}>{label}制作器 ＋</button>)}</div>}
+    {page==='library'&&<div className="wardrobe-file-actions">{category==='collaboration'&&<button disabled={busy} onClick={async()=>{setBusy(true);try{const preset=createDraft?await createDraft():{format:'sullyos-chat-decoration' as const,version:1 as const,name:'我的协同工作',parts:{collaboration:validateCollaborationAppearance(await CollaborationStore.loadSettings())}};setSaveCurrent({preset,key:'decoration_global_collaboration'});}catch(e){setError((e as Error).message);}finally{setBusy(false);}}}>保存当前样式</button>}{category!=='all'&&category!=='chat'&&<button disabled={busy||applying|| (!!targetCharacterId&&!targetCharacter)} onClick={()=>setRestoreConfirm(true)}>恢复默认</button>}{!targetCharacterId&&(category==='schedule'||category==='journal')&&<button disabled={busy} onClick={()=>setSaveCurrent({preset:makeAppPreset(category,'我的'+(category==='schedule'?'日程表':'交换日记'),category==='schedule'?theme.scheduleCardAppearance:theme.journalAppearance),key:'decoration_global_'+category})}>保存当前样式</button>}{DECORATION_WORKSHOPS.filter(([id])=>id===category&&belongsInBeautyLibrary([id],libraryContext)).map(([id,label])=><button key={id} disabled={busy} onClick={()=>openMaker(id)}>{label}制作器 ＋</button>)}</div>}
     {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     {notice&&<p role="status">{notice}</p>}
     {page === 'library' && <fieldset data-dress-guide="collection" disabled={busy} className="border-0 p-0 m-0 min-w-0">{!(['bubbles','psyche','profile','schedule','journal','date','story'].includes(category) && visibleEntries.length===0) && <BeautyWardrobe getUsage={getUsage} key={category} searchOpen={searchOpen} title={category === 'all' ? '我的收藏' : BEAUTY_CATEGORIES.find(([value]) => value === category)?.[1]} entries={visibleEntries} onEdit={editEntry} onDelete={setDeleteEntry} onUpdate={checkUpdate} onShare={entry=>{setShareSource(entry.id);setPage('mine');}} onExport={entry=>exportEntry(entry)} onApply={entry => { void applyLocal(entry); }}/>}</fieldset>}
@@ -451,8 +467,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
     {page === 'library' && <><BeautyRepoLibrary/>{targetCharacterId&&<button className="dress-guide-replay" onClick={()=>setGuideStep(0)}>再看一次使用引导</button>}</>}
     {draft?.maker==='bubbles'?createPortal(<div className="decoration-bubble-maker" role="dialog" aria-modal="true" aria-label="气泡制作器"><Suspense fallback={<p>正在打开气泡制作器…</p>}><BubbleMaker embedded initialTheme={draft.preset.parts.bubbles} onClose={()=>setDraft(null)} onSaveTheme={async bubbles=>{const preset=await portableDecoration({format:'sullyos-chat-decoration',version:1,name:bubbles.name,parts:{bubbles}});if(draft.originalEntryId?.startsWith('bubble-')&&['self','remix'].includes(draft.origin.kind)){await addCustomTheme({...bubbles,id:draft.originalEntryId.slice(7)});await writeDecorationOrigin(draft.originalEntryId,remixOrigin(draft.origin));}else await saveLibraryDecoration(preset,remixOrigin(draft.origin),draft.originalKey&&['self','remix'].includes(draft.origin.kind)?draft.originalKey:undefined);trackBeauty('save','bubbles');await refreshSaved();setDraft(null);setReceived({kind:'chat-decoration',preset,name:preset.name});setApplyAll(false);}}/></Suspense></div>,document.body):draft&&<DecorationDraftEditor getUsage={getUsage} {...draft} outfits={outfitEntries} onOutfitsChange={refreshSaved} characterName={targetCharacter?.name} theme={theme} sources={[...entries.filter(entry=>entry.kind==='chat-decoration'&&!outfitIds.has(entry.id)),...builtinWhitebox,...builtinBubbles,...builtinSounds,...builtinPsyche,...builtinProfiles,...builtinApps,...builtinMeetings]} onOpenWorkshop={()=>openMaker('bubbles')} onClose={()=>{setDraft(null);if(guideStep===2||guideStep===3)setGuideStep(4);}} onApply={async(preset,origin)=>{await writeOrigin(await decorationSourceKey(preset),origin);setDraft(null);if(guideStep===2||guideStep===3)setGuideStep(4);setApplyAll(false);setReceived({kind:'chat-decoration',preset,name:preset.name});}} onShareSaved={async id=>{await refreshSaved();setReceived(null);setShareSource(id);setShareMethod('code');setPage('mine');setDraft(null);}} onSaved={preset=>{setDraft(null);void refreshSaved().catch(()=>setError('预设已保存，列表刷新失败，请重新打开'));setReceived({kind:'chat-decoration',preset,name:preset.name});setApplyAll(false);}}/>}
     </div>
-    {catalogNotice && !firstGuideActive && page==='library' && !draft && <BeautyUpdateNotice onClose={()=>setCatalogNotice(false)}/>}
-    {!catalogNotice&&guideStep!==null&&!firstGuideActive&&!draft?.maker&&<DecorationGuide step={guideStep} onSkip={endGuide} onNext={()=>{if(guideStep===7)endGuide();else if(guideStep===5){setPage('library');setGuideStep(6);}else setGuideStep(guideStep+1);}}/>}
+    {guideStep!==null&&!firstGuideActive&&!draft?.maker&&<DecorationGuide step={guideStep} onSkip={endGuide} onNext={()=>{if(guideStep===7)endGuide();else if(guideStep===5){setPage('library');setGuideStep(6);}else setGuideStep(guideStep+1);}}/>}
     {deleteEntry&&<BeautyConfirmDialog title="删除这份装扮？" confirm="删除" danger onClose={()=>setDeleteEntry(null)} onConfirm={()=>removeEntry(deleteEntry)}><p>「{deleteEntry.name}」将从本机收藏移除。</p><p>{deleteEntry.id.startsWith('bubble-')?'仍在使用这份气泡的角色将回到默认气泡。':'已应用的装扮会保留。'}不会撤下已发布的分享码。</p></BeautyConfirmDialog>}
     {updateEntry&&<BeautyConfirmDialog title="发现新版装扮" confirm="同意规范并更新" onClose={()=>setUpdateEntry(null)} onConfirm={async()=>{
       const {entry,share,previous}=updateEntry;
@@ -472,6 +487,7 @@ export default function BeautyShareChannel({ presets, onExport, onImport, onBusy
       else{const id=await onImport(new File([JSON.stringify(pack)],'preset.json'));await writeDecorationOrigin(id,remixOrigin(desktopEdit.origin));}
       setNotice('桌面主题已保存。');
     }}><label>预设名称<input value={desktopEdit.name} maxLength={60} onChange={e=>setDesktopEdit({...desktopEdit,name:e.target.value})}/></label><label><input type="checkbox" checked={desktopEdit.useCurrent} onChange={e=>setDesktopEdit({...desktopEdit,useCurrent:e.target.checked})}/>用当前桌面外观替换主题设置</label><p>{['self','remix'].includes(desktopEdit.origin.kind)?'保存会更新原预设，保留投稿关联。':'保存为二改副本，保留原作者的使用规范。'}</p></BeautyConfirmDialog>}
+    {restoreConfirm&&<BeautyConfirmDialog title={category==='appearance'?'恢复全部默认桌面外观？':`恢复「${BEAUTY_CATEGORIES.find(([value])=>value===category)?.[1]||'本分类'}」默认样式？`} confirm="确认恢复" danger onClose={()=>setRestoreConfirm(false)} onConfirm={restoreCategory}>{category==='appearance'?<><p>将把主题色、壁纸、字体与桌面风格还原为初始默认状态，清空全部桌面小组件与装饰贴纸，并删除所有自定义 App 图标。</p><p>已保存的外观预设与收藏不会被删除。</p></>:<p>将清除「{BEAUTY_CATEGORIES.find(([value])=>value===category)?.[1]||'当前分类'}」的自定义样式与覆盖设置{targetCharacter&&category!=='collaboration'&&category!=='story'&&category!=='schedule'&&category!=='journal'?`（仅对 ${targetCharacter.name} 生效）`:''}，不会删除已收藏的装扮预设。</p>}</BeautyConfirmDialog>}
     {received && <div role="dialog" aria-modal="true" aria-labelledby="beauty-apply-title" className="fixed inset-0 z-[100] bg-black/30 flex items-center justify-center p-5">
       <div className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl text-slate-700">
         <h3 id="beauty-apply-title" className="text-lg font-medium">是否立即应用？</h3>

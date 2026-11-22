@@ -25,6 +25,7 @@ import { useLocalDateKey } from '../../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../../utils/timezone';
 import { RemoteImg } from '../../utils/remoteImgCache';
 import { trackEvent } from '../../utils/analytics';
+import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 
 interface Props {
   charId: string;
@@ -53,6 +54,7 @@ function MusicBio({ bio }: { bio?: string }) {
 
 const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPlaylist, onOpenArtist, onOpenSearch, onOpenRecent }) => {
   const { characters, updateCharacter, userProfile, apiConfig, addToast } = useOS();
+  const { requestConfirm, confirmDialog } = useConfirmDialog({ portal: true });
   const {
     cfg,
     current, playing, togglePlay, nextSong, prevSong,
@@ -146,9 +148,12 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
   /** 清掉旧档案重新走一次 LLM —— 给旧版保底生成的"告五人"账号用。 */
   const doRegenerate = useCallback(async () => {
     if (!char || initializing) return;
-    const ok = typeof window !== 'undefined'
-      ? window.confirm(`清空 ${char.name} 现有的音乐人格，重新让 LLM 生成？\n（歌单里已填的歌也会丢）`)
-      : true;
+    const ok = await requestConfirm({
+      title: '重新生成音乐人格？',
+      message: `清空 ${char.name} 现有的音乐人格，重新让 LLM 生成？（歌单里已填的歌也会丢失）`,
+      confirmText: '重新生成',
+      variant: 'warning',
+    });
     if (!ok) return;
     setInitializing(true);
     try {
@@ -161,7 +166,7 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
     } finally {
       setInitializing(false);
     }
-  }, [char, initializing, userProfile, apiConfig, updateCharacter, addToast]);
+  }, [char, initializing, requestConfirm, userProfile, apiConfig, updateCharacter, addToast]);
 
   /**
    * 顶栏刷新按钮：根据艺人名搜艺人、OST 标题搜专辑，匹配头像/封面并写回 profile 持久化。
@@ -332,6 +337,7 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
         <div className="flex-1 flex items-center justify-center text-sm" style={{ color: C.muted }}>
           找不到这个角色。
         </div>
+        {confirmDialog}
       </div>
     );
   }
@@ -703,7 +709,7 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
                 }}
                 className="w-3 h-3"
               />
-              允许 {char.name} 翻阅你的网易云数据（最近在听 / 歌单）
+              聊天时让 {char.name} 知道你正在听的歌
             </label>
             <div>
               <button
@@ -765,6 +771,7 @@ const CharVisitPage: React.FC<Props> = ({ charId, onBack, onOpenPlayer, onOpenPl
       {showNewPl && (
         <NewPlaylistModal onCancel={() => setShowNewPl(false)} onCreate={createPlaylist} />
       )}
+      {confirmDialog}
     </div>
   );
 };

@@ -47,7 +47,7 @@ import {
   fetchCollaborationModels,
   hydrateCollaborationApiSettings,
 } from './api';
-import { buildCollaborationContextSnapshot, buildCollaborationTurnMemoryContext, buildLiveCollaborationChatContext } from './context';
+import { collaborationThinkingPrompt, buildCollaborationContextSnapshot, buildCollaborationTurnMemoryContext, buildLiveCollaborationChatContext } from './context';
 import { runCollaborationTurn, isCollaborationApiConfigured, summarizeCollaborationForMemory } from './engine';
 import { collaborationBlobToDataUrl, extractSourceFile, isCollaborationImageFile, materializeArtifact, parseArtifactBlocks } from './files';
 import { normalizeCollaborationVisibleText, parseCollaborationMarkdown } from './markdown';
@@ -1658,12 +1658,13 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
 
   const visibleEmojiLibrary = useMemo(() => {
     const visibleCategories = emojiCategories.filter(category => (
-      !category.allowedCharacterIds?.length || category.allowedCharacterIds.includes(character.id)
+      !category.personalOnly && (!category.allowedCharacterIds?.length || category.allowedCharacterIds.includes(character.id))
     ));
     const visibleIds = new Set(visibleCategories.map(category => category.id));
+    const hasDefaultGroup = emojiCategories.some(category => category.id === 'default');
     return {
       categories: visibleCategories,
-      emojis: emojis.filter(emoji => !emoji.categoryId || visibleIds.has(emoji.categoryId)),
+      emojis: emojis.filter(emoji => visibleIds.has(emoji.categoryId || 'default') || (!emoji.categoryId && !hasDefaultGroup)),
     };
   }, [character.id, emojiCategories, emojis]);
 
@@ -2190,7 +2191,7 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
             ...focusedChatContext.chatContextSnapshot,
           ];
         }
-        if (!contextSnapshot) {
+        if (!contextSnapshot || !sessionAtStart.focusedSnapshotWithoutThinking) {
           contextSnapshot = await buildCollaborationContextSnapshot({
             char: liveHistory.character,
             user,
@@ -2215,6 +2216,7 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
         ...sessionAtStart,
         title: nextTitle,
         contextSnapshot,
+        focusedSnapshotWithoutThinking: sessionAtStart.mode === 'focused' ? true : undefined,
         // Pre-upgrade sessions may contain a frozen transcript. Clear it once
         // touched; the current request uses liveChatContext directly instead.
         chatContextSnapshot: undefined,
@@ -2225,7 +2227,9 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
 
       const reply = await runCollaborationTurn({
         profile,
-        contextSnapshot,
+        contextSnapshot: sessionAtStart.mode === 'focused'
+          ? contextSnapshot + collaborationThinkingPrompt(liveHistory.character, user)
+          : contextSnapshot,
         messages: requestMessages,
         signal: abortController.signal,
         onDelta: setStreamingText,
@@ -2356,8 +2360,25 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
     const requestMessages = messages.slice(0, lastUserIndex + 1);
     const latestUserMessage = requestMessages[lastUserIndex];
     const replacedMessages = messages.slice(lastUserIndex + 1);
+    const hasReplyAttachments = replacedMessages.some(m => (m.attachments?.length ?? 0) > 0);
+    const choice = await requestActionDialog({
+      title: '重新生成上一轮回复？',
+      description: hasReplyAttachments
+        ? `上一轮的 ${replacedMessages.length} 条回复及其中生成的文件与作品将从「协同文件与作品」移除，并重新生成。`
+        : replacedMessages.length > 0
+          ? `将删除上一轮的 ${replacedMessages.length} 条回复并重新生成。`
+          : '将基于最后一条用户消息重新发起一次回复生成。',
+      detail: hasReplyAttachments
+        ? '已发到 ChatApp 的附件仍可打开；此操作不可撤销。'
+        : undefined,
+      confirmLabel: '重新生成',
+      cancelLabel: '取消',
+      tone: hasReplyAttachments ? 'danger' : 'warning',
+    });
+    if (choice !== 'confirm') return;
     await CollaborationStore.deleteMessages(replacedMessages.map(message => message.id));
     setMessages(requestMessages);
+    if (libraryOpen && hasReplyAttachments) void refreshLibrary();
     trackEvent('重新生成协同回复', {
       上次结果: replacedMessages.some(message => message.role === 'assistant') ? '已完成' : replacedMessages.length > 0 ? '失败或停止' : '无回复',
     });
@@ -2390,12 +2411,25 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
       notify('这条消息已经不存在了', 'error');
       return;
     }
+    const droppedMessages = editingMessage.role === 'user' ? messages.slice(messageIndex + 1) : [];
+    if (droppedMessages.length > 0) {
+      const choice = await requestActionDialog({
+        title: '保存修改并重新生成？',
+        description: `此条之后的 ${droppedMessages.length} 条对话及相关生成文件将被永久移除。`,
+        detail: droppedMessages.some(m => (m.attachments?.length ?? 0) > 0)
+          ? '其中生成的文件与作品会从「协同文件与作品」移除；已发到 ChatApp 的附件仍可打开。此操作不可撤销。'
+          : '此操作不可撤销。',
+        confirmLabel: '确认重新生成',
+        cancelLabel: '继续编辑',
+        tone: 'danger',
+      });
+      if (choice !== 'confirm') return;
+    }
     setEditSaving(true);
     try {
       const updatedMessage: CollaborationMessage = { ...editingMessage, content };
       await CollaborationStore.saveMessage(updatedMessage);
       if (updatedMessage.role === 'user') {
-        const droppedMessages = messages.slice(messageIndex + 1);
         await CollaborationStore.deleteMessages(droppedMessages.map(message => message.id));
         const requestMessages = [...messages.slice(0, messageIndex), updatedMessage];
         setMessages(requestMessages);

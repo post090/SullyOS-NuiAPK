@@ -50,6 +50,7 @@ describe('dual avatar frame wardrobe & outfit workflow', () => {
         const host = document.createElement('div');
         document.body.append(host);
         const root = createRoot(host);
+        vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
         vi.stubGlobal('IntersectionObserver', class {
             cb: any;
             constructor(cb: any) { this.cb = cb; }
@@ -190,6 +191,8 @@ describe('dual avatar frame wardrobe & outfit workflow', () => {
             // Close draft, restore default for avatar category, and confirm "我的搭配" is no longer deadlocked by stale applied lock
             await act(async () => (Array.from(document.querySelectorAll('.decoration-draft header button')).find(b => b.textContent?.includes('返回')) as HTMLButtonElement).click());
             await act(async () => (Array.from(document.querySelectorAll('.wardrobe-file-actions button')).find(b => b.textContent === '恢复默认') as HTMLButtonElement).click());
+            await waitForUi(() => !!document.body.querySelector('.beauty-confirm-dialog'));
+            await act(async () => (Array.from(document.body.querySelectorAll('.beauty-confirm-dialog button')).find(b => b.textContent === '确认恢复') as HTMLButtonElement).click());
             await waitForUi(() => !currentChar.chromeCustomCss.includes('hurt.png'));
             await act(async () => root.render(React.createElement(OSPreviewProvider, {value: makeOs()}, React.createElement(BeautyShareChannel, {
                 presets: [],

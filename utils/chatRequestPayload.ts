@@ -1,4 +1,5 @@
 import { getMemoryPalaceHighWaterMarkForContext, selectCharacterContextMessages } from './chatContextRange';
+import type { ThinkingChainSettings } from './thinkingChainPrompt';
 import { expandHomeContextHistory } from './homeContextSegments';
 import { protectPendingChatTurn } from './storyTheaterTimeline';
 /**
@@ -98,7 +99,7 @@ export interface BuildChatPayloadInput {
     // 模式开关
     translationConfig?: TranslationConfig | { enabled: boolean; sourceLang: string; targetLang: string };
     htmlMode?: { enabled: boolean; customPrompt?: string };
-    thinkingChain?: { enabled: boolean; customPrompt?: string };
+    thinkingChain?: ThinkingChainSettings;
     /** 可选识图 API：开启后先把图片持久化转写为 [图片：描述]，主模型只接收文字。 */
     visionApiConfig?: VisionApiConfig;
     /** 可选音频识别 API：开启后聊天音频先转写为文字说明；私聊还会提示角色可以挑歌去听。 */
@@ -263,6 +264,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
     const rawRecentMsgsHint = input.recentMsgsHint && !isChatConversationEntry(input.recallEntryPoint)
         ? input.recentMsgsHint.filter(message => visibleIds.has(message.id))
         : selectedHistory;
+    const stickerVision = input.recallEntryPoint === 'chat_app' && char.stickerVision === true;
     const useVisionDescriptions = input.visionApiConfig?.enabled === true;
     let historyMsgsForPrompt = selectedHistory;
     let recentMsgsHint = rawRecentMsgsHint;
@@ -285,7 +287,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         const prepared = await prepare('vision',()=>materializeVisionDescriptions(
             [...uniqueMessages.values()],
             input.visionApiConfig,
-            { ...visionAppMeta, charId: char.id, charName: char.name, purpose: '识图' },
+            { ...visionAppMeta, charId: char.id, charName: char.name, purpose: '识图' }, stickerVision,
         ));
         const preparedById = new Map(prepared.map(message => [message.id, message]));
         historyMsgsForPrompt = selectedHistory.map(message => preparedById.get(message.id) || message);
@@ -313,7 +315,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
             userProfile,
             emojis,
             undefined,
-            { useVisionDescriptions, contextHighWaterMark, protectPendingChatTurn: true },
+            { useVisionDescriptions, stickerVision, contextHighWaterMark, protectPendingChatTurn: true },
         );
         const cleanedApiMessages = cleanApiMessages(input.stripImages ? flattenImageContentParts(apiMessages) : apiMessages);
         console.warn('[DevDebug] Prompt Build skipped: sending chat history without system prompt injection.');
@@ -379,7 +381,7 @@ export async function buildChatRequestPayload(input: BuildChatPayloadInput): Pro
         userProfile,
         emojis,
         undefined,
-        { useVisionDescriptions, contextHighWaterMark, protectPendingChatTurn: true },
+        { useVisionDescriptions, stickerVision, contextHighWaterMark, protectPendingChatTurn: true },
     );
 
     // ── 8. 剥离历史里旧的双语标签（stripImages 时先压平 image_url → 纯文本占位） ──

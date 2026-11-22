@@ -1,5 +1,6 @@
 import AwarenessSwitch from '../components/settings/AwarenessSwitch';
 import { listUserSpaces } from '../utils/userSpaces';
+import { errorDetails } from '../utils/errorSelfCheck';
 import { BackupMissingAssetsNotice } from '../components/BackupMissingAssetsNotice';
 import type { BackupMissingAsset } from '../utils/backupMissingAssets';
 import { readBackupPreferences, updateBackupPreferences } from '../utils/backupPreferences';
@@ -29,6 +30,7 @@ import '../components/settings/realtimeSettings.css';
 import SettingsDetailPage from '../components/settings/SettingsDetailPage';
 import Modal from '../components/os/Modal';
 import ApiConnectionPicker from '../components/os/ApiConnectionPicker';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import UserHolidaySettings from '../components/settings/UserHolidaySettings';
 import UserLocationSettings, { awarenessSections, USER_LOCATION_PAGE_TITLES, getUserLocationParentPage, type UserLocationSettingsPage } from '../components/settings/UserLocationSettings';
 import { useLocalBackHandler } from '../hooks/useLocalBackHandler';
@@ -62,7 +64,13 @@ import { bucketRetryCount } from '../utils/analytics';
 import { syncAmsgLlmCredentials, syncAmsgToolConfig, syncAmsgToolConfigAndPrompts } from '../utils/amsgStateSync';
 import { ActiveMsgClient } from '../utils/activeMsgClient';
 import { ActiveMsgStore } from '../utils/activeMsgStore';
-import { AMSG_GLOBAL_CONFIG_EVENT, isAmsg2GloballyEnabled } from '../utils/amsgGlobalGate';
+import {
+    AMSG_CRON_TRIGGER_EVENT,
+    AMSG_GLOBAL_CONFIG_EVENT,
+    isAmsg2GloballyEnabled,
+    isAmsg2WorkerActive,
+    isCloudCronPaused,
+} from '../utils/amsgGlobalGate';
 import { flushAmsg2AfterReenable, setAmsg2GlobalEnabled } from '../utils/amsgGlobalSwitch';
 import VersionInfo from '../components/settings/VersionInfo';
 import SullySupportEntry, { SupportIcon } from '../components/settings/SullySupportEntry';
@@ -76,7 +84,7 @@ import { deriveStations, findActiveStation, stationKey, presetNameFor, renameSta
 // 自动云备份间隔档位（小时）：滑条按下标选档
  const AUTO_BACKUP_STEPS = [6, 12, 24, 48, 72, 168];
  const autoBackupLabel = (h: number) => h < 24 ? `${h} 小时` : `${Math.round(h / 24)} 天`;
-import { getBackupReminderState, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
+import { getBackupReminderState, markBackupDone, setBackupReminderIntervalDays, daysSinceLastBackup, BACKUP_REMINDER_MIN_DAYS, BACKUP_REMINDER_MAX_DAYS } from '../utils/backupReminder';
 import { getNativeChatRuntimeUserEnabled, setNativeChatRuntimeUserEnabled, getNativeRuntimeUserEnabled, setNativeRuntimeUserEnabled, getPersistentNativeRuntimeUserEnabled, setPersistentNativeRuntimeUserEnabled, startPersistentNativeRuntime, stopPersistentNativeRuntime, requestNativeNotificationPermission, getNativeSystemStatus, requestBatteryOptimizationExemption, openNativeNotificationSettings, openBatterySettings, isNativeRuntimeAvailable, type NativeSystemStatus } from '../utils/runtime/nativeRuntime';
 import {
     createAvatarModelBackup,
@@ -572,6 +580,7 @@ const Settings: React.FC = () => {
       cloudBackupConfig, updateCloudBackupConfig,
       cloudBackupToWebDAV, cloudRestoreFromWebDAV, listCloudBackups,
   } = useOS();
+  const { requestConfirm, confirmDialog } = useConfirmDialog();
   
   const [localKey, setLocalKey] = useState(apiConfig.apiKey);
   const [localUrl, setLocalUrl] = useState(apiConfig.baseUrl);
@@ -744,7 +753,13 @@ const Settings: React.FC = () => {
   };
   // 一键还原全部「聊天白框自定义 CSS」：清掉全局 + 每个角色自带的。
   // 兼作救援：单角色的坏 CSS 把聊天界面整崩、进不去该角色设置时，从这里一键全清即可恢复。
-  const resetAllChromeCss = () => {
+  const resetAllChromeCss = async () => {
+    const ok = await requestConfirm({
+      title: '还原全部聊天白框美化？',
+      message: '将清除全局与所有角色的聊天白框 CSS，聊天记录、角色设定与预设收藏均会保留。',
+      confirmText: '确认还原',
+    });
+    if (!ok) return;
     let n = 0;
     if (theme.chatChromeCustomCss) { updateTheme({ chatChromeCustomCss: '' }); n++; }
     (characters || []).forEach((c: any) => {
@@ -754,6 +769,12 @@ const Settings: React.FC = () => {
   };
 
   const handleJournalAppearanceEmergencyReset = async () => {
+    const ok = await requestConfirm({
+      title: '重置交换日记美化？',
+      message: '将清除交换日记的自定义样式与 CSS，恢复原版样式。',
+      confirmText: '确认重置',
+    });
+    if (!ok) return;
     await updateTheme({ journalAppearance: undefined });
     addToast('已从系统设置还原交换日记原版样式', 'success');
   };
@@ -774,6 +795,7 @@ const Settings: React.FC = () => {
   );
   const [ghShowAdvanced, setGhShowAdvanced] = useState(false);
   const [ghTesting, setGhTesting] = useState(false);
+  const [ghRelayAsk, setGhRelayAsk] = useState(false);
   const [ghTestResult, setGhTestResult] = useState<string>('');
 
   // 主代理 Worker 地址（联网搜索 / 备份代理 / Notion / 飞书 / MCD·瑞幸 MCP / 网页抓取 / 出图都走它）。
@@ -886,6 +908,7 @@ const Settings: React.FC = () => {
   const [rtXhsNickname, setRtXhsNickname] = useState(realtimeConfig.xhsMcpConfig?.loggedInNickname || '');
   const [rtXhsUserId, setRtXhsUserId] = useState(realtimeConfig.xhsMcpConfig?.loggedInUserId || '');
   const [rtXhsCookie, setRtXhsCookie] = useState(realtimeConfig.xhsMcpConfig?.cookie || '');
+  const [showRtXhsCookie, setShowRtXhsCookie] = useState(false);
   const [rtXhsPlatform, setRtXhsPlatform] = useState<'xhs' | 'rednote' | undefined>(realtimeConfig.xhsMcpConfig?.platform);
   const [rtXhsGuideOpen, setRtXhsGuideOpen] = useState(false);
   const [rtTestStatuses, setRtTestStatuses] = useState<Record<string, string>>({});
@@ -934,6 +957,7 @@ const Settings: React.FC = () => {
   useSettingsFocus('amsg2', () => openAmsgPage('config'));
   const [amsgGlobalConfig, setAmsgGlobalConfig] = useState<{ workerUrl: string; enabled?: boolean; initializedAt?: number } | null>(null);
   const [amsgGlobalToggling, setAmsgGlobalToggling] = useState(false);
+  const [amsgCloudCronPaused, setAmsgCloudCronPaused] = useState(false);
 
   useEffect(() => {
       let alive = true;
@@ -949,12 +973,32 @@ const Settings: React.FC = () => {
               if (!isAmsg2GloballyEnabled(detail)) flushMcpToolConfigSync();
           }
       };
+      const onCronChanged = (ev: Event) => {
+          const detail = (ev as CustomEvent<{ enabled?: boolean }>).detail;
+          if (detail && typeof detail.enabled === 'boolean') {
+              setAmsgCloudCronPaused(!detail.enabled);
+          }
+      };
       window.addEventListener(AMSG_GLOBAL_CONFIG_EVENT, onGlobalCfg);
+      window.addEventListener(AMSG_CRON_TRIGGER_EVENT, onCronChanged);
       return () => {
           alive = false;
           window.removeEventListener(AMSG_GLOBAL_CONFIG_EVENT, onGlobalCfg);
+          window.removeEventListener(AMSG_CRON_TRIGGER_EVENT, onCronChanged);
       };
   }, []);
+
+  useEffect(() => {
+      if (!amsgGlobalConfig?.initializedAt || !isAmsg2WorkerActive(amsgGlobalConfig)) {
+          setAmsgCloudCronPaused(false);
+          return;
+      }
+      let alive = true;
+      void ActiveMsgClient.getCronTriggerState().then((state) => {
+          if (alive) setAmsgCloudCronPaused(isCloudCronPaused(state));
+      });
+      return () => { alive = false; };
+  }, [amsgGlobalConfig?.workerUrl, amsgGlobalConfig?.initializedAt, amsgGlobalConfig?.enabled, amsgPage]);
 
   const handleToggleAmsg2Global = async (next: boolean) => {
       if (amsgGlobalToggling) return;
@@ -967,6 +1011,13 @@ const Settings: React.FC = () => {
               realtimeConfig,
               apiConfig,
           });
+          if (!result.ok) {
+              addToast(
+                  result.errorMessage || '网络波动，未成功开启主动消息 2.0，请稍后重试。',
+                  'error',
+              );
+              return;
+          }
           if (!next) {
               addToast(
                   result.cronNotice || '已暂停主动消息 2.0，云端连接与角色配置均已保留。',
@@ -1166,6 +1217,13 @@ const Settings: React.FC = () => {
   // 用 ref 跟住当前的 object URL，关弹窗 / 重新导出 / 卸载时都能 revoke 到最新那个，
   // 不受 state 闭包过期影响。
   const downloadUrlRef = useRef<string>('');
+  // 这次导出还没记过备份时间：分享成功和点手动下载链接都从这里取，同一次导出只记一次。
+  const backupRecordPendingRef = useRef(false);
+  const recordBackupOnce = useCallback(() => {
+      if (!backupRecordPendingRef.current) return;
+      backupRecordPendingRef.current = false;
+      markBackupDone();
+  }, []);
   const revokeDownloadUrl = useCallback(() => {
       if (downloadUrlRef.current) {
           URL.revokeObjectURL(downloadUrlRef.current);
@@ -1346,9 +1404,15 @@ const Settings: React.FC = () => {
       setCopyingPreset(true);
   };
 
-  const deleteEditedPreset = () => {
+  const deleteEditedPreset = async () => {
       const preset = apiPresets.find(item => item.id === editingPresetId);
-      if (!preset || !window.confirm(`确定删除预设「${preset.name}」？`)) return;
+      if (!preset) return;
+      const ok = await requestConfirm({
+          title: `确定删除预设「${preset.name}」？`,
+          message: '删除后需要重新填写配置才能加回。',
+          confirmText: '确认删除',
+      });
+      if (!ok) return;
       removeApiPreset(preset.id);
       trackEvent('删除 API 预设');
       setEditingPresetId(null);
@@ -1867,7 +1931,18 @@ const Settings: React.FC = () => {
               scan.removedEmojiCount > 0 ? `• 删除 ${scan.removedEmojiCount} 个随分类失效/无主的表情` : '',
               scan.fixedCategories.length > 0 ? `• 修复 ${scan.fixedCategories.length} 个分类里指向已删角色的绑定：${scan.fixedCategories.map(c => `「${c.name}」`).join('、')}` : '',
           ].filter(Boolean).join('\n');
-          if (!window.confirm(`扫描到以下残留（角色已删除但表情包还在）：\n\n${lines}\n\n点「确定」清理，此操作不可撤销。`)) return;
+          const ok = await requestConfirm({
+              title: '清理无主表情分类？',
+              message: (
+                  <div className="space-y-2">
+                      <p>扫描到以下残留（角色已删除但表情包还在）：</p>
+                      <div className="whitespace-pre-line text-xs text-slate-600 bg-slate-50 rounded-xl p-2.5">{lines}</div>
+                      <p className="text-xs text-rose-500">此操作不可撤销。</p>
+                  </div>
+              ),
+              confirmText: '确认清理',
+          });
+          if (!ok) return;
           const report = await DB.cleanupEmojiResidue(validIds);
           addToast(`清理完成：删除 ${report.removedCategories.length} 个分类、${report.removedEmojiCount} 个表情${report.fixedCategories.length > 0 ? `，修复 ${report.fixedCategories.length} 处绑定` : ''}`, 'success');
       } catch (err) {
@@ -1883,23 +1958,29 @@ const Settings: React.FC = () => {
       try {
           // 二次确认：整包备份（full / text_only）本就包含你的 API 密钥等设置——这是预期行为，
           // 但绝不能发给别人。media_only 只有媒体、不含密钥，视为可分享。
-          if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-              const includesSettings = mode !== 'media_only';
-              const includesBackend = includesSettings && exportBackendConnection;
-              const msg = includesBackend
-                  ? '该导出数据包含了明文密钥，以及主动消息 2.0 的后端连接（Worker 地址与主密钥）。拿到这个文件的人可以连上你那台 Worker，请不要发送给任何人'
-                  : includesSettings
-                  ? '该导出数据包含了明文密钥，请不要发送给任何人'
-                  : '该导出内容安全，可以用于分享';
-              if (!window.confirm(`${msg}\n\n点「确定」继续导出，「取消」中止。`)) {
-                  trackEvent('取消导出前的密钥确认', { mode });
-                  return;
-              }
+          const includesSettings = mode !== 'media_only';
+          const includesBackend = includesSettings && exportBackendConnection;
+          const msg = includesBackend
+              ? '该导出数据包含了明文密钥，以及主动消息 2.0 的后端连接（Worker 地址与主密钥）。拿到这个文件的人可以连上你那台 Worker，请不要发送给任何人'
+              : includesSettings
+              ? '该导出数据包含了明文密钥，请不要发送给任何人'
+              : '该导出内容安全，可以用于分享';
+          const ok = await requestConfirm({
+              title: includesSettings ? '导出前安全提醒' : '确认导出媒体包',
+              message: msg,
+              confirmText: '继续导出',
+              cancelText: '取消',
+              variant: includesSettings ? 'warning' : 'info',
+          });
+          if (!ok) {
+              trackEvent('取消导出前的密钥确认', { mode });
+              return;
           }
 
           // Trigger export (Context handles loading state UI)
           setExportMissingAssets([]);
           const blob = await exportSystem(mode, { userScope: exportUserScope, onMissingAssets: setExportMissingAssets });
+          backupRecordPendingRef.current = true;
           
           const fileName = `Sully_Backup_${mode}_${formatBackupTimestamp()}.zip`;
           if (!Capacitor.isNativePlatform()) {
@@ -1922,6 +2003,8 @@ const Settings: React.FC = () => {
               nativeChunked: true,
           });
           if (result === 'cancelled') return;
+          // 分享面板和浏览器下载都无从得知用户是否真的存下了文件，交出文件就算备份过。
+          recordBackupOnce();
       } catch (e: any) {
           // Capacitor FilesystemException / 某些原生 API 抛出的异常 e.message 可能是对象，
           // 直接传给 addToast 会被 React toString 成 "[object Object]"。
@@ -1934,19 +2017,42 @@ const Settings: React.FC = () => {
 
   // 本地导入和云端恢复共用。备份里带着 Worker 后端连接时问一句：程序分不清这份文件是自己的
   // 还是别人的（换新设备时用户 id 本来就对不上），只有拿着文件的人知道，所以把话问出去。
-  const confirmBackendRestore = (workerUrl: string) => window.confirm(
-      `这份备份里带着一个主动消息 2.0 的后端连接：\n\n${workerUrl}\n\n`
-      + '如果这是你自己导出的备份，点「确定」连上它。\n\n'
-      + '如果是别人给你的，点「取消」——连上去的话，你的 API 密钥和聊天记录会被写进对方那台服务器。\n\n'
-      + '（不连也不影响其它数据导入，之后可以在设置里手动填。）',
-  );
+  const confirmBackendRestore = (workerUrl: string) => requestConfirm({
+      title: '连上备份里的主动消息后端？',
+      message: (
+          <div className="space-y-2">
+              <p>这份备份里带着一个主动消息 2.0 的后端连接：</p>
+              <p className="font-mono text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 break-all text-slate-700">{workerUrl}</p>
+              <p>如果这是你自己导出的备份，点「连上后端」。</p>
+              <p>如果是别人给你的，点「不连，仅导数据」——连上去的话，你的 API 密钥和聊天记录会被写进对方那台服务器。</p>
+              <p className="text-xs text-slate-400">（不连也不影响其它数据导入，之后可以在设置里手动填。）</p>
+          </div>
+      ),
+      confirmText: '连上后端',
+      cancelText: '不连，仅导数据',
+      variant: 'warning',
+  });
 
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>, asNewUsers = false) => {
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>, asNewUsers = false) => {
       const file = e.target.files?.[0];
+      if (importInputRef.current) importInputRef.current.value = '';
+      if (independentImportInputRef.current) independentImportInputRef.current.value = '';
       if (!file) return;
 
+      if (!asNewUsers) {
+          const ok = await requestConfirm({
+              title: '用备份文件覆盖当前数据？',
+              message: `将导入「${file.name}」并覆盖当前用户空间数据（主动消息 2.0 救援文件会自动迁入独立用户；如需保留现有数据，请取消并改用「从其他网址 / App 迁入独立用户」）。`,
+              confirmText: '确认覆盖',
+              variant: 'danger',
+          });
+          if (!ok) return;
+      }
+
       // Pass the File object directly to importSystem
-      importSystem(file, { asNewUsers, confirmBackendRestore }).catch(err => {
+      try {
+          await importSystem(file, { asNewUsers, confirmBackendRestore });
+      } catch (err: any) {
           console.error(err);
           // 只上报归类后的固定枚举：报错原文（可能含文件路径/内容片段）只留在 console
           const rawMessage = String(err?.message || '');
@@ -1959,17 +2065,15 @@ const Settings: React.FC = () => {
                   : /JSON 格式错误/.test(rawMessage) ? 'json_syntax'
                   : 'other',
           });
-          const details = err?.stack || err?.message || String(err || '未知错误');
+          const details = errorDetails(err);
           showError('导入失败', details);
           addToast('导入失败，错误信息已展开', 'error');
-      });
-      
-      if (importInputRef.current) importInputRef.current.value = '';
-      if (independentImportInputRef.current) independentImportInputRef.current.value = '';
+      }
   };
 
   const deliverStandaloneBackup = async (blob: Blob, fileName: string, shareTitle: string) => {
       setExportMissingAssets([]);
+      backupRecordPendingRef.current = false; // 模型备份不算系统备份
       if (!Capacitor.isNativePlatform()) {
           if (downloadUrlRef.current) URL.revokeObjectURL(downloadUrlRef.current);
           const url = URL.createObjectURL(blob);
@@ -1991,7 +2095,7 @@ const Settings: React.FC = () => {
           await deliverStandaloneBackup(blob, fileName, 'Sully 模型备份');
           addToast(`模型备份已生成（${formatBackupBytes(blob.size)}）`, 'success');
       } catch (error: any) {
-          const details = error?.stack || error?.message || String(error || '未知错误');
+          const details = errorDetails(error);
           showError('模型备份导出失败', details);
           addToast(error?.message || '模型备份导出失败', 'error');
       } finally {
@@ -2032,7 +2136,7 @@ const Settings: React.FC = () => {
               skipped > 0 ? 'info' : 'success',
           );
       } catch (error: any) {
-          const details = error?.stack || error?.message || String(error || '未知错误');
+          const details = errorDetails(error);
           showError('模型备份导入失败', details);
           addToast(restored > 0 ? `已恢复 ${restored} 个模型后中断` : '模型备份导入失败', 'error');
       } finally {
@@ -2170,6 +2274,13 @@ const Settings: React.FC = () => {
           addToast(file.statusMessage || '这个备份上传未完成，暂时不能恢复', 'error');
           return;
       }
+      const ok = await requestConfirm({
+          title: '用云端备份覆盖当前数据？',
+          message: `将下载并导入「${file.name}」，覆盖当前用户空间的聊天、角色与设置数据，完成后页面会自动刷新。`,
+          confirmText: '确认恢复',
+          variant: 'danger',
+      });
+      if (!ok) return;
       setShowCloudRestoreModal(false);
       try {
           await cloudRestoreFromWebDAV(file, { confirmBackendRestore });
@@ -2179,7 +2290,7 @@ const Settings: React.FC = () => {
               provider: cloudBackupConfig.provider === 'github' ? 'github' : 'webdav',
               stage: /^恢复失败/.test(String(err?.message || '')) ? 'import' : 'download',
           });
-          const details = err?.stack || err?.message || String(err || '未知错误');
+          const details = errorDetails(err);
           showError('云端恢复失败', details);
       }
   };
@@ -2192,6 +2303,28 @@ const Settings: React.FC = () => {
           setGhTestResult('✗ 请先粘贴 Token');
           return;
       }
+      // 网页里直连 GitHub 传不了附件（GitHub 的附件服务器不回应网页的跨域请求，见 docs/backup-pipeline.md
+      // 「平台事实」），令牌测试却能通过。所以连接前先把中转问清楚：中转要用户点头才开，不点头就不连，连上也用不了。
+      if (!ghUseProxy && !Capacitor.isNativePlatform()) {
+          setGhRelayAsk(true);
+          return;
+      }
+      await connectGithub(ghUseProxy);
+  };
+
+  const acceptGithubRelay = () => {
+      setGhRelayAsk(false);
+      handleGithubProxyToggle(true);
+      void connectGithub(true);
+  };
+
+  const declineGithubRelay = () => {
+      setGhRelayAsk(false);
+      trackEvent('测试并连接 GitHub', { result: '失败', failure_stage: 'relay_declined' });
+      setGhTestResult('✗ 没有开启中转，网页里的 GitHub 备份无法运行，保持关闭');
+  };
+
+  const connectGithub = async (useProxy: boolean) => {
       setGhTesting(true);
       setGhTestResult('');
       try {
@@ -2200,8 +2333,8 @@ const Settings: React.FC = () => {
               ...cloudBackupConfig,
               githubToken: ghToken.trim(),
               githubRepo: ghRepo.trim() || 'sully-backup',
-              githubUseProxy: ghUseProxy,
-              githubProxyConsentVersion: ghUseProxy ? 1 : undefined,
+              githubUseProxy: useProxy,
+              githubProxyConsentVersion: useProxy ? 1 : undefined,
           });
           setGhTestResult(result.ok ? `✓ ${result.message}` : `✗ ${result.message}`);
           // 失败时只报卡在哪一步：token 校验没过 → 没有 login，仓库准备没过 → 有 login
@@ -2215,8 +2348,8 @@ const Settings: React.FC = () => {
                   githubToken: ghToken.trim(),
                   githubOwner: result.login,
                   githubRepo: ghRepo.trim() || 'sully-backup',
-                  githubUseProxy: ghUseProxy,
-                  githubProxyConsentVersion: ghUseProxy ? 1 : undefined,
+                  githubUseProxy: useProxy,
+                  githubProxyConsentVersion: useProxy ? 1 : undefined,
               });
           }
       } catch (e: any) {
@@ -2236,7 +2369,9 @@ const Settings: React.FC = () => {
       });
       trackEvent('切换 GitHub 备份线路', { route: enabled ? 'cloudflare_worker' : 'direct' });
       addToast(
-          enabled ? '已改用应用内 Cloudflare 中转，下次备份立即生效' : '已改为直连 GitHub 附件域名',
+          enabled ? '已改用应用内 Cloudflare 中转，下次备份立即生效'
+              : Capacitor.isNativePlatform() ? '已改为直连 GitHub 附件域名'
+              : '已关闭中转。网页里 GitHub 备份将无法运行，重新勾选即可恢复',
           'info',
       );
   };
@@ -2532,6 +2667,8 @@ const Settings: React.FC = () => {
                           <div className="h-full bg-primary transition-all duration-300" style={{ width: `${sysOperation.progress}%` }}></div>
                       </div>
                   )}
+                  {/* 手机系统会挂起离开太久的页面并中止写库，恢复和导出都会因此失败 */}
+                  <div className="text-[10px] text-slate-400 text-center leading-relaxed">请停在这个页面，离开太久会被系统中断</div>
               </div>
           </div>
       )}
@@ -2579,7 +2716,7 @@ const Settings: React.FC = () => {
             <div className="mt-4 border-t border-slate-100 pt-4">
                 <p className="text-xs text-slate-500 leading-relaxed">聊天白框 CSS 导致界面异常、无法进入角色设置时，还原全局及全部角色的白框美化，其他聊天外观设置不受影响。</p>
                 <button type="button"
-                    onClick={() => { if (window.confirm('确定还原全部聊天白框美化？将清空「全局」以及「每个角色」的自定义 CSS（其它聊天外观设置不受影响）。')) resetAllChromeCss(); }}
+                    onClick={() => void resetAllChromeCss()}
                     className="mt-3 w-full rounded-xl bg-amber-600 px-4 py-3 text-xs font-bold text-white shadow-sm transition active:scale-[.98]">
                     一键还原全部聊天白框美化（救援）
                 </button>
@@ -2986,7 +3123,7 @@ const Settings: React.FC = () => {
 
             <p className="text-[10px] text-slate-400 px-1 mt-3 leading-relaxed">
                 备份始终存放在你自己的 WebDAV 或 GitHub 账号中，项目不建立用户备份数据库。
-                网页 WebDAV 因跨域限制需要中转；GitHub 默认直连，网络受限时可自行开启中转。
+                网页里 WebDAV 和 GitHub 都因跨域限制需要中转；GitHub 的中转在连接时征求你的同意后才开启。
             </p>
         </SettingsSection>
 
@@ -4505,7 +4642,7 @@ const Settings: React.FC = () => {
         </SettingsSection>
         )}
 
-        <ActiveMsgSettingsEntry onOpen={openAmsgPage} connected={Boolean(amsgGlobalConfig?.initializedAt && amsgGlobalConfig.workerUrl?.trim())} enabled={amsgGlobalConfig?.workerUrl?.trim() ? isAmsg2GloballyEnabled(amsgGlobalConfig) : undefined} toggling={amsgGlobalToggling} onToggle={next => void handleToggleAmsg2Global(next)} />
+        <ActiveMsgSettingsEntry onOpen={openAmsgPage} connected={Boolean(amsgGlobalConfig?.initializedAt && amsgGlobalConfig.workerUrl?.trim())} enabled={amsgGlobalConfig?.workerUrl?.trim() ? isAmsg2GloballyEnabled(amsgGlobalConfig) : undefined} cronPaused={amsgCloudCronPaused} toggling={amsgGlobalToggling} onToggle={next => void handleToggleAmsg2Global(next)} />
         <SullySupportEntry ref={supportEntryRef} onOpen={() => { trackEvent('打开打赏 Sully', { 入口: '设置' }); setShowSupport(true); }} />
 
         {/* 自定义网络代理 — 刻意低调的高级入口。默认折叠，不主动指引基本发现不了。
@@ -4789,7 +4926,7 @@ const Settings: React.FC = () => {
                       className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs text-slate-700 font-mono focus:border-slate-500 focus:ring-1 focus:ring-slate-300 outline-none"
                   />
                   <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">
-                      Token 保存在本机配置中。GitHub 默认直连；如果附件域名不通，可在下方高级选项开启应用内中转。
+                      Token 保存在本机配置中。GitHub 默认直连；在网页里备份和恢复都需要在下方高级选项开启应用内中转（GitHub 的附件服务器不允许网页直接上传和下载，和梯子无关）。中转本身也要你的网络连得上，开了仍然传不动时请开梯子再试。
                       仅在你手动开启后，Token 才会随 GitHub 请求经过所选 Worker，项目不会主动留存。
                   </p>
               </div>
@@ -4882,6 +5019,25 @@ const Settings: React.FC = () => {
       </Modal>
 
       {/* Cloud Restore Modal */}
+      <Modal
+          isOpen={ghRelayAsk}
+          title="需要开启应用内中转"
+          onClose={declineGithubRelay}
+          footer={
+              <div className="flex gap-2 w-full">
+                  <button onClick={declineGithubRelay} className="flex-1 py-3 bg-slate-100 text-slate-600 font-bold rounded-2xl">取消</button>
+                  <button onClick={acceptGithubRelay} className="flex-1 py-3 bg-primary text-white font-bold rounded-2xl">开启中转并连接</button>
+              </div>
+          }
+      >
+          <div className="space-y-3 text-sm text-slate-600 leading-relaxed">
+              <p>在网页里，GitHub 备份要经过应用内的 Cloudflare 中转才能运行。GitHub 存放附件的服务器不允许网页直接上传和下载，和网络、梯子无关。</p>
+              <p>开启后，Token 和备份文件会经过所选 Worker 转发，项目不会主动留存。</p>
+              <p>中转只是让网页能传，能不能传成功还要看你的网络连不连得上中转；传不动时请开梯子再试。</p>
+              <p className="text-xs text-slate-400">不开启的话，这个功能无法运行，将保持关闭。</p>
+          </div>
+      </Modal>
+
       <Modal isOpen={showCloudRestoreModal} title="从云端恢复" onClose={() => setShowCloudRestoreModal(false)}>
           <div className="space-y-2 p-1">
               {cloudBackupListState === 'loading' ? (
@@ -5356,7 +5512,7 @@ const Settings: React.FC = () => {
               <p className="text-sm font-bold text-slate-700">备份文件已生成！</p>
               <div className="text-left"><BackupMissingAssetsNotice items={exportMissingAssets} /></div>
               <p className="text-xs text-slate-500">如果浏览器没有自动下载，请点击下方链接。</p>
-              {downloadUrl && <a href={downloadUrl} download={downloadFileName} className="text-primary text-sm underline block py-2">点击手动下载 .zip</a>}
+              {downloadUrl && <a href={downloadUrl} download={downloadFileName} onClick={recordBackupOnce} className="text-primary text-sm underline block py-2">点击手动下载 .zip</a>}
           </div>
       </Modal>
 
@@ -5838,7 +5994,20 @@ const Settings: React.FC = () => {
                           <span className="text-sm font-bold text-rose-700">小红书 Lite</span>
                           <span className="text-[9px] bg-rose-100 text-rose-500 px-1.5 py-0.5 rounded-full">推荐</span>
                       </div>
-                      <AwarenessSwitch aria-label="启用小红书 Lite" checked={rtXhsMcpEnabled && rtXhsMode === 'lite'} onChange={e => { if (e.target.checked) { if (!window.confirm(XHS_RISK_TEXT + '\n\n确定要开启吗？')) return; setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('lite'); } else { setRtXhsMcpEnabled(false); setRtXhsEnabled(false); } }} />
+                      <AwarenessSwitch aria-label="启用小红书 Lite" checked={rtXhsMcpEnabled && rtXhsMode === 'lite'} onChange={async e => {
+                          if (e.target.checked) {
+                              const ok = await requestConfirm({
+                                  title: '启用小红书 Lite 风险提示',
+                                  message: XHS_RISK_TEXT,
+                                  confirmText: '确认开启',
+                                  variant: 'warning',
+                              });
+                              if (!ok) return;
+                              setRtXhsMcpEnabled(true); setRtXhsEnabled(true); setRtXhsMode('lite');
+                          } else {
+                              setRtXhsMcpEnabled(false); setRtXhsEnabled(false);
+                          }
+                      }} />
                   </div>
                   {rtXhsMcpEnabled && rtXhsMode === 'lite' && (
                       <div className="space-y-2">
@@ -5847,8 +6016,34 @@ const Settings: React.FC = () => {
                           </p>
                           <p className="text-[10px] text-amber-700 leading-relaxed bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">{XHS_RISK_TEXT}</p>
                           <div>
-                              <label className="text-[10px] font-bold text-slate-400 uppercase block mb-1">小红书 Cookie</label>
-                              <textarea value={rtXhsCookie} onChange={e => { setRtXhsCookie(e.target.value); setRtXhsPlatform(undefined); }} rows={2} className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[10px] font-mono resize-y" placeholder="a1=...; web_session=...; （从浏览器登录后复制完整 cookie）" />
+                              <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[10px] font-bold text-slate-400 uppercase block">小红书 Cookie</label>
+                                  {rtXhsCookie.trim() && showRtXhsCookie ? (
+                                      <button type="button" onClick={() => setShowRtXhsCookie(false)} className="text-[10px] font-medium text-rose-500 hover:text-rose-700">
+                                          隐藏
+                                      </button>
+                                  ) : null}
+                              </div>
+                              {rtXhsCookie.trim() && !showRtXhsCookie ? (
+                                  <div className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[11px] text-slate-500 flex items-center justify-between">
+                                      <span>已填写（{rtXhsCookie.trim().length} 字符，已隐藏防截屏泄露）</span>
+                                      <button type="button" onClick={() => setShowRtXhsCookie(true)} className="text-[10px] font-bold text-rose-500 shrink-0 ml-2">显示 / 编辑</button>
+                                  </div>
+                              ) : (
+                                  <textarea
+                                      value={rtXhsCookie}
+                                      onFocus={() => setShowRtXhsCookie(true)}
+                                      onChange={e => {
+                                          const next = e.target.value;
+                                          setRtXhsCookie(next);
+                                          setRtXhsPlatform(undefined);
+                                          setShowRtXhsCookie(Boolean(next.trim()));
+                                      }}
+                                      rows={2}
+                                      className="w-full bg-white/80 border border-rose-200 rounded-xl px-3 py-2 text-[10px] font-mono resize-y"
+                                      placeholder="a1=...; web_session=...; （从浏览器登录后复制完整 cookie）"
+                                  />
+                              )}
                           </div>
                           <button onClick={testXhsMcp} className="w-full py-2 bg-rose-100 text-rose-600 text-xs font-bold rounded-xl active:scale-95 transition-transform">测试连接</button>
                           {renderRtTestStatus('xhs-lite')}
@@ -6125,6 +6320,7 @@ const Settings: React.FC = () => {
         onReenabledAfterConnect={() => void flushAmsg2AfterReenable({ characters, userProfile, groups, realtimeConfig, apiConfig })}
       />}
 
+      {confirmDialog}
     </div>
   );
 };

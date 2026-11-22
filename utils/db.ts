@@ -1,5 +1,6 @@
 import { spaceDatabaseName, SESSION_SPACE_ID, DEFAULT_SPACE_ID, createSpaceStorage, rawSpaceStorage, listUserSpaces, assertUserSpaceAvailable } from './userSpaces';
 import { clearEmojiOriginals } from './emojiOriginals';
+import { patchEmojiOriginal, patchSentSticker } from './emojiBackup';
 import { withSharedAssetLock, canCoordinateAssetDeletion } from './sharedAssetLock';
 import { readLocalCursor } from './localRead';
 import { applyFriendFeedMedia, collectFriendFeedMedia, isActivityTextAsset } from './activityBackup';
@@ -46,6 +47,7 @@ import { exportAmsg2GlobalConfig, importAmsg2GlobalConfig } from './activeMsgSto
 import { exportSubtitleSettings, importSubtitleSettings } from './chatTranslationStyle';
 import { exportWorldHomeLocal, importWorldHomeLocal } from './worldHome/localBackup';
 import { exportDesktopSkinLocal, importDesktopSkinLocal } from './desktopSkinBackup';
+import { pendingBackupField, readBackupField } from './backupFormat';
 import { editLibrary, VR_LIBRARY_RECORD, type LibraryEdit } from './vrWorld/library';
 
 const DB_NAME = spaceDatabaseName('AetherOS_Data');
@@ -142,7 +144,7 @@ export interface ScheduledMessage {
 
 // Built-in Presets
 const SULLY_CATEGORY_ID = 'cat_sully_exclusive';
-const SULLY_PRESET_EMOJIS = [
+export const SULLY_PRESET_EMOJIS = [
     { name: 'Sully晚安', url: 'https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/night.png', categoryId: SULLY_CATEGORY_ID },
     { name: 'Sully无语', url: 'https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/w.png', categoryId: SULLY_CATEGORY_ID },
     { name: 'Sully偷看', url: 'https://cdn.jsdelivr.net/gh/qegj567-cloud/SullyOS-assets@main/bgm/SULLY/see.png', categoryId: SULLY_CATEGORY_ID },
@@ -1548,7 +1550,7 @@ export const DB = {
 
   // 表情包重命名: name 是主键, 改名 = 删旧键 + 写新键 (保留 url / categoryId)。
   // 新名为空、与旧名相同、或已被占用都会抛错, 让调用方提示用户。
-  renameEmoji: async (oldName: string, newName: string): Promise<void> => {
+  renameEmoji: async (oldName: string, newName: string, expectedUrl?: string): Promise<void> => {
     const trimmed = newName.trim();
     if (!trimmed) throw new Error('表情包名称不能为空');
     if (trimmed === oldName) return;
@@ -1559,7 +1561,7 @@ export const DB = {
       const getReq = store.get(oldName);
       getReq.onsuccess = () => {
         const record = getReq.result as Emoji | undefined;
-        if (!record) { reject(new Error('未找到要重命名的表情包')); return; }
+        if (!record || (expectedUrl !== undefined && record.url !== expectedUrl)) { reject(new Error('原表情已变更，请重新选择')); return; }
         const dupReq = store.get(trimmed);
         dupReq.onsuccess = () => {
           if (dupReq.result) { reject(new Error('已存在同名表情包')); return; }
@@ -1594,6 +1596,10 @@ export const DB = {
       const db = await openDB();
       const transaction = db.transaction(STORE_EMOJI_CATEGORIES, 'readwrite');
       transaction.objectStore(STORE_EMOJI_CATEGORIES).put(category);
+      await new Promise<void>((resolve, reject) => {
+          transaction.oncomplete = () => resolve();
+          transaction.onabort = () => reject(transaction.error);
+      });
   },
 
   deleteEmojiCategory: async (id: string): Promise<void> => {
@@ -1686,7 +1692,7 @@ export const DB = {
           const db = await openDB();
           const tx = db.transaction(STORE_EMOJIS, 'readwrite');
           const store = tx.objectStore(STORE_EMOJIS);
-          SULLY_PRESET_EMOJIS.forEach(emoji => store.put(emoji));
+          SULLY_PRESET_EMOJIS.forEach(emoji => store.put({...emoji,builtIn:true}));
           await new Promise(resolve => { tx.oncomplete = resolve; });
       }
   },
@@ -4391,7 +4397,7 @@ export const DB = {
       // Older media archives included entire text records from assets. Recover
       // their pictures only; never roll a user's current history back with them.
       if (mediaOnly && !data.friendFeedMedia) {
-          const legacy = data.friendFeed ?? data.assets?.find(a => a.id === 'friend_feed_v1')?.data;
+          const legacy = data.friendFeed ?? (await readBackupField(data.assets))?.find(a => a.id === 'friend_feed_v1')?.data;
           if (legacy) {
               const { parseFriendFeed } = await import('./friendFeed');
               data.friendFeedMedia = collectFriendFeedMedia(parseFriendFeed(typeof legacy === 'string' ? legacy : JSON.stringify(legacy)));
@@ -4404,7 +4410,7 @@ export const DB = {
           data.messages !== undefined,
           data.customThemes !== undefined,
           data.savedEmojis !== undefined,
-          data.emojiCategories !== undefined,
+          !mediaOnly && data.emojiCategories !== undefined,
           data.assets !== undefined,
           data.friendFeed !== undefined && !mediaOnly,
           data.activityTextAssets !== undefined && !mediaOnly,
@@ -4442,6 +4448,7 @@ export const DB = {
                     data.jobResumes !== undefined,
           data.jobProfiles !== undefined,
           data.xhsActivities !== undefined,
+          data.xhsOwnedPosts !== undefined,
           data.xhsStockImages !== undefined,
           data.memoryNodes !== undefined,
           data.memoryVectors !== undefined,
@@ -4525,6 +4532,12 @@ export const DB = {
           });
       };
 
+      // 分片包里的字段先是占位，轮到这一段才读进 data，处理完照旧置空，同一时刻只有一个字段在内存里。
+      const loaded = async <T,>(value: T): Promise<T> => {
+          const pending = pendingBackupField(value);
+          return pending ? ((data as any)[pending.field] = await pending.read()) as T : value;
+      };
+
       const putItems = async (
           storeName: string,
           items: any[] | undefined | null,
@@ -4532,6 +4545,7 @@ export const DB = {
           restoreAssets = true
       ) => {
           if (!hasStore(storeName) || !items || items.length === 0) return;
+          items = await loaded(items);
 
           const CHUNK_SIZE = 50;
           const total = items.length;
@@ -4544,7 +4558,15 @@ export const DB = {
               }
               await beforeWrite(chunk, label, restoreAssets);
               await withStore(storeName, store => {
-                  chunk.forEach(item => store.put(storeName === 'memory_links' ? compactMemoryLink(item) : item));
+                  for (const item of chunk) {
+                      if (mediaOnly && storeName === STORE_MESSAGES && item.type === 'emoji') {
+                          const read = store.get(item.id);
+                          read.onsuccess = () => {
+                              const patched = patchSentSticker(read.result, item);
+                              if (patched) store.put(patched);
+                          };
+                      } else store.put(storeName === 'memory_links' ? compactMemoryLink(item) : item);
+                  }
               });
               for (let j = i; j < end; j++) {
                   (items as any[])[j] = undefined;
@@ -4560,6 +4582,7 @@ export const DB = {
           restoreAssets = true
       ) => {
           if (!hasStore(storeName) || items === undefined || items === null) return;
+          items = await loaded(items); // 先读到手再清表，读失败时旧数据还在
           await clearStore(storeName);
           await putItems(storeName, items, label, restoreAssets);
       };
@@ -4600,10 +4623,12 @@ export const DB = {
           } as CharacterProfile;
       };
 
-      const hasCharacterBackup = Array.isArray(data.characters);
+      const hasCharacterBackup = !mediaOnly && Array.isArray(data.characters);
 
       await runSection('角色资料', data.characters !== undefined || data.mediaAssets !== undefined, async () => {
-          if (data.characters) {
+          await loaded(data.characters);
+          await loaded(data.mediaAssets);
+          if (hasCharacterBackup && data.characters) {
               if (data.mediaAssets) {
                   await beforeWrite(data.mediaAssets, '角色媒体', true);
                   const mediaAssets = data.mediaAssets;
@@ -4638,6 +4663,7 @@ export const DB = {
           if (!hasStore(STORE_MESSAGES)) return;
           try {
               const isPatchMode = !hasCharacterBackup;
+              await loaded(data.messages);
               if (!isPatchMode) {
                   await clearStore(STORE_MESSAGES);
               }
@@ -4654,14 +4680,24 @@ export const DB = {
           data.customThemes = undefined as any;
       }, data.customThemes?.length || 0);
       await runSection('表情包', data.savedEmojis !== undefined, async () => {
-          await mergeStore(STORE_EMOJIS, data.savedEmojis, '表情包', true);
+          if (mediaOnly) {
+              const rows = (await loaded(data.savedEmojis)) || [];
+              await beforeWrite(rows, '表情包', true);
+              await withStore(STORE_EMOJIS, store => {
+                  for (const row of rows) {
+                      const read = store.get(row.name);
+                      read.onsuccess = () => { const next = patchEmojiOriginal(read.result,row); if (next) store.put(next); };
+                  }
+              });
+          } else await mergeStore(STORE_EMOJIS, data.savedEmojis, '表情包', true);
           data.savedEmojis = undefined as any;
       }, data.savedEmojis?.length || 0);
-      await runSection('表情分类', data.emojiCategories !== undefined, async () => {
+      await runSection('表情分类', !mediaOnly && data.emojiCategories !== undefined, async () => {
           await mergeStore(STORE_EMOJI_CATEGORIES, data.emojiCategories, '表情分类', false);
           data.emojiCategories = undefined as any;
       }, data.emojiCategories?.length || 0);
       await runSection('系统资源', data.assets !== undefined, async () => {
+          await loaded(data.assets);
           if (mediaOnly) {
               const history = data.assets?.find(a => a.id === HELP_HISTORY_KEY);
               if (history) await withStore(STORE_ASSETS, store => {
@@ -4678,7 +4714,7 @@ export const DB = {
           await DB.saveAssetRaw(HELP_HISTORY_KEY, helpTextHistory(data.helpDeskHistory!));
       });
       await runSection('活动文字记录', data.activityTextAssets !== undefined && !mediaOnly, async () => {
-          const records = data.activityTextAssets!;
+          const records = (await loaded(data.activityTextAssets))!;
           if (!Array.isArray(records) || records.some(a => !a || typeof a.id !== 'string'
               || !isActivityTextAsset(a.id) || a.id === 'friend_feed_v1' || typeof a.data !== 'string')) {
               throw new Error('活动文字备份格式不正确');
@@ -4707,7 +4743,7 @@ export const DB = {
           data.friendFeedMedia = undefined;
       });
       await runSection('聊天收藏', data.contentFavoritesIndex != null, async () => {
-          await DB.saveAssetRaw('content_favorites_index_v1', data.contentFavoritesIndex);
+          await DB.saveAssetRaw('content_favorites_index_v1', await readBackupField(data.contentFavoritesIndex)); // 旧版索引是裸数组，会被分片
       });
       await runSection('日记贴纸', data.savedJournalStickers !== undefined, async () => {
           await mergeStore(STORE_JOURNAL_STICKERS, data.savedJournalStickers, '日记贴纸', true);
@@ -4801,15 +4837,15 @@ export const DB = {
           data.vrGuestbook = undefined as any;
       }, 1);
       await runSection('剧院剧本', data.vrScripts !== undefined, async () => {
-          if (hasStore(STORE_VR_SCRIPTS) && Array.isArray(data.vrScripts)) for (const s of data.vrScripts) await DB.saveVRScript(s);
+          if (hasStore(STORE_VR_SCRIPTS) && Array.isArray(data.vrScripts)) for (const s of await loaded(data.vrScripts)) await DB.saveVRScript(s);
           data.vrScripts = undefined as any;
       }, data.vrScripts?.length || 0);
       await runSection('历史舞台剧', data.vrStagedPlays !== undefined, async () => {
-          if (hasStore(STORE_VR_PLAYS) && Array.isArray(data.vrStagedPlays)) for (const p of data.vrStagedPlays) await DB.saveVRStagedPlay(p);
+          if (hasStore(STORE_VR_PLAYS) && Array.isArray(data.vrStagedPlays)) for (const p of await loaded(data.vrStagedPlays)) await DB.saveVRStagedPlay(p);
           data.vrStagedPlays = undefined as any;
       }, data.vrStagedPlays?.length || 0);
       await runSection('剧院预设', (data as any).vrPresets !== undefined, async () => {
-          if (hasStore(STORE_VR_PRESETS) && Array.isArray((data as any).vrPresets)) for (const p of (data as any).vrPresets) await DB.saveVRPreset(p);
+          if (hasStore(STORE_VR_PRESETS) && Array.isArray((data as any).vrPresets)) for (const p of await loaded((data as any).vrPresets)) await DB.saveVRPreset(p);
           (data as any).vrPresets = undefined as any;
       }, (data as any).vrPresets?.length || 0);
       await runSection('邮局信件', data.vrLetters !== undefined, async () => {
@@ -4818,7 +4854,7 @@ export const DB = {
       }, data.vrLetters?.length || 0);
       await runSection('彼方设置', data.vrSettings !== undefined, async () => {
           if (hasStore(STORE_VR_SETTINGS) && Array.isArray(data.vrSettings)) {
-              for (const rec of data.vrSettings) await DB.saveVRSettingRecord(rec);
+              for (const rec of await loaded(data.vrSettings)) await DB.saveVRSettingRecord(rec);
           }
           data.vrSettings = undefined as any;
       }, data.vrSettings?.length || 0);
@@ -4977,6 +5013,7 @@ export const DB = {
               data.memoryVectors = undefined as any;
               return;
           }
+          await loaded(data.memoryVectors);
           await clearStore('memory_vectors');
           const CHUNK_SIZE = 50;
           const total = data.memoryVectors.length;
