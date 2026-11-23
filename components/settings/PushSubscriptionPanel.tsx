@@ -242,8 +242,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast,
 
   // 安卓 App 的两条原生通道：ntfy（unified-push）或没装 ntfy 时的内置定时拉取
   // （native-poll）。都没有 SW 和浏览器订阅，面板换一套读数和说法。
-  const unified = browser?.transport === 'unified-push';
-  const poll = browser?.transport === 'native-poll';
+  const transport = native ? nativeStatus?.transport : browser?.transport;
+  const unified = transport === 'unified-push';
+  const poll = transport === 'native-poll';
   const nativeChannel = unified || poll;
   const nativeWithoutChannel = Boolean(browser?.capacitorNative) && !nativeChannel;
 
@@ -256,7 +257,7 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast,
   return (
     <div className={workspace ? 'amsg-status-workspace' : undefined}>
       <p className="text-xs text-slate-500 mb-3 leading-relaxed">
-        {browser?.transport === 'native-poll' && !isThirdParty
+        {poll && !isThirdParty && (!native || nativeStatus?.hasSubscription)
           ? 'App 约每 15 分钟从 Worker 补收一次通知，省电时可能更久。'
           : native && !isThirdParty
           ? '这里检查 App 的通知权限、通道与云端登记。是否实际收到通知，请用测试通知确认。'
@@ -320,9 +321,9 @@ const PushSubscriptionPanel: React.FC<PushSubscriptionPanelProps> = ({ addToast,
           <div className="space-y-3 text-xs">
             {nativeStatus && <Row label="系统通知权限" value={nativeStatus.permission === 'granted' ? '已授权' : nativeStatus.permission === 'denied' ? '未允许 · 请到系统设置开启' : nativeStatus.permission === 'unsupported' ? '暂时无法确认' : '尚未授权'} warning={nativeStatus.permission !== 'granted'} />}
             <Row label="运行环境" value="Android App" />
-            <Row label="通知通道" value={nativeStatus?.transport === 'unified-push' ? '第三方接收 · UnifiedPush / ntfy' : '第三方接收（App）'} />
+            <Row label="通知通道" value={unified ? '第三方接收 · UnifiedPush / ntfy' : poll && nativeStatus?.permission !== 'unsupported' ? 'App 内置定时拉取' : '待确认'} />
             {nativeStatus ? <>
-              <Row label="本机通道" value={nativeStatus.hasSubscription ? '已连接' : nativeStatus.needsDistributor ? '等待连接 ntfy' : '尚未连接'} warning={!nativeStatus.hasSubscription} />
+              <Row label="本机通道" value={nativeStatus.hasSubscription ? '已连接' : nativeStatus.permission === 'unsupported' ? '待确认' : poll ? '尚未开启内置拉取' : nativeStatus.needsDistributor ? '等待连接 ntfy' : '尚未连接'} warning={!nativeStatus.hasSubscription} />
               <Row label="云端登记" value={registrationText.value} warning={registrationText.bad} />
               {testResult && <Row label="本次通知测试" value={{ idle: '尚未测试', sending: '正在发送…', sent: '已发出 · 请查看通知栏', failed: '发送失败，请重试' }[testResult]} warning={testResult === 'failed'} />}
               <Row label="上次投递" value={deliveryText.value} bad={deliveryText.bad} />

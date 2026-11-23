@@ -47,6 +47,7 @@ export const WHITEBOX_SELECTOR_GROUPS = [
       '.sully-chat-message-avatar', '.sully-chat-message-avatar-img', '.sully-chat-turn-avatar-slot',
       '.sully-chat-turn-avatar', '.sully-chat-avatar-wrap', '.sully-chat-avatar-frame',
       '.sully-chat-time-divider', '.sully-chat-day-divider', '.sully-chat-timestamp-slot', '.sully-chat-timestamp', '.sully-chat-avatar-timestamp', '.sully-chat-psyche-row',
+      '.sully-chat-location-pin',
     ],
   },
   {
@@ -87,6 +88,7 @@ export const WHITEBOX_LAYOUT_REFERENCE = `【布局说明与设计自由度】
 .sully-chat-buffs button 是情绪胶囊，带内联样式；覆盖时需要 !important。输入行使用 .sully-chat-composer，输入框用 .sully-chat-input-wrap / .sully-chat-textarea；表情联想和自动回复倒计时是输入栏外的同级区域，不依赖元素序号定位。
 每轮头像在上方时，显示默认隐藏的 .sully-chat-turn-avatar-slot、隐藏 .sully-chat-message-avatar，给 .sully-chat-message-group-first 留出顶部空间，并清零 .sully-chat-message-content 的左右 margin。已有头像贴图 .sully-chat-avatar-frame 可隐藏以免重叠。
 「布局 → 时间位置」可以选择气泡下方、头像下方或上方居中。气泡下方挂载位为 .sully-chat-timestamp-slot，头像下方的 .sully-chat-avatar-timestamp 紧随可见头像，上方居中的整行容器为 .sully-chat-time-divider。三种模式的时间文字均为 .sully-chat-timestamp。
+本轮定位标记 .sully-chat-location-pin 在末条用户气泡下方，默认白底黑字，与上方内容相隔 8px。定制时保留图标、状态文字和点击区域。
 不限于换颜色：可设计渐变、图案、图片背景、多层叠加、异形切角、描边、内外阴影、文字层级和伪元素挂饰，重新组织顶栏视觉。静态 blur/backdrop-filter 可用，持续动画仅用 transform/opacity 并尊重 prefers-reduced-motion。
 `;
 export const WHITEBOX_DESIGN_RULES=`白框默认沿用聊天背景、顶栏、输入栏和双方消息与头像的结构，内容样式只要求四类：普通聊天、语音条、转账、心象（折叠/展开）。如果用户只要求其中一部分，就只设计该部分。各部件使用上方各自的稳定选择器；用户之后单换气泡、头像框、背景或心象时，对应样式会交给新选择。

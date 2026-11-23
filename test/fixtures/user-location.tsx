@@ -81,7 +81,10 @@ function ChatPinDemo() {
     };
     return <main className="mx-auto max-w-md min-h-screen bg-slate-50 p-5"><h1 className="font-bold">聊天定位预览</h1>
         <p className="my-3 text-xs text-slate-500">使用模拟位置。可手动结束回复，方便查看大头针详情。</p>
-        {phase !== 'ready' && <div className="mt-10 flex justify-end gap-3"><span className="rounded-xl bg-white p-3">我到啦</span><div className="relative grid h-10 w-10 place-items-center rounded-full bg-sky-100">雨{phase === 'reply' && <ChatLocationPin charId="pin-demo" />}</div></div>}
+        {phase !== 'ready' && <div className="mt-10 flex items-start justify-end gap-3">
+            <div><p className="rounded-xl bg-white p-3">我到啦</p>{phase === 'reply' && <ChatLocationPin charId="pin-demo" />}</div>
+            <div className="grid h-10 w-10 place-items-center rounded-full bg-sky-100">雨</div>
+        </div>}
         {phase === 'done' && <p className="mt-10">好，我在门口等你。</p>}
         <button className="mt-20 rounded-xl bg-sky-700 px-4 py-3 text-white" onClick={() => phase === 'reply' ? setPhase('done') : void send()}>{phase === 'reply' ? '结束模拟回复' : '发送测试消息'}</button>
     </main>;

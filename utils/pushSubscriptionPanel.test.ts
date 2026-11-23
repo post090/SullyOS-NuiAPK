@@ -71,6 +71,14 @@ describe('通知状态按实际通道展示', () => {
     expect(host.textContent).not.toContain('浏览器的站点设置');
     expect(host.textContent).not.toContain('已连接');
   });
+  it.each([true, false])('APK 按原生结果显示内置拉取和启用状态 %s', async enabled => {
+    mock.status.mockResolvedValue({ ...nativeReady, transport: 'native-poll', hasSubscription: enabled, needsDistributor: true });
+    await render();
+    expect(host.textContent).toContain('App 内置定时拉取');
+    expect(host.textContent).toContain(enabled ? '约每 15 分钟' : '尚未开启内置拉取');
+    expect(host.textContent).not.toContain('等待连接 ntfy');
+    expect(mock.browser).not.toHaveBeenCalled();
+  });
   it('原生桥失败不会误报为无权限或没有登记，也可以重试', async () => {
     mock.status.mockRejectedValueOnce(new Error('bridge unavailable'));
     await render();

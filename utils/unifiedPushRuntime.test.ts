@@ -43,6 +43,20 @@ describe('native durable queue runtime', () => {
   afterEach(() => vi.unstubAllGlobals());
   const start = async () => (await import('./unifiedPushRuntime')).initUnifiedPushRuntime();
 
+  it('冷启动配置拉取通道时，已经落到本机的消息先入库并确认', async () => {
+    let finishSetup!: (enabled: boolean) => void;
+    m.syncPoll.mockImplementation(() => new Promise<boolean>(resolve => { finishSetup = resolve; }));
+    m.peek.mockResolvedValueOnce({ messages: [item('already-delivered')] });
+    const started = start();
+    try {
+      await vi.waitFor(() => expect(m.ack).toHaveBeenCalledWith('already-delivered'));
+      expect(m.ingest).toHaveBeenCalledWith('already-delivered');
+    } finally {
+      finishSetup(true);
+      await started;
+    }
+  });
+
   it('只确认已处理的单项；失败不妨碍后续消息，前台恢复时重试', async () => {
     m.peek.mockResolvedValueOnce({ messages: [item('a'), item('b')] }).mockResolvedValue({ messages: [item('a')] });
     m.ingest.mockRejectedValueOnce(new Error('DB unavailable'));

@@ -80,8 +80,8 @@ export const initUnifiedPushRuntime = (): Promise<void> => {
       }));
       document.addEventListener('visibilitychange', onVisible);
       window.addEventListener(AMSG_GLOBAL_CONFIG_EVENT, syncTransport);
-      await syncNativePollMode();
-      await refresh().catch(() => {});
+      // Already-delivered messages are local. Poll setup can be waiting on the Worker for a key.
+      await Promise.all([refresh().catch(() => {}), syncNativePollMode()]);
     } catch (error) {
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener(AMSG_GLOBAL_CONFIG_EVENT, syncTransport);

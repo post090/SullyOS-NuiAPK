@@ -1,4 +1,3 @@
-import { ChatLocationPin } from './ChatLocationPin';
 import { SullyHelpCard } from './SullyHelpCard';
 import { BUILTIN_SULLY_ID } from '../../utils/sullyIdentity';
 import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anniversaryGifts';
@@ -1311,7 +1310,7 @@ interface MessageItemProps {
     charAvatar: string;
     onOpenCharacterProfile?: () => void;
     charName: string;
-    locationPinCharId?: string;
+    locationPin?: React.ReactNode;
     userAvatar: string;
     /** 当前窗口里的最后一条消息；最新图片需要立即解码，避免移动端懒加载卡在滚动容器底部。 */
     isLatestMessage?: boolean;
@@ -1391,7 +1390,7 @@ const MessageItem = React.memo(({
     charAvatar,
     onOpenCharacterProfile,
     charName,
-    locationPinCharId,
+    locationPin,
     userAvatar,
     isLatestMessage = false,
     onMediaLoad,
@@ -2284,6 +2283,7 @@ const MessageItem = React.memo(({
             )}
             <div data-selecting={selectionMode || undefined} className={[
                 'sully-chat-message',
+                locationPin && isUser && !selectionMode && !isModuleCard ? 'chat-location-turn' : '',
                 isUser
                     ? 'sully-chat-message-user justify-end'
                     : `sully-chat-message-ai ${isModuleCard && centerModules ? 'justify-center' : 'justify-start'}`,
@@ -2294,7 +2294,6 @@ const MessageItem = React.memo(({
                 selectionMode ? 'pl-12' : '',
             ].filter(Boolean).join(' ')}
             style={{
-                ...(locationPinCharId ? { marginBottom: 18 } : {}),
                 '--sully-chat-message-avatar-size': `${avatarSizePx}px`,
                 '--sully-chat-avatar-time-space': showAvatarTime ? `${AVATAR_TIMESTAMP_HEIGHT}px` : undefined,
                 minHeight: showAvatarTime && shouldShowAvatar && !isModuleCard && avatarPlacement === 'beside' ? avatarSizePx + AVATAR_TIMESTAMP_HEIGHT : undefined,
@@ -2367,13 +2366,13 @@ const MessageItem = React.memo(({
                         </div>
                     )}
                     </div>
+                    {isUser && !isModuleCard && !selectionMode && locationPin}
                 </div>
 
                 {/* 用户侧若存在导入/历史模块卡，也保持同一条“卡片不带消息外侧头像”规则。 */}
                 {isUser && !isModuleCard && (
                     <div className={`sully-chat-message-avatar-slot absolute right-3 bottom-0 z-0 transition-[left] duration-300`}>
                         {renderAvatar(userAvatar)}
-                        {locationPinCharId && <ChatLocationPin charId={locationPinCharId} />}
                     </div>
                 )}
             </div>
@@ -4354,7 +4353,7 @@ const MessageItem = React.memo(({
            prev.onOpenCharacterProfile === next.onOpenCharacterProfile &&
            prev.onOpenSullyHelp === next.onOpenSullyHelp &&
            prev.charName === next.charName &&
-           prev.locationPinCharId === next.locationPinCharId &&
+           prev.locationPin === next.locationPin &&
            prev.userAvatar === next.userAvatar &&
            prev.isLatestMessage === next.isLatestMessage &&
            prev.onMediaLoad === next.onMediaLoad &&

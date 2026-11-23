@@ -1,4 +1,5 @@
 import { clearLocationPin } from '../utils/userLocation';
+import { ChatLocationPin } from '../components/chat/ChatLocationPin';
 import { appShortcutLaunch } from '../utils/appShortcutLaunch';
 import { SULLY_HELP_DESK_ID } from '../utils/sullyIdentity';
 import {avatarFrameLayer} from '../utils/avatarFrameTarget';
@@ -3998,7 +3999,14 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
     React.useEffect(() => {
         if (!locatingChat && char?.id) clearLocationPin(char.id);
     }, [locatingChat, char?.id]);
-    const locationMessage = locatingChat ? [...messages].reverse().find(message => message.role === 'user') : undefined;
+    const locationMessage = useMemo(() => {
+        if (locatingChat && !selectionMode) {
+            for (let i = messages.length - 1; i >= 0; i--) {
+                if (messages[i].role === 'user') return messages[i];
+            }
+        }
+    }, [locatingChat, selectionMode, messages]);
+    const locationPin = useMemo(() => char?.id && <ChatLocationPin key={char.id} charId={char.id} />, [char?.id]);
     if (!char) {
         return (
             <div className="flex flex-col items-center justify-center h-full bg-[#f1f5f9] text-center px-8 gap-3">
@@ -4287,7 +4295,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         <MessageItem
                             onOpenSullyHelp={openSullyHelp}
                             msg={m}
-                            locationPinCharId={locationMessage?.id === m.id ? char.id : undefined}
+                            locationPin={locationMessage?.id === m.id ? locationPin : undefined}
                             isFirstInGroup={breaksWithPrevious}
                             isLastInGroup={breaksWithNext}
                             activeTheme={activeTheme}

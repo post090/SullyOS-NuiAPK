@@ -558,6 +558,9 @@ SAR 活动室 → 可进钓鱼、恐龙箱庭等设施。想卖鱼 → 找艾文
 ### 定位授权与隐藏地点
 想让指定角色知道我的设备位置 →「实时感知 → 配置 → 环境感知 → 定位」→ 开「真实定位」→「可见角色 → 仅选中的角色」→ 勾选 TA →「保存并返回」。想保护家或公司 → 在「定位」页点「隐藏地点 → 把当前位置设为隐藏地点」，填写给角色看的名称和隐藏半径 →「保存并返回」。点「定位并预览」可核对角色将看到的位置文字；命中隐藏范围时只给别名。
 
+### 聊天气泡下方的定位标记
+已授权的角色生成回复时，你的最后一条气泡下方会显示本轮定位状态。点标记看位置说明，也可以重新获取。在详情或上述「定位」页关闭「聊天定位大头针」可隐藏标记。想停止向某位角色提供位置，在「可见角色」里取消对 TA 的授权。
+
 ## 主动消息 2.0 | 主动消息 | 推送 | 离开后消息 | 后台消息 | 不来找我 | 救援模式 | RESCUE | 数据被清空
 能力：后台推送、角色任务、连发上限、救援模式取回云端数据、救援安全警告
 核对：[amsg2-settings-guide.md](amsg2-settings-guide.md)、[away-message.md](away-message.md)、[amsg2-rescue.md](amsg2-rescue.md)、[rescue.ts](../worker/amsg/src/rescue.ts)、[AmsgRescueAlert.tsx](../components/AmsgRescueAlert.tsx)、[amsgRescueImport.ts](../utils/amsgRescueImport.ts)
