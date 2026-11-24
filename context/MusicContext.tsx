@@ -432,8 +432,10 @@ interface MusicContextType {
 
   // 用户
   profile: NeteaseProfile | null;
-  refreshProfile: () => Promise<void>;
   profileLoading: boolean;
+  setAccountViewOpen: (open: boolean) => void;
+  likesStatus: 'loading' | 'ready' | 'error';
+  retryAccount: () => void;
   profileError: boolean;
 
   // 操作
@@ -447,7 +449,7 @@ interface MusicContextType {
   playMode: PlayMode;
   setPlayMode: (m: PlayMode) => void;
   liked: boolean;
-  toggleLike: () => Promise<void>;
+  toggleLike: () => Promise<boolean>;
 
   // 一起听 — 当前哪些 char 和 user 一起听（仅视觉状态，不影响播放）
   // 歌曲切换 / 结束时自动清空
@@ -604,28 +606,29 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     toastHandlerRef.current = h;
   }, []);
 
-  // 用户信息 — 先用本地快照水合（秒出头像昵称），refreshProfile 在后台照常校验覆盖
-  const [profile, setProfile] = useState<NeteaseProfile | null>(() => loadCachedProfile(loadCfg().cookie));
-  // profile 拉取状态：让 UI 能区分"未登录"和"cookie 在但拉取中/失败"
-  // 避免 NeteaseProfilePage 在网络抖动时误显示登录面板（用户以为要重新扫码）
-  const [profileLoading, setProfileLoading] = useState<boolean>(false);
-  const [profileError, setProfileError] = useState<boolean>(false);
-  const refreshProfile = useCallback(async () => {
-    if (!cfg.cookie) { setProfile(null); setProfileError(false); setProfileLoading(false); return; }
-    setProfileLoading(true);
-    setProfileError(false);
-    try {
-      const r = await musicApi.loginStatus(cfg);
+  // 用户信息
+  const [accountViewOpen, setAccountViewOpen] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const retryAccount = () => {
+    _invalidateCache('/login/status', cfg.cookie);
+    _invalidateCache('/likelist', cfg.cookie);
+    setAttempt(n => n + 1);
+  };
+  // 账号接口只依赖凭据和服务地址；切歌和调整音质无需重新读取。
+  const account = useMemo(() => ({ ...MUSIC_DEFAULT_CFG, cookie: cfg.cookie, workerUrl: effectiveWorkerUrl }),
+    [cfg.cookie, effectiveWorkerUrl]);
+  const cachedProfile = useMemo(() => loadCachedProfile(account.cookie), [account, attempt, accountViewOpen]);
+  const [profileResult, setProfileResult] = useState<{ account: MusicCfg; value: NeteaseProfile | null; failed?: boolean } | null>(null);
+  const [likesResult, setLikesResult] = useState<{ account: MusicCfg; ids: Set<number> | null } | null>(null);
+  useEffect(() => {
+    setProfileResult(null);
+    setLikesResult(null);
+    if (!accountViewOpen || !account.cookie) return;
+    let active = true;
+    musicApi.loginStatus(account).then(async r => {
       const p = r?.data?.profile || r?.profile;
-      if (!p) {
-        // cookie 在但 profile=null：cookie 可能失效（一年后），按"未登录"处理
-        setProfile(null);
-        saveCachedProfile('', null);
-        setProfileError(false);
-        setProfileLoading(false);
-        return;
-      }
-      const fresh: NeteaseProfile = {
+      if (!active) return;
+      const fresh: NeteaseProfile | null = p ? {
         userId: p.userId,
         nickname: p.nickname || '',
         avatarUrl: toHttps(p.avatarUrl || ''),
@@ -638,44 +641,34 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         follows: p.follows,
         eventCount: p.eventCount,
         playlistCount: p.playlistCount,
-      };
-      setProfile(fresh);
-      saveCachedProfile(cfg.cookie, fresh);
-      setProfileError(false);
-      // loginStatus 返回的 follows/followeds 经常是 0，补一次 /user/detail 拿准确数
-      if (p.userId && (!fresh.followeds || !fresh.follows)) {
+      } : null;
+      setProfileResult({ account, value: fresh });
+      saveCachedProfile(account.cookie, fresh);
+      if (fresh?.userId && (!fresh.followeds || !fresh.follows)) {
         try {
-          const detail: any = await musicApi.userDetail(cfg, p.userId);
-          const dp = detail?.profile || detail;
-          if (dp && (dp.followeds != null || dp.follows != null)) {
-            setProfile(prev => prev ? {
-              ...prev,
-              followeds: dp.followeds ?? prev.followeds,
-              follows: dp.follows ?? prev.follows,
-            } : prev);
-            saveCachedProfile(cfg.cookie, { ...fresh, followeds: dp.followeds ?? fresh.followeds, follows: dp.follows ?? fresh.follows });
+          const detail = await musicApi.userDetail(account, fresh.userId);
+          const counts = detail?.profile || detail;
+          if (active && counts && (counts.followeds != null || counts.follows != null)) {
+            const enriched = { ...fresh, followeds: counts.followeds ?? fresh.followeds, follows: counts.follows ?? fresh.follows };
+            setProfileResult({ account, value: enriched });
+            saveCachedProfile(account.cookie, enriched);
           }
-        } catch { /* userDetail 失败不影响主流程，用 loginStatus 的值撑着 */ }
+        } catch { /* 基础资料已就绪，补充关注数失败时仍可使用。 */ }
       }
-    } catch {
-      // 网络/服务端错误：cookie 可能仍有效 —— 有快照就继续用快照撑着，别把页面打回加载卡
-      setProfile(prev => prev || null);
-      setProfileError(true);
-    }
-    setProfileLoading(false);
-  }, [cfg]);
-
-  useEffect(() => { refreshProfile(); }, [refreshProfile]);
-
-  // 喜欢列表
-  const [likedSet, setLikedSet] = useState<Set<number>>(new Set());
-  useEffect(() => {
-    if (!cfg.cookie) { setLikedSet(new Set()); return; }
-    musicApi.call(cfg, '/likelist', {}).then(r => {
-      const ids: number[] = r?.ids || r?.data?.ids || [];
-      setLikedSet(new Set(ids));
-    }).catch(() => {});
-  }, [cfg]);
+    }).catch(() => {
+      if (active) setProfileResult({ account, value: loadCachedProfile(account.cookie), failed: true });
+    });
+    musicApi.call(account, '/likelist', {}).then(r => {
+      const ids = r?.ids ?? r?.data?.ids;
+      if (active) setLikesResult({ account, ids: Array.isArray(ids) ? new Set<number>(ids) : null });
+    }).catch(() => { if (active) setLikesResult({ account, ids: null }); });
+    return () => { active = false; };
+  }, [accountViewOpen, account, attempt]);
+  const profile = profileResult?.account === account ? profileResult.value : cachedProfile;
+  const profileLoading = !!account.cookie && !cachedProfile && profileResult?.account !== account;
+  const profileError = profileResult?.account === account && profileResult.failed === true;
+  const likedSet = likesResult?.account === account ? likesResult.ids : undefined;
+  const likesStatus = likedSet === undefined ? 'loading' : likedSet === null ? 'error' : 'ready';
 
   // 「喜欢」逻辑分两条路:
   //   - 网易云歌 → 走 likelist API
@@ -683,10 +676,10 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const liked = !!current && (
     current.local
       ? localAlbumSongs.some(s => s.id === current.id)
-      : likedSet.has(current.id)
+      : !!likedSet?.has(current.id)
   );
   const toggleLike = useCallback(async () => {
-    if (!current) return;
+    if (!current) return false;
     // ── 本地歌：toggle from album ──
     if (current.local) {
       const inAlbum = localAlbumSongs.some(s => s.id === current.id);
@@ -697,24 +690,28 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         addLocalSong(current);
         toast('已加入「一起写的歌」', 'success');
       }
-      return;
+      return true;
     }
     // ── 网易云歌 ──
-    if (!cfg.cookie) { toast('需要登录网易云账号', 'error'); return; }
+    if (!cfg.cookie) { toast('需要登录网易云账号', 'error'); return false; }
+    if (!likedSet) return false;
     const willLike = !likedSet.has(current.id);
     try {
       await musicApi.call(cfg, '/like', { id: current.id, like: willLike });
       _invalidateCache('/likelist', cfg.cookie);
-      setLikedSet(prev => {
-        const next = new Set(prev);
+      setLikesResult(prev => {
+        if (prev?.account !== account || !prev.ids) return prev;
+        const next = new Set(prev.ids);
         if (willLike) next.add(current.id); else next.delete(current.id);
-        return next;
+        return { account, ids: next };
       });
       toast(willLike ? '已添加到喜欢' : '已取消喜欢', 'success');
+      return true;
     } catch (e: any) {
       toast(`喜欢失败: ${e.message}`, 'error');
+      return false;
     }
-  }, [current, cfg, likedSet, localAlbumSongs, addLocalSong, removeLocalSong, toast]);
+  }, [current, cfg, account, likedSet, localAlbumSongs, addLocalSong, removeLocalSong, toast]);
 
   // 播放模式 —— 持久化到 localStorage：列表循环/随机/单曲是用户的长期习惯，
   // 重启一次就失忆退回 loop 会让人每次都得重新点一遍
@@ -1318,8 +1315,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     queue, setQueue, idx, current,
     playing, progress, duration, loadingSong,
     lyric, tlyric, activeLyricIdx,
-    profile, refreshProfile,
-    profileLoading, profileError,
+    profile, profileLoading, profileError, setAccountViewOpen, likesStatus, retryAccount,
     playSong, togglePlay, nextSong, prevSong, seek,
     playMode, setPlayMode,
     liked, toggleLike,

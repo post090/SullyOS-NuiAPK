@@ -7,6 +7,7 @@ import { homeResourcePacksPlugin } from './scripts/home-resource-packs.mjs';
 import { startupRecoveryPlugin } from './scripts/startup-recovery-plugin';
 import { pageBuildMetadataPlugin } from './scripts/build-metadata';
 import { APP_VERSION_TAG } from './utils/appVersion';
+import { CANARY_BASE, CANARY_HOST, releaseUpdateVersion } from './utils/releaseChannel';
 import { tikhubMiddleware } from './server/tikhub-middleware';
 
 // MiniMax 国服 / 海外是两套域名，前端每个请求都带 X-MiniMax-Region 头说明走哪边。
@@ -72,6 +73,11 @@ const isReleaseBranch = RELEASE_BRANCHES.has(gitInfo.branch);
 let showBuildBadge = !isReleaseBranch;
 if (process.env.VITE_HIDE_BUILD_BADGE === '1') showBuildBadge = false;
 if (process.env.VITE_SHOW_BUILD_BADGE === '1') showBuildBadge = true;
+// canary 构建不挂开发角标，改由右下角的小黄点标明（components/CanaryDot.tsx）。
+if (process.env.RELEASE_CHANNEL === 'canary') showBuildBadge = false;
+
+// canary 通道：canary 分支以 RELEASE_CHANNEL=canary 构建，挂在 friedsully.com/canary/（docs/canary-channel.md）。
+const releaseChannel = process.env.RELEASE_CHANNEL === 'canary' ? 'canary' : 'stable';
 
 export default defineConfig({
   resolve: {
@@ -88,10 +94,10 @@ export default defineConfig({
   },
   plugins: [
     homeResourcePacksPlugin(),
-    startupRecoveryPlugin(appBuildId),
+    startupRecoveryPlugin(appBuildId, releaseChannel, CANARY_HOST),
     pageBuildMetadataPlugin({ buildId: appBuildId, branch: gitInfo.branch, commit: gitInfo.commit, time: buildTime }),
     react(),
-    staticCachePlugin({ buildId: appBuildId, appVersion: APP_VERSION_TAG }),
+    staticCachePlugin({ buildId: appBuildId, appVersion: releaseUpdateVersion(APP_VERSION_TAG, releaseChannel, appBuildId) }),
     {
       name: 'bake-voice-middleware',
       configureServer(server) {
@@ -103,9 +109,10 @@ export default defineConfig({
   define: {
     // Keep feature gating compile-time; only descriptive release metadata moves to HTML.
     __BUILD_BADGE_VISIBLE__: JSON.stringify(showBuildBadge),
+    __RELEASE_CHANNEL__: JSON.stringify(releaseChannel),
   },
   // GitHub Pages 发布时使用相对路径，避免仓库子路径导致资源 404
-  base: process.env.GITHUB_PAGES ? './' : '/',
+  base: releaseChannel === 'canary' ? CANARY_BASE : process.env.GITHUB_PAGES ? './' : '/',
   esbuild: {
     // 只剥 debugger，保留 console.* —— 部署后按 F12 仍能看到运行时日志，方便排查。
     drop: ['debugger'],

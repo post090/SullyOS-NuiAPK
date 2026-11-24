@@ -1,3 +1,4 @@
+import { resolveScheduledLlmParams } from './dialogueLlmParams';
 /**
  * 主动消息 2.0 的「LLM 凭据引用」（credRefs）：本地这一侧的命名、取值与变更侦测。
  *
@@ -110,16 +111,22 @@ export const toCredentialValue = (
 };
 
 /**
- * 定时主动消息跟随角色默认对话 API（dialogueApi），未设置时跟随全局；
- * 旧主动消息副 API 字段不参与取值——与上游 v3.13 的排程口径一致。
+ * 定时主动消息跟随角色默认对话 API，未设置时跟随全局；旧主动消息副 API 字段不参与取值。
+ * 这一行只有定时类任务引用（即时对话用 instant 那一行，后台作业用 memory 那一行），所以
+ * 模型名直接写请求终值：开了思考时按即时对话同一条规则带 -thinking 后缀。
  */
 export const buildCharChatCredRow = (
-  char: Pick<CharacterProfile, 'id' | 'dialogueApi'>,
+  char: Pick<CharacterProfile, 'id' | 'dialogueApi' | 'showThinkingChain' | 'activeMsg2Config'>,
   _config: ActiveMsg2CharacterConfig | undefined,
-  apiConfig: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model'>,
+  apiConfig: Pick<APIConfig, 'baseUrl' | 'apiKey' | 'model' | 'temperature' | 'maxTokens'>,
 ): LlmCredentialRow | null => {
-  const value = toCredentialValue(resolveDialogueApi(apiConfig, char));
-  return value ? { credId: charCredId(char.id, 'chat'), value } : null;
+  const api = resolveDialogueApi(apiConfig as APIConfig, char);
+  const value = toCredentialValue(api);
+  if (!value) return null;
+  return {
+    credId: charCredId(char.id, 'chat'),
+    value: { ...value, primaryModel: resolveScheduledLlmParams(char, { ...api, baseUrl: value.apiUrl }).model },
+  };
 };
 
 /**

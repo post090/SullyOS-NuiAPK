@@ -1661,7 +1661,7 @@ const CallApp: React.FC = () => {
       return;
     }
     if (!sttSupported) {
-      addToast('当前环境不支持语音输入，可在「设置 → 其他 API」配置 STT Key 或云端识别', 'info');
+      addToast('当前环境不支持语音输入，可在「设置 → 语音与写歌」配置 STT Key 或云端识别', 'info');
       return;
     }
     // Prevent concurrent starts
@@ -2434,7 +2434,7 @@ ${sentencePlan}`;
       const snapshotHistory = prepareUserCameraSnapshot(messages, userCameraSnapshot);
       const characterContext = selectedChar ? (await ContextBuilder.buildCharacterContext({
         char: selectedChar, user: userProfile, history: snapshotHistory.messages,
-        timeOptions: { conversational: true, includeUserLocation: true },
+        timeOptions: { conversational: true, includeUserLocation: true, includeUserClock: true },
         // 场景通话的 sceneContext 前置在核心上下文之前；时光契约监督块（taskBlock）
         // 追加其后——通话里只读感知任务进度，不教 [[TASK_*]] 命令。
         instructions: core => {
@@ -3622,7 +3622,7 @@ ${sentencePlan}`;
             onSttProviderChange={provider => {
               if (!isSttProviderConfigured(provider, apiConfig)) {
                 const opt = STT_PROVIDER_OPTIONS.find(o => o.id === provider);
-                addToast(`${opt?.keyHint || '请先填写对应 Key'}（可在「设置 → 其他 API」配置）`, 'info');
+                addToast(`${opt?.keyHint || '请先填写对应 Key'}（可在「设置 → 语音与写歌」配置）`, 'info');
                 return;
               }
               updateApiConfig({ sttProvider: provider });

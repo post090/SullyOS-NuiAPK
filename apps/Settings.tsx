@@ -7,6 +7,8 @@ import { readBackupPreferences, updateBackupPreferences } from '../utils/backupP
 import {CharacterWeatherCities} from '../components/settings/CharacterAwarenessSettings';
 import {cleanCharacterWeatherCities} from '../utils/characterWeather';
 import NavigationBallSettings from '../components/settings/NavigationBallSettings';
+import AmsgTabBar from '../components/settings/AmsgTabBar';
+import '../components/settings/amsgSettings.css';
 import { requestSettingsFocus, useSettingsFocus } from '../utils/settingsNavigation';
 import ApiPresetGroups from '../components/settings/ApiPresetGroups';
 import DialogueApiFields from '../components/settings/DialogueApiFields';
@@ -182,14 +184,16 @@ const SettingsSection: React.FC<{
     badge?: React.ReactNode;
     actions?: React.ReactNode;
     sectionProps?: Record<string, any>;
+    /** 被外部定位时先调用，用来切到目标所在的页签 */
+    onFocusRequest?: () => void;
     children: React.ReactNode;
-}> = ({ icon, title, badge, actions, sectionProps, children }) => {
+}> = ({ icon, title, badge, actions, sectionProps, onFocusRequest, children }) => {
     const guideStep = useFirstUseGuideStep();
     const [open, setOpen] = useState(() => title === 'API 配置' && guideStep === 0);
     const sectionRef = useRef<HTMLElement>(null);
     const [focusRequest, setFocusRequest] = useState(0);
-    useSettingsFocus(title === 'API 配置' ? 'api' : title === '备份与恢复 (ZIP)' ? 'backup' : undefined, () => {
-        setOpen(true); setFocusRequest(value => value + 1);
+    useSettingsFocus(title === 'API 配置' ? 'api' : title === '备份与恢复' ? 'backup' : undefined, () => {
+        onFocusRequest?.(); setOpen(true); setFocusRequest(value => value + 1);
     });
     useEffect(() => {
         if (!focusRequest) return;
@@ -220,6 +224,16 @@ const SettingsSection: React.FC<{
         </section>
     );
 };
+
+/** 卡片内的页签：同类设置合进一张卡片，用页签切换，避免设置页平铺过长 */
+function SettingsTabs<T extends string>({ prefix, label, tabs, selected, onSelect, children }: {
+    prefix: string; label: string; tabs: { id: T; label: string }[]; selected: T; onSelect: (id: T) => void; children: React.ReactNode;
+}) {
+    return <>
+        <div className="mb-4"><AmsgTabBar tabs={tabs} selected={selected} onSelect={id => onSelect(id as T)} label={label} prefix={prefix} /></div>
+        <div role="tabpanel" id={`${prefix}-panel-${selected}`} aria-labelledby={`${prefix}-tab-${selected}`}>{children}</div>
+    </>;
+}
 
 let mcpToolConfigSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingMcpToolConfigSync: (() => void) | null = null;
@@ -748,6 +762,7 @@ const Settings: React.FC = () => {
   const [resettingAppearance, setResettingAppearance] = useState(false);
   const handleAppearanceEmergencyReset = async () => {
     setResettingAppearance(true);
+    trackEvent('使用外观急救', { 操作: '还原初始外观' });
     try { await resetAppearance(); }
     finally { setResettingAppearance(false); setConfirmAppearanceReset(false); }
   };
@@ -760,6 +775,7 @@ const Settings: React.FC = () => {
       confirmText: '确认还原',
     });
     if (!ok) return;
+    trackEvent('使用外观急救', { 操作: '还原全部聊天白框' });
     let n = 0;
     if (theme.chatChromeCustomCss) { updateTheme({ chatChromeCustomCss: '' }); n++; }
     (characters || []).forEach((c: any) => {
@@ -775,6 +791,7 @@ const Settings: React.FC = () => {
       confirmText: '确认重置',
     });
     if (!ok) return;
+    trackEvent('使用外观急救', { 操作: '重置交换日记美化' });
     await updateTheme({ journalAppearance: undefined });
     addToast('已从系统设置还原交换日记原版样式', 'success');
   };
@@ -1034,6 +1051,11 @@ const Settings: React.FC = () => {
       }
   };
   const [exportUserScope, setExportUserScope] = useState<'current' | 'all'>('current');
+  // 卡片内页签：备份默认打开已在用的那一侧
+  const [backupTab, setBackupTab] = useState<'local' | 'cloud'>(() => cloudBackupConfig.enabled ? 'cloud' : 'local');
+  const [apiTab, setApiTab] = useState<'chat' | 'vision'>('chat');
+  const [voiceTab, setVoiceTab] = useState<'voice' | 'song'>('voice');
+  const [extensionTab, setExtensionTab] = useState<'realtime' | 'mcp'>('realtime');
   /**
    * 文件导出带不带主动消息 2.0 的后端连接；个人云备份始终携带完整连接。
    *
@@ -1847,7 +1869,7 @@ const Settings: React.FC = () => {
   };
 
   // 选「谁来做语音生成」立即落库——不需要再点下面的保存。
-  // 连同当前「其他 API」草稿一起提交（与保存按钮同一份 payload）：一是即时生效，
+  // 连同当前「语音与写歌」草稿一起提交（与保存按钮同一份 payload）：一是即时生效，
   // 二是避免 [apiConfig] 同步 effect 把刚填、还没保存的 Key 草稿冲掉。
   const selectTtsProvider = (provider: TtsProvider) => {
     setLocalTtsProvider(provider);
@@ -1918,6 +1940,7 @@ const Settings: React.FC = () => {
   const [isCleaningResidue, setIsCleaningResidue] = useState(false);
   const handleCleanupResidue = async () => {
       if (isCleaningResidue) return;
+      trackEvent('一键清理表情包残留');
       setIsCleaningResidue(true);
       try {
           const validIds = (await DB.getAllCharacters()).map(c => c.id);
@@ -2654,7 +2677,7 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="h-full w-full bg-[#f3f4f8] flex flex-col font-light relative isolate">
+    <div className="sully-system-ui h-full w-full bg-[#f3f4f8] flex flex-col font-light relative isolate">
 
       {/* GLOBAL PROGRESS OVERLAY */}
       {sysOperation.status === 'processing' && (
@@ -2753,16 +2776,19 @@ const Settings: React.FC = () => {
         
         {/* 数据备份区域 */}
         <SettingsSection
-            title="备份与恢复 (ZIP)"
+            // 名字保持「备份与恢复」：提醒弹窗、文档和救援页（Worker 内）都写着「设置 → 备份与恢复」
+            title="备份与恢复"
+            onFocusRequest={() => setBackupTab('local')}
             icon={
                 <div className="p-2 bg-blue-100 rounded-xl text-blue-600">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" /></svg>
                 </div>
             }
         >
+            <SettingsTabs prefix="settings-backup" label="备份方式" selected={backupTab} onSelect={setBackupTab}
+                tabs={[{ id: 'local', label: '本地文件' }, { id: 'cloud', label: '云端' }]}>
+            {backupTab === 'local' ? <>
             {listUserSpaces().length > 1 && <fieldset className="mb-4 p-3 bg-white border border-slate-200 rounded-xl"><legend className="text-xs font-bold">先选择导出范围</legend><div className="flex gap-4 text-sm">{(['current', 'all'] as const).map(scope => <label key={scope} className="flex gap-2 items-center"><input type="radio" name="user-export-scope" checked={exportUserScope === scope} onChange={() => setExportUserScope(scope)} />{scope === 'current' ? '当前用户' : '所有用户'}</label>)}</div><p className="text-xs text-slate-400 mt-2">再选择下面的导出样式。共享素材只打包一次。</p></fieldset>}
-            <StorageUsagePanel />
-            <WebCacheControl />
             <BackupMissingAssetsNotice items={exportMissingAssets} />
 
             <label className="mb-3 flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 cursor-pointer">
@@ -2912,58 +2938,7 @@ const Settings: React.FC = () => {
                     </p>
                 )}
             </div>
-            {/* 备份提醒频率：糯米机数据只在本机，隔 N 天没导出会弹一次提醒 */}
-            <div className="mb-4 p-3.5 bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100 rounded-xl">
-                <div className="flex items-center justify-between mb-1">
-                    <span className="text-xs font-bold text-slate-600">备份提醒频率</span>
-                    <span className="text-xs font-bold text-rose-500">每 {backupReminderDays} 天</span>
-                </div>
-                <input
-                    type="range"
-                    min={BACKUP_REMINDER_MIN_DAYS}
-                    max={BACKUP_REMINDER_MAX_DAYS}
-                    step={1}
-                    value={backupReminderDays}
-                    onChange={e => {
-                        const v = parseInt(e.target.value, 10);
-                        setBackupReminderDays(v);
-                        setBackupReminderIntervalDays(v);
-                    }}
-                    className="w-full h-2 bg-rose-100 rounded-full appearance-none accent-rose-500"
-                />
-                <div className="flex justify-between text-[9px] text-slate-400 mt-1 px-0.5">
-                    <span>{BACKUP_REMINDER_MIN_DAYS} 天</span>
-                    <span>{BACKUP_REMINDER_MAX_DAYS} 天</span>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                    超过这个天数没有导出，就会弹窗提醒一次。
-                    {backupDaysAgo == null
-                        ? ' 你还没有导出过备份，记得留一份哦。'
-                        : ` 上次备份是在 ${backupDaysAgo} 天前。`}
-                </p>
-            </div>
-
-            <button onClick={handleCleanupResidue} disabled={isCleaningResidue} className="w-full py-3 mb-2 bg-amber-50 border border-amber-100 text-amber-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
-                {isCleaningResidue ? '正在扫描…' : '一键清理表情包残留'}
-            </button>
-            <p className="text-[10px] text-slate-400 px-1 mb-4 leading-relaxed">
-                清理已删除角色遗留的「幽灵表情包」：专属分类的角色没了之后，单聊表情面板看不到它、群聊面板却还冒出来。先扫描列出结果，确认后才会删除。
-            </p>
-
-            <button onClick={() => setShowResetConfirm(true)} className="w-full py-3 bg-red-50 border border-red-100 text-red-500 rounded-xl text-xs font-bold flex items-center justify-center gap-2">
-                格式化系统 (出厂设置)
-            </button>
-        </SettingsSection>
-
-        {/* 云端备份区域 */}
-        <SettingsSection
-            title="云端备份"
-            icon={
-                <div className="p-2 bg-sky-100 rounded-xl text-sky-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
-                </div>
-            }
-        >
+            </> : <>
             {!cloudBackupConfig.enabled ? (
                 <div className="space-y-3 py-2">
                     <p className="text-[11px] text-slate-400 leading-relaxed text-center">
@@ -3121,10 +3096,56 @@ const Settings: React.FC = () => {
                 </div>
             )}
 
-            <p className="text-[10px] text-slate-400 px-1 mt-3 leading-relaxed">
+            <p className="text-[10px] text-slate-400 px-1 mt-3 mb-4 leading-relaxed">
                 备份始终存放在你自己的 WebDAV 或 GitHub 账号中，项目不建立用户备份数据库。
                 网页里 WebDAV 和 GitHub 都因跨域限制需要中转；GitHub 的中转在连接时征求你的同意后才开启。
             </p>
+            </>}
+            </SettingsTabs>
+            {/* 以下本地、云端共用：存储占用、网页缓存、提醒与维护 */}
+            <StorageUsagePanel />
+            <WebCacheControl />
+            {/* 备份提醒频率：糯米机数据只在本机，隔 N 天没导出会弹一次提醒 */}
+            <div className="mb-4 p-3.5 bg-gradient-to-br from-rose-50 to-orange-50 border border-rose-100 rounded-xl">
+                <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold text-slate-600">备份提醒频率</span>
+                    <span className="text-xs font-bold text-rose-500">每 {backupReminderDays} 天</span>
+                </div>
+                <input
+                    type="range"
+                    min={BACKUP_REMINDER_MIN_DAYS}
+                    max={BACKUP_REMINDER_MAX_DAYS}
+                    step={1}
+                    value={backupReminderDays}
+                    onChange={e => {
+                        const v = parseInt(e.target.value, 10);
+                        setBackupReminderDays(v);
+                        setBackupReminderIntervalDays(v);
+                    }}
+                    className="w-full h-2 bg-rose-100 rounded-full appearance-none accent-rose-500"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 mt-1 px-0.5">
+                    <span>{BACKUP_REMINDER_MIN_DAYS} 天</span>
+                    <span>{BACKUP_REMINDER_MAX_DAYS} 天</span>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2 leading-relaxed">
+                    超过这个天数没有导出，就会弹窗提醒一次。
+                    {backupDaysAgo == null
+                        ? ' 你还没有导出过备份，记得留一份哦。'
+                        : ` 上次备份是在 ${backupDaysAgo} 天前。`}
+                </p>
+            </div>
+
+            <button onClick={handleCleanupResidue} disabled={isCleaningResidue} className="w-full py-3 mb-2 bg-amber-50 border border-amber-100 text-amber-600 rounded-xl text-xs font-bold flex items-center justify-center gap-2 active:scale-95 transition-all disabled:opacity-50">
+                {isCleaningResidue ? '正在扫描…' : '一键清理表情包残留'}
+            </button>
+            <p className="text-[10px] text-slate-400 px-1 mb-4 leading-relaxed">
+                清理已删除角色遗留的「幽灵表情包」：专属分类的角色没了之后，单聊表情面板看不到它、群聊面板却还冒出来。先扫描列出结果，确认后才会删除。
+            </p>
+
+            <button onClick={() => setShowResetConfirm(true)} className="w-full py-3 bg-red-50 border border-red-100 text-red-500 rounded-xl text-xs font-bold flex items-center justify-center gap-2">
+                格式化系统 (出厂设置)
+            </button>
         </SettingsSection>
 
         {isNativeApk && (
@@ -3328,12 +3349,16 @@ const Settings: React.FC = () => {
                     </svg>
                 </div>
             }
-            actions={
+            actions={apiTab === 'chat' &&
                 <button onClick={() => setShowNewStation(true)} className="text-[10px] bg-primary/10 text-primary px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
                     ＋新站点
                 </button>
             }
+            onFocusRequest={() => setApiTab('chat')}
         >
+            <SettingsTabs prefix="settings-api" label="API 类型" selected={apiTab} onSelect={setApiTab}
+                tabs={[{ id: 'chat', label: '对话' }, { id: 'vision', label: apiConfig.visionApi?.enabled ? '识图 · 已接入' : '识图 · 未接入' }]}>
+            {apiTab === 'chat' ? <>
             {/* ─── 站点视图（新版）：站点 + 模型双下拉，即选即生效 ─── */}
             <div className="space-y-3 mb-4">
                 <div>
@@ -3476,97 +3501,8 @@ const Settings: React.FC = () => {
             </div>
             </div>)}
             </div>
-        </SettingsSection>
-
-        {/* API 切换悬浮球 — 全局小球，点开快速切站/切模型 */}
-        <SettingsSection
-            title="API 悬浮球"
-            icon={
-                <div className="p-2 bg-violet-100/50 rounded-xl text-violet-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
-                    </svg>
-                </div>
-            }
-            actions={
-                <button
-                    type="button"
-                    onClick={() => updateFb({ enabled: !fbConfig.enabled })}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${fbConfig.enabled ? 'bg-primary' : 'bg-slate-200'}`}
-                >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${fbConfig.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                </button>
-            }
-        >
-            <p className="text-[10px] text-slate-400 leading-relaxed mb-3">
-                开启后桌面会多一颗可拖动的小球，点一下就能切 API 站和主模型，不用每次钻进设置。拖到屏幕两侧自动吸边。
-            </p>
-            {fbConfig.enabled && (
-                <div className="space-y-4">
-                    <div>
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">大小</span>
-                            <span className="text-[10px] font-mono text-slate-400">{fbConfig.size}px</span>
-                        </div>
-                        <input type="range" min="36" max="64" step="2" value={fbConfig.size}
-                            onChange={e => updateFb({ size: parseInt(e.target.value, 10) })}
-                            className="w-full h-2 bg-primary/10 rounded-full appearance-none accent-primary" />
-                    </div>
-                    <div>
-                        <div className="flex items-center justify-between mb-1">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">透明度</span>
-                            <span className="text-[10px] font-mono text-slate-400">{Math.round(fbConfig.opacity * 100)}%</span>
-                        </div>
-                        <input type="range" min="0.3" max="1" step="0.05" value={fbConfig.opacity}
-                            onChange={e => updateFb({ opacity: parseFloat(e.target.value) })}
-                            className="w-full h-2 bg-primary/10 rounded-full appearance-none accent-primary" />
-                    </div>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">颜色跟随主题</span>
-                            <p className="text-[9px] text-slate-300 mt-0.5">换主题时球的默认样式会跟着变</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                            {fbConfig.color !== 'auto' && (
-                                <input type="color" value={fbConfig.color}
-                                    onChange={e => updateFb({ color: e.target.value })}
-                                    className="w-8 h-8 rounded-lg border border-slate-200 bg-transparent cursor-pointer" />
-                            )}
-                            <button
-                                type="button"
-                                onClick={() => updateFb({ color: fbConfig.color === 'auto' ? '#8b5cf6' : 'auto' })}
-                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${fbConfig.color === 'auto' ? 'bg-primary' : 'bg-slate-200'}`}
-                            >
-                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${fbConfig.color === 'auto' ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </SettingsSection>
-
-        {/* 独立识图 API：给不支持 image_url 的主模型补视觉能力；可手动从通用模型预设载入。 */}
-        <SettingsSection
-            title="识图 API"
-            badge={
-                <span className={`text-[9px] font-bold px-2 py-1 rounded-full ${
-                    apiConfig.visionApi?.enabled
-                        ? 'bg-violet-100 text-violet-600'
-                        : 'bg-slate-100 text-slate-400'
-                }`}>
-                    {apiConfig.visionApi?.enabled ? '已接入' : '未接入'}
-                </span>
-            }
-            icon={
-                <div className="p-2 bg-violet-100/60 rounded-xl text-violet-600">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12s3.75-6.75 9.75-6.75S21.75 12 21.75 12 18 18.75 12 18.75 2.25 12 2.25 12Z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-                    </svg>
-                </div>
-            }
-        >
+            </> : <>
+            {/* 独立识图 API：给不支持 image_url 的主模型补视觉能力；可手动从通用模型预设载入。 */}
             <div className="space-y-4">
                 <div className="rounded-2xl border border-slate-100 bg-white/60 p-3.5 space-y-2">
                     <label htmlFor="chat-image-quality" className="block text-xs font-bold text-slate-600">聊天图片画质</label>
@@ -3658,6 +3594,86 @@ const Settings: React.FC = () => {
                     </div>
                 )}
             </div>
+            </>}
+            </SettingsTabs>
+            {/* API 调用记录入口 — 点开看最近 5 天各 App / 角色 / 用途的调用明细 */}
+            <button type="button" onClick={() => setShowApiCallLog(true)} className="mt-4 w-full flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left active:scale-[0.99] transition-transform">
+                <div className="flex-1 min-w-0">
+                    <div className="text-xs font-bold text-slate-600">API 调用记录</div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">最近 5 天：时间 · 哪个 API · 哪个 App · 哪个角色 · 用途</p>
+                </div>
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-300 shrink-0">
+                    <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
+                </svg>
+            </button>
+        </SettingsSection>
+
+        {/* API 切换悬浮球 — 全局小球，点开快速切站/切模型 */}
+        <SettingsSection
+            title="API 悬浮球"
+            icon={
+                <div className="p-2 bg-violet-100/50 rounded-xl text-violet-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                    </svg>
+                </div>
+            }
+            actions={
+                <button
+                    type="button"
+                    onClick={() => updateFb({ enabled: !fbConfig.enabled })}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${fbConfig.enabled ? 'bg-primary' : 'bg-slate-200'}`}
+                >
+                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${fbConfig.enabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </button>
+            }
+        >
+            <p className="text-[10px] text-slate-400 leading-relaxed mb-3">
+                开启后桌面会多一颗可拖动的小球，点一下就能切 API 站和主模型，不用每次钻进设置。拖到屏幕两侧自动吸边。
+            </p>
+            {fbConfig.enabled && (
+                <div className="space-y-4">
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">大小</span>
+                            <span className="text-[10px] font-mono text-slate-400">{fbConfig.size}px</span>
+                        </div>
+                        <input type="range" min="36" max="64" step="2" value={fbConfig.size}
+                            onChange={e => updateFb({ size: parseInt(e.target.value, 10) })}
+                            className="w-full h-2 bg-primary/10 rounded-full appearance-none accent-primary" />
+                    </div>
+                    <div>
+                        <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">透明度</span>
+                            <span className="text-[10px] font-mono text-slate-400">{Math.round(fbConfig.opacity * 100)}%</span>
+                        </div>
+                        <input type="range" min="0.3" max="1" step="0.05" value={fbConfig.opacity}
+                            onChange={e => updateFb({ opacity: parseFloat(e.target.value) })}
+                            className="w-full h-2 bg-primary/10 rounded-full appearance-none accent-primary" />
+                    </div>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">颜色跟随主题</span>
+                            <p className="text-[9px] text-slate-300 mt-0.5">换主题时球的默认样式会跟着变</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {fbConfig.color !== 'auto' && (
+                                <input type="color" value={fbConfig.color}
+                                    onChange={e => updateFb({ color: e.target.value })}
+                                    className="w-8 h-8 rounded-lg border border-slate-200 bg-transparent cursor-pointer" />
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => updateFb({ color: fbConfig.color === 'auto' ? '#8b5cf6' : 'auto' })}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${fbConfig.color === 'auto' ? 'bg-primary' : 'bg-slate-200'}`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${fbConfig.color === 'auto' ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </SettingsSection>
 
         <SettingsSection
@@ -3767,29 +3783,9 @@ const Settings: React.FC = () => {
             </div>
         </SettingsSection>
 
-        {/* API 调用记录入口 — 点开看最近 5 天各 App / 角色 / 用途的调用明细 */}
-        <button
-            type="button"
-            onClick={() => setShowApiCallLog(true)}
-            className="w-full bg-white/80 rounded-3xl p-5 shadow-sm border border-white/50 flex items-center gap-3 active:scale-[0.99] transition-transform text-left"
-        >
-            <div className="p-2 bg-sky-100/60 rounded-xl text-sky-600 shrink-0">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0V12a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 12V5.25" />
-                </svg>
-            </div>
-            <div className="flex-1 min-w-0">
-                <h2 className="text-sm font-semibold text-slate-600 tracking-wider">API 调用记录</h2>
-                <p className="text-[11px] text-slate-400 mt-0.5">最近 5 天：时间 · 哪个 API · 哪个 App · 哪个角色 · 用途</p>
-            </div>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 text-slate-300 shrink-0">
-                <path fillRule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L11.168 10 7.23 6.29a.75.75 0 1 1 1.04-1.08l4.5 4.25a.75.75 0 0 1 0 1.08l-4.5 4.25a.75.75 0 0 1-1.06-.02Z" clipRule="evenodd" />
-            </svg>
-        </button>
-
-        {/* 其他 API 区域 — 非 LLM 类（语音、写歌等），不会跟随预设切换 */}
+        {/* 语音与写歌 — 非 LLM 类 API，不会跟随预设切换 */}
         <SettingsSection
-            title="其他 API"
+            title="语音与写歌"
             icon={
                 <div className="p-2 bg-amber-100/50 rounded-xl text-amber-600">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -3802,8 +3798,11 @@ const Settings: React.FC = () => {
                 语音 / 写歌等非 LLM 类 API。这些设置 <span className="font-semibold text-slate-500">不会随预设切换</span>，通常只配置一次。
             </p>
 
+            <SettingsTabs prefix="settings-voice" label="语音与写歌" selected={voiceTab} onSelect={setVoiceTab}
+                tabs={[{ id: 'voice', label: '语音' }, { id: 'song', label: '写歌' }]}>
             {/* 上层简洁视图：每能力一张紧凑卡，状态一行 + 点开展开关键选项；完整字段在下方「详细配置」，两套视图写同一份草稿 */}
             <div className="space-y-2.5">
+                {voiceTab === 'voice' ? <>
                 {/* TTS 卡 */}
                 <div className="rounded-2xl border border-slate-200/70 bg-white/60 backdrop-blur-sm overflow-hidden">
                     <button type="button" onClick={() => setExpandedOtherCard(v => v === 'tts' ? null : 'tts')} className="w-full flex items-center justify-between px-4 py-3 text-left">
@@ -3886,7 +3885,7 @@ const Settings: React.FC = () => {
                                     {(sttModelCustom || (!!localSttModel.trim() && !['FunAudioLLM/SenseVoiceSmall', 'whisper-large-v3'].includes(localSttModel.trim()))) && (
                                         <input type="text" spellCheck={false} value={localSttModel} onChange={(e) => setLocalSttModel(e.target.value)} placeholder="自定义模型 id" className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
                                     )}
-                                    <p className="text-[10px] text-slate-400 pl-0.5">改完点底部「保存其他 API」。</p>
+                                    <p className="text-[10px] text-slate-400 pl-0.5">改完点底部「保存语音与写歌」。</p>
                                 </>
                             )}
                         </div>
@@ -3916,11 +3915,12 @@ const Settings: React.FC = () => {
                             </div>
                             <input type="password" name="minimax-api-secret-quick" autoComplete="new-password" spellCheck={false} value={localMiniMaxKey} onChange={(e) => setLocalMiniMaxKey(e.target.value)} placeholder="MiniMax API Secret（留空则复用主 Key）" className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
                             <input type="text" spellCheck={false} value={localMiniMaxGroupId} onChange={(e) => setLocalMiniMaxGroupId(e.target.value)} placeholder="Group ID（部分账号/模型需要）" className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
-                            <p className="text-[10px] text-slate-400 pl-0.5">改完点底部「保存其他 API」。</p>
+                            <p className="text-[10px] text-slate-400 pl-0.5">改完点底部「保存语音与写歌」。</p>
                         </div>
                     )}
                 </div>
 
+                </> : <>
                 {/* 写歌 AceStep 卡 */}
                 <div className="rounded-2xl border border-slate-200/70 bg-white/60 backdrop-blur-sm overflow-hidden">
                     <button type="button" onClick={() => setExpandedOtherCard(v => v === 'acestep' ? null : 'acestep')} className="w-full flex items-center justify-between px-4 py-3 text-left">
@@ -3937,6 +3937,7 @@ const Settings: React.FC = () => {
                         </div>
                     )}
                 </div>
+                </>}
             </div>
 
             {/* 官方完整长表单：整体收进折叠，字段不删，与上面卡片写同一份数据 */}
@@ -3950,8 +3951,9 @@ const Settings: React.FC = () => {
             </button>
 
             {showOtherDetail && (
-            <div className="space-y-4 mt-3">
-                <p className="text-[11px] text-slate-400 -mt-1 pl-1 leading-relaxed">
+            <div className="space-y-4">
+                {voiceTab === 'voice' ? <>
+                <p className="text-[11px] text-slate-400 pl-1 leading-relaxed">
                     🎙️ 语音生成支持 <span className="font-semibold text-slate-500">MiniMax</span>、<span className="font-semibold text-slate-500">鱼声 Fish</span> 和 <span className="font-semibold text-slate-500">ElevenLabs</span>。三家的配置都会保留，最后在底部选择当前引擎。
                 </p>
 
@@ -4284,12 +4286,13 @@ const Settings: React.FC = () => {
                             <div>
                                 <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">STT 模型（可选）</label>
                                 <input type="text" spellCheck={false} value={localSttModel} onChange={(e) => setLocalSttModel(e.target.value)} placeholder="默认 FunAudioLLM/SenseVoiceSmall（硅基流动免费）" className="w-full bg-white/50 border border-slate-200/60 rounded-xl px-4 py-2.5 text-sm font-mono focus:bg-white transition-all" />
-                                <p className="text-[11px] text-slate-400 mt-1 pl-1">用其它家时改成对应模型，如 Groq 的 <span className="font-mono">whisper-large-v3</span>。改完记得点下面「保存其他 API」。</p>
+                                <p className="text-[11px] text-slate-400 mt-1 pl-1">用其它家时改成对应模型，如 Groq 的 <span className="font-mono">whisper-large-v3</span>。改完记得点下面「保存语音与写歌」。</p>
                             </div>
                         </div>
                     )}
                 </div>
 
+                </> : <>
                 <div className="group">
                     <div className="flex items-center justify-between mb-1.5 pl-1">
                         <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">写歌 · Replicate Token (可选)</label>
@@ -4364,17 +4367,19 @@ const Settings: React.FC = () => {
                         </div>
                     )}
                 </div>
+                </>}
             </div>
             )}
+            </SettingsTabs>
 
-            <button onClick={handleSaveOtherApis} className="w-full py-3 rounded-2xl font-bold text-white shadow-lg shadow-amber-500/20 bg-amber-500 active:scale-95 transition-all mt-4">
-                {otherStatusMsg || '保存其他 API'}
+            <button onClick={handleSaveOtherApis} className="w-full py-3 rounded-2xl font-bold text-white shadow-lg shadow-amber-500/20 bg-amber-500 active:scale-95 transition-all mt-6">
+                {otherStatusMsg || '保存语音与写歌'}
             </button>
         </SettingsSection>
 
-        {/* 实时感知配置区域 */}
+        {/* 扩展连接：实时感知（天气、热点等真实世界信息）和 MCP（外部工具服务器）都是把外部信息接进对话，合在一张卡片里用页签切换 */}
         <SettingsSection
-            title="实时感知"
+            title="扩展连接"
             icon={
                 <div className="p-2 bg-violet-100/50 rounded-xl text-violet-600">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4">
@@ -4382,12 +4387,10 @@ const Settings: React.FC = () => {
                     </svg>
                 </div>
             }
-            actions={
-                <button onClick={() => { trackEvent('打开实时感知配置'); setRtUserLocationPage('location'); setShowRealtimeModal(true); }} className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
-                    配置
-                </button>
-            }
         >
+            <SettingsTabs prefix="settings-extension" label="扩展连接" selected={extensionTab} onSelect={setExtensionTab}
+                tabs={[{ id: 'realtime', label: '实时感知' }, { id: 'mcp', label: 'MCP' }]}>
+            {extensionTab === 'realtime' ? <>
             <p className="text-xs text-slate-500 mb-3 leading-relaxed">
                 让AI角色感知真实世界：天气、新闻热点、当前时间。角色可以根据天气关心你、聊聊最近的热点话题。
             </p>
@@ -4414,30 +4417,10 @@ const Settings: React.FC = () => {
                     小红书
                 </div>
             </div>
-        </SettingsSection>
-
-        {/* 通用 MCP，独立于实时感知 */}
-        <SettingsSection
-            title="MCP"
-            badge={<span className="text-[9px] bg-violet-100 text-violet-600 px-1.5 py-0.5 rounded-full font-bold shrink-0">本机配置</span>}
-            icon={
-                <div className="p-2 bg-violet-100/60 rounded-xl text-violet-600">
-                    <PlugsConnected size={16} weight="fill" />
-                </div>
-            }
-            actions={
-                <>
-                    <button
-                        onClick={() => { trackEvent('打开「MCP 是什么」说明弹窗'); setShowMcpHelp(true); }}
-                        aria-label="MCP 是什么？"
-                        className="w-7 h-7 rounded-full border border-slate-200 bg-white text-[12px] font-bold text-slate-400 active:scale-90 transition-all"
-                    >?</button>
-                    <button onClick={() => { trackEvent('打开MCP工具服务器配置'); setShowMcpModal(true); }} className="text-[10px] bg-violet-100 text-violet-600 px-3 py-1.5 rounded-full font-bold shadow-sm active:scale-95 transition-transform">
-                        管理
-                    </button>
-                </>
-            }
-        >
+            <button onClick={() => { trackEvent('打开实时感知配置'); setRtUserLocationPage('location'); setShowRealtimeModal(true); }} className="mt-4 w-full py-3 bg-violet-100 text-violet-600 rounded-xl text-xs font-bold active:scale-95 transition-transform">
+                配置实时感知
+            </button>
+            </> : <>
             <p className="text-xs text-slate-500 leading-relaxed">
                 连接标准 MCP 服务器，让聊天可以调用资料库、搜索、笔记或智能家居等工具。
             </p>
@@ -4455,6 +4438,17 @@ const Settings: React.FC = () => {
                     </p>
                 );
             })()}
+            <div className="mt-4 flex gap-2">
+                <button
+                    onClick={() => { trackEvent('打开「MCP 是什么」说明弹窗'); setShowMcpHelp(true); }}
+                    className="flex-1 py-3 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-500 active:scale-95 transition-transform"
+                >MCP 是什么？</button>
+                <button onClick={() => { trackEvent('打开MCP工具服务器配置'); setShowMcpModal(true); }} className="flex-1 py-3 bg-violet-100 text-violet-600 rounded-xl text-xs font-bold active:scale-95 transition-transform">
+                    管理服务器
+                </button>
+            </div>
+            </>}
+            </SettingsTabs>
         </SettingsSection>
 
         {SHOW_PROACTIVE_PUSH_ACCEL_UI && ppAvailable && (

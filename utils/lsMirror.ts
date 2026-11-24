@@ -77,6 +77,7 @@ export const MIRRORED_KEYS: readonly string[] = [
     'aetheros.mcd.mcpEnabled',
     'aetheros.mcp.servers',
     'aetheros.mcp.useNativeTools',
+    'aetheros.mcp.allowCloudDestructive',
     // 音乐登录、播放队列与自创专辑。Fork 补充：APK 环境的 WebView 会被系统清理
     // 工具清 localStorage 但留 IndexedDB，不加镜像兜底的话 cookie 丢了用户每次
     // 打开都要重新扫码登录网易云。

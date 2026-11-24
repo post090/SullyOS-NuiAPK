@@ -42,7 +42,7 @@ const MusicApp: React.FC = () => {
     current, playing, progress, duration, loadingSong,
     lyric, tlyric, activeLyricIdx,
     profile, playSong, togglePlay, nextSong, prevSong, seek,
-    liked, toggleLike, setToastHandler,
+    liked, likesStatus, toggleLike, retryAccount, setAccountViewOpen, setToastHandler,
     listeningTogetherWith, removeListeningPartner,
     addLocalSong, removeLocalSong, localAlbumSongs,
     playMode, setPlayMode,
@@ -58,6 +58,7 @@ const MusicApp: React.FC = () => {
     window.dispatchEvent(new CustomEvent(MINIPLAYER_CMD_EVENT, { detail: cmd }));
   };
   const isCurrentRegenerating = !!current && current.id === regeneratingId;
+  const [showMusicCookie, setShowMusicCookie] = useState(false);
   // 把对轴入口和单曲循环按钮移到 SubActions 里，避免散乱
   // 下载本地生成的歌曲到本地文件系统
   const downloadCurrentLocal = useCallback(async () => {
@@ -114,6 +115,13 @@ const MusicApp: React.FC = () => {
   useEffect(() => { setToastHandler(addToast); }, [addToast, setToastHandler]);
 
   const [view, setView] = useState<View>('profile');
+  // 显示开关挂在整个 App 上，离开设置页要收回，否则下次进来 Cookie 还是明文
+  useEffect(() => { if (view !== 'settings') setShowMusicCookie(false); }, [view]);
+  const needsAccount = view !== 'settings';
+  useEffect(() => {
+    setAccountViewOpen(needsAccount);
+    return () => setAccountViewOpen(false);
+  }, [needsAccount, setAccountViewOpen]);
   // ── 手动对轴 modal state ──
   const [showLyricSync, setShowLyricSync] = useState(false);
   const [syncDraft, setSyncDraft] = useState<number[]>([]);
@@ -674,7 +682,11 @@ const MusicApp: React.FC = () => {
           <div className="shrink-0 mt-3 w-full">
             <SubActions
               liked={liked}
-              onLike={() => { toggleLike(); trackEvent('收藏或取消收藏当前歌', { action: liked ? 'unlike' : 'like' }); }}
+              likeStatus={current.local || !cfg.cookie ? 'ready' : likesStatus}
+              onLike={async () => {
+                if (!current.local && cfg.cookie && likesStatus === 'error') { retryAccount(); return; }
+                if (await toggleLike()) trackEvent('收藏或取消收藏当前歌', { action: liked ? 'unlike' : 'like' });
+              }}
               showSync={!!(current.local && current.localLyrics && lyric.length > 0)}
               onSync={() => {
                 setSyncDraft(lyric.map(l => l.t));
@@ -727,12 +739,36 @@ const MusicApp: React.FC = () => {
             </div>
           </div>
           <div className="rounded-2xl p-3.5 shizuku-glass" style={{ boxShadow: `0 2px 16px ${C.glow}08` }}>
-            <div className="text-[10px] mb-2 tracking-wider flex items-center gap-1.5" style={{ color: C.muted }}>
-              <Sparkle size={6} color={C.sakura} delay={0.5} /> 会员 Cookie
+            <div className="text-[10px] mb-2 tracking-wider flex items-center justify-between" style={{ color: C.muted }}>
+              <span className="flex items-center gap-1.5">
+                <Sparkle size={6} color={C.sakura} delay={0.5} /> 会员 Cookie
+              </span>
+              {cfg.cookie.trim() && showMusicCookie ? (
+                <button type="button" onClick={() => setShowMusicCookie(false)} className="text-[10px] underline" style={{ color: C.primary }}>
+                  隐藏
+                </button>
+              ) : null}
             </div>
-            <textarea className="w-full rounded-xl px-3 py-2 outline-none text-[10px] shizuku-glass" rows={3} value={cfg.cookie}
-              onChange={e => setDraft({ cookie: e.target.value })} placeholder="MUSIC_U=xxx 或直接粘贴值..."
-              style={{ color: C.text, fontFamily: 'monospace', resize: 'none' }} />
+            {cfg.cookie.trim() && !showMusicCookie ? (
+              <div className="w-full rounded-xl px-3 py-2.5 text-[11px] shizuku-glass flex items-center justify-between" style={{ color: C.muted }}>
+                <span>已填写（{cfg.cookie.trim().length} 字符，已隐藏）</span>
+                <button type="button" onClick={() => setShowMusicCookie(true)} className="text-[10px] font-medium shrink-0 ml-2" style={{ color: C.primary }}>显示 / 编辑</button>
+              </div>
+            ) : (
+              <textarea
+                className="w-full rounded-xl px-3 py-2 outline-none text-[10px] shizuku-glass"
+                rows={3}
+                value={cfg.cookie}
+                onFocus={() => setShowMusicCookie(true)}
+                onChange={e => {
+                  const next = e.target.value;
+                  setDraft({ cookie: next });
+                  setShowMusicCookie(Boolean(next.trim()));
+                }}
+                placeholder="MUSIC_U=xxx 或直接粘贴值..."
+                style={{ color: C.text, fontFamily: 'monospace', resize: 'none' }}
+              />
+            )}
             <div className="text-[9px] mt-1.5 italic" style={{ color: C.faint }}>
               也可以在「我的」页面里扫码 / 手机号登录，自动填入 cookie
             </div>
@@ -808,7 +844,7 @@ const MusicApp: React.FC = () => {
                 const lines: string[] = [];
                 const ck = normalizeCookie(cfg.cookie);
                 lines.push(`Worker: ${effectiveWorkerUrl}${followsCentral ? '（跟随中心）' : '（音乐单独设的）'}`);
-                lines.push(`Cookie: ${ck ? ck.slice(0, 18) + '...(' + ck.length + 'c)' : '(未填)'}`);
+                lines.push(`Cookie: ${ck ? `已填 (${ck.length} 字符)` : '(未填)'}`);
                 try {
                   const res = await fetch(`${effectiveWorkerUrl}/netease/search`, {
                     method: 'POST', headers: { 'Content-Type': 'application/json', ...(ck ? { 'X-Netease-Cookie': ck } : {}) },

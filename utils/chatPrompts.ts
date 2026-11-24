@@ -28,7 +28,7 @@ import { VOICE_ACTING_GUIDE } from './minimaxTts';
 import { FISH_VOICE_ACTING_GUIDE } from './fishAudioTts';
 import { getElevenLabsModel, getTtsProvider, getVoicePromptOverride } from './ttsProvider';
 import { getElevenLabsVoiceActingGuide } from './elevenLabsTts';
-import { resolveCharTimeZone, nowInTimeZone } from './timezone';
+import { resolveCharTimeZone, nowInTimeZone, tzAwarenessNote } from './timezone';
 import { buildLifeRecordInjection } from './lifeRecords';
 import { buildTaskSupervisionContext, buildTaskCommandGuide } from './taskContextInjector';
 import { isWorkerReachableUrl } from './amsgToolPack';
@@ -44,7 +44,7 @@ import { normalizeVoiceTags } from './sanitize';
 
 // 语音格式指导按当前 TTS 服务商三选一：用 MiniMax 才注入 MiniMax 那套（含 <#秒#> 停顿标记），
 // 用鱼声注入鱼声版（方括号 cue [laughing]/[whispering]…），用 ElevenLabs 注入 v3 版（[laugh]/[whisper]…）。
-// 用户在「设置 → 其他 API → 语音提示词」里自定义过该服务商的指南时，优先用用户那份；留空则回退内置默认。
+// 用户在「设置 → 语音与写歌 → 语音提示词」里自定义过该服务商的指南时，优先用用户那份；留空则回退内置默认。
 const voiceActingGuide = (): string => {
   const provider = getTtsProvider();
   const custom = getVoicePromptOverride(provider);
@@ -179,6 +179,8 @@ export const detectChatModeTransition = (messages: readonly Message[]): ChatMode
 export interface PromptBuildOptions {
     /** Other conversation surfaces replace only app rules; shared context and recency stay identical. */
     appRules?: string;
+    /** 易变段报时后带「对方那边几点」。只给隔着手机的线上聊天，由调用方按场合打开。 */
+    includeUserClock?: boolean;
     /** 已完成清洗的实际消息，由公共上下文管线统一处理世界书。 */
     history?: import('./context').ContextMessage[];
     forFirePack?: boolean;
@@ -389,7 +391,17 @@ export const ChatPrompts = {
         // ── 易变状态段（volatileState）──
         // 开头一行框定，让模型明白这条出现在历史之后的 system 消息是"此刻的状态"，
         // 人设与规则仍以最上方的系统设定为准。
-        let volatileState = `\n[System: 实时状态 (Live Context)]\n（以下是此刻的实时状态——当前时间、你正在做的事、你的情绪底色、周边动态。你的人设与聊天规则见最上方的系统设定，此处不再重复。）\n\n`;
+        // 这一段里没有钟时开头就不提当前时间：即时对话的时钟由 worker 补在前面那条 system
+        // 消息里，主动消息模板的钟由 worker 到点填槽，关了时间感知的角色哪条路都没有钟。
+        const clockInVolatile = !forFirePack && !timelyByWorker && char.timeAwarenessEnabled !== false;
+        let volatileState = `\n[System: 实时状态 (Live Context)]\n（以下是此刻的实时状态——${clockInVolatile ? '当前时间、' : ''}你正在做的事、你的情绪底色、周边动态。你的人设与聊天规则见最上方的系统设定，此处不再重复。）\n\n`;
+        // 时差说明是本地时间块里不随时间变的那一句，时钟移走后它留在前端这份里，紧贴着
+        // worker 补的时钟（时效块就插在这一段前面）。worker 不知道角色开没开自定义时区，
+        // 由它来补只能按时区 id 猜。
+        const timelyTzNote = timelyByWorker && char.timeAwarenessEnabled !== false
+            ? tzAwarenessNote(resolveCharTimeZone(char)).trim()
+            : '';
+        if (timelyTzNote) volatileState += `${timelyTzNote}\n\n`;
         volatileState += (await ContextBuilder.buildVolatileCoreState(char, {
             includeDetailedMemories: true,
             emotion: {surface: 'chat', innerState: evolvedNarrative},
@@ -397,7 +409,7 @@ export const ChatPrompts = {
             scheduleSnapshot: schedulePromise,
             // conversational：私聊是真的有人在这个点跟角色说话，时间块才补那句语境框定
             // （见 ContextBuilder.buildTimeAwarenessBlock）。生成器类调用不给，默认就没有。
-            timeOptions: { userTimezone: userProfile?.timezone, skipTimeAwareness: forFirePack || timelyByWorker, conversational: true },
+            timeOptions: { userTimezone: userProfile?.timezone, skipTimeAwareness: forFirePack || timelyByWorker, conversational: true, userName: userProfile.name, includeUserClock: promptOptions?.includeUserClock === true },
         }));
 
         // ── 并发发起所有独立的异步取数（网络 + IndexedDB），下面按原顺序拼接 ──
@@ -814,7 +826,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
      ③ 补充已有补给/消耗品: \`[[ACTION:HOME:RESTOCK|名称|YYYY-MM-DD(可省略)|房间名(可省略)]]\`（没有对应条目时会新增）；
      ④ 吃完或用完: \`[[ACTION:HOME:CONSUME|名称]]\`；丢弃或清空: \`[[ACTION:HOME:DISCARD|名称]]\`。
      名称应与【你的经济与生活直觉】中的现有物品一致；耐用品不写保质期，纸巾/洗衣液等补给档位用 RESTOCK 而非 BUY。**只在事实已经发生时记录**：计划去买、想要、回忆过去、假设、用户买的东西都不能写回你的家；外卖、打车、服务等普通 SPEND 也不会自动变成家中物品。一条指令只记录一种物品，不要为了显得有变化而编造事件；未明确提到这些事实时，一个 HOME 标签都不要输出。` : ''}
-${monthlyRecallEnabled && (forFirePack || char.hideMonthlyRecallPrompt === false) ? "   - 调取记忆: `[[RECALL: YYYY-MM]]`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作\n" : ''}   - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
+${monthlyRecallEnabled && char.hideMonthlyRecallPrompt === false ? "   - 调取记忆: `[[RECALL: YYYY-MM]]`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作\n" : ''}   - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
 ${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆${recallReference}，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `
    - **翻阅日记(飞书)**: 同上——回忆优先靠记忆${recallReference}，只有你自己想重温那天日记的内容时才用: \`[[FS_READ_DIARY: 日期]]\`。支持格式同上。` : ''}${notionNotesEnabled ? `

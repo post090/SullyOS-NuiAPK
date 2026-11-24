@@ -76,6 +76,7 @@ const limitsRow = (settings: Record<string, unknown> = {}, selfScheduleEnabled =
 import { isAmsgServerVersionAtLeast } from '../../../utils/amsgWorkerVersion';
 import { AMSG_TASK_KIND_KEY } from '../../../utils/amsgTaskKinds';
 import { PLATE_CONSOLIDATE_KIND } from '../../../utils/amsgPlateJob';
+import { TOOL_LOOP_FINAL_ROUND_PROMPT } from '../../../utils/toolLoopFinalRound';
 
 const CHAR_ID = 'preset-nyah';
 const TASK_UUID = '3637dae1-1461-4444-a747-34e406f67acc';
@@ -1091,13 +1092,14 @@ describe('频率与额度（到点兜底闸）', () => {
     fired(await amsgHooks.onBeforeFire(alarm.ctx));
   });
 
-  // 见面离开提醒：用户为这次见面设的一次性提醒，必发、不受连发和每日上限拦，也不给排程工具；
+  // 见面离开提醒：用户为这次见面设的一次性提醒，必发、不受连发和每日上限拦；这一轮照样给排程工具
+  // （排出来的子任务不带豁免，见 fireParity.test.ts）；
   // 人还在见面里就按租约往后推，走开后在私聊里开过口就作废（见 docs/date-leave-reminder.md）。
   const dateLeaveMeta = { amsgDateLeave: true, amsgDateLeaveDelayMinutes: 5, amsgExpirePolicy: 'force' };
   // 见面里续的租约不带开口时刻（DateApp 传 null）。
   const dateLease = (activeAt: number) => presenceValue(activeAt, { scene: 'date', lastUserMessageAt: null });
 
-  it('见面离开提醒：连发和每日上限都已满 → 照发，而且没有【开口之前】、不给排程工具', async () => {
+  it('见面离开提醒：连发和每日上限都已满 → 照发，而且没有【开口之前】', async () => {
     const { ctx } = makeCtx({
       metadata: dateLeaveMeta,
       charRows: rows({
@@ -1110,7 +1112,6 @@ describe('频率与额度（到点兜底闸）', () => {
     ctx.scheduleTask = vi.fn();
     const result = fired(await amsgHooks.onBeforeFire(ctx));
     expect(result.messages[0].content).not.toContain('【开口之前】');
-    expect(result.tools?.some((t) => t.function.name === AMSG_FIRE_SCHEDULE_TOOL)).toBeFalsy();
   });
 
   it('见面离开提醒：对照组——同样的额度下普通自排任务被连发上限拦下', async () => {
@@ -1616,13 +1617,14 @@ describe('executeToolCalls 的工具编排', () => {
 
   // 轮次快用完了还在请求工具，上游会抛 AGENTIC_LOOP_EXCEEDED：这次攒的旁白全丢、任务
   // 不出清、下一分钟整条从头重跑。先在回喂里说一声，模型自己收尾最省。
-  it('倒数第二轮的回喂末尾加一句「这是最后一轮」', async () => {
+  // 收尾提示与本地工具循环共用同一句（utils/toolLoopFinalRound.ts）。
+  it('倒数第二轮的回喂末尾加上共用的收尾提示', async () => {
     const session = await readySession();
     const [out] = await amsgHooks.executeToolCalls(
       [toolCall('c1', 'recall', { year: '2026', month: '06' })],
       { ...session, iteration: DEFAULT_TOOL_ITERATIONS - 2 },
     );
-    expect(out.content).toContain('最后一轮');
+    expect(out.content.endsWith(`\n${TOOL_LOOP_FINAL_ROUND_PROMPT}`)).toBe(true);
   });
 
   it('还早的轮次不加那句话（别一上来就催着收尾）', async () => {
@@ -1631,7 +1633,7 @@ describe('executeToolCalls 的工具编排', () => {
       [toolCall('c1', 'recall', { year: '2026', month: '06' })],
       { ...session, iteration: 0 },
     );
-    expect(out.content).not.toContain('最后一轮');
+    expect(out.content).not.toContain(TOOL_LOOP_FINAL_ROUND_PROMPT);
   });
 });
 
@@ -4725,7 +4727,9 @@ describe('onBeforeFire — 即时对话分支', () => {
     // ctx.scheduleTask 存在才教「给自己排下一条」
     (ctx as any).scheduleTask = async () => ({ created: true, id: 1, uuid: 'u', nextSendAt: 'x' });
     const result = fired(await amsgHooks.onBeforeFire(ctx));
-    const appended = result.messages[result.messages.length - 1].content;
+    // 有 MCP 工具时最后一条是本地同款的末尾提醒，时效块在它前面。
+    expect(result.messages[result.messages.length - 1].content).toContain('[MCP 工具 ON');
+    const appended = result.messages[result.messages.length - 2].content;
     expect(appended).toContain('【外部工具');         // MCP 说明块
     expect(appended).toContain('search_memory');
     expect(appended).toContain('给自己排下一条');      // 排程说明块
@@ -5210,6 +5214,96 @@ describe('即时对话的接线', () => {
     expect(body.data.selfUpdate.supported).toBe(true);
     // 桩出来的 DB 读不了诊断表 → 从没查过
     expect(body.data.selfUpdate.state).toBeNull();
+  });
+
+  describe('/self-update 的通道（canary 加入 / 退出走这条）', () => {
+    /** 只认诊断表那两句 SQL 的小桩：够 readDiagnosticValue / writeDiagnosticValue 用。 */
+    const diagnosticsDb = () => {
+      const rows = new Map<string, string>();
+      const statement = (sql: string, params: unknown[] = []) => ({
+        bind: (...values: unknown[]) => statement(sql, values),
+        first: async () => (sql.startsWith('SELECT value') && rows.has(String(params[0])) ? { value: rows.get(String(params[0])) } : null),
+        run: async () => {
+          if (sql.includes('INSERT INTO worker_diagnostics')) rows.set(String(params[0]), String(params[1]));
+          return { success: true };
+        },
+      });
+      return { prepare: (sql: string) => statement(sql), rows };
+    };
+    const BUNDLE = `// src_default as default\n${'x'.repeat(200 * 1024)}`;
+    const env = (db: any, extra: Record<string, unknown> = {}) => ({
+      ...fullEnv, DB: db, AMSG_SERVER_TOKEN: 'shared', CF_API_TOKEN: 'cf', CF_SCRIPT_NAME: 'w', CF_ACCOUNT_ID: 'acc', ...extra,
+    });
+    const realFetch = globalThis.fetch;
+    let pulled: string[] = [];
+    let uploadOk = true;
+    afterEach(() => { globalThis.fetch = realFetch; });
+    const stub = () => {
+      pulled = [];
+      globalThis.fetch = (async (input: any, init: any = {}) => {
+        const url = String(input);
+        if (url.includes('raw.githubusercontent.com')) { pulled.push(new URL(url).pathname); return new Response(BUNDLE); }
+        if ((init.method ?? 'GET') === 'PUT' && !uploadOk) {
+          return Response.json({ success: false, errors: [{ code: 10000, message: 'boom' }] }, { status: 400 });
+        }
+        if (url.endsWith('/settings')) return Response.json({ success: true, result: { bindings: [] } });
+        return Response.json({ success: true, result: {} });
+      }) as typeof fetch;
+    };
+    const post = (workerEnv: any, body?: string) =>
+      (worker as any).fetch(
+        new Request('https://w.example/self-update', { method: 'POST', headers: { 'X-Client-Token': 'shared' }, body }),
+        workerEnv,
+        { waitUntil: () => {} },
+      );
+
+    it('/config-check 报 bundleChannel：没记过、D1 读不了都是 stable', async () => {
+      const body = await (await call('https://w.example/config-check')).json();
+      expect(body.data.bundleChannel).toBe('stable');
+    });
+
+    it('带 canary 装成功 → 记下通道，/config-check 跟着报 canary；之后不带通道的调用继续拉 canary', async () => {
+      stub();
+      uploadOk = true;
+      const db = diagnosticsDb();
+      const response = await post(env(db), JSON.stringify({ channel: 'canary' }));
+      expect(response.status).toBe(200);
+      expect((await response.json()).data.channel).toBe('canary');
+      expect(db.rows.get('bundle_channel')).toBe('canary');
+      expect(pulled).toEqual(['/Tosd0/sullyos-workers/canary/amsg/worker.bundle.js']);
+
+      const check = await (await call('https://w.example/config-check', {}, env(db))).json();
+      expect(check.data.bundleChannel).toBe('canary');
+
+      stub();
+      await post(env(db));
+      expect(pulled).toEqual(['/Tosd0/sullyos-workers/canary/amsg/worker.bundle.js']);
+    });
+
+    it('装失败不写通道', async () => {
+      stub();
+      uploadOk = false;
+      const db = diagnosticsDb();
+      const response = await post(env(db), JSON.stringify({ channel: 'canary' }));
+      uploadOk = true;
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe('UPLOAD_FAILED');
+      expect(db.rows.has('bundle_channel')).toBe(false);
+    });
+
+    it('通道值不认识 → 400 INVALID_CHANNEL；自定义成品包地址要换线 → 400 CUSTOM_BUNDLE_URL', async () => {
+      stub();
+      const db = diagnosticsDb();
+      const invalid = await post(env(db), JSON.stringify({ channel: 'beta' }));
+      expect(invalid.status).toBe(400);
+      expect((await invalid.json()).error.code).toBe('INVALID_CHANNEL');
+
+      const custom = await post(env(db, { AMSG_BUNDLE_URL: 'https://example.com/w.js' }), JSON.stringify({ channel: 'canary' }));
+      expect(custom.status).toBe(400);
+      expect((await custom.json()).error.code).toBe('CUSTOM_BUNDLE_URL');
+      expect(pulled).toEqual([]);
+      expect(db.rows.has('bundle_channel')).toBe(false);
+    });
   });
 
   describe('/self-update/check（冷启动顺手问一句该更新了没）', () => {

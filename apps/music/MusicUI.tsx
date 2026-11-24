@@ -565,6 +565,7 @@ export const MetaChip: React.FC<{ children: React.ReactNode; className?: string 
 export type SubPlayMode = 'loop' | 'single' | 'shuffle';
 export const SubActions: React.FC<{
   onLike?: () => void;
+  likeStatus?: 'loading' | 'ready' | 'error';
   liked?: boolean;
   onSync?: () => void;             // 手动对轴 (仅本地歌显示)
   showSync?: boolean;
@@ -576,9 +577,9 @@ export const SubActions: React.FC<{
   onComments?: () => void;         // 打开真实评论区 (仅网易云歌显示)
   showComments?: boolean;
   onMore?: () => void;             // 打开歌曲操作半屏菜单 (跟歌单行三点按钮一致)
-}> = ({ onLike, liked, onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd, onComments, showComments, onMore }) => {
+}> = ({ onLike, liked, likeStatus = 'ready', onSync, showSync, onDownload, showDownload, playMode = 'loop', onCyclePlayMode, onAdd, onComments, showComments, onMore }) => {
   const Item = ({ icon, label, onClick, active }: { icon: React.ReactNode; label: string; onClick?: () => void; active?: boolean }) => (
-    <button onClick={onClick}
+    <button onClick={onClick} disabled={!onClick}
       className="flex flex-col items-center gap-1 transition-opacity active:scale-95"
       style={{ opacity: active ? 1 : 0.5 }}>
       <div className="flex items-center justify-center w-8 h-8">{icon}</div>
@@ -654,7 +655,8 @@ export const SubActions: React.FC<{
 
   return (
     <div className="flex items-end justify-around gap-4 max-w-[280px] mx-auto">
-      <Item onClick={onLike} active={liked} label="Like" icon={heartSvg} />
+      <Item onClick={likeStatus === 'loading' ? undefined : onLike} active={liked}
+        label={likeStatus === 'loading' ? '读取中' : likeStatus === 'error' ? '重试' : 'Like'} icon={heartSvg} />
       {showComments && onComments && <Item onClick={onComments} active label="Talk" icon={commentSvg} />}
       {showSync && onSync && <Item onClick={onSync} active label="Sync" icon={syncSvg} />}
       {showDownload && onDownload && <Item onClick={onDownload} active label="Save" icon={downloadSvg} />}

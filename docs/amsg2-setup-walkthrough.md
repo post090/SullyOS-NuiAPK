@@ -25,25 +25,25 @@
 
 ### 第 1 步 · 建一枚 API Token
 
-打开 <https://dash.cloudflare.com/profile/api-tokens> → **Create Token** → 最下面的 **Custom token** → **Get started**。
+打开 <https://dash.cloudflare.com/profile/api-tokens> → 右上角蓝色按钮 **Create Token**。逐步截图见 Discord 的[图文教程](https://discord.com/channels/1487742660314923100/1535999029090066512/1570821906456645696)。
 
-**Permissions** 这三行都要加上（点 *+ Add more* 加行）：
+**Token name** 随便填一个认得出的名字。
 
-| 类型 | 名称 | 权限 |
+**Policies** 里点 **Start from scratch**，在弹出的菜单里选 **Start with an Account policy**。账号那一栏保持默认的 **All accounts**，然后在搜索框里依次搜出下面三项，把对应的框勾上：
+
+| 搜索 | 找到这一行 | 勾选 |
 |---|---|---|
-| Account | Workers Scripts | Edit |
-| Account | D1 | Edit |
-| Account | Account Settings | Read |
+| `script` | Workers Scripts | Read、Edit 都勾 |
+| `d1` | D1 | Read、Edit 都勾 |
+| `account settings` | Account Settings | 只勾 Read |
 
-**Account Resources** 选你要把后端装进去的那个账号。
+**Token expiration** 和 **Client IP address filtering** 保持默认，不用改。
 
-**TTL** 那两个日期框：**Start Date 留空**。填了未来的日期，这枚 Token 要到那天才生效，在那之前用会一直被 Cloudflare 拒掉。
-
-点 **Continue to summary** → **Create Token**，把生成的那串复制下来（**它只显示这一次**）。
+点 **Continue to summary**，确认 Permission policies 里列出了这五项：Workers Scripts 的 Read 和 Edit、D1 的 Read 和 Edit、Account Settings 的 Read。然后点 **Create Token**，把生成的那串复制下来（**它只显示这一次**）。生成 Token 的那一页别截图发给别人，排障用不到它，截了就等于把 Token 交出去了。
 
 ### 第 2 步 · 粘进 SullyOS
 
-打开 SullyOS → 底部齿轮 **系统设置** → 滚到最底部 → **主动消息 2.0** 右边的 **配置** → 介绍页底下点 **开始配置**，第 1 步就是 **一键部署**。
+打开 SullyOS → 底部齿轮 **系统设置** → **主动消息 2.0** → 在 **连接与迁移** 里点 **第一次使用**，第 1 步就是 **一键部署**。
 
 把 Token 粘进输入框，点 **开始部署**。等十几秒就好了。
 
@@ -51,7 +51,7 @@
 
 ### 中途可能会问你两件事
 
-**「这枚 Token 能用在多个账号上，装到哪个？」** —— 你的 Cloudflare 名下不止一个账号时会问。点一下要装的那个就继续了。（建 Token 时在 Account Resources 里只选一个账号的话，这一步不会出现。）
+**「这枚 Token 能用在多个账号上，装到哪个？」** —— 你的 Cloudflare 名下不止一个账号时会问。点一下要装的那个就继续了。（建 Token 时把账号那一栏从 All accounts 换成某一个账号的话，这一步不会出现。）
 
 **「给这个账号起一个 workers.dev 子域名」** —— 全新的 Cloudflare 账号才会遇到。这个名字全 Cloudflare 唯一，定了之后是这个账号所有 Worker 共用的，起一个自己认得的就行，之后后端地址会长成 `sullyos-amsg.你填的.workers.dev`。
 
@@ -71,11 +71,11 @@ Cloudflare 会替你把仓库、数据库、定时任务一次性建好，你只
 
 ### 先在 SullyOS 里把要填的东西准备好
 
-打开 SullyOS → 底部齿轮 **系统设置** → 滚到最底部。
+打开 SullyOS → 底部齿轮 **系统设置** → **主动消息 2.0** → 顶部 **功能设置**。
 
-**推送凭据 (VAPID)**：点标题右边的小箭头展开 → **生成 VAPID 密钥对 →** → 弹窗里点 **生成新密钥对** → **保存**。再点开一次，把「VAPID 公钥」和「VAPID 私钥」分别复制出来存好。
+**推送凭据 (VAPID)**：切到 **高级维护** 分区 → 点 **推送凭据（VAPID）** → **生成新密钥对** → **保存**。再点开一次，把「VAPID 公钥」和「VAPID 私钥」分别复制出来存好。
 
-**主动消息 2.0**：点这一节右边的 **配置** → **开始配置** → 一键部署卡片最底下点 **我要手动配置** → 找到 **AMSG_MASTER_KEY** 点 **生成并复制**，存好。再往下滚到 **共享密钥（可选）**，点右边的 **随机**，也存好。
+**主动消息 2.0**：切到 **连接与迁移** 分区 → **第一次使用** → 一键部署卡片最底下点 **我要手动配置** → 找到 **AMSG_MASTER_KEY** 点 **生成并复制**，存好。再往下滚到 **共享密钥（可选）**，点右边的 **随机**，也存好。
 
 ### 点按钮
 
@@ -173,18 +173,18 @@ env.DB (sullyos-amsg)   D1 Database
 
 ### 4a. 在 SullyOS 里生成两组值
 
-打开 SullyOS → 底部齿轮 **系统设置** → 往下滚到最底部。
+打开 SullyOS → 底部齿轮 **系统设置** → **主动消息 2.0** → 顶部 **功能设置**。
 
 **先做「推送凭据 (VAPID)」**（这是浏览器推送用的签名密钥，全站共用一对）：
 
-1. 点标题右边的小箭头展开 → 点 **生成 VAPID 密钥对 →**
-2. 弹窗里点 **生成新密钥对**，会出现「VAPID 公钥」和「VAPID 私钥」两段
+1. 切到 **高级维护** 分区 → 点 **推送凭据（VAPID）**
+2. 点 **生成新密钥对**，会出现「VAPID 公钥」和「VAPID 私钥」两段
 3. 点 **保存**
 4. 再点开一次，用每一栏右上角的 **复制** 分别把公钥、私钥存到记事本
 
 **再做「主动消息 2.0」**：
 
-1. 点这一节右边的 **配置**，再点介绍页底下的 **开始配置**
+1. 切到 **连接与迁移** 分区，点 **第一次使用**
 2. 一键部署卡片最底下点 **我要手动配置** 右边的 **展开**（Worker 地址填了之后这张卡片会收起来，要先把地址清空）
 3. 找到 **AMSG_MASTER_KEY** → 点 **生成并复制**，屏幕上会显示 `AMSG_MASTER_KEY=` 加一串 64 位字符，整行存进记事本
 4. 往下滚到 **共享密钥（可选）** → 点右边的 **随机**，它会生成一串密码自动填进输入框，下方显示 `AMSG_SERVER_TOKEN=` 开头的整行并复制到剪贴板。**这一串等下也要填到 Cloudflare**，同样整行存进记事本（输入框是密码框看不见内容，下方那行就是给你抄的）
@@ -223,7 +223,7 @@ env.DB (sullyos-amsg)   D1 Database
 
 ## 第五步 · 回 SullyOS 连上
 
-**系统设置** → **主动消息 2.0** → **配置** → **开始配置**，在第 1 步里展开 **我要手动配置**，卡片下面就是填地址的那几栏：
+**系统设置** → **主动消息 2.0** → **连接与迁移** → **第一次使用**，在第 1 步里展开 **我要手动配置**，卡片下面就是填地址的那几栏：
 
 1. **WORKER 地址** 粘贴上一步复制的地址
 2. **共享密钥（可选）** 确认里面就是 4a 生成的那串（如果空了就重新粘一次）
@@ -279,9 +279,9 @@ env.DB (sullyos-amsg)   D1 Database
 
 **排好的任务到点没反应**
 
-先看 SullyOS 里 **系统设置 → 主动消息 2.0** 顶上的「体检」，展开「定时任务」那一行。每条到点还没发出去的任务都会单独列出来，说明它现在是哪种情况：在等下一次重试、正在发、在排队（同一个角色另一条正在发）、一直没开始发，或者开始发过却没发完。失败过的会带上报错原文，点「原文」展开就能看到中转站或模型接口回的原话。Worker 每分钟那一跳自己报的错（比如表结构对不上、推送凭据没配）也列在这里。
+先看 SullyOS 里 **系统设置 → 主动消息 2.0 → 功能设置 → 运行体检**，展开「定时任务」那一行。每条到点还没发出去的任务都会单独列出来，说明它现在是哪种情况：在等下一次重试、正在发、在排队（同一个角色另一条正在发）、一直没开始发，或者开始发过却没发完。失败过的会带上报错原文，点「原文」展开就能看到中转站或模型接口回的原话。Worker 每分钟那一跳自己报的错（比如表结构对不上、推送凭据没配）也列在这里。
 
-体检里写着「没留下任何报错」、「开始发过却没发完」，或者需要看更早的记录时，再按下面两步去 Cloudflare 看：
+运行体检里写着「没留下任何报错」、「开始发过却没发完」，或者需要看更早的记录时，再按下面两步去 Cloudflare 看：
 
 1. Cloudflare → 你的 Worker → **Settings** → 往下找 **Trigger events**，确认有 `* * * * *` 那条。没有的话：连仓库装的多半是第三步 Path 填错、没指到 `amsg` 目录；照附录手动贴代码装的，就是那条定时触发器还没加（附录 E）。用部署按钮装的这条是自动配好的，一般不会缺。
 2. 还是不行就开日志：同一页往下找 **Observability** → **Logs** 那一行右边的铅笔 → 把开关打开 → **Deploy**。之后到 顶部 **Observability** 标签就能看到每分钟一条的 `* * * * *`，点开能看到那次运行有没有报错。
@@ -311,7 +311,7 @@ env.DB (sullyos-amsg)   D1 Database
 - 地址是不是抄全了（要带 `https://`，末尾不要多斜杠）
 - 「共享密钥」和 Cloudflare 里的 `AMSG_SERVER_TOKEN` 是不是一模一样
 - 直接在浏览器打开 `你的地址/config-check`：后端会自己列出配置齐不齐。`"ok": true` 就是钥匙都填对了，问题在地址或密钥没对上；`"ok": false` 时后面的 `message` 会写明缺哪一样、去哪儿补。什么都打不开才是后端没起来，去看第三步的构建日志。
-- 上面这个地址挂梯子能打开、不挂就打不开：那是当前网络连不上 `workers.dev`，不是后端的问题。换个网络再试，或者照[直连教程](https://discord.com/channels/1487742660314923100/1536968535727677450)配一下（SullyOS 设置面板里 Worker 地址下面也有入口）。
+- 上面这个地址挂梯子能打开、不挂就打不开：那是当前网络连不上 `workers.dev`，不是后端的问题。换个网络再试，或者照[直连教程](https://discord.com/channels/1487742660314923100/1536968535727677450)配一下（SullyOS 设置面板里 Worker 地址下面也有入口）。也可以打开 Worker 地址下面的 **大陆连接优化**，填上在 SullyOS Discord 群里领的中转令牌，请求就会经 SullyOS 的中转服务器转给你的 Worker（打开前先读完弹出的说明，详见[中转连接](./amsg2-relay.md)）。
 
 **连上了，但 `config-check` 的 `warnings` 里有东西**
 
@@ -325,7 +325,7 @@ env.DB (sullyos-amsg)   D1 Database
 
 打开 `你的地址/debug`，把返回的那段 JSON 整个贴给对方。它比 `config-check` 多报数据库和定时任务的状况，一份就够判断问题出在哪。这个地址只读、不需要密钥，也不会返回任何密钥的值、你的用户标识或消息内容，贴出来是安全的。
 
-自己看的话重点是这几项：`storage.missingColumns` 有东西 = 换了新版本没重新点「连接并验证」；`storage.pushSubscriptionRegistered` 是 `false` = 云端没有推送订阅（去把推送开关关掉再打开）；`tick` 是 `stalled` = 有任务卡住了（到点很久一直没人处理，或者开始发过又没了下文），多半是定时触发器没配或者 Worker 半路被掐掉；`tick` 是 `failing` = 有任务在失败重试，报错原文不在这个地址里，去体检面板的「定时任务」那一行看。
+自己看的话重点是这几项：`storage.missingColumns` 有东西 = 换了新版本没重新点「连接并验证」；`storage.pushSubscriptionRegistered` 是 `false` = 云端没有推送订阅（去把推送开关关掉再打开）；`tick` 是 `stalled` = 有任务卡住了（到点很久一直没人处理，或者开始发过又没了下文），多半是定时触发器没配或者 Worker 半路被掐掉；`tick` 是 `failing` = 有任务在失败重试，报错原文不在这个地址里，去「运行体检」的「定时任务」那一行看。
 
 **构建失败，日志里写 `D1_DATABASE_ID 是空的`**
 
@@ -343,9 +343,9 @@ env.DB (sullyos-amsg)   D1 Database
 
 另外两条路装的，第一次点更新会提示缺一把钥匙，同一块地方就能补上（做一次就够）：
 
-1. 打开 <https://dash.cloudflare.com/profile/api-tokens> → **Create Token** → 拉到最下面的 **Custom token** → **Get started**
-2. **Permissions** 只加一行：`Account` / `Workers Scripts` / `Edit`
-3. **Account Resources** 选你的账号；**Start Date 留空**，然后 **Continue to summary** → **Create Token**，复制显示出来的那串
+1. 打开 <https://dash.cloudflare.com/profile/api-tokens> → **Create Token**
+2. **Policies** 里点 **Start from scratch** → **Start with an Account policy**，账号保持 **All accounts**，搜 `script`，把 **Workers Scripts** 的 Read 和 Edit 都勾上，别的不用加
+3. 有效期保持默认，点 **Continue to summary** → **Create Token**，复制显示出来的那串
 4. 回到 SullyOS 的这一块，把它粘进 **给这台后端补一把更新用的钥匙**，点 **装上钥匙**
 
 装上钥匙之后，这台后端也会自己定期更新，跟「在 SullyOS 里装」的一样；想立刻更新就点上面那个按钮。
@@ -368,7 +368,7 @@ env.DB (sullyos-amsg)   D1 Database
 **不想加钥匙的话**，按当初的装法手动更新也行：
 
 - 跟着六步装的：打开你 fork 的那个仓库，点 **Sync fork** → **Update branch**，Cloudflare 检测到新提交会自动重新部署
-- 用部署按钮装的：Cloudflare 给你建的是一个独立仓库（不是 fork，所以没有 Sync fork 可点）。先把 <https://github.com/Tosd0/sullyos-workers/raw/main/amsg/worker.bundle.js> 下载下来，再打开你那个仓库 → **Add file** → **Upload files**，把下载的文件拖进去覆盖同名的那个，提交后会自动重新部署。这文件有四十多万字符，网页编辑器打不开，只能整个文件替换
+- 用部署按钮装的：Cloudflare 给你建的是一个独立仓库（不是 fork，所以没有 Sync fork 可点）。先把 <https://github.com/Tosd0/sullyos-workers/raw/main/amsg/worker.bundle.js> 下载下来，再打开你那个仓库 → **Add file** → **Upload files**，把下载的文件拖进去覆盖同名的那个，提交后会自动重新部署。这文件有上百万个字符（约 1 MB），网页编辑器打不开，只能整个文件替换
 - 照附录手动贴代码装的：见附录最后一节
 
 > 头一次用「更新后端」时，如果提示这台 Worker 还是旧版本、没有这个功能，先按上面的办法手动更新一次，之后就能在 SullyOS 里点了。
@@ -381,7 +381,7 @@ env.DB (sullyos-amsg)   D1 Database
 
 这条路只替换六步里的第一步和第三步，其余步骤——第二步建数据库、第四步填钥匙、第五步连回 SullyOS、第六步排任务——完全一样。
 
-> **先看设备**：这份代码有二十多万个字符。电脑上复制粘贴很轻松；手机浏览器就不一定吃得住，卡住或者贴不进去都有可能。手边只有手机的话，走[在 SullyOS 里装](#在-sullyos-里装推荐)那条要省事得多——那边手机上只要粘一枚 Token。
+> **先看设备**：这份代码有上百万个字符（约 1 MB）。电脑上复制粘贴很轻松；手机浏览器就不一定吃得住，卡住或者贴不进去都有可能。手边只有手机的话，走[在 SullyOS 里装](#在-sullyos-里装推荐)那条要省事得多——那边手机上只要粘一枚 Token。
 
 ### A · 建数据库
 

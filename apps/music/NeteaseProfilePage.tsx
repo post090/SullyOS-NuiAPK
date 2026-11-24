@@ -157,8 +157,8 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
   const { addToast, characters, userProfile } = useOS();
   const { requestConfirm, confirmDialog } = useConfirmDialog({ portal: true });
   const {
-    cfg, setCfg, profile, refreshProfile, playSong,
-    profileLoading, profileError,
+    cfg, setCfg, profile, profileLoading, retryAccount, playSong,
+    profileError,
     current, playing, togglePlay, nextSong, prevSong,
     listeningTogetherWith, removeListeningPartner,
     localAlbumSongs, removeLocalSong,
@@ -334,8 +334,7 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
     setCfg({ ...curCfg, cookie: '' });
     toastRef.current('已退出', 'success');
     trackEvent('退出网易云登录');
-    await refreshProfile();
-  }, [setCfg, refreshProfile]);
+  }, [setCfg]);
 
   // 三种「主页未就绪」情况：
   //   1. 真未登录（!cfg.cookie）→ 默认展示「一起写的歌」本地专辑 + 网易云登录入口；
@@ -345,11 +344,17 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
   //   3. cookie 在但 profile 拉取失败（profileError && !profile）→ 显示「加载失败 · 重试」卡，
   //      cookie 可能仍有效，让用户主动重试而不是直接踢回登录。
   // ⚠️ 所有 hooks 必须在这个 early-return **之前** 声明完。
+  if (profileLoading) return (
+    <div className="flex flex-col h-full">
+      <MizuHeader title="My Cloud" onBack={onBack} />
+      <p role="status" className="m-auto text-sm" style={{ color: C.muted }}>正在读取网易云账号…</p>
+    </div>
+  );
   if (!cfg.cookie || !profile) {
     // 情况 2 / 3：cookie 在但 profile 没拉到 —— 给加载/重试卡，绝不弹登录面板
     if (cfg.cookie && (profileLoading || profileError)) {
       const retry = async () => {
-        try { await refreshProfile(); } catch {}
+        retryAccount();
       };
       return (
         <div className="flex flex-col h-full relative"
@@ -419,10 +424,9 @@ const NeteaseProfilePage: React.FC<Props> = ({ onBack, onOpenPlayer, onOpenSearc
       return (
         <NeteaseLoginPanel
           onBack={localAlbumSongs.length > 0 ? () => setShowNeteaseLogin(false) : onBack}
-          onLoggedIn={async (cookie) => {
+          onLoggedIn={(cookie) => {
+            if (cookie === cfgRef.current.cookie) retryAccount();
             setCfg({ ...cfgRef.current, cookie });
-            await new Promise(r => setTimeout(r, 300));
-            await refreshProfile();
             toastRef.current('登录成功', 'success');
             setShowNeteaseLogin(false);
           }}

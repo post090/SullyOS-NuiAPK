@@ -24,7 +24,7 @@
 | 主题 | 文档 | 什么时候看 |
 |------|------|-----------|
 | **用户空间 / 角色继承 / 共享素材** | [`docs/user-spaces.md`](./docs/user-spaces.md) | 改用户切换、角色专属用户资料、跨空间继承、备份范围或素材删除前必读；会话固定所属空间、配置独立文件共用、继承不带经历；定位隐私仅留本机，不进备份 |
-| **备份与恢复 · 内存有界链路** | [`docs/backup-pipeline.md`](./docs/backup-pipeline.md) | 改备份导出/恢复、云端上传下载、备份格式，或往数据库加新表、新增 localStorage 键前必读；整份备份只以磁盘文件存在，内存只放一片（按字节封页），读包按需随机读，恢复逐页写库，上传一律分片加完成清单并以远端实际大小为准；新表默认进备份、新设置键默认不进，两张分类表都有覆盖测试 |
+| **备份与恢复 · 内存有界链路** | [`docs/backup-pipeline.md`](./docs/backup-pipeline.md) | 改备份导出/恢复、云端上传下载、备份格式，或往数据库加新表、新增 localStorage 键前必读；整份备份只以磁盘文件存在，内存只放一片（按字节封页），读包按需随机读，恢复逐页写库，上传一律分片加完成清单并以远端实际大小为准；新表默认进备份、新设置键默认不进，两张分类表都有覆盖测试；新加会跑很久的任务照「中断留痕」接 `utils/taskTrace.ts` |
 | **悬浮球、全局返回与聊天输入栏收起** | [`docs/navigation.md`](./docs/navigation.md) | 改快捷导航开关、拖动安全区、浏览器／Android 返回、美化子页退出、聊天工具栏外部收起或选图挂载前必读 |
 | **iOS 27 主屏幕顶部白雾 / 状态栏底色** | [`docs/ios-status-bar-edge.md`](./docs/ios-status-bar-edge.md) | 改顶部取色、viewport 或 iOS 门禁前必读；manifest standalone 使用 contain，零安全区不回退 44px，异步高度收缩要重建基线；纯色接合不等于壁纸贯穿 |
 | **3D 小屋 · 布局与功能分区** | [`docs/room3d-layout.md`](./docs/room3d-layout.md) | 设计或重排任何房间/样板房、自动摆家具前必读；先划功能区，再按家具组合摆放，保留连续动线，不能逐件随机找空位；本轮统一黑 × 绿 × 白 |
@@ -40,6 +40,7 @@
 | **API 调用记录 / 用途与云端记账** | [`docs/api-call-log.md`](./docs/api-call-log.md) | 新增 `/chat/completions` 调用点、改 `ApiCallMeta` 归属或云端模型用量回传前必读；显式 `meta` 不混入前台环境角色，推送不回传凭据 |
 | **世界书管线、分组与角色绑定** | [`docs/worldbook-management.md`](./docs/worldbook-management.md) | 新增 App／角色生成请求或改世界书前必读；新入口使用 ContextBuilder.buildCharacterRequest，世界书自动随角色装载；绑定按 ID，库与角色缓存同事务更新 |
 | **协同工作私聊衔接与转发** | [`docs/collaboration-chat-bridge.md`](./docs/collaboration-chat-bridge.md) | 改协同读取 ChatApp 范围或转发消息前必读；每轮读 DB，空范围不回退，多选只发当前窗口 |
+| **canary 版本通道** | [`docs/canary-channel.md`](./docs/canary-channel.md) | 改 canary 加入退出、`/canary/` 跳转脚本、通道配对、`deploy-canary.yml` 或 Worker 的 `bundle_channel` 前必读；canary 分支发布，同网址子路径共用数据，加入先换 Worker 再换前端，冷启动按通道对齐且跳转未生效时不动 Worker，连续两次启动失败自动退回 |
 | **开发调试面板 / 状态栏报错诊断** | [`docs/dev-debug.md`](./docs/dev-debug.md) | 加 dev-only 开关、加捕获日志，或改顶部「查看报错」日志归属、流式断连分类与 URL 脱敏前必读 |
 | **彼方 · 书库分类与阅读偏好** | [`docs/kanata-library.md`](./docs/kanata-library.md) | 改书籍归类、批量整理、角色选书轮换或书库备份前必读；按分类模式不得回退全书库 |
 | **彼方 · 活动选择与自动范围** | [`docs/kanata-activities.md`](./docs/kanata-activities.md) | 改房间/SAR 随机选取、手动子玩法路由或高级排除设置前必读；自动全禁用不得回退，手动可绕过 |
@@ -56,16 +57,7 @@
 | **3D 小屋 · 家具素材与交互** | [`docs/room3d-furniture-assets.md`](./docs/room3d-furniture-assets.md)、[`docs/room3d-seating-assets.md`](./docs/room3d-seating-assets.md)、[`docs/room3d.md`](./docs/room3d.md) | 导入 GLB / 其他家具、改配色/优化/坐位/浇水前必读；清理图片贴图，自行上色，统一项目木色，拆分桌上摆件并验收 chibi 空间 |
 | **角色自定义时区** | [`docs/character-timezone.md`](./docs/character-timezone.md) | **写任何跟时间有关的代码前先扫一眼**：prompt 里的「现在是」、角色作息/夜间判断、日期 key、界面上的钟。分清「角色那边几点」和「用户自己的时间」，别自己手搓时差；关闭聊天时间感知默认停用主动消息 2.0（需显式确认才放行）。文末列了还没接时区的几处（主动消息 + 几块界面上的钟），**正式发版前记得过一遍** |
 | **通用 MCP 工具服务器** | [`docs/mcp-client.md`](./docs/mcp-client.md)（开发者）、[`docs/mcp-user-guide.md`](./docs/mcp-user-guide.md)（用户教程，设置「?」弹窗跳转的就是它，改接入行为要同步） | 改用户自配 MCP 接入（设置板块、握手/session、工具循环、`?target=` 代理约定、worker/mcp-proxy）或排查「工具连不上/角色不调工具」前必读；主动消息 2.0 的后台 MCP 路径（配置上云 / fire 时注入 / worker 直连执行）也在这份 |
-| **云端数据管理 / 角色删除** | [`plans/amsg2-cloud-data-management-contract.md`](./plans/amsg2-cloud-data-management-contract.md) | 改云端清单、按项清理、删除角色、停用与恢复前必读；清单以服务端实际资源为准，删除由云端持久操作执行，旧请求不可随恢复获得新代次 |
-| **主动消息 2.0 · 数据救援（救援模式）** | [`docs/amsg2-rescue.md`](./docs/amsg2-rescue.md) | 改 `/rescue` 导出、`AMSG_RESCUE_TOKEN`、救援留痕、前端强制警告或救援文件导回 App 前必读；救援文件一律迁入为新用户，按提示词小标题拆回角色字段，改小标题会挂测试；只读导出，留痕写不进去就拒绝导出，首次开启先推送再放行；警告看满 10 秒才能确认、本地副本保留 7 天；这层留痕只防不会写代码的人，可信记录在 Cloudflare 审计日志 |
-| **主动消息 2.0 · 设置页的引导与面板** | [`docs/amsg2-settings-guide.md`](./docs/amsg2-settings-guide.md) | 改全局设置弹窗的排版、全局总开关（`enabled`）、往里加新板块或改引导文案前必读；没连上后端走引导、连上走面板，两边摆同一份内容；总开关关闭时保留配置并切断全部 Worker/中转自动请求；板块只自动展开不自动收起；数据去向在动手装之前说 |
-| **主动消息 2.0 · 中转连接** | [`docs/amsg2-relay.md`](./docs/amsg2-relay.md) | 改请求 Worker 的地址拼接、新增 Worker 接口、动 `infra/amsg-relay/` 中转服务、Discord 中转命令或 Caddyfile 中转站点前必读；存盘地址不变只换请求地址，只给官方渠道用（客户端复用二改判定、服务端按 Origin），令牌按 Discord 账号发且只留本机，只连 Cloudflare，路径白名单由测试对照实际路由，只按账号按天记流量 |
-| **主动消息 2.0 · 即时对话** | [`plans/amsg2-instant-chat.md`](./plans/amsg2-instant-chat.md)（设计与取舍）、[`plans/amsg2-instant-chat-contract.md`](./plans/amsg2-instant-chat-contract.md)(端点/信封/fire_pack v7 契约) | 改「聊天在用户自己的 CF Worker 上生成」这条路（`POST /instant-chat`、`utils/amsgInstantChat.ts`、fire_pack 的 `chat` 段、上行 gzip 校验与 `fflate` 兜底、chat_outbox 补收、「正在输入」超时）前必读 |
-| **主动消息 2.0 · 后台任务（不说话的活儿）** | [`plans/amsg2-expansion.md`](./plans/amsg2-expansion.md) | 改「页面关着也能跑完」的后台活儿前必读：`metadata.amsgKind` → handler 注册表（`worker/amsg/src/fireKinds.ts`）、一次性输入的 `amsg:job` 命名空间与 TTL、`ctx.emitResult` 的结果回程与客户端分发（`utils/amsgResults.ts`）。文首「现状」是实况，正文是「还有哪些调用点值得搬、哪些不该搬」的取舍 |
-| **见面挂起与离开提醒** | [`docs/date-leave-reminder.md`](./docs/date-leave-reminder.md) | 改见面挂起恢复、「见面中」顶部条、离开提醒或它的云端任务前必读；主动结束不挂起，提醒进入对话时就备好、按见面租约推迟，不受连发和每日上限拦且不给排程工具 |
-| **离开后消息** | [`docs/away-message.md`](./docs/away-message.md) | 改「用户多久没说话角色就来找」前必读；开着 2.0 的角色走云端推送、其余本地上线时补，不叠加；云端到点必发且计入连发上限，一次离开只找一次 |
-| **主动消息 · 频率与额度** | [`docs/amsg2-pacing-limits.md`](./docs/amsg2-pacing-limits.md) | 改角色能自己排什么、连发/间隔/每日上限、重复消息没回就停、任务名额，或者改给角色看的「用户给你定的规矩」前必读；上限是代码硬闸，默认值只在 `utils/amsgLimits.ts` 定义一次 |
-| **主动消息 2.0 · API 凭据引用 credRefs** | [`plans/amsg2-llm-credentials-contract.md`](./plans/amsg2-llm-credentials-contract.md) | 改凭据上云（`llm_credentials` 表、任务 `credRefs`、`utils/amsgLlmCredentials.ts` 的每角色三行）或排查「换 Key 后主动消息 401 / 不来了」前必读；文末「SullyOS 侧落地」是实况 |
+| **主动消息 2.0（amsg2）** | [`docs/amsg2-overview.md`](./docs/amsg2-overview.md) | 改即时对话、定时主动消息、后台任务、频率上限、离开后消息、见面离开提醒、凭据上云、云端数据、救援、中转或设置页前必读；先读总纲里的目标与红线，再从文末导航进子文档。云端与本地生成只允许登记过的差异，其余一律按 bug 处理 |
 | **使用统计** | [`docs/analytics.md`](./docs/analytics.md) | **加任何埋点前必读**。收什么/不收什么的边界、事件名与属性的规矩（属性只能是固定枚举）、构建时门禁与开关、完整事件清单。想加「某功能有多少人开了」看「加新埋点的规矩」第 5 条，别在配置页现场发 |
 | **不可逆操作与二次确认** | [`docs/destructive-confirmations.md`](./docs/destructive-confirmations.md) | 改删除、清空、重置、覆盖或 AI 重生成按钮前必读；禁用原生 `confirm()`，统一用 `useConfirmDialog` / `<BeautyConfirmDialog>` / 行内两步，含高价值渔获阈值、单击归档例外与确认后再埋点规矩 |
 | **二改 / 加 App / 数据流 / 后端 Worker** | [`README.md`](./README.md) 「给想二改的人」一节 | 新增 App、build badge、sfworker 代理替换、开源协议 |
