@@ -30,8 +30,13 @@ export interface ShareOrDownloadBlobOptions {
 const NATIVE_WRITE_CHUNK_SIZE = 3 * 1024 * 1024;
 
 // Capacitor's iOS and Android plugins reject with this message (without AbortError).
-const isShareCancelled = (error: any): boolean => error?.name === 'AbortError'
-    || /^share cancel(?:ed|led)$/i.test(String(error?.message || '').trim());
+const isShareCancelled = (error: unknown): boolean => {
+    if (typeof error === 'object' && error !== null) {
+        if ('name' in error && error.name === 'AbortError') return true;
+        if ('message' in error) error = error.message;
+    }
+    return typeof error === 'string' && /^share cancel(?:ed|led)$/i.test(error.trim());
+};
 
 const blobToBase64 = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -172,10 +177,8 @@ export async function shareOrDownloadBlob(options: ShareOrDownloadBlobOptions): 
  *
  * 与 apps/Character.tsx 的角色卡导出保持一致的三级兜底策略。
  *
- * @returns `'shared'` 已调起分享面板；`'downloaded'` 走了浏览器下载兜底。
+ * 用户取消分享时返回 `'cancelled'`，由当前页面保留原来的操作现场。
  */
-export async function shareOrDownloadFile(options: ShareOrDownloadOptions & { card?: undefined }): Promise<'shared' | 'downloaded'>;
-export async function shareOrDownloadFile(options: ShareOrDownloadOptions): Promise<'shared' | 'downloaded' | 'cancelled'>;
 export async function shareOrDownloadFile(options: ShareOrDownloadOptions): Promise<'shared' | 'downloaded' | 'cancelled'> {
     const { content, fileName, mimeType = 'application/json', shareTitle = fileName } = options;
     if (options.card) return shareOrDownloadBlob({ blob: new Blob([content], { type: mimeType }), fileName, shareTitle, card: options.card });
@@ -201,6 +204,7 @@ export async function shareOrDownloadFile(options: ShareOrDownloadOptions): Prom
             });
             return 'shared';
         } catch (e) {
+            if (isShareCancelled(e)) return 'cancelled';
             // 原生插件失败后仍尝试 Web Share；若也不可用则明确报错，不伪装成已下载。
             console.error('Native Export Error', e);
             nativeFailure = e;
@@ -221,11 +225,9 @@ export async function shareOrDownloadFile(options: ShareOrDownloadOptions): Prom
             });
             return 'shared';
         }
-    } catch (e: any) {
-        // 用户取消（AbortError）与不支持的情况都继续走下载兜底，保证一定能拿到文件。
-        if (e?.name !== 'AbortError') {
-            console.error('Web Share Export Error', e);
-        }
+    } catch (e) {
+        if (isShareCancelled(e)) return 'cancelled';
+        console.error('Web Share Export Error', e);
     }
 
     if (nativePlatform) {

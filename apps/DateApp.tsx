@@ -859,6 +859,7 @@ const DateApp: React.FC = () => {
                 mimeType: 'text/plain;charset=utf-8',
                 shareTitle: `${char.name}的见面记录`,
             });
+            if (result === 'cancelled') return;
             addToast(result === 'shared' ? '已打开分享面板' : '见面记录已导出', 'success');
             trackEvent('导出见面记录', { 范围: scope, 整理方式: historyView === 'encounter' ? '按次' : '按日期' });
         } catch (error) {
@@ -886,6 +887,7 @@ const DateApp: React.FC = () => {
                 mimeType: 'text/plain;charset=utf-8',
                 shareTitle: `${char.name}的全部见面记录`,
             });
+            if (result === 'cancelled') return;
             addToast(result === 'shared' ? '已打开分享面板' : '全部见面记录已导出', 'success');
             trackEvent('导出全部见面记录', { 整理方式: historyView === 'encounter' ? '按次' : '按日期' });
         } catch (error) {

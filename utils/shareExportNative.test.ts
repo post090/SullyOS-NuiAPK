@@ -9,7 +9,7 @@ vi.mock('@capacitor/share', () => ({ Share: { share: mocks.share } }));
 vi.mock('@capacitor-community/media', () => ({
     Media: { savePhoto: mocks.savePhoto, getAlbumsPath: mocks.getAlbumsPath, createAlbum: mocks.createAlbum },
 }));
-import { savePhotoToGallery, shareOrDownloadBlob } from './shareExport';
+import { savePhotoToGallery, shareOrDownloadBlob, shareOrDownloadFile } from './shareExport';
 import { saveMemoryPalaceExport } from './memoryPalace/saveExport';
 
 beforeEach(() => {
@@ -23,6 +23,37 @@ beforeEach(() => {
     });
 });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+describe('native text file sharing', () => {
+    it.each(['Share canceled', 'Share cancelled'])('stops on %s without opening another sheet', async message => {
+        const webShare = vi.fn();
+        vi.stubGlobal('navigator', { share: webShare });
+        mocks.share.mockRejectedValue(new Error(message));
+        const content = '日期,备注\r\n周一,早餐';
+        expect(await shareOrDownloadFile({ content, fileName: '流水.csv' })).toBe('cancelled');
+        expect(mocks.write).toHaveBeenCalledWith({ data: content, directory: 'CACHE', encoding: 'utf8', path: '流水.csv' });
+        expect(mocks.share).toHaveBeenCalledTimes(1);
+        expect(webShare).not.toHaveBeenCalled();
+    });
+    it('preserves the text and title when the native plugin is unavailable and Web Share succeeds', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        mocks.share.mockRejectedValue(new Error('unavailable'));
+        const webShare = vi.fn<(payload: ShareData) => Promise<void>>().mockResolvedValue(undefined);
+        vi.stubGlobal('navigator', { share: webShare });
+        const content = JSON.stringify({ 标题: '旧档', 内容: '第一行\n第二行' });
+        expect(await shareOrDownloadFile({ content, fileName: '原文.json', shareTitle: '导出原文' })).toBe('shared');
+        const [payload] = webShare.mock.calls[0];
+        expect(payload.title).toBe('导出原文');
+        expect(payload.files?.[0].name).toBe('原文.json');
+        expect(JSON.parse(await payload.files![0].text())).toEqual(JSON.parse(content));
+    });
+    it('reports an actual I/O failure when sharing is unavailable', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        mocks.write.mockRejectedValue(new Error('disk full'));
+        await expect(shareOrDownloadFile({ content: 'test', fileName: 'test.txt' })).rejects.toThrow('disk full');
+        expect(mocks.share).not.toHaveBeenCalled();
+    });
+});
 
 describe('native binary share files', () => {
     it('记忆 JSON 与全部备份一样写分享缓存并直接拉起系统面板', async () => {

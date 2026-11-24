@@ -966,6 +966,7 @@ const Character: React.FC<{ profileCharacterId?: string }> = ({ profileCharacter
               mimeType: 'text/plain;charset=utf-8',
               shareTitle: '记忆档案',
           });
+          if (result === 'cancelled') return;
           addToast(result === 'shared' ? '已打开记忆档案分享面板' : '记忆档案已导出', 'success');
       } catch (error) {
           console.error('Memory export failed', error);

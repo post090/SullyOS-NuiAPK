@@ -426,11 +426,11 @@ async function copyCaptureText(value: string): Promise<void> {
     textarea.remove();
 }
 
-async function downloadCaptureTxt(capture: ApiRequestCapture, content: string): Promise<void> {
+function downloadCaptureTxt(capture: ApiRequestCapture, content: string) {
     const d = new Date(capture.capturedAt);
     const pad = (value: number) => String(value).padStart(2, '0');
     const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
-    await shareOrDownloadFile({
+    return shareOrDownloadFile({
         content: `\uFEFF${content}`,
         fileName: `SullyOS-LLM本次发送统计-${stamp}.txt`,
         mimeType: 'text/plain;charset=utf-8',
@@ -514,7 +514,8 @@ const OneShotCapturePanel: React.FC<{
 
     const exportTxt = useCallback(async () => {
         if (!capture || !txtReport) return;
-        await downloadCaptureTxt(capture, txtReport);
+        const result = await downloadCaptureTxt(capture, txtReport);
+        if (result === 'cancelled') return;
         setCopyNotice('TXT 已导出');
         window.setTimeout(() => setCopyNotice(''), 1600);
     }, [capture, txtReport]);

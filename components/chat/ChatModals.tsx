@@ -12,6 +12,7 @@ import ChatSettingsSection from './ChatSettingsSection';
 import TranslationStylePicker from './TranslationStylePicker';
 import { DEFAULT_SUBTITLE_SETTINGS, type ChatTranslationStyle, type ChatTranslationMode, type ChatSubtitleSettings } from '../../utils/chatTranslationStyle';
 import SubtitleSettingsDialog from './SubtitleSettingsDialog';
+import CopyMessageButton from './CopyMessageButton';
 import SecretNote from './SecretNote';
 import type { ChatInputPreferences } from '../../utils/chatInputPreferences';
 import { isTranslationLangPreset, normalizeTranslationLangLabel, TRANSLATION_LANG_MAX_LENGTH, TRANSLATION_LANG_PRESETS } from '../../utils/translationLang';
@@ -88,7 +89,7 @@ interface ChatModalsProps {
     onEditMessageStart: () => void;
     onConfirmEditMessage: () => void;
     onDeleteMessage: () => void;
-    onCopyMessage: () => void;
+    onMessageCopied: () => void;
     onToggleMessageFavorite?: () => void;
     messageFavorited?: boolean;
     onDeleteEmoji: () => void;
@@ -277,7 +278,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
     onTransfer, onSaveSettings,
     onOpenHistoryCleanup,
     onArchive, onCreatePrompt, onEditPrompt, onSavePrompt, onDeletePrompt,
-    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onCopyMessage, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory, onRenameCategory, onDownloadCategory,
+    onSetHistoryStart, onRestoreAdaptiveContext, onJumpToMessageInChat, onEnterSelectionMode, onReplyMessage, onEditMessageStart, onConfirmEditMessage, onDeleteMessage, onMessageCopied, onToggleMessageFavorite, messageFavorited, onDeleteEmoji, onDeleteCategory, onRenameCategory, onDownloadCategory,
     allCharacters = [], onSaveCategoryVisibility,
     translationEnabled, onToggleTranslation, translationExpanded, onSetTranslationMode, translationStyle = 'bubble', subtitleSettings = DEFAULT_SUBTITLE_SETTINGS, onSetSubtitleSettings, translateSourceLang, translateTargetLang, onSetTranslateSourceLang, onSetTranslateLang,
     appearanceFonts, xhsEnabled, onToggleXhs,
@@ -1009,9 +1010,7 @@ const ChatModals: React.FC<ChatModalsProps> = ({
                         </button>
                     )}
                     {selectedMessage?.type === 'text' && (
-                        <button onClick={onCopyMessage} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
-                            复制文字
-                        </button>
+                        <CopyMessageButton key={selectedMessage.id ?? selectedMessage.timestamp} text={selectedMessage.content} onClose={onMessageCopied} />
                     )}
                     {selectedMessage && onToggleMessageFavorite && (
                         <button onClick={() => { onToggleMessageFavorite(); setModalType('none'); }} className={`w-full py-3 font-medium rounded-2xl transition-colors flex items-center justify-center gap-2 ${messageFavorited ? 'bg-violet-100 text-violet-700 active:bg-violet-200' : 'bg-violet-50 text-violet-600 active:bg-violet-100'}`}>

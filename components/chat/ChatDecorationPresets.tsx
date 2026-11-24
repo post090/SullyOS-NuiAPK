@@ -21,7 +21,11 @@ export default function ChatDecorationPresets({target,scope,currentBubble,export
  const run=async(work:()=>Promise<void>)=>{setBusy(true);onBusyChange(true);setError('');setNotice('');try{await work();}catch(e){setError(e instanceof Error?e.message:'操作失败，请重试');}finally{setBusy(false);onBusyChange(false);}};
  const stage=(item:DecorationImport)=>{setPending(item);setError('');setNotice('');if(item.kind==='preset')setParts(Object.keys(item.preset.parts) as DecorationPart[]);else setImageUse('background');};
  const save=()=>run(async()=>{if(!saveReady.current)throw Error('预设列表尚未加载，请稍后再试');const preset=await exportCurrent(name.trim()||'我的聊天装扮');await saveLibraryDecoration(preset,{kind:'self'});setSaved(await readLibraryDecorations());setNotice('整套装扮已存入我的预设。');});
- const share=()=>run(async()=>{const preset=await exportCurrent(name.trim()||'我的聊天装扮');await shareOrDownloadFile({content:JSON.stringify(preset,null,2),fileName:safeShareFileName(preset.name)+'.json',mimeType:'application/json',card:{kind:'chat-decoration',title:preset.name}});setNotice('装扮文件已交给系统分享或下载。');});
+ const share=()=>run(async()=>{
+  const preset=await exportCurrent(name.trim()||'我的聊天装扮');
+  const result=await shareOrDownloadFile({content:JSON.stringify(preset,null,2),fileName:safeShareFileName(preset.name)+'.json',mimeType:'application/json',card:{kind:'chat-decoration',title:preset.name}});
+  if(result!=='cancelled')setNotice('装扮文件已交给系统分享或下载。');
+ });
  const apply=()=>run(async()=>{
   if(!pending)return;
   let preset:DecorationPreset;let selected=parts;

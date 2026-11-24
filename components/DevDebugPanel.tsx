@@ -383,6 +383,7 @@ const DevDebugPanel: React.FC = () => {
             mimeType: 'application/json;charset=utf-8',
             shareTitle: 'SullyOS·糯米机 调试日志',
         });
+        if (result === 'cancelled') return;
         trackEvent('导出调试日志', { 方式: result === 'shared' ? '分享' : '下载' });
     };
     // 收起时拖浮球，展开时拖标题栏，两者共用同一套拖动逻辑，只是约束尺寸不同。

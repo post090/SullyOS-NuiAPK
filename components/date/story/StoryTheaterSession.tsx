@@ -464,6 +464,7 @@ const StoryTheaterSession: React.FC<Props> = ({ entry, preset, masks, onBack, on
                 mimeType: 'text/plain;charset=utf-8',
                 shareTitle: `${entry.title || '未命名剧情'}的完整原文`,
             });
+            if (result === 'cancelled') return;
             addToast(result === 'shared' ? '已打开分享面板' : '剧情原文已导出', 'success');
         } catch (error: any) {
             console.error('[StoryTheater] export failed', error);

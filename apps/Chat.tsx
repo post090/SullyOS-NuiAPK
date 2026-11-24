@@ -2096,14 +2096,15 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         if (!char || exportingChatRef.current) return;
         exportingChatRef.current = true;
         const target = char;
-        setShowPanel('none');
         try {
             const [{ formatChatTextExport }, { shareOrDownloadFile }] = await Promise.all([
                 import('../utils/chatTextExport'), import('../utils/shareExport'),
             ]);
             const content = formatChatTextExport(await DB.getMessagesByCharId(target.id, true));
             if (!content.slice(1).trim()) { addToast('暂无可导出的聊天记录', 'info'); return; }
-            await shareOrDownloadFile({ content, fileName: `${target.name.replace(/[\\/:*?"<>|]/g, '_')}_聊天原文.txt`, mimeType: 'text/plain;charset=utf-8', shareTitle: `${target.name}的聊天原文` });
+            const result = await shareOrDownloadFile({ content, fileName: `${target.name.replace(/[\\/:*?"<>|]/g, '_')}_聊天原文.txt`, mimeType: 'text/plain;charset=utf-8', shareTitle: `${target.name}的聊天原文` });
+            if (result === 'cancelled') return;
+            setShowPanel(current => current === showPanel ? 'none' : current);
             addToast('聊天原文已导出（含每条消息的原始时间）', 'success');
         } catch { addToast('聊天记录导出失败，请重试', 'error'); }
         finally { exportingChatRef.current = false; }
@@ -3351,13 +3352,9 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         setModalType('none');
     };
 
-    const handleCopyMessage = () => {
-        if (!selectedMessage) return;
-        navigator.clipboard.writeText(selectedMessage.content);
+    const handleMessageCopied = () => {
         setModalType('none');
         setSelectedMessage(null);
-        addToast('已复制到剪贴板', 'success');
-        trackEvent('复制一条消息');
     };
 
     const handleDeleteEmoji = async () => {
@@ -4741,7 +4738,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
-                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
+                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onMessageCopied={handleMessageCopied}
                 messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
                 onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
                 onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory} onRenameCategory={handleRenameCategory} onDownloadCategory={handleDownloadCategory}

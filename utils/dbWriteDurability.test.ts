@@ -110,6 +110,14 @@ describe('写入失败必须让调用方感知（不再静默 resolve）', () =>
         await expect(DB.updateMessage(id, '改写后')).rejects.toBeTruthy();
     });
 
+    it('相册点评写入中止时保留旧点评，并让界面知道保存失败', async () => {
+        const image = { id: 'review', charId: 'c-1', url: '/fixture.png', timestamp: 1, review: '原点评' };
+        await DB.saveGalleryImage(image);
+        abortOnPut('gallery');
+        await expect(DB.updateGalleryImageReview(image.id, '新点评')).rejects.toBeTruthy();
+        expect((await DB.getGalleryImageById(image.id))?.review).toBe('原点评');
+    });
+
     it('updateMessage: 消息不存在时照旧 reject', async () => {
         await expect(DB.updateMessage(99999, '随便')).rejects.toThrow('Message not found');
     });

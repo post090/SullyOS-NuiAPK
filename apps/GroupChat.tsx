@@ -5,6 +5,7 @@ import { avatarDecorationImageStyle, isAnniversaryFrame } from '../utils/anniver
 import { loadCharacterContextMessages } from '../utils/chatContextRange';
 
 import BlobRefStyle from '../components/chat/BlobRefStyle';
+import CopyMessageButton from '../components/chat/CopyMessageButton';
 import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
@@ -782,15 +783,6 @@ const GroupChat: React.FC = () => {
         }
         setShowPanel('none');
     }, []);
-
-    const handleCopyMessage = () => {
-        if (!selectedMessage) return;
-        navigator.clipboard.writeText(selectedMessage.content);
-        setModalType('none');
-        setSelectedMessage(null);
-        addToast('已复制到剪贴板', 'success');
-        trackEvent('复制一条群消息文字');
-    };
 
     const handleEnterSelectionMode = () => {
         if (selectedMessage) {
@@ -2438,9 +2430,7 @@ ${memberTimeline || '(暂无互动记录)'}
                         多选 / 批量删除
                     </button>
                     {selectedMessage?.type === 'text' && (
-                        <button onClick={handleCopyMessage} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">
-                            复制文字
-                        </button>
+                        <CopyMessageButton key={selectedMessage.id ?? selectedMessage.timestamp} text={selectedMessage.content} group onClose={() => { setModalType('none'); setSelectedMessage(null); }} />
                     )}
                     {selectedMessage?.type === 'text' && (
                         <button onClick={handleStartEditMessage} className="w-full py-3 bg-slate-50 text-slate-700 font-medium rounded-2xl active:bg-slate-100 transition-colors flex items-center justify-center gap-2">

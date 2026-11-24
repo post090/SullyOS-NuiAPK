@@ -1948,6 +1948,22 @@ export const DB = {
       });
   },
 
+  getGalleryImageCounts: async (charIds: string[]): Promise<Record<string, number>> => {
+      if (!charIds.length) return {};
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+          const tx = db.transaction(STORE_GALLERY, 'readonly');
+          const index = tx.objectStore(STORE_GALLERY).index('charId');
+          const counts: Record<string, number> = Object.create(null);
+          for (const charId of charIds) {
+              const request = index.count(IDBKeyRange.only(charId));
+              request.onsuccess = () => { counts[charId] = request.result; };
+          }
+          tx.oncomplete = () => resolve(counts);
+          tx.onabort = () => reject(tx.error || new Error('Gallery count transaction aborted'));
+      });
+  },
+
   getGalleryImages: async (charId?: string): Promise<GalleryImage[]> => {
       const db = await openDB();
       return new Promise((resolve, reject) => {
@@ -2031,10 +2047,11 @@ export const DB = {
                   data.review = review;
                   data.reviewTimestamp = Date.now();
                   store.put(data);
-                  resolve();
               } else reject(new Error('Image not found'));
           };
           req.onerror = () => reject(req.error);
+          transaction.oncomplete = () => resolve();
+          transaction.onabort = () => reject(transaction.error || new Error('Gallery review transaction aborted'));
       });
   },
 

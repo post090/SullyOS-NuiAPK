@@ -50,6 +50,11 @@ it('shows oldest date beyond 500 records, filters by day, and mounts text only a
  expect(host.textContent).toContain('记录正文 1');
  await click('导出当天');
  expect(vi.mocked(shareOrDownloadFile).mock.calls.at(-1)![0].content).toContain('记录正文 1');
+ os.addToast.mockClear();
+ vi.mocked(shareOrDownloadFile).mockResolvedValueOnce('cancelled');
+ await click('导出当天');
+ expect(os.addToast).not.toHaveBeenCalled();
+ expect(host.textContent).toContain('记录正文 1');
 });
 
 it('does not reopen history after a slow read and a newer settings shortcut',async()=>{
