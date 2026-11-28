@@ -211,6 +211,12 @@ importers:
         specifier: ^2.1.9
         version: 2.1.9(@types/node@25.9.0)(jsdom@30.0.1)
 
+  worker/voyage:
+    dependencies:
+      '@cloudflare/workers-oauth-provider':
+        specifier: 1.4.0
+        version: 1.4.0
+
 packages:
 
   '@alloc/quick-lru@5.3.0':
@@ -374,6 +380,9 @@ packages:
     resolution: {integrity: sha512-nFlgSmtx6Zwaw0tEvZgQsWHBeOfWWB/AvEoCApopLT4mHkBVoSrwkLvy2PjZs5wxCbsmqvQczr3XCyTwaDZVQg==}
     peerDependencies:
       '@capacitor/core': ^6.0.0
+
+  '@cloudflare/workers-oauth-provider@1.4.0':
+    resolution: {integrity: sha512-NWiN3ixxM+P81fEd5AkBfpV34WgrWu9tLrf5gR6wl6eX6EQTlns/UvE5vRBYmlhtRqla0EFFrE+Mq91ZLeeR7g==}
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -2990,6 +2999,8 @@ snapshots:
   '@capacitor/status-bar@6.0.3(@capacitor/core@6.2.1)':
     dependencies:
       '@capacitor/core': 6.2.1
+
+  '@cloudflare/workers-oauth-provider@1.4.0': {}
 
   '@csstools/color-helpers@6.1.0': {}
 

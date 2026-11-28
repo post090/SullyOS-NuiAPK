@@ -12,13 +12,13 @@ export default defineConfig({
   test: {
     // These inline styles are part of the chat appearance compatibility contract.
     css: { include: [/ChatNoticeCompat\.css/, /ChatCharacterProfile\.css/, /chatLocationPin\.css/, /chat(?:Runtime|Preview)\.generated\.css/, /silver-halo\.css/, /lavender-card-palette\.css/] },
-    // Transform the UI library's CSS modules in browser component tests.
-    server: { deps: { inline: ['animal-island-ui'] } },
+    // Transform UI CSS modules and resolve the Worker runtime alias inside the OAuth library.
+    server: { deps: { inline: ['animal-island-ui', '@cloudflare/workers-oauth-provider'] } },
     environment: 'node',
     setupFiles: ['./test-setup.ts'],
     include: [
       'utils/**/*.test.ts',
-      'worker/**/*.test.ts',
+      'worker/**/*.test.{ts,mjs}',
       'scripts/**/*.test.ts',
     ],
     // 排除 React 组件 / 浏览器集成测 (没装 jsdom)

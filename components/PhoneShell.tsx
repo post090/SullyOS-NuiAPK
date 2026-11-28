@@ -44,6 +44,7 @@ const DateApp = lazyApp(() => import('../apps/DateApp'));
 const UserApp = lazyApp(() => import('../apps/UserApp'));
 const JournalApp = lazyApp(() => import('../apps/JournalApp'));
 const ScheduleApp = lazyApp(() => import('../apps/ScheduleApp'));
+const VoyageApp = lazyApp(() => import('../apps/VoyageApp'));
 const RoomApp = lazyApp(() => import('../apps/RoomApp'));
 const CheckPhone = lazyApp(() => import('../apps/CheckPhone'));
 const FriendFeedApp = lazyApp(() => import('../apps/FriendFeedApp'));
@@ -101,6 +102,7 @@ const APP_BY_ID: Partial<Record<AppID, PreloadableLazy>> = {
   [AppID.Journal]: JournalApp, [AppID.Schedule]: ScheduleApp, [AppID.Room]: RoomApp,
   [AppID.CheckPhone]: CheckPhone, [AppID.Social]: SocialApp, [AppID.Study]: StudyApp,
   [AppID.FriendFeed]: FriendFeedApp,
+  [AppID.Voyage]: VoyageApp,
   [AppID.FAQ]: FAQApp, [AppID.Game]: GameApp, [AppID.Worldbook]: WorldbookApp,
   [AppID.Novel]: NovelApp, [AppID.Bank]: BankApp, [AppID.XhsStock]: XhsStockApp,
   [AppID.XhsFreeRoam]: XhsFreeRoamApp, [AppID.Browser]: BrowserApp, [AppID.Songwriting]: SongwritingApp,
@@ -999,6 +1001,7 @@ const PhoneShell: React.FC = () => {
       case AppID.User: return <UserApp />;
       case AppID.Journal: return <JournalApp />; 
       case AppID.Schedule: return <ScheduleApp />;
+      case AppID.Voyage: return <VoyageApp />;
       case AppID.Room: return <RoomApp />; 
       case AppID.CheckPhone: return <CheckPhone />;
       case AppID.FriendFeed: return <FriendFeedApp />;

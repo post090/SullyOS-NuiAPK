@@ -3,19 +3,21 @@ import type { FriendFeedImage } from './friendFeedSource';
 import { isLocalFriendImage } from './friendFeedImages';
 import { stripBackupImages } from './backupExport';
 import { defaultFriendFeedSettings } from './friendFeedSettings';
+import { VOYAGE_INVITE_PREFIX } from './voyage/letter';
 
 /** These records live in assets for historical reasons, but contain user history/settings. */
 export const isActivityTextAsset = (id: string): boolean =>
     ['friend_feed_v1', 'friend_feed_api', 'home_visits_v1'].includes(id)
-    || id.startsWith('friend_feed_eval_v1_') || id.startsWith('home_secrets_v1_') || id.startsWith('font_library_');
+    || id.startsWith('friend_feed_eval_v1_') || id.startsWith('home_secrets_v1_') || id.startsWith('font_library_')
+    || id.startsWith(VOYAGE_INVITE_PREFIX);
 
 export type ActivityTextAsset = { id: string; data: string };
 export function exportActivityTextAsset(item: { id: string; data: unknown }): ActivityTextAsset | undefined {
     // The feed has its own typed section, including its text-only image stripping.
     if (!isActivityTextAsset(item.id) || item.id === 'friend_feed_v1') return undefined;
     if (typeof item.data !== 'string') throw new Error('活动文字存档格式不正确，请保留原存档');
-    // Font bytes use plain base64 inside JSON, so both text and full backups remain self-contained.
-    if (item.id.startsWith('font_library_')) return { id: item.id, data: item.data };
+    // Font files are self-contained. Invitation text and signed plan content must round-trip verbatim.
+    if (item.id.startsWith('font_library_') || item.id.startsWith(VOYAGE_INVITE_PREFIX)) return { id: item.id, data: item.data };
     return { id: item.id, data: JSON.stringify(stripBackupImages(JSON.parse(item.data))) };
 }
 

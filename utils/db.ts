@@ -1,4 +1,5 @@
 import { spaceDatabaseName, SESSION_SPACE_ID, DEFAULT_SPACE_ID, createSpaceStorage, rawSpaceStorage, listUserSpaces, assertUserSpaceAvailable } from './userSpaces';
+import { VOYAGE_INVITE_PREFIX } from './voyage/letter';
 import { clearEmojiOriginals } from './emojiOriginals';
 import { patchEmojiOriginal, patchSentSticker } from './emojiBackup';
 import { withSharedAssetLock, canCoordinateAssetDeletion } from './sharedAssetLock';
@@ -174,7 +175,7 @@ const withoutRuntimeRecall = <T extends CharacterProfile | undefined>(character:
 };
 
 /** 和新消息同事务失效镜像，防止后台把刚清掉的旧水位重新恢复。 */
-function clearStaleMemoryMirror(transaction: IDBTransaction, charId: string, newId: number): void {
+export function clearStaleMemoryMirror(transaction: IDBTransaction, charId: string, newId: number): void {
     const assets = transaction.objectStore(STORE_ASSETS);
     const key = `mp_hwm_v1_${charId}`;
     const request = assets.get(key);
@@ -712,8 +713,19 @@ export const DB = {
 
   deleteCharacter: async (id: string): Promise<void> => {
     const db = await openDB();
-    const transaction = db.transaction(STORE_CHARACTERS, 'readwrite');
-    transaction.objectStore(STORE_CHARACTERS).delete(id);
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([STORE_CHARACTERS, STORE_ASSETS], 'readwrite');
+      transaction.objectStore(STORE_CHARACTERS).delete(id);
+      const letters = transaction.objectStore(STORE_ASSETS).openCursor(IDBKeyRange.bound(VOYAGE_INVITE_PREFIX, VOYAGE_INVITE_PREFIX + '\uffff'));
+      letters.onsuccess = () => {
+        const cursor = letters.result;
+        if (!cursor) return;
+        try { if (JSON.parse(cursor.value.data)?.charId === id) cursor.delete(); } catch { /* Preserve unreadable imported records. */ }
+        cursor.continue();
+      };
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = transaction.onerror = () => reject(transaction.error);
+    });
   },
 
   // ---- 角色分组（神经链接"文件夹"，与群聊 groups 无关）----

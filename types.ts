@@ -14,6 +14,7 @@ export enum AppID {
   User = 'user',
   Journal = 'journal',
   Schedule = 'schedule',
+  Voyage = 'voyage',
   Room = 'room',
   CheckPhone = 'check_phone',
   FriendFeed = 'friend_feed',

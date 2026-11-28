@@ -11,6 +11,7 @@ import { homeSharedRecipients } from '../utils/homeSharedEvents';
 import { homeRecords } from '../utils/homeRecords';
 import { readFriendFeed } from '../utils/friendFeed';
 import { collectFriendFeedMedia, exportActivityTextAsset, isActivityTextAsset } from '../utils/activityBackup';
+import { INVITATIONS_CHANGED } from '../utils/voyage/letter';
 import { HELP_HISTORY_KEY, helpMediaHistory, helpTextHistory } from '../utils/sullyHelpBackup';
 import { legacyStickerLinks, portableEmojiRow } from '../utils/emojiBackup';
 import { retireCloudCharacter } from '../utils/amsgCloudRetirement';
@@ -3869,6 +3870,10 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           setLastMsgTimestamp(Date.now());
       };
       window.addEventListener(PHONE_EVIDENCE_SYNCED, phoneEvidenceSyncHandler);
+      const onVoyageMessage = (event: Event) => {
+          if ((event as CustomEvent<{ messageId?: number }>).detail?.messageId !== undefined) setLastMsgTimestamp(Date.now());
+      };
+      window.addEventListener(INVITATIONS_CHANGED, onVoyageMessage);
       window.addEventListener('amsg2-tasks-adopted', tasksAdoptedHandler);
       window.addEventListener(SAR_MODULE_RUNTIME_CHANGED_EVENT, sarModuleRuntimeChangedHandler);
       const linkedArchiveDeletedHandler = (event: Event) => {
@@ -3900,6 +3905,7 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
           window.removeEventListener('char-memos-updated', memosSyncHandler);
           window.removeEventListener(PHONE_GENERATION_COMMITTED, phoneGenerationHandler);
           window.removeEventListener(PHONE_EVIDENCE_SYNCED, phoneEvidenceSyncHandler);
+          window.removeEventListener(INVITATIONS_CHANGED, onVoyageMessage);
           window.removeEventListener('amsg2-tasks-adopted', tasksAdoptedHandler);
           window.removeEventListener(SAR_MODULE_RUNTIME_CHANGED_EVENT, sarModuleRuntimeChangedHandler);
           window.removeEventListener(LINKED_ARCHIVE_DELETED, linkedArchiveDeletedHandler);

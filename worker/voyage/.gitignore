@@ -1,0 +1,6 @@
+wrangler.jsonc
+.wrangler/
+.dev.vars*
+*-pairing.txt
+enroll.sql
+event-secrets.json

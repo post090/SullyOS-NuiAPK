@@ -1,0 +1,11 @@
+{
+  "name": "sully-voyage-planner",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "pnpm -w exec vitest run worker/voyage/planner.test.mjs"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.4.0"
+  }
+}

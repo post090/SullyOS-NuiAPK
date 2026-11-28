@@ -3991,6 +3991,10 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
         appShortcutLaunch.request({ appId: AppID.FAQ, entryId: SULLY_HELP_DESK_ID });
         openApp(AppID.FAQ);
     }, [openApp]);
+    const openVoyageInvitation = useCallback((id: string, charId: string) => {
+        appShortcutLaunch.request({ appId: AppID.Voyage, resourceId: id, characterId: charId });
+        openApp(AppID.Voyage);
+    }, [openApp]);
     const tailProfileGesture = useChatTailProfileGesture(char?.id, !selectionMode && !profileOpen && modalType === 'none' && showPanel === 'none' && windowedFocusMsgId === null && !isInputFocused && messages.length > 0, openCharacterProfile);
     const locatingChat = isTyping || instantChatPending;
     React.useEffect(() => {
@@ -4291,6 +4295,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                         >
                         <MessageItem
                             onOpenSullyHelp={openSullyHelp}
+                            onOpenVoyageInvitation={openVoyageInvitation}
                             msg={m}
                             locationPin={locationMessage?.id === m.id ? locationPin : undefined}
                             isFirstInGroup={breaksWithPrevious}
@@ -4388,6 +4393,7 @@ const Chat: React.FC<{homePhone?:HomePhoneChatProps}> = ({homePhone}) => {
                             <div key={`stream-preview-${i}`} data-stream-preview={i} className="transition-all duration-300">
                                 <MessageItem
                                     onOpenSullyHelp={openSullyHelp}
+                                    onOpenVoyageInvitation={openVoyageInvitation}
                                     msg={{
                                         id: -(i + 1),
                                         charId: char.id,

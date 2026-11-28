@@ -1,0 +1,13 @@
+{
+  "name": "my-voyage-planner",
+  "main": "index.mjs",
+  "compatibility_date": "2026-04-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "d1_databases": [
+    { "binding": "DB", "database_name": "my-voyage-planner", "database_id": "REPLACE_WITH_YOUR_D1_ID" }
+  ],
+  "kv_namespaces": [
+    { "binding": "OAUTH_KV", "id": "REPLACE_WITH_YOUR_KV_ID" }
+  ],
+  "triggers": { "crons": ["*/15 * * * *"] }
+}

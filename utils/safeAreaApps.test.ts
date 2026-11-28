@@ -15,6 +15,7 @@ const SELF_HANDLED: AppID[] = [
     AppID.Call, AppID.VoiceDesigner, AppID.Guidebook, AppID.LifeSim, AppID.MemoryPalace,
     AppID.Handbook, AppID.QQBridge, AppID.HotNews, AppID.WorldHome, AppID.CharCreatorDev,
     AppID.SpecialMoments, AppID.FriendFeed, AppID.Memo, AppID.Wallet, AppID.SmartHome, AppID.JobHunt,
+    AppID.Voyage,
 ];
 
 describe('shellHandlesSafeArea', () => {
@@ -35,5 +36,10 @@ describe('shellHandlesSafeArea', () => {
 
         expect(appSource.match(/paddingTop: 'var\(--chrome-top\)'/g)).toHaveLength(3);
         expect(writerSource).toContain("style={{ paddingTop: 'var(--chrome-top)' }}");
+    });
+    it('旅迹自己为顶部操作栏和底部内容预留安全区', () => {
+        const css = readFileSync(path.resolve(__dirname, '../apps/voyage.css'), 'utf8');
+        expect(css).toMatch(/\.voyage-bar\s*\{[^}]*--chrome-top/);
+        expect(css).toMatch(/\.voyage-body\s*\{[^}]*--safe-bottom/);
     });
 });

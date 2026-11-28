@@ -19,3 +19,8 @@ export class DurableObject<Env = unknown> {
     this.env = env;
   }
 }
+
+/** HTTP Worker RPC entrypoints receive the execution context and bindings from the runtime. */
+export class WorkerEntrypoint<Env = unknown> {
+  constructor(protected ctx: unknown, protected env: Env) {}
+}

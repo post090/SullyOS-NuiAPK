@@ -1369,6 +1369,7 @@ interface MessageItemProps {
     /** 点求职工作台聚合卡 → 跳转上岸计划 App */
     onOpenJobHunt?: () => void;
     onOpenSullyHelp?: () => void;
+    onOpenVoyageInvitation?: (id: string, charId: string) => void;
     /** 打开协同文件柜里的原始 Blob；消息本身只保存 assetId 引用。 */
     onOpenCollaborationFile?: (m: Message) => void | Promise<void>;
     /** 思考链卡片视觉与交互 */
@@ -1433,6 +1434,7 @@ const MessageItem = React.memo(({
     onDismissTaskProposal,
     onOpenJobHunt,
     onOpenSullyHelp,
+    onOpenVoyageInvitation,
     onOpenCollaborationFile,
     thinkingChainOptions,
 }: MessageItemProps) => {
@@ -2392,6 +2394,18 @@ const MessageItem = React.memo(({
     // --- Music Card Rendering (一起听 / 加入歌单) ---
     if (m.type === 'sully_help_card' && m.role === 'assistant' && m.charId === BUILTIN_SULLY_ID) {
         return commonLayout(<SullyHelpCard onOpen={onOpenSullyHelp} />);
+    }
+
+    if (m.type === 'text' && isUser && typeof m.metadata?.voyageInvitationId === 'string' && onOpenVoyageInvitation) {
+        const id = m.metadata.voyageInvitationId;
+        const title = m.metadata.voyageOccasion === 'birthday' ? '生日旅行邀请' : '旅行邀请';
+        return commonLayout(<button type="button" disabled={selectionMode} aria-label={'查看' + title}
+            className="sully-chat-card-face max-w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-slate-800 shadow-sm"
+            onClick={() => onOpenVoyageInvitation(id, m.charId)}>
+            <strong className="block text-base">{title}</strong>
+            <span className="mt-2 block whitespace-pre-wrap break-words text-sm">{m.content.replace(/^\[旅迹 · [^\]]+\]\s*/, '')}</span>
+            <span className="mt-3 block border-t border-slate-200 pt-2 text-xs text-slate-600">查看邀请 ›</span>
+        </button>);
     }
 
     if (m.type === 'music_card' && m.metadata?.song) {
@@ -4352,6 +4366,7 @@ const MessageItem = React.memo(({
            prev.charAvatar === next.charAvatar &&
            prev.onOpenCharacterProfile === next.onOpenCharacterProfile &&
            prev.onOpenSullyHelp === next.onOpenSullyHelp &&
+           prev.onOpenVoyageInvitation === next.onOpenVoyageInvitation &&
            prev.charName === next.charName &&
            prev.locationPin === next.locationPin &&
            prev.userAvatar === next.userAvatar &&
