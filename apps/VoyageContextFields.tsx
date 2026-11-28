@@ -87,7 +87,7 @@ export default function VoyageContextFields({ context, busy }: { context: Return
     if (!choice) return <p role={error ? 'alert' : 'status'} className={error ? 'voyage-error' : 'voyage-muted'}>{error || '正在读取角色资料…'}</p>;
     return <fieldset className="voyage-reference" disabled={busy || saving} aria-label="随简报发送的角色资料">
         <fieldset className="voyage-source"><legend>提示词来源</legend>
-            <div className="voyage-source-tabs">{promptSources.map(({ mode, title }) =>
+            <div className="voyage-switch voyage-source-tabs">{promptSources.map(({ mode, title }) =>
                 <label key={mode}><input type="radio" name={sourceGroup} value={mode} checked={choice.mode === mode}
                     onChange={() => onChange({ ...choice, mode })}/>
                     <span>{choice.mode === mode && <Check size={15} weight="bold" aria-hidden="true"/>}{title}</span>
@@ -118,7 +118,7 @@ export default function VoyageContextFields({ context, busy }: { context: Return
                 <pre>{reference || '只发送旅行简报'}</pre>
             </details>
         </div>
-        <button type="button" className="voyage-save" disabled={saved || saving} onClick={() => void onSave()}>
+        <button type="button" className="voyage-primary" disabled={saved || saving} onClick={() => void onSave()}>
             {saved ? <Check size={19} weight="bold" aria-hidden="true"/> : <FloppyDisk size={19} aria-hidden="true"/>}
             <span aria-live="polite">{saving ? '正在保存…' : saved ? '已保存' : '保存资料'}</span>
         </button>
