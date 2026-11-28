@@ -1,0 +1,174 @@
+@font-face {
+  font-family: 'Voyage Allura';
+  src: url('../../assets/fonts/voyage-birthday-allura.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+.voyage-invite-slot { inline-size: 19rem; max-inline-size: 100%; min-inline-size: 0; }
+.voyage-invite-sheet {
+  --invite-gutter: clamp(.8rem, 5%, 1.4rem);
+  display: grid;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  color: var(--voyage-text);
+  text-align: start;
+  overflow-wrap: anywhere;
+  filter: drop-shadow(0 1px 1px #56351250);
+}
+button.voyage-invite-message {
+  inline-size: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+}
+.voyage-invite-message:focus-visible {
+  outline: 3px solid var(--voyage-honey);
+  outline-offset: 3px;
+}
+.voyage-invite-panel, .voyage-invite-stub {
+  position: relative;
+  box-sizing: border-box;
+  min-inline-size: 0;
+  padding-inline: var(--invite-gutter);
+  background: var(--voyage-face);
+  -webkit-mask: var(--invite-cut, none);
+  mask: var(--invite-cut, none);
+}
+.voyage-invite-panel {
+  display: grid;
+  gap: .65rem;
+  padding-block: .95rem .85rem;
+  border-radius: 11px 11px 0 0;
+}
+.voyage-invite-stub {
+  border-radius: 0 0 11px 11px;
+  padding-block: .6rem .7rem;
+  color: var(--voyage-ink);
+}
+.voyage-invite-stub::before {
+  content: '';
+  position: absolute;
+  inset: 0 var(--invite-gutter) auto;
+  border-block-start: 1px dashed var(--voyage-sheet-edge);
+  pointer-events: none;
+}
+
+/* The two halves meet at the perforation. Transparent bites show the actual chat wallpaper. */
+.voyage-invite-sheet[data-occasion='gift'] .voyage-invite-panel,
+.voyage-invite-sheet[data-occasion='gift'] .voyage-invite-stub {
+  --invite-cut:
+    radial-gradient(circle at 0 var(--notch-y), transparent 7px, #000 8px) left / 51% 100% no-repeat,
+    radial-gradient(circle at 100% var(--notch-y), transparent 7px, #000 8px) right / 51% 100% no-repeat;
+}
+.voyage-invite-sheet[data-occasion='gift'] .voyage-invite-panel {
+  --notch-y: 100%;
+  border-block-start: 5px solid var(--voyage-honey);
+}
+.voyage-invite-sheet[data-occasion='gift'] .voyage-invite-stub {
+  --notch-y: 0%;
+  background-color: var(--voyage-tint);
+}
+.voyage-invite-sheet[data-occasion='birthday'] .voyage-invite-panel {
+  --invite-cut:
+    radial-gradient(ellipse 51% 100% at 50% 100%, #000 96%, transparent 100%) left top / 16px 7px round no-repeat,
+    linear-gradient(#000 0 0) left bottom / 100% calc(100% - 6px) no-repeat;
+  padding-block-start: 1.15rem;
+}
+.voyage-invite-sheet[data-occasion='birthday'] .voyage-invite-panel::before {
+  content: '';
+  position: absolute;
+  inset: 9px var(--invite-gutter) auto;
+  border-block-start: 1px dotted var(--voyage-sheet-edge);
+}
+.voyage-invite-sheet[data-occasion='birthday'] .voyage-invite-stub {
+  --invite-cut:
+    radial-gradient(ellipse 51% 100% at 50% 0%, #000 96%, transparent 100%) left bottom / 16px 7px round no-repeat,
+    linear-gradient(#000 0 0) left top / 100% calc(100% - 6px) no-repeat;
+  padding-block-end: 1rem;
+}
+.voyage-invite-sheet[data-occasion='birthday'] .voyage-invite-stub::before {
+  border: 0;
+  height: 3px;
+  background: radial-gradient(circle, var(--voyage-sheet-edge) 1px, transparent 1.4px) left center / 7px 3px repeat-x;
+}
+.voyage-invite-sheet .voyage-invite-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) min(26%, 4.6rem);
+  align-items: center;
+  gap: .35rem;
+  margin: 0;
+  color: var(--voyage-text);
+}
+.voyage-invite-heading-text { min-width: 0; }
+.voyage-invite-title {
+  display: block;
+  font: 700 1.3rem/1.35 var(--voyage-serif);
+  letter-spacing: .035em;
+}
+.voyage-invite-to, .voyage-invite-script { display: block; }
+.voyage-invite-to {
+  margin-block-end: .35rem;
+  color: var(--voyage-muted);
+  font: 500 .8rem/1.4 sans-serif;
+}
+.voyage-invite-script {
+  color: var(--voyage-ink);
+  font: 400 2rem/1.05 'Voyage Allura', cursive;
+}
+.voyage-invite-sticker {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  aspect-ratio: 1;
+  pointer-events: none;
+}
+[data-occasion='gift'] .voyage-invite-sticker {
+  background: url('../../assets/voyage-paper-stickers.webp') no-repeat 0 0 / 400% 200%;
+  transform: rotate(5deg);
+}
+[data-occasion='birthday'] .voyage-invite-sticker {
+  background: url('../../assets/voyage-birthday-cake.webp') center / contain no-repeat;
+  transform: rotate(5deg);
+}
+.voyage-invite-body, .voyage-invite-letter p {
+  margin: 0;
+  color: var(--voyage-text);
+  font-size: .92rem;
+  line-height: 1.65;
+}
+.voyage-invite-body { display: block; white-space: pre-wrap; }
+.voyage-invite-note {
+  display: block;
+  margin-block-start: .65rem;
+  padding-inline-start: .7rem;
+  border-inline-start: 2px solid var(--voyage-honey);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.voyage-invite-message .voyage-invite-stub {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: .84rem;
+  font-weight: 650;
+}
+.voyage-invite-stub-mark { display: flex; flex: 1; align-items: center; min-width: 0; }
+.voyage-invite-message[data-occasion='gift'] .voyage-invite-stub-mark::after {
+  content: '';
+  width: min(40%, 2.25rem);
+  height: 12px;
+  margin-inline-start: .4rem;
+  opacity: .5;
+  background: repeating-linear-gradient(90deg, currentColor 0 1px, transparent 1px 4px,
+    currentColor 4px 6px, transparent 6px 8px, currentColor 8px 9px, transparent 9px 11px);
+}
+.voyage-invite-stub svg { flex: none; }
+.voyage-invite-letter .voyage-meta { color: var(--voyage-muted); font-size: .83rem; }
+.voyage-invite-letter .voyage-field { margin: 0; }
+@media (forced-colors: active) {
+  .voyage-invite-sheet { outline: 1px solid ButtonText; filter: none; }
+  .voyage-invite-panel, .voyage-invite-stub { -webkit-mask: none; mask: none; }
+}

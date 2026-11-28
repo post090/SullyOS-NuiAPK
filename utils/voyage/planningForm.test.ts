@@ -89,8 +89,25 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
         await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
         expect(host.querySelector('pre')?.textContent).toBe('【角色主提示词】\n' + two.systemPrompt + '\n\n【世界书《旅行背景》】\n' + other.content);
         expect(fetcher).not.toHaveBeenCalled();
-        rememberConnection(connection);
+        rememberConnection(null);
         await render(React.createElement(VoyagePlanning, { letter, actor: one }));
+        const help = host.querySelector<HTMLDetailsElement>('.voyage-pairing-help')!;
+        await act(async () => help.querySelector('summary')!.click());
+        expect(help.open).toBe(true);
+        expect(help.textContent).toContain('device-pairing.txt');
+        expect(button('连接')?.disabled).toBe(true);
+        const inputValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!;
+        for (const [selector, value] of [['url', connection.origin + '/mcp'], ['password', connection.token]]) {
+            const field = host.querySelector<HTMLInputElement>(`input[type=${selector}]`)!;
+            await act(async () => {
+                inputValue.call(field, value);
+                field.dispatchEvent(new Event('input', { bubbles: true }));
+            });
+        }
+        expect(fetcher).not.toHaveBeenCalled();
+        await act(async () => button('连接')!.click());
+        await vi.waitFor(() => expect(button('采用对方的回信')).toBeDefined());
+        expect(fetcher.mock.calls[0][0]).toBe(connection.origin + '/device/status');
         expect(host.querySelector('pre')?.textContent).toBe(preview);
         await act(async () => button('采用对方的回信')!.click());
         expect(submissions).toHaveLength(0);

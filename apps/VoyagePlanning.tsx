@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowsClockwise } from '@phosphor-icons/react';
+import { ArrowsClockwise, CaretDown, Info } from '@phosphor-icons/react';
 import { trackVoyageResult } from '../utils/voyage/analytics';
 import { saveApprovedPlan } from '../utils/voyage/invitations';
 import { matchesTripDigest, type TravelInvitation, type TripDraft } from '../utils/voyage/letter';
@@ -159,8 +159,13 @@ export default function VoyagePlanning({ letter, actor }: { letter: TravelInvita
     const approved = letter.approvedPlan ?? request?.approvedDraft;
     const connectForm = <section className="voyage-paper">
             <h3>连接旅行服务</h3>
-            <label className="voyage-field">服务地址<input type="url" autoCapitalize="none" spellCheck={false} value={address} placeholder="https://" onChange={e => { setAddress(e.target.value); setPassword(''); }}/></label>
-            <label className="voyage-field">设备配对码<input type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/></label>
+            <details className="voyage-pairing-help">
+                <summary><Info size={17} aria-hidden="true"/>地址和配对码在哪里？<CaretDown size={14} aria-hidden="true"/></summary>
+                <p>服务地址可以从点点的「旅迹策划」连接里复制，末尾带 <code>/mcp</code> 也可以。</p>
+                <p>设备配对码在部署旅行服务时保存的 <code>device-pairing.txt</code> 里。打开文件，复制整行到下方。</p>
+            </details>
+            <label className="voyage-field">服务地址<input type="url" autoCapitalize="none" spellCheck={false} value={address} placeholder="https://voyage.example.com" onChange={e => { setAddress(e.target.value); setPassword(''); }}/></label>
+            <label className="voyage-field">设备配对码<input type="password" autoComplete="off" autoCapitalize="none" spellCheck={false} value={password} placeholder="粘贴设备配对码" onChange={e => setPassword(e.target.value)}/></label>
             <button className="voyage-primary" disabled={busy || !address || !password} onClick={() => void run('connect')}>连接</button>
         </section>;
     if (approved) return <div className="voyage-planning"><PlanPaper draft={approved} approved/>

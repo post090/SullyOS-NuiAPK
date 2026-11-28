@@ -30,7 +30,8 @@ it.each([false, true])('keeps each traveller’s settings on the same stationery
     const host = document.createElement('div');
     const root = createRoot(host);
     const sheet = document.createElement('style');
-    sheet.textContent = readFileSync(resolve(__dirname, '../../apps/voyage.css'), 'utf8');
+    sheet.textContent = ['components/voyage/paperPalette.css', 'components/voyage/VoyageInvitation.css', 'apps/voyage.css']
+        .map(file => readFileSync(resolve(__dirname, '../..', file), 'utf8')).join('\n');
     document.head.append(sheet);
     document.body.append(host);
     function fill(selector: string) {
@@ -70,9 +71,19 @@ it.each([false, true])('keeps each traveller’s settings on the same stationery
         await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="返回"]')!.click());
         expect(host.querySelector('h1')?.textContent).toBe('旅迹');
         await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="写旅行邀请"]')!.click());
-        expect(fill('.voyage-stationery')).toBe(paper);
+        expect(fill('.voyage-invite-panel')).toBe(paper);
         expect(fill('.voyage-switch [aria-pressed="true"]')).toBe(selected);
         expect(fill('main > button')).toBe(save);
+        expect(host.querySelector('.voyage-invite-letter')?.getAttribute('data-occasion')).toBe('gift');
+        const cutEdge = () => getComputedStyle(host.querySelector('.voyage-invite-panel')!).getPropertyValue('--invite-cut');
+        const ticketEdge = cutEdge();
+        expect(ticketEdge).toContain('radial-gradient');
+        await act(async () => Array.from(host.querySelectorAll('button')).find(b => b.textContent === '生日赠礼')!.click());
+        expect(host.querySelector('.voyage-invite-letter')?.getAttribute('data-occasion')).toBe('birthday');
+        expect(host.querySelector('.voyage-invite-script')?.textContent).toBe('Happy Birthday');
+        expect(fill('.voyage-invite-panel')).toBe(paper);
+        expect(cutEdge()).toContain('radial-gradient');
+        expect(cutEdge()).not.toBe(ticketEdge);
     } finally {
         await act(async () => root.unmount());
         host.remove();

@@ -31,6 +31,7 @@ export interface TravelInvitation {
 }
 
 export const invitationTitle = (occasion: InvitationOccasion) => occasion === 'birthday' ? '生日旅行邀请' : '旅行邀请';
+export const invitationBody = '送你一次旅费全免的旅行。去哪里、什么时候出发、想邀请谁同行，都由你决定。你也可以晚些再想，或者婉拒。';
 
 export function invitationStatus(letter: TravelInvitation): string {
     if (letter.approvedPlan) return '行程已批准';
@@ -40,7 +41,7 @@ export function invitationStatus(letter: TravelInvitation): string {
 
 export function invitationText(occasion: InvitationOccasion, note: string): string {
     const title = invitationTitle(occasion);
-    return `[旅迹 ${title}] 送你一次旅费全免的旅行。去哪里、什么时候出发、想邀请谁同行，都由你决定。你也可以晚些再想，或者婉拒。${note ? '\n\n' + note : ''}`;
+    return `[旅迹 ${title}] ${invitationBody}${note ? '\n\n' + note : ''}`;
 }
 
 export function parseInvitationReply(value: unknown): InvitationReply {

@@ -1,0 +1,17 @@
+.voyage-app, .voyage-invite-message {
+  --voyage-bg: #f9f3e5;
+  --voyage-face: #fffbf1;
+  --voyage-text: #49391f;
+  --voyage-muted: #746349;
+  --voyage-line: #d8c9a9;
+  --voyage-ink: #75511e;
+  --voyage-tint: #f0e6cc;
+  --voyage-honey: #f3ce6e;
+  --voyage-button-text: #473319;
+  --voyage-sheet-edge: #d9c184;
+  --voyage-grid: #e9dfc8;
+  --voyage-coral: #cd8772;
+  --voyage-mint: #90b4a0;
+  --voyage-lilac: #b6a4c5;
+  --voyage-serif: 'Noto Serif CJK SC', 'Songti SC', SimSun, serif;
+}

@@ -1,19 +1,4 @@
 .voyage-app {
-  --voyage-bg: #f9f3e5;
-  --voyage-face: #fffbf1;
-  --voyage-text: #49391f;
-  --voyage-muted: #746349;
-  --voyage-line: #d8c9a9;
-  --voyage-ink: #75511e;
-  --voyage-tint: #f0e6cc;
-  --voyage-honey: #f3ce6e;
-  --voyage-button-text: #473319;
-  --voyage-sheet-edge: #d9c184;
-  --voyage-grid: #e9dfc8;
-  --voyage-coral: #cd8772;
-  --voyage-mint: #90b4a0;
-  --voyage-lilac: #b6a4c5;
-  --voyage-serif: 'Noto Serif CJK SC', 'Songti SC', SimSun, serif;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -279,6 +264,18 @@
   padding-block: 10px;
   cursor: pointer;
 }
+.voyage-pairing-help { color: var(--voyage-muted); overflow-wrap: anywhere; }
+.voyage-pairing-help summary {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  color: var(--voyage-ink);
+  font-size: .86rem;
+  text-decoration: none;
+}
+.voyage-pairing-help summary::-webkit-details-marker { display: none; }
+.voyage-pairing-help[open] summary > svg:last-child { transform: rotate(180deg); }
+.voyage-pairing-help p { margin-block: 0 .4rem; font-size: .85rem; }
 
 .voyage-meta, .voyage-photo figcaption small {
   display: flex;
@@ -331,24 +328,17 @@
   background: url('../assets/voyage-paper-stickers.webp') no-repeat 0 0 / 400% 200%;
 }
 .voyage-postage { position: absolute; inset: 11px 10px auto auto; width: clamp(61px, 20vw, 84px); }
-.voyage-letter-head { padding-inline-end: clamp(64px, 20vw, 89px); overflow-wrap: anywhere; }
-.voyage-letter-head > small { display: block; margin-bottom: .5rem; }
-.voyage-letter-head h2, .voyage-gift h2, .voyage-plan h2 {
+.voyage-gift h2, .voyage-plan h2 {
   font-family: var(--voyage-serif);
   text-wrap: pretty;
   overflow-wrap: anywhere;
-}
-.voyage-letter-head h2 {
-  display: inline;
-  text-decoration: underline var(--voyage-honey) 3px;
-  text-underline-offset: 5px;
 }
 .voyage-stationery > p { overflow-wrap: anywhere; }
 .voyage-book-title { margin-bottom: 18px; }
 .voyage-book-title small { color: var(--voyage-muted); }
 .voyage-book-title h2 { margin-top: 3px; font-family: var(--voyage-serif); overflow-wrap: anywhere; }
 .voyage-stops summary .voyage-meta { display: inline-flex; }
-.voyage-stationery textarea, .voyage-note textarea {
+.voyage-invite-letter .voyage-field textarea, .voyage-note textarea {
   border: 0;
   border-radius: 0;
   padding-inline: 1px;

@@ -1,4 +1,5 @@
 import { SullyHelpCard } from './SullyHelpCard';
+import { VoyageInvitationCard } from '../voyage/VoyageInvitation';
 import { BUILTIN_SULLY_ID } from '../../utils/sullyIdentity';
 import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anniversaryGifts';
 
@@ -2275,7 +2276,7 @@ const MessageItem = React.memo(({
             </div>
         </div>
     ) : null;
-    const commonLayout = (content: React.ReactNode) => (
+    const commonLayout = (content: React.ReactNode, slotClassName = '') => (
         <>
             {timeDividerNode}
             {centerModules && thinkingChainNode && (
@@ -2354,7 +2355,7 @@ const MessageItem = React.memo(({
                         {...interactionProps}
                     >
                     {!centerModules && thinkingChainNode}
-                    <div className={selectionMode ? 'pointer-events-none' : ''}>
+                    <div className={[slotClassName, selectionMode && 'pointer-events-none'].filter(Boolean).join(' ')}>
                         {<ChatCardSurface message={m}>{content}</ChatCardSurface>}
                     </div>
                     {(showSendProgress || showBelowTimestamp) && (
@@ -2398,14 +2399,9 @@ const MessageItem = React.memo(({
 
     if (m.type === 'text' && isUser && typeof m.metadata?.voyageInvitationId === 'string' && onOpenVoyageInvitation) {
         const id = m.metadata.voyageInvitationId;
-        const title = m.metadata.voyageOccasion === 'birthday' ? '生日旅行邀请' : '旅行邀请';
-        return commonLayout(<button type="button" disabled={selectionMode} aria-label={'查看' + title}
-            className="sully-chat-card-face max-w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-slate-800 shadow-sm"
-            onClick={() => onOpenVoyageInvitation(id, m.charId)}>
-            <strong className="block text-base">{title}</strong>
-            <span className="mt-2 block whitespace-pre-wrap break-words text-sm">{m.content.replace(/^\[旅迹 (?:· )?[^\]]+\]\s*/, '')}</span>
-            <span className="mt-3 block border-t border-slate-200 pt-2 text-xs text-slate-600">查看邀请 ›</span>
-        </button>);
+        const occasion = m.metadata.voyageOccasion === 'birthday' ? 'birthday' : 'gift';
+        return commonLayout(<VoyageInvitationCard occasion={occasion} content={m.content} disabled={selectionMode}
+            onOpen={() => onOpenVoyageInvitation(id, m.charId)}/>, 'voyage-invite-slot');
     }
 
     if (m.type === 'music_card' && m.metadata?.song) {

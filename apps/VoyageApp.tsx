@@ -9,6 +9,7 @@ import { listInvitations, sendInvitation } from '../utils/voyage/invitations';
 import { INVITATIONS_CHANGED, invitationStatus, invitationTitle, readVoyageMood, type InvitationOccasion, type TravelInvitation } from '../utils/voyage/letter';
 import { requestInvitationReply } from '../utils/voyage/reply';
 import TokenImg from '../components/os/TokenImg';
+import { VoyageInvitationPaper } from '../components/voyage/VoyageInvitation';
 import VoyagePlanning from './VoyagePlanning';
 import { VoyageCharacterSettings, VoyageRecipientTicket } from './VoyageContextFields';
 import { useAppShortcut } from '../utils/appShortcutLaunch';
@@ -140,20 +141,19 @@ export default function VoyageApp() {
                 <label className="voyage-field voyage-recipient">收件人<span>{actor && <TokenImg value={actor.avatar} alt="" className="voyage-avatar"/>}
                     <select value={recipient} onChange={e => setRecipient(e.target.value)}>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></span></label>
                 <div className="voyage-switch" aria-label="邀请类型">{(['gift', 'birthday'] as const).map(kind => <button key={kind} aria-pressed={occasion === kind} onClick={() => setOccasion(kind)}>{kind === 'gift' ? '旅行赠礼' : '生日赠礼'}</button>)}</div>
-                <section className="voyage-paper voyage-stationery"><span className="voyage-sticker voyage-postage" aria-hidden="true"/>
-                    <div className="voyage-letter-head"><small>给{actor?.name || '收件人'}</small><h2>{invitationTitle(occasion)}</h2></div>
+                <VoyageInvitationPaper occasion={occasion} recipient={actor?.name || '收件人'}
+                    footer={<label className="voyage-field">你的留言<textarea value={note} maxLength={600} rows={4} placeholder="想写给对方的话" onChange={e => setNote(e.target.value)}/></label>}>
                     <p>旅费全免，目的地、出发日和同行者由收件人决定。</p>
-                    <label className="voyage-field">你的留言<textarea value={note} maxLength={600} rows={4} placeholder="想写给对方的话" onChange={e => setNote(e.target.value)}/></label>
-                </section>
+                </VoyageInvitationPaper>
                 <button className="voyage-primary" disabled={busy || !actor} onClick={() => void run('send')}>{busy ? '正在送出…' : '送出邀请'} <PaperPlaneTilt size={17}/></button>
             </>}
             {page === 'letter' && letter && <>
                 {letter.approvedPlan && <header className="voyage-book-title"><small>出发前</small><h2>{letter.approvedPlan.content.destination}</h2></header>}
-                <section className="voyage-paper voyage-stationery"><span className="voyage-sticker voyage-postage" aria-hidden="true"/>
-                    <div className="voyage-letter-head"><small>给{actor?.name || '收件人'}</small><h2>{invitationTitle(letter.occasion)}</h2></div>
+                <VoyageInvitationPaper occasion={letter.occasion} recipient={actor?.name || '收件人'}
+                    footer={<p className="voyage-muted voyage-meta"><span>旅费全免</span>{!letter.approvedPlan && <span>出发日待定</span>}</p>}>
                     <small className="voyage-meta"><span>{sentDate(letter.sentAt)}</span><span>{invitationStatus(letter)}</span></small>
-                    {letter.note && <p className="voyage-letter-text">{letter.note}</p>}<p className="voyage-muted voyage-meta"><span>旅费全免</span>{!letter.approvedPlan && <span>出发日待定</span>}</p>
-                </section>
+                    {letter.note && <p className="voyage-invite-note">{letter.note}</p>}
+                </VoyageInvitationPaper>
                 {letter.reply ? <section className="voyage-answer voyage-reply-paper"><h3>{actor?.name}的回信</h3><p className="voyage-letter-text">{letter.reply.text}</p>
                     <ReplySticker value={letter.reply.moodSticker}/></section>
                     : <button className="voyage-primary" disabled={busy || !actor} onClick={() => void run('reply')}>{busy ? '正在等回信…' : '请对方回信'}</button>}
