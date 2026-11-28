@@ -363,6 +363,8 @@ test('pins the owner, grant, reply and shown version across revisions and concur
   await submitDraft(db, owner, 'second-trip', 0, { ...draft, destination: '另一座园林' });
   const pending = { ...decision, ...v2 };
   await assert.rejects(apply(pending), /多份/);
+  await assert.rejects(apply({ ...pending, ownerReply: '分站版通过' }), /多份/);
+  await assert.rejects(apply({ ...pending, ownerReply: '通过另一座园林' }), /明确回复/);
   assert.equal((await apply({ ...pending, ownerReply: '测试园林，通过' })).approvedDraft.version, 2);
   assert.equal((await apply({ ...pending, ownerReply: '测试园林，通过' })).approvedDraft.version, 2);
   await assert.rejects(createRequest(db, owner, id, '散步', '换了资料'), /其他内容/);
@@ -389,6 +391,14 @@ test('requires both layers per stop on new submissions and preserves prior-forma
   db.prepare("UPDATE requests SET version=1,state='draft' WHERE owner=? AND id=?").bind(owner,id).run();
   assert.deepEqual(await submitDraft(db, owner, id, 0, old), { version: 1, digest: hash });
   assert.deepEqual((await getRequest(db, owner, id)).draft.content, old);
+  await enableChatReview(db, owner, id, 'chosen');
+  const detailedId = 'another-lake-trip';
+  await createRequest(db, owner, detailedId, '同一座园林的分站版', '', 'chosen');
+  const detailedVersion = await submitDraft(db, owner, detailedId, 0, draft);
+  const reply = { requestId: detailedId, ...detailedVersion, decision: 'approve', ownerReply: '分站版通过' };
+  await assert.rejects(recordChatReview(db, owner, 'chosen', { ...reply, requestId:id, digest:hash }), /明确回复/);
+  assert.equal((await recordChatReview(db, owner, 'chosen', reply)).state, 'approved');
+  assert.equal((await getRequest(db, owner, id)).state, 'draft');
   await review(db, owner, id, { decision:'return', version:1, digest:hash, feedback:'补充具体资料' });
   const updated = await submitDraft(db, owner, id, 1, draft);
   assert.equal(updated.version, 2);

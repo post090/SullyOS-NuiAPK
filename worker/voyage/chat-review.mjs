@@ -1,29 +1,46 @@
 import { checkId, cleanText, InputError, review } from './plans.mjs';
 
+const normalize = text => text.normalize('NFKC').trim().toLowerCase();
+function approvalLabel(reply, version) {
+  const words = normalize(reply).replace(/[。.!！]+$/u, '').trim();
+  const terms = ['第' + version + '版通过', '通过第' + version + '版', '确认通过', '确认批准', '就按这版走', '按这版走', '批准', '通过', 'approved', 'approve'];
+  if (terms.includes(words)) return '';
+  if (/^(?:第\d+版通过|通过第\d+版)$/u.test(words)) return null;
+  for (const term of terms) {
+    if (words.endsWith(term)) return words.slice(0, -term.length).replace(/[\s,:，：]+$/u, '');
+    if (words.startsWith(term)) return words.slice(term.length).replace(/^[\s,:，：]+/u, '');
+  }
+  return null;
+}
+function identifies(label, row) {
+  if (label === '') return true;
+  if (label === '[' + normalize(row.id) + ']') return true;
+  if (['分站版', '详细版', '详版'].includes(label)) return !!row.detailed;
+  if (['简版', '简稿', '简略版'].includes(label)) return !row.detailed;
+  // Match the place the person named, without treating a negative or hypothetical reply as a title.
+  if (label.length < 2 || /^(?:不想|不要|暂不|还没|没有|绝不|不能|能否|是否|如果|假如|要是)/u.test(label)) return false;
+  return normalize(row.destination).includes(label);
+}
+
 // A normal reply to a single draft can simply be "通过". Clarify the destination when several await a reply.
 export async function recordChatReview(db, owner, grant, args) {
   const id = checkId(args.requestId);
   if (!Number.isSafeInteger(args.version) || args.version < 1 || !/^[a-f0-9]{64}$/.test(args.digest))
     throw new InputError('请指定你展示给用户的草稿版本');
   const target = await db.prepare(
-    "SELECT r.state,json_extract(d.content,'$.destination') AS destination FROM request_options o JOIN requests r USING(owner,id) JOIN drafts d ON d.owner=r.owner AND d.id=r.id AND d.version=? AND d.digest=? WHERE o.owner=? AND o.id=? AND o.reviewer_grant=?",
+    "SELECT r.id,r.state,json_extract(d.content,'$.destination') AS destination,json_type(d.content,'$.itinerary') IS NOT NULL AS detailed FROM request_options o JOIN requests r USING(owner,id) JOIN drafts d ON d.owner=r.owner AND d.id=r.id AND d.version=? AND d.digest=? WHERE o.owner=? AND o.id=? AND o.reviewer_grant=?",
   ).bind(args.version, args.digest, owner, id, grant).first();
   if (!target) throw new InputError('请核对本次聊天审核的授权和草稿版本', 403);
   const reply = cleanText(args.ownerReply, 1000);
   if (args.decision === 'approve') {
-    const words = reply.normalize('NFKC').trim().replace(/[。.!！]+$/u, '').trim();
-    const { destination } = target;
-    const label = '[' + id + ']';
-    const named = words.startsWith(destination) || words.startsWith(label);
-    const decision = named ? words.slice(words.startsWith(label) ? label.length : destination.length).replace(/^[\s，,:：]+/u, '') : words;
-    if (!['通过', '批准', '确认通过', '确认批准', '就按这版走', '按这版走', 'approve', 'approved',
-      '通过第' + args.version + '版', '第' + args.version + '版通过'].includes(decision.toLowerCase()))
+    const label = approvalLabel(reply, args.version);
+    if (label === null || !identifies(label, target))
       throw new InputError('需要本人对这版行程明确回复「通过」');
     if (target.state === 'draft') {
-      const other = await db.prepare(
-        "SELECT 1 AS found FROM requests r JOIN request_options o USING(owner,id) JOIN drafts d ON d.owner=r.owner AND d.id=r.id AND d.version=r.version WHERE r.owner=? AND o.reviewer_grant=? AND r.state='draft' AND r.id!=? AND (?=0 OR json_extract(d.content,'$.destination')=?) LIMIT 1",
-      ).bind(owner, grant, id, named ? 1 : 0, destination).first();
-      if (other && !words.startsWith(label))
+      const { results } = await db.prepare(
+        "SELECT r.id,json_extract(d.content,'$.destination') AS destination,json_type(d.content,'$.itinerary') IS NOT NULL AS detailed FROM requests r JOIN request_options o USING(owner,id) JOIN drafts d ON d.owner=r.owner AND d.id=r.id AND d.version=r.version WHERE r.owner=? AND o.reviewer_grant=? AND r.state='draft' AND r.id!=?",
+      ).bind(owner, grant, id).all();
+      if (results.some(other => identifies(label, other)))
         throw new InputError('有多份待审草稿，请在回复中写明目的地；同名时请写 [申请编号] 通过');
     }
   } else if (args.decision !== 'return') {
