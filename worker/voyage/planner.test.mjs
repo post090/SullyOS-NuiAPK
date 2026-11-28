@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 // @vitest-environment node
 import { test, onTestFinished, vi } from 'vitest';
 import { createRequire } from 'node:module';
-import { createRequest, digest, enableChatReview, getRequest, review, submitDraft } from './plans.mjs';
+import { createRequest, digest, enableChatReview, getRequest, review, submitDraft, supplementPhotos } from './plans.mjs';
 import { deliverPending, subscription, subscribedGrants } from './events.mjs';
 import { recordChatReview, referencePage } from './chat-review.mjs';
 import voyageWorker from './index.mjs';
@@ -57,6 +57,7 @@ const draft = {
     day: 1, startLocal: '10:30', durationMinutes: 40, place: '测试园林北门', route: '从车站步行约十分钟到北门',
     cost: '票价待核实', weatherPlan: '下雨时改走入口连廊', placeNotes: '园林导览标出了回廊和水池',
     scene: '若水面平静，可留意回廊的倒影', choices: ['在水池边多坐一会', '沿回廊看窗格'], sourceNumbers: [1],
+    visuals: { photos: [], unavailableReason: '园林公开目录未标明摄影作品的授权' },
   }] },
 };
 test('only the owner can see a draft, revisions require review, same operation is idempotent', async () => {
@@ -335,12 +336,19 @@ test('real OAuth PKCE keeps legacy approvals on the device and permits chat revi
   const rest = await readResult('get_trip_reference', { requestId: nextId, offset: row.reference.nextOffset });
   assert.equal(row.reference.text + rest.text, reference);
   const receipt = await readResult('submit_draft', { requestId: nextId, baseVersion: 0, draft });
-  const chat = { requestId: nextId, ...receipt, decision: 'approve' };
+  const picture = { imageUrl:'https://media.example.org/pool.jpg', sourceUrl:'https://example.org/works/pool',
+    caption:'回廊旁的水池', credit:'测试摄影者', license:'CC BY 4.0', licenseUrl:'https://creativecommons.org/licenses/by/4.0/' };
+  const illustrated = await readResult('supplement_stop_photos', { requestId: nextId, baseVersion:receipt.version, baseDigest:receipt.digest,
+    stops:[{stopNumber:1, visuals:{photos:[picture]}}] });
+  const deviceView = await (await api(newPath, deviceCode)).json();
+  assert.deepEqual(deviceView.draft.content.itinerary.stops[0].visuals.photos, [picture]);
+  assert.equal(deviceView.approvedDraft, null);
+  const chat = { requestId: nextId, ...illustrated, decision: 'approve' };
   assert.equal((await callTool('record_chat_review', { ...chat, ownerReply: '看起来不错' })).isError, true);
   assert.equal((await (await api(newPath, deviceCode)).json()).state, 'draft');
   const decision = await readResult('record_chat_review', { ...chat, ownerReply: '通过' });
   assert.equal(decision.state, 'approved');
-  assert.equal((await (await api(newPath, deviceCode)).json()).approvedDraft.digest, receipt.digest);
+  assert.equal((await (await api(newPath, deviceCode)).json()).approvedDraft.digest, illustrated.digest);
 });
 
 test('pins the owner, grant, reply and shown version across revisions and concurrent trips', async () => {
@@ -403,4 +411,38 @@ test('requires both layers per stop on new submissions and preserves prior-forma
   const updated = await submitDraft(db, owner, id, 1, draft);
   assert.equal(updated.version, 2);
   assert.deepEqual((await getRequest(db, owner, id)).draft.content.itinerary, itinerary);
+});
+
+test('preserves old signed stops and adds attributed photos only to the reviewed base, once', async () => {
+  const { DB: db } = fixture();
+  await createRequest(db, owner, id, '旧分站稿');
+  const old = structuredClone(draft);
+  delete old.itinerary.stops[0].visuals;
+  await assert.rejects(submitDraft(db, owner, id, 0, old), /参考照/);
+  const content = JSON.stringify(old), baseDigest = await digest(content);
+  db.prepare('INSERT INTO drafts(owner,id,version,digest,content) VALUES(?,?,1,?,?)').bind(owner,id,baseDigest,content).run();
+  db.prepare("UPDATE requests SET version=1,state='draft' WHERE owner=? AND id=?").bind(owner,id).run();
+  assert.deepEqual(await submitDraft(db, owner, id, 0, old), { version:1, digest:baseDigest });
+  const photo = { imageUrl:'https://media.example.org/garden.jpg', sourceUrl:'https://example.org/work/garden',
+    caption:'园林北门的回廊', credit:'摄影者', license:'CC BY 4.0', licenseUrl:'https://creativecommons.org/licenses/by/4.0/' };
+  const stops = [{ stopNumber:1, visuals:{ photos:[photo] } }];
+  const add = (items, account=owner, hash=baseDigest) => supplementPhotos(db, account, id, 1, hash, items);
+  for (const change of [{ imageUrl:'data:image/jpeg;base64,AAAA' }, { imageUrl:photo.sourceUrl },
+    { sourceUrl:'https://127.0.0.1/work' }, { licenseUrl:'javascript:alert(1)' }, { credit:'' }, { license:'' }])
+    await assert.rejects(add([{ stopNumber:1, visuals:{ photos:[{ ...photo, ...change }] } }]));
+  await assert.rejects(add([{ stopNumber:1, visuals:{ photos:[] } }]), /原因/);
+  await assert.rejects(add(stops,'other'), /刷新/);
+  await assert.rejects(add(stops,owner,'f'.repeat(64)), /刷新/);
+  const [receipt, retry] = await Promise.all([add(stops), add(stops)]);
+  assert.deepEqual(receipt, retry);
+  const pending = await getRequest(db, owner, id);
+  assert.equal(receipt.version, 2);
+  assert.equal(pending.state, 'draft');
+  assert.equal(pending.approvedDraft, null);
+  assert.deepEqual(pending.draft.content, { ...old, itinerary:{ ...old.itinerary, stops:[{ ...old.itinerary.stops[0], visuals:stops[0].visuals }] } });
+  await assert.rejects(review(db,owner,id,{ version:1, digest:baseDigest, decision:'approve' }), /刷新/);
+  await review(db,owner,id,{ ...receipt, decision:'approve' });
+  await assert.rejects(supplementPhotos(db,owner,id,2,receipt.digest,stops), /已有照片/);
+  await assert.rejects(add([{ stopNumber:1, visuals:{photos:[], unavailableReason:'没有授权'} }]), /版本/);
+  assert.equal((await getRequest(db, owner, id)).approvedDraft.digest, receipt.digest);
 });

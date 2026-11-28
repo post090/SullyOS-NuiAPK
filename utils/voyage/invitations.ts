@@ -1,5 +1,5 @@
 import { clearStaleMemoryMirror, openDB } from '../db';
-import { invitationText, INVITATIONS_CHANGED, VOYAGE_INVITE_PREFIX, type InvitationOccasion, type InvitationReply, type TravelInvitation, type TripDraft } from './letter';
+import { invitationText, INVITATIONS_CHANGED, matchesTripDigest, VOYAGE_INVITE_PREFIX, type InvitationOccasion, type InvitationReply, type TravelInvitation, type TripDraft } from './letter';
 import type { Message } from '../../types';
 
 const letterRange = () => IDBKeyRange.bound(VOYAGE_INVITE_PREFIX, VOYAGE_INVITE_PREFIX + '\uffff');
@@ -89,13 +89,16 @@ export function saveInvitationReply(id: string, charId: string, reply: Invitatio
     });
 }
 
-export function saveApprovedPlan(id: string, charId: string, approved: TripDraft) {
+export async function saveApprovedPlan(id: string, charId: string, approved: TripDraft) {
+    const verified = await matchesTripDigest(approved);
     return writeLetter(id, charId, current => {
         if (current?.reply?.decision !== 'accept') throw new Error('这封邀请尚未被接受。');
         const previous = current.approvedPlan;
-        if (previous && approved.version <= previous.version) {
-            if (previous.version === approved.version && previous.digest !== approved.digest) throw new Error('行程版本不一致，请核对连接的服务。');
-            return undefined;
+        if (previous && approved.version < previous.version) return undefined;
+        if (previous && approved.version === previous.version) {
+            if (previous.digest !== approved.digest) throw new Error('行程版本不一致，请核对连接的服务。');
+            if (JSON.stringify(previous.content) === JSON.stringify(approved.content)) return undefined;
+            if (!verified) throw new Error('收到的行程内容与已批准的摘要不一致，请刷新后再试。');
         }
         return { letter: { ...current, approvedPlan: approved } };
     });

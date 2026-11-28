@@ -1,3 +1,5 @@
+import { readStopPhotos, stopPhotosSchema, type StopPhotos } from './photos';
+
 export const MAX_VOYAGE_SOURCES = 32;
 const localClock = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const maxStops = 48;
@@ -22,6 +24,7 @@ export interface VoyageStop {
     scene: string;
     choices: string[];
     sourceNumbers: number[];
+    visuals?: StopPhotos;
 }
 export interface VoyageItinerary { timeZone: string; stops: VoyageStop[] }
 
@@ -31,8 +34,9 @@ export const itinerarySchema = {
         timeZone: { type: 'string', description: '目的地 IANA 时区，例如 Asia/Shanghai' },
         stops: { type: 'array', minItems: 1, maxItems: maxStops, items: {
             type: 'object', additionalProperties: false,
-            required: ['day', 'startLocal', 'durationMinutes', ...Object.keys(textFields), 'choices', 'sourceNumbers'],
+            required: ['day', 'startLocal', 'durationMinutes', ...Object.keys(textFields), 'choices', 'sourceNumbers', 'visuals'],
             properties: {
+                visuals: stopPhotosSchema,
                 day: { type: 'integer', minimum: 1, description: '旅程第几天，从 1 开始' },
                 startLocal: { type: 'string', pattern: localClock.source, description: '建议抵达的当地时间 HH:mm' },
                 durationMinutes: { type: 'integer', minimum: 1, maximum: 2880, description: '预计停留分钟，可调整' },
@@ -65,7 +69,7 @@ function readStop(input: unknown, sourceCount: number): VoyageStop {
     const field = (key: keyof typeof textFields) => readText(input[key], textFields[key][0], textFields[key][1]);
     return { day: input.day, startLocal: input.startLocal, durationMinutes: input.durationMinutes, place: field('place'),
         route: field('route'), cost: field('cost'), weatherPlan: field('weatherPlan'), placeNotes: field('placeNotes'), scene: field('scene'),
-        choices, sourceNumbers: input.sourceNumbers };
+        choices, sourceNumbers: input.sourceNumbers, ...(input.visuals !== undefined && { visuals: readStopPhotos(input.visuals) }) };
 }
 export function readItinerary(value: unknown, sourceCount: number): VoyageItinerary {
     if (!record(value) || !Array.isArray(value.stops) || !value.stops.length || value.stops.length > maxStops) throw new Error('请提交按站展开的行程资料');

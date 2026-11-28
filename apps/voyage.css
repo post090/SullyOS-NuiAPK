@@ -253,6 +253,11 @@
 .voyage-stops dt { margin-top: 12px; font-weight: 650; }
 .voyage-stops dd { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .voyage-stops dd a { margin-inline-end: 10px; }
+.voyage-photo { margin: 6px 0 14px; }
+.voyage-photo img { display: block; width: 100%; max-height: 42vh; object-fit: contain; border-radius: 8px; }
+.voyage-photo figcaption { margin-top: 4px; font-size: 14px; }
+.voyage-photo figcaption small { display: block; color: var(--voyage-muted); }
+.voyage-photo figcaption a { margin: 0; }
 .voyage-plan a {
   display: inline-block;
   max-width: 100%;

@@ -9,7 +9,9 @@ import {
   InputError,
   review,
   submitDraft,
+  supplementPhotos,
 } from './plans.mjs';
+import { stopPhotosSchema } from '../../utils/voyage/photos.ts';
 import { CallbackVerificationError, catalog, deliverPending, subscribedGrants, subscription } from './events.mjs';
 import { recordChatReview, referencePage } from './chat-review.mjs';
 
@@ -53,13 +55,22 @@ const tools = [
   },
   {
     name: 'submit_draft',
-    description: '提交草稿供主人在聊天中审阅。outline 只放总览。itinerary 每站提供转场、时长、费用、天气备选，以及有来源的在地事实、条件性的现场观察和开放选择。未知价格写待核实。',
+    description: '提交草稿供主人在聊天中审阅。outline 只放总览。每站提供转场、时长、费用、天气、在地事实、观察和选择。查找并打开有明确使用许可的本站实景照片，将照片、署名和授权存入 visuals，并在聊天展示。未知价格写待核实。',
     inputSchema: {
       type: 'object',
       required: ['requestId', 'baseVersion', 'draft'],
       additionalProperties: false,
       properties: { requestId: idArg, baseVersion: { type: 'integer', minimum: 0 }, draft: draftSchema },
     },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'supplement_stop_photos',
+    description: '为已有待审分站稿补充缺少的实景照片，站点从 1 开始。保留行程原文，生成新的待审版本。向主人展示新版本和照片，再等其决定。',
+    inputSchema: { type: 'object', additionalProperties: false, required: ['requestId','baseVersion','baseDigest','stops'],
+      properties: { requestId: idArg, baseVersion: { type: 'integer', minimum: 1 }, baseDigest: { type: 'string', pattern: '^[0-9a-f]{64}$' },
+        stops: { type: 'array', minItems: 1, maxItems: 48, items: { type: 'object', additionalProperties: false, required: ['stopNumber','visuals'],
+          properties: { stopNumber: { type: 'integer', minimum: 1 }, visuals: stopPhotosSchema } } } } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
 ];
@@ -149,6 +160,8 @@ const planner = {
         result = { id: row.id, state: row.state, version: row.version, feedback: row.feedback };
       } else if (params.name === 'submit_draft')
         result = await submitDraft(env.DB, owner, args.requestId, args.baseVersion, args.draft);
+      else if (params.name === 'supplement_stop_photos')
+        result = await supplementPhotos(env.DB, owner, args.requestId, args.baseVersion, args.baseDigest, args.stops);
       else return rpcError(id, -32602, 'Unknown tool');
       return rpc(id, { content: [{ type: 'text', text: JSON.stringify(result) }] });
     } catch (e) {

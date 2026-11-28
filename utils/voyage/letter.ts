@@ -8,6 +8,12 @@ export type TripDraft = {
     digest: string;
     content: { destination: string; outline: string; weather: string; alternatives: string; sources: string[]; itinerary?: VoyageItinerary };
 };
+/** The worker hashes its normalized content before versioning. Older clients may have projected away newer fields. */
+export async function matchesTripDigest(draft: TripDraft): Promise<boolean | undefined> {
+    if (!globalThis.crypto?.subtle) return undefined;
+    const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(draft.content)));
+    return Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('') === draft.digest;
+}
 export type InvitationOccasion = 'gift' | 'birthday';
 export type InvitationDecision = 'accept' | 'later' | 'decline';
 export type InvitationReply = { decision: InvitationDecision; text: string };

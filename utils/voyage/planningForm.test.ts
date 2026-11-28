@@ -2,13 +2,14 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import VoyagePlanning from '../../apps/VoyagePlanning';
 import { VoyageCharacterSettings } from '../../apps/VoyageContextFields';
 import { makeConnection, rememberConnection } from './planner';
 import { DB } from '../db';
 import type { TravelInvitation, TripDraft } from './letter';
+import * as invitations from './invitations';
 
 it('keeps notes with their recipient and sends exactly the preview only on submission', async () => {
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -91,4 +92,65 @@ it('opens approved old drafts and shows the practical and on-site details of a n
     }] } } });
     for (const text of ['11:20', '从车站沿步道到港口', '强风改去展馆', '参观免费', '旧码头的泊位编号', '若有船靠岸', '在长椅上休息', 'https://example.org/harbor'])
         expect(detailed).toContain(text);
+});
+
+it('loads reference photos on opening a stop and retains the attribution and source on image failure', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    const host = document.createElement('div'), root = createRoot(host);
+    const photo = { imageUrl:'https://upload.wikimedia.org/wikipedia/commons/1/12/Quay.jpg', sourceUrl:'https://example.org/works/quay',
+        caption:'港区旧码头', credit:'港口档案馆', license:'CC BY 4.0', licenseUrl:'https://creativecommons.org/licenses/by/4.0/' };
+    const base = { day:1, startLocal:'09:00', durationMinutes:20, place:'码头', route:'步行', cost:'免费',
+        weatherPlan:'雨天走廊', placeNotes:'旧泊位', scene:'看标牌', choices:['散步','休息'], sourceNumbers:[1] };
+    const approvedPlan: TripDraft = { version:2, digest:'b'.repeat(64), content:{ destination:'港口', outline:'散步',
+        weather:'待查', alternatives:'展馆', sources:['https://example.org/harbor'], itinerary:{ timeZone:'Asia/Shanghai', stops:[
+            { ...base, visuals:{photos:[photo]} }, { ...base, visuals:{photos:[],unavailableReason:'展馆没有发布可转载的照片'} },
+        ] } } };
+    try {
+        await act(async () => root.render(React.createElement(VoyagePlanning, { actor:{ id:'photo-reader',systemPrompt:'' }, worldbooks:[],
+            letter:{ id:'photo-trip', charId:'photo-reader', occasion:'gift',note:'', sentAt:1, approvedPlan } })));
+        expect(host.querySelector('img')).toBeNull();
+        const details = host.querySelectorAll('details');
+        await act(async () => { for (const item of details) { item.open = true; item.dispatchEvent(new Event('toggle')); } });
+        const img = host.querySelector('img')!;
+        expect(img.src).toBe('https://commons.wikimedia.org/wiki/Special:Redirect/file/Quay.jpg?width=960');
+        expect(img.alt).toBe(photo.caption);
+        await act(async () => img.dispatchEvent(new Event('error')));
+        expect(host.textContent).toContain('图片暂时无法加载');
+        expect(host.textContent).toContain(photo.credit);
+        expect(host.textContent).toContain('展馆没有发布可转载的照片');
+        expect(Array.from(host.querySelectorAll('figcaption a'), a => a.getAttribute('href'))).toEqual([photo.licenseUrl, photo.sourceUrl, photo.imageUrl]);
+    } finally {
+        await act(async () => root.unmount());
+        vi.unstubAllGlobals();
+    }
+});
+
+it('refreshes an incomplete cached approval on open while a complete old text approval stays offline', async () => {
+    vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+    vi.stubGlobal('crypto', webcrypto);
+    const host = document.createElement('div'), root = createRoot(host);
+    const content = { destination:'海港', outline:'步行', weather:'待查', alternatives:'休息', sources:['https://example.org/quay'] };
+    const signed = (text: typeof content) => ({ version:1, digest:createHash('sha256').update(JSON.stringify(text)).digest('hex'), content:text });
+    const full = signed(content);
+    const actor = { id:'older-reader',systemPrompt:'' };
+    const letter: TravelInvitation = { id:'older-snapshot', charId:actor.id, occasion:'gift',note:'',sentAt:1, reply:{at:2,decision:'accept',text:'好'} };
+    const save = vi.spyOn(invitations, 'saveApprovedPlan').mockResolvedValue({ ...letter, approvedPlan:full });
+    const fetcher = vi.fn(async (url:string) => url.endsWith('/status') ? Response.json({subscriptions:1}) :
+        Response.json({ id:url.split('/').pop(), brief:'半日', state:'approved', draft:full, approvedDraft:full }));
+    vi.stubGlobal('fetch', fetcher);
+    rememberConnection(makeConnection('https://planner.example.org', 's'.repeat(43)));
+    async function show(approvedPlan:TripDraft) {
+        await act(async () => root.render(React.createElement(VoyagePlanning, { actor, worldbooks:[], letter:{...letter,approvedPlan} })));
+    }
+    try {
+        await show(full);
+        expect(fetcher).not.toHaveBeenCalled();
+        await show({ ...full, content:{ ...content, outline:'旧版保留的文字' } });
+        await vi.waitFor(() => expect(save).toHaveBeenCalledWith(letter.id,actor.id,full));
+        expect(fetcher).toHaveBeenCalledTimes(2);
+    } finally {
+        await act(async () => root.unmount());
+        rememberConnection(null);
+        vi.restoreAllMocks(); vi.unstubAllGlobals();
+    }
 });

@@ -105,27 +105,59 @@ export async function getRequest(db, owner, id) {
 export async function submitDraft(db, owner, id, baseVersion, value) {
   checkId(id);
   if (!Number.isSafeInteger(baseVersion) || baseVersion < 0) throw new InputError('草稿基础版本无效');
-  const content = JSON.stringify(validateDraft(value));
+  const draft = validateDraft(value);
+  const content = JSON.stringify(draft);
   const hash = await digest(content);
   const version = baseVersion + 1;
-  if (value.itinerary === undefined) {
+  if (!draft.itinerary || draft.itinerary.stops.some(stop => !stop.visuals)) {
     // A pre-upgrade client may retry a draft that D1 already saved before its connection dropped.
     const previous = await db.prepare('SELECT digest FROM drafts WHERE owner=? AND id=? AND version=?')
       .bind(owner, id, version).first();
     if (previous?.digest === hash) return { version, digest: hash };
-    throw new InputError('新草稿需要每站的路线、费用、天气、现场资料和可选行动');
+    throw new InputError('新草稿需要每站的路线、费用、天气、现场资料、可选行动和实景参考照。找不到可用照片时请说明原因。');
   }
+  return saveVersion(db, owner, id, baseVersion, content, hash, 'requested', 'returned');
+}
+
+// Reconstruct from the immutable base version. A photo supplement cannot edit text or make a review decision.
+export async function supplementPhotos(db, owner, id, baseVersion, baseDigest, entries) {
+  checkId(id);
+  if (!Number.isSafeInteger(baseVersion) || baseVersion < 1 || typeof baseDigest !== 'string' || !/^[0-9a-f]{64}$/.test(baseDigest))
+    throw new InputError('请先读取待审版本');
+  const base = await db.prepare('SELECT content FROM drafts WHERE owner=? AND id=? AND version=? AND digest=?')
+    .bind(owner, id, baseVersion, baseDigest).first();
+  if (!base) throw new InputError('请刷新待审版本', 409);
+  const draft = JSON.parse(base.content);
+  const stops = draft.itinerary?.stops;
+  if (!stops || !Array.isArray(entries) || !entries.length || entries.length > stops.length)
+    throw new InputError('请给待审分站稿指定要补图的站点');
+  const seen = new Set();
+  for (const entry of entries) {
+    const n = entry?.stopNumber;
+    if (!Number.isSafeInteger(n) || n < 1 || n > stops.length || seen.has(n) || !entry.visuals)
+      throw new InputError('补图站点序号无效或重复');
+    seen.add(n);
+    if (stops[n - 1].visuals?.photos?.length) throw new InputError('更换已有照片需退回修改');
+    if (stops[n - 1].visuals && !entry.visuals.photos?.length) throw new InputError('本站已有缺图说明，请提供新照片');
+    stops[n - 1].visuals = entry.visuals;
+  }
+  const content = JSON.stringify(validateDraft(draft));
+  return saveVersion(db, owner, id, baseVersion, content, await digest(content), 'draft', 'draft');
+}
+
+async function saveVersion(db, owner, id, baseVersion, content, hash, firstState, secondState) {
+  const version = baseVersion + 1;
   await db.batch([
     db
       .prepare(
-        "INSERT INTO drafts SELECT owner,id,?,?,? FROM requests WHERE owner=? AND id=? AND version=? AND state IN ('requested','returned') ON CONFLICT DO NOTHING",
+        'INSERT INTO drafts SELECT owner,id,?,?,? FROM requests WHERE owner=? AND id=? AND version=? AND state IN (?,?) ON CONFLICT DO NOTHING',
       )
-      .bind(version, hash, content, owner, id, baseVersion),
+      .bind(version, hash, content, owner, id, baseVersion, firstState, secondState),
     db
       .prepare(
-        "UPDATE requests SET state='draft', version=? WHERE owner=? AND id=? AND version=? AND state IN ('requested','returned') AND EXISTS(SELECT 1 FROM drafts WHERE owner=? AND id=? AND version=? AND digest=?)",
+        "UPDATE requests SET state='draft', version=? WHERE owner=? AND id=? AND version=? AND state IN (?,?) AND EXISTS(SELECT 1 FROM drafts WHERE owner=? AND id=? AND version=? AND digest=?)",
       )
-      .bind(version, owner, id, baseVersion, owner, id, version, hash),
+      .bind(version, owner, id, baseVersion, firstState, secondState, owner, id, version, hash),
   ]);
   const row = await db
     .prepare('SELECT digest FROM drafts WHERE owner=? AND id=? AND version=?')

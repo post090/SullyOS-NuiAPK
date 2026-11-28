@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import JSZip from 'jszip';
+import { createHash } from 'node:crypto';
 import { DB, openDB } from '../db';
 import { exportActivityTextAsset, isActivityTextAsset } from '../activityBackup';
 import { assembleV2Backup, writeV2Backup } from '../backupFormat';
@@ -21,7 +22,9 @@ const draft: TripDraft = {
         alternatives: '雨天可选展馆', sources: ['https://example.org/guide'],
         itinerary: { timeZone: 'Asia/Shanghai', stops: [{ day: 1, startLocal: '10:00', durationMinutes: 45,
             place: '河边', route: '从车站步行十分钟', cost: '步行免费，茶饮价格待核实', weatherPlan: '降雨时可选展馆',
-            placeNotes: '导览收录了沿岸的旧桥', scene: '天气好时可以沿河辨认旧桥', choices: ['到桥头看桥拱', '在步道休息'], sourceNumbers: [1] }] }
+            placeNotes: '导览收录了沿岸的旧桥', scene: '天气好时可以沿河辨认旧桥', choices: ['到桥头看桥拱', '在步道休息'], sourceNumbers: [1],
+            visuals: { photos: [{ imageUrl:'https://media.example.org/bridge.jpg', sourceUrl:'https://example.org/works/bridge',
+                caption:'河岸旧桥', credit:'测试摄影者', license:'CC BY 4.0', licenseUrl:'https://creativecommons.org/licenses/by/4.0/' }] } }] }
     }
 };
 async function clearRecords() {
@@ -106,6 +109,19 @@ describe('旅行邀请', () => {
         await sendInvitation('other-letter', secondChar, 'gift', '');
         await DB.deleteCharacter(firstChar);
         expect((await listInvitations()).map(item => item.charId)).toEqual([secondChar]);
+    });
+    it('rehydrates fields dropped by an old APK only from the exact approved content', async () => {
+        const complete = { ...draft, digest:createHash('sha256').update(JSON.stringify(draft.content)).digest('hex') };
+        const partial = structuredClone(complete);
+        delete partial.content.itinerary!.stops[0].visuals;
+        await send();
+        await saveInvitationReply(inboxId, firstChar, { decision:'accept', text:'我想去看看。' });
+        await saveApprovedPlan(inboxId, firstChar, partial);
+        await expect(saveApprovedPlan(inboxId, firstChar, { ...complete, content:{ ...complete.content, outline:'其他内容' } })).rejects.toThrow(/摘要/);
+        expect((await listInvitations())[0].approvedPlan).toEqual(partial);
+        await saveApprovedPlan(inboxId, firstChar, complete);
+        expect((await listInvitations())[0].approvedPlan).toEqual(complete);
+        expect(await DB.getMessagesByCharId(firstChar)).toHaveLength(2);
     });
     it('restores the actual text ZIP from the Settings export path', async () => {
         const saved = await acceptAndApprove();

@@ -2,13 +2,61 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ArrowsClockwise, MapPin } from '@phosphor-icons/react';
 import { trackVoyageResult } from '../utils/voyage/analytics';
 import { saveApprovedPlan } from '../utils/voyage/invitations';
-import type { TravelInvitation, TripDraft } from '../utils/voyage/letter';
+import { matchesTripDigest, type TravelInvitation, type TripDraft } from '../utils/voyage/letter';
+import type { VoyageStop } from '../utils/voyage/itinerary';
+import { readStopPhotos, type VoyagePhoto } from '../utils/voyage/photos';
 import { allowChatReview, makeConnection, plannerRequestId, readConnection, readPlan, readPlannerStatus, rememberConnection, reviewPlan, submitBrief, type PlannerConnection, type PlannerRequest } from '../utils/voyage/planner';
 import type { CharacterProfile, Worldbook } from '../types';
 import VoyageContextFields, { useVoyageContext } from './VoyageContextFields';
 
 const stateLabels = { requested: '等待策划', draft: '等你审核', returned: '已退回修改', approved: '行程已批准' };
 type Operation = 'connect' | 'refresh' | 'submit' | 'approve' | 'return' | 'enableChat';
+
+function ReferencePhoto({ photo }: { photo: VoyagePhoto }) {
+    const [failed, setFailed] = useState(false);
+    const original = new URL(photo.imageUrl);
+    const filename = original.hostname === 'upload.wikimedia.org' &&
+        /^\/wikipedia\/commons\/[0-9a-f]\/[0-9a-f]{2}\/([^/]+\.(?:jpe?g|png|webp))$/i.exec(original.pathname)?.[1];
+    // Commons returns the original when it is already smaller than the requested width.
+    const preview = filename ? 'https://commons.wikimedia.org/wiki/Special:Redirect/file/' + filename + '?width=960' : photo.imageUrl;
+    return <figure className="voyage-photo">
+        {failed ? <small>图片暂时无法加载</small> :
+            <img src={preview} alt={photo.caption} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)}/>}
+        <figcaption>{photo.caption}<small>{photo.credit} · <a href={photo.licenseUrl} target="_blank" rel="noopener noreferrer">{photo.license}</a>
+            {' · '}<a href={photo.sourceUrl} target="_blank" rel="noopener noreferrer">原始作品</a>
+            {' · '}<a href={photo.imageUrl} target="_blank" rel="noopener noreferrer">打开图片</a></small></figcaption>
+    </figure>;
+}
+
+function StopReferences({ stop }: { stop: VoyageStop }) {
+    if (!stop.visuals) return null;
+    // Imported approvals can predate this client or come from an edited backup.
+    let visuals;
+    try { visuals = readStopPhotos(stop.visuals); } catch { return <><dt>实景参考照</dt><dd>本站照片资料无效</dd></>; }
+    return <><dt>实景参考照</dt><dd>{visuals.photos.length
+        ? visuals.photos.map(photo => <ReferencePhoto key={photo.imageUrl} photo={photo}/>)
+        : visuals.unavailableReason}</dd></>;
+}
+
+function PlanStop({ stop, sources }: { stop: VoyageStop; sources: string[] }) {
+    const [open, setOpen] = useState(false);
+    return <details onToggle={event => setOpen(event.currentTarget.open)}>
+        <summary><span>第 {stop.day} 天 · {stop.startLocal} · {stop.durationMinutes} 分钟</span><strong>{stop.place}</strong></summary>
+        <dl>
+            {open && <StopReferences stop={stop}/>}
+            <dt>怎么到</dt><dd>{stop.route}</dd>
+            <dt>预计当地费用</dt><dd>{stop.cost}</dd>
+            <dt>天气与备选</dt><dd>{stop.weatherPlan}</dd>
+            <dt>地点与故事</dt><dd>{stop.placeNotes}</dd>
+            <dt>到站可留意</dt><dd>{stop.scene}</dd>
+            <dt>可以怎么选</dt><dd><ul>{stop.choices.map(choice => <li key={choice}>{choice}</li>)}</ul></dd>
+            <dt>本站来源</dt><dd>{stop.sourceNumbers.map(n => {
+                const url = sources[n - 1];
+                return url && /^https:\/\//i.test(url) && <a key={n} href={url} target="_blank" rel="noopener noreferrer">来源 {n}</a>;
+            })}</dd>
+        </dl>
+    </details>;
+}
 
 function PlanPaper({ draft, approved }: { draft: TripDraft; approved: boolean }) {
     const { destination, outline, weather, alternatives, sources, itinerary } = draft.content;
@@ -17,21 +65,7 @@ function PlanPaper({ draft, approved }: { draft: TripDraft; approved: boolean })
         <h2>{destination}</h2><p>{outline}</p>
         {itinerary && <section className="voyage-stops">
             <h3>分站行程</h3><small>当地时间 · {itinerary.timeZone}</small>
-            {itinerary.stops.map((stop, index) => <details key={index}>
-                <summary><span>第 {stop.day} 天 · {stop.startLocal} · {stop.durationMinutes} 分钟</span><strong>{stop.place}</strong></summary>
-                <dl>
-                    <dt>怎么到</dt><dd>{stop.route}</dd>
-                    <dt>预计当地费用</dt><dd>{stop.cost}</dd>
-                    <dt>天气与备选</dt><dd>{stop.weatherPlan}</dd>
-                    <dt>地点与故事</dt><dd>{stop.placeNotes}</dd>
-                    <dt>到站可留意</dt><dd>{stop.scene}</dd>
-                    <dt>可以怎么选</dt><dd><ul>{stop.choices.map(choice => <li key={choice}>{choice}</li>)}</ul></dd>
-                    <dt>本站来源</dt><dd>{stop.sourceNumbers.map(n => {
-                        const url = sources[n - 1];
-                        return url && /^https:\/\//i.test(url) && <a key={n} href={url} target="_blank" rel="noopener noreferrer">来源 {n}</a>;
-                    })}</dd>
-                </dl>
-            </details>)}
+            {itinerary.stops.map((stop, index) => <PlanStop key={index} stop={stop} sources={sources}/>)}
         </section>}
         <h3>当地天气</h3><p>{weather}</p><h3>天气备选</h3><p>{alternatives}</p>
         <h3>资料来源</h3><ul>{sources.filter(url => /^https:\/\//i.test(url)).map((url, index) =>
@@ -47,6 +81,7 @@ export default function VoyagePlanning({ letter, actor, worldbooks }: { letter: 
     const context = useVoyageContext(actor, worldbooks);
     const [request, setRequest] = useState<PlannerRequest | null>(null);
     const [loaded, setLoaded] = useState(false);
+    const [incomplete, setIncomplete] = useState(false);
     const [brief, setBrief] = useState('');
     const [feedback, setFeedback] = useState('');
     const [returning, setReturning] = useState(false);
@@ -69,6 +104,8 @@ export default function VoyagePlanning({ letter, actor, worldbooks }: { letter: 
             if (op === 'refresh' || op === 'connect') {
                 const [service, remote] = await Promise.all([readPlannerStatus(c, signal), readPlan(c, id, signal)]);
                 if (signal.aborted) return;
+                if (letter.approvedPlan && incomplete && (remote?.approvedDraft?.version !== letter.approvedPlan.version ||
+                    remote.approvedDraft.digest !== letter.approvedPlan.digest)) throw new Error('服务中没有找到这份已批准的行程。');
                 setStatus(service); setConnection(c); cachedConnection.current = c; rememberConnection(c); setPassword('');
                 row = remote;
             } else if (op === 'submit') {
@@ -95,32 +132,46 @@ export default function VoyagePlanning({ letter, actor, worldbooks }: { letter: 
         }
     }
     useEffect(() => {
+        let current = true;
+        const plan = letter.approvedPlan;
+        setIncomplete(false);
+        if (plan && (!plan.content.itinerary || plan.content.itinerary.stops.some(stop => !stop.visuals))) {
+            void matchesTripDigest(plan).then(matches => { if (current) setIncomplete(matches === false); });
+        }
+        return () => { current = false; };
+    }, [letter.approvedPlan]);
+    useEffect(() => () => { pending.current?.abort(); pending.current = null; }, [letter.id, letter.charId]);
+    useEffect(() => {
         const refresh = () => {
-            if (document.visibilityState !== 'hidden' && !letter.approvedPlan && cachedConnection.current) void run('refresh', cachedConnection.current);
+            if (document.visibilityState !== 'hidden' && (!letter.approvedPlan || incomplete) && cachedConnection.current) void run('refresh', cachedConnection.current);
         };
         refresh();
         document.addEventListener('visibilitychange', refresh);
-        return () => { document.removeEventListener('visibilitychange', refresh); pending.current?.abort(); pending.current = null; };
-    }, [letter.id, letter.charId, letter.approvedPlan]);
+        return () => document.removeEventListener('visibilitychange', refresh);
+    }, [letter.id, letter.charId, letter.approvedPlan, incomplete]);
 
     function disconnect() {
         rememberConnection(null); cachedConnection.current = null; setConnection(null); setStatus(null); setRequest(null);
         setAddress(''); setPassword(''); setLoaded(false); setError(''); setReturning(false); setFeedback('');
     }
     const approved = letter.approvedPlan ?? request?.approvedDraft;
+    const connectForm = <section className="voyage-paper">
+            <h3>连接旅行服务</h3>
+            <label className="voyage-field">服务地址<input type="url" autoCapitalize="none" spellCheck={false} value={address} placeholder="https://" onChange={e => { setAddress(e.target.value); setPassword(''); }}/></label>
+            <label className="voyage-field">设备配对码<input type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/></label>
+            <button className="voyage-primary" disabled={busy || !address || !password} onClick={() => void run('connect')}>连接</button>
+        </section>;
     if (approved) return <div className="voyage-planning"><PlanPaper draft={approved} approved/>
-        {connection && <button className="voyage-link" onClick={disconnect}>断开本机连接</button>}</div>;
+        {incomplete && <><p>本机只保存了部分已批准资料。</p>{connection
+            ? <button disabled={busy} onClick={() => void run('refresh')}>同步完整行程</button> : connectForm}</>}
+        {busy && <p role="status">正在同步…</p>}{error && <p className="voyage-error" role="alert">{error}</p>}
+        {connection && <button className="voyage-link" disabled={busy} onClick={disconnect}>断开本机连接</button>}</div>;
     return <div className="voyage-planning">
         {connection ? <section className="voyage-connection">
             <strong>{!status ? '旅行策划' : status.subscriptions > 0 ? 'Dot 已订阅' : '等待 Dot 订阅'}</strong>
             <div className="voyage-tools"><button disabled={busy} onClick={() => void run('refresh')}><ArrowsClockwise size={16}/>刷新</button>
                 <button disabled={busy} onClick={disconnect}>断开本机连接</button></div>
-        </section> : <section className="voyage-paper">
-            <h3>连接旅行服务</h3>
-            <label className="voyage-field">服务地址<input type="url" autoCapitalize="none" spellCheck={false} value={address} placeholder="https://" onChange={e => { setAddress(e.target.value); setPassword(''); }}/></label>
-            <label className="voyage-field">设备配对码<input type="password" autoComplete="off" value={password} onChange={e => setPassword(e.target.value)}/></label>
-            <button className="voyage-primary" disabled={busy || !address || !password} onClick={() => void run('connect')}>连接</button>
-        </section>}
+        </section> : connectForm}
         {!request && (!connection || loaded) && <VoyageContextFields context={context} busy={busy}/>}
         {loaded && connection && !request && <section className="voyage-paper">
             <label className="voyage-field">给 Dot 的旅行简报<textarea rows={5} maxLength={2000} value={brief} onChange={e => setBrief(e.target.value)} placeholder="想去哪里，何时有空，有什么期待"/></label>
