@@ -49,7 +49,7 @@ beforeEach(async () => {
 const send = () => sendInvitation(inboxId, firstChar, 'birthday', '慢慢选一个想去的地方。');
 async function acceptAndApprove() {
     await send();
-    await saveInvitationReply(inboxId, firstChar, { decision: 'accept', text: '我想去看看。' });
+    await saveInvitationReply(inboxId, firstChar, parseInvitationReply({ decision: 'accept', text: '我想去看看。', moodSticker: '好奇' }));
     return saveApprovedPlan(inboxId, firstChar, draft);
 }
 
@@ -63,8 +63,8 @@ describe('旅行邀请', () => {
         const main = '  主提示词原文\n  保留空格。';
         const choice = { mode: 'main' as const, prompt: ' 自定义\n原文 ', extraNote: ' 留一段自由时间。\n下雨也可以逛书店。 ', worldbookIds: [mounted.id, other.id, 'removed'] };
         expect(buildVoyageReference(main, books, await readContextChoice(firstChar))).toBe('【角色主提示词】\n' + main);
-        expect(buildVoyageReference(main, books, choice)).toBe('【角色主提示词】\n' + main + '\n\n【附加叮嘱】\n' + choice.extraNote + '\n\n【世界书 · 同名条目】\n' + mounted.content);
-        expect(buildVoyageReference(main, books, { ...choice, mode: 'custom' })).toBe('【自定义提示词】\n' + choice.prompt + '\n\n【世界书 · 同名条目】\n' + mounted.content);
+        expect(buildVoyageReference(main, books, choice)).toBe('【角色主提示词】\n' + main + '\n\n【附加叮嘱】\n' + choice.extraNote + '\n\n【世界书《同名条目》】\n' + mounted.content);
+        expect(buildVoyageReference(main, books, { ...choice, mode: 'custom' })).toBe('【自定义提示词】\n' + choice.prompt + '\n\n【世界书《同名条目》】\n' + mounted.content);
         expect(buildVoyageReference(main, books, { ...choice, extraNote: '  ', worldbookIds: [] })).toBe('【角色主提示词】\n' + main);
         expect(buildVoyageReference(main, books, { ...choice, mode: 'none', worldbookIds: [] })).toBe('');
         await saveContextChoice(firstChar, choice);
@@ -102,6 +102,8 @@ describe('旅行邀请', () => {
         expect(await DB.getMessagesByCharId(firstChar)).toHaveLength(3);
         await expect(saveApprovedPlan(inboxId, firstChar, draft)).rejects.toThrow(/尚未被接受/);
         expect(() => parseInvitationReply({ decision: 'accept', text: '' })).toThrow();
+        expect(parseInvitationReply({ ...no, moodSticker: '随便填的文字' })).toEqual(no);
+        expect(parseInvitationReply(no)).toEqual(no);
     });
     it('stores only the approved snapshot without another chat message and rejects inconsistent versions', async () => {
         const saved = await acceptAndApprove();
@@ -127,6 +129,7 @@ describe('旅行邀请', () => {
     });
     it('restores the actual text ZIP from the Settings export path', async () => {
         const saved = await acceptAndApprove();
+        expect(saved.reply?.moodSticker).toBe('好奇');
         const zip = new JSZip();
         const textStore = await streamBackupArrayStore(zip, 'assets', 'activityTextAssets', { transform: exportActivityTextAsset });
         await writeV2Backup(zip, { collaborationBackupMode: 'text_only' }, { prewrittenStores: { activityTextAssets: textStore } });

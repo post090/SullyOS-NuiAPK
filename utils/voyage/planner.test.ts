@@ -63,7 +63,7 @@ it('rejects oversized notes before sending and reports a service that dropped th
     expect(oldServer).toHaveBeenCalledTimes(1);
 });
 it('allows only fixed action labels in voyage analytics', () => {
-    for (const value of [id, content, 'private-url', c.token]) {
+    for (const value of [id, content, 'private-url', c.token, '慢悠悠']) {
         trackVoyageResult(value, true); trackVoyageResult(value, false);
     }
     trackVoyageResult('refresh',true);

@@ -16,7 +16,10 @@ export async function matchesTripDigest(draft: TripDraft): Promise<boolean | und
 }
 export type InvitationOccasion = 'gift' | 'birthday';
 export type InvitationDecision = 'accept' | 'later' | 'decline';
-export type InvitationReply = { decision: InvitationDecision; text: string };
+export const voyageMoods = ['期待', '好奇', '慢悠悠', '想静静', '有点累', '忐忑'] as const;
+export type VoyageMood = typeof voyageMoods[number];
+export const readVoyageMood = (value: unknown) => voyageMoods.find(mood => mood === value);
+export type InvitationReply = { decision: InvitationDecision; text: string; moodSticker?: VoyageMood };
 export interface TravelInvitation {
     id: string;
     charId: string;
@@ -37,7 +40,7 @@ export function invitationStatus(letter: TravelInvitation): string {
 
 export function invitationText(occasion: InvitationOccasion, note: string): string {
     const title = invitationTitle(occasion);
-    return `[旅迹 · ${title}] 送你一次旅费全免的旅行。去哪里、什么时候出发、想邀请谁同行，都由你决定。你也可以晚些再想，或者婉拒。${note ? '\n\n' + note : ''}`;
+    return `[旅迹 ${title}] 送你一次旅费全免的旅行。去哪里、什么时候出发、想邀请谁同行，都由你决定。你也可以晚些再想，或者婉拒。${note ? '\n\n' + note : ''}`;
 }
 
 export function parseInvitationReply(value: unknown): InvitationReply {
@@ -45,7 +48,8 @@ export function parseInvitationReply(value: unknown): InvitationReply {
         const { decision, text } = value;
         if ((decision === 'accept' || decision === 'later' || decision === 'decline')
             && typeof text === 'string' && text.trim() && text.trim().length <= 2000) {
-            return { decision, text: text.trim() };
+            const moodSticker = readVoyageMood('moodSticker' in value ? value.moodSticker : undefined);
+            return { decision, text: text.trim(), ...(moodSticker && { moodSticker }) };
         }
     }
     throw new Error('没有收到完整回信，邀请已保留，可以重试。');

@@ -62,12 +62,12 @@ export default function VoyageContextFields({ context, busy }: { context: Return
             onChange={e => onChange({ ...choice, extraNote: e.target.value })}/></label>}
         {choice.mode === 'custom' && <label className="voyage-field">自定义提示词<textarea value={choice.prompt} rows={5}
             onChange={e => onChange({ ...choice, prompt: e.target.value })}/></label>}
-        {books.size > 0 ? <details><summary>附带世界书 · {choice.worldbookIds.length} 项</summary>
+        {books.size > 0 ? <details><summary>附带世界书 <small>{choice.worldbookIds.length} 项</small></summary>
             <div className="voyage-book-list">{Array.from(books.values(), book =>
                 <label key={book.id}><input type="checkbox" checked={choice.worldbookIds.includes(book.id)} onChange={e => {
                     const worldbookIds = e.target.checked ? [...choice.worldbookIds, book.id] : choice.worldbookIds.filter(id => id !== book.id);
                     onChange({ ...choice, worldbookIds });
-                }}/><span>{book.category && <small>{book.category} · </small>}{book.title}</span></label>
+                }}/><span>{book.title}{book.category && <small className="voyage-category">{book.category}</small>}</span></label>
             )}</div></details> : <small className="voyage-muted">这位角色没有已启用的挂载世界书</small>}
         <details><summary>预览发送的角色资料</summary><pre>{reference || '只发送旅行简报'}</pre></details>
         <button type="button" className="voyage-link" disabled={saved} onClick={() => void onSave()}>{saved ? '已保存' : '保存此角色的选择'}</button>

@@ -56,7 +56,7 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
     }
     const note = ' 途中可以休息。\n也可以去海边。 ';
     const withoutBook = '【角色主提示词】\n' + one.systemPrompt + '\n\n【附加叮嘱】\n' + note;
-    const preview = withoutBook + '\n\n【世界书 · 旅行背景】\n' + attached.content;
+    const preview = withoutBook + '\n\n【世界书《旅行背景》】\n' + attached.content;
     try {
         await render(setting(one));
         expect(host.querySelectorAll('input[type=checkbox]')).toHaveLength(1);
@@ -71,7 +71,7 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
         expect(host.querySelector('textarea')!.value).toBe('');
         expect(host.querySelector('pre')?.textContent).toBe('【角色主提示词】\n' + two.systemPrompt);
         await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
-        expect(host.querySelector('pre')?.textContent).toBe('【角色主提示词】\n' + two.systemPrompt + '\n\n【世界书 · 旅行背景】\n' + other.content);
+        expect(host.querySelector('pre')?.textContent).toBe('【角色主提示词】\n' + two.systemPrompt + '\n\n【世界书《旅行背景》】\n' + other.content);
         expect(fetcher).not.toHaveBeenCalled();
         rememberConnection(connection);
         await render(React.createElement(VoyagePlanning, { letter, actor: one }));
@@ -120,6 +120,8 @@ it('opens approved old drafts and shows the practical and on-site details of a n
     }] } } });
     for (const text of ['11:20', '从车站沿步道到港口', '强风改去展馆', '参观免费', '旧码头的泊位编号', '若有船靠岸', '在长椅上休息', 'https://example.org/harbor'])
         expect(detailed).toContain(text);
+    expect(detailed).toContain('天气资料');
+    expect(detailed).not.toContain('·');
 });
 
 it('loads reference photos on opening a stop and retains the attribution and source on image failure', async () => {

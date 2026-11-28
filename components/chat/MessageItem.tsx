@@ -2403,7 +2403,7 @@ const MessageItem = React.memo(({
             className="sully-chat-card-face max-w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-slate-800 shadow-sm"
             onClick={() => onOpenVoyageInvitation(id, m.charId)}>
             <strong className="block text-base">{title}</strong>
-            <span className="mt-2 block whitespace-pre-wrap break-words text-sm">{m.content.replace(/^\[旅迹 · [^\]]+\]\s*/, '')}</span>
+            <span className="mt-2 block whitespace-pre-wrap break-words text-sm">{m.content.replace(/^\[旅迹 (?:· )?[^\]]+\]\s*/, '')}</span>
             <span className="mt-3 block border-t border-slate-200 pt-2 text-xs text-slate-600">查看邀请 ›</span>
         </button>);
     }

@@ -27,8 +27,12 @@ it('opens only the original invitation from the recipient chat, preserving ordin
         await render(msg);
         const find = () => host.querySelector<HTMLButtonElement>('button[aria-label="查看生日旅行邀请"]');
         expect(find()?.textContent).toContain('请选自己想去的地方。');
+        expect(find()?.textContent).not.toContain('[旅迹');
         find()!.click();
         expect(open).toHaveBeenCalledWith('test-letter','test-recipient');
+        await render({ ...msg, content: msg.content.replace('[旅迹 ', '[旅迹 · ') });
+        expect(find()?.textContent).toContain('请选自己想去的地方。');
+        expect(find()?.textContent).not.toContain('[旅迹');
         await render(msg,true); expect(find()?.disabled).toBe(true);
         await render({...msg,role:'assistant',content:'我想去看看。'});
         expect(find()).toBeNull(); expect(host.textContent).toContain('我想去看看。');

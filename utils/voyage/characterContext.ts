@@ -39,7 +39,7 @@ export function buildVoyageReference(mainPrompt: string, books: Map<string, Moun
     if (choice.mode === 'main' && choice.extraNote.trim()) sections.push('【附加叮嘱】\n' + choice.extraNote);
     for (const id of new Set(choice.worldbookIds)) {
         const book = books.get(id);
-        if (book?.content?.trim()) sections.push('【世界书 · ' + book.title + '】\n' + book.content);
+        if (book?.content?.trim()) sections.push('【世界书《' + book.title + '》】\n' + book.content);
     }
     return sections.join('\n\n');
 }

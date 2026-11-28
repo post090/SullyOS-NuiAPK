@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CaretLeft, CaretRight, EnvelopeOpen, PaperPlaneTilt, PencilSimpleLine, SlidersHorizontal, Suitcase } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, PaperPlaneTilt, PencilSimpleLine, SlidersHorizontal } from '@phosphor-icons/react';
 import { AppID } from '../types';
 import { useOS } from '../context/OSContext';
 import { useLocalBackHandler } from '../hooks/useLocalBackHandler';
 import { createLocalId } from '../utils/localId';
 import { trackVoyageResult } from '../utils/voyage/analytics';
 import { listInvitations, sendInvitation } from '../utils/voyage/invitations';
-import { INVITATIONS_CHANGED, invitationStatus, invitationTitle, type InvitationOccasion, type TravelInvitation } from '../utils/voyage/letter';
+import { INVITATIONS_CHANGED, invitationStatus, invitationTitle, readVoyageMood, type InvitationOccasion, type TravelInvitation } from '../utils/voyage/letter';
 import { requestInvitationReply } from '../utils/voyage/reply';
 import TokenImg from '../components/os/TokenImg';
 import VoyagePlanning from './VoyagePlanning';
@@ -16,6 +16,14 @@ import './voyage.css';
 
 type Page = 'list' | 'compose' | 'letter' | 'planning' | 'context';
 const sentDate = (at: number) => new Date(at).toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
+
+function ReplySticker({ value }: { value: unknown }) {
+    const mood = readVoyageMood(value);
+    if (!mood) return null;
+    return <span className="voyage-mood" data-mood={mood} role="img" aria-label={'回信心情贴纸 ' + mood}>
+        <span className="voyage-sticker" aria-hidden="true"/><span>{mood}</span>
+    </span>;
+}
 
 export default function VoyageApp() {
     const { characters, theme, userProfile, apiConfig, activeCharacterId, setActiveCharacterId, openApp, closeApp } = useOS();
@@ -98,14 +106,15 @@ export default function VoyageApp() {
         } finally { controller.current = undefined; working.current = false; if (alive.current) setBusy(false); }
     }
 
-    return <div className={`voyage-app ${theme.darkMode ? 'voyage-dark' : ''}`} style={{ '--voyage-hue': theme.hue } as React.CSSProperties}>
+    return <div className={`voyage-app ${theme.darkMode ? 'voyage-dark' : ''}`}>
         <header className="voyage-bar"><button aria-label="返回" onClick={() => { if (!back()) closeApp(); }}><CaretLeft size={22}/></button>
-            <h1>{{ list: '旅迹', compose: '写邀请', letter: '邀请详情', planning: '旅行策划', context: '策划资料' }[page]}</h1>
+            <h1>{{ list: '旅迹', compose: '写邀请', letter: letter?.approvedPlan ? '旅行手账' : '邀请详情',
+                planning: letter?.approvedPlan ? '行程册' : '旅行策划', context: '策划资料' }[page]}</h1>
             {page === 'list' && characters.length > 0 && <button aria-label="写旅行邀请" onClick={compose}><PencilSimpleLine size={22}/></button>}
         </header>
         <main className="voyage-body">
             {page === 'list' && <>
-                <section className="voyage-gift"><EnvelopeOpen size={36} weight="duotone"/>
+                <section className="voyage-gift voyage-stationery"><span className="voyage-sticker voyage-postage" aria-hidden="true"/>
                     <h2>旅行邀请</h2><button className="voyage-primary" disabled={!characters.length} onClick={compose}>写一封邀请 <PaperPlaneTilt size={16}/></button>
                 </section>
                 {characters.length > 0 && <button className="voyage-row" onClick={() => {
@@ -117,7 +126,7 @@ export default function VoyageApp() {
                 {letters.filter(item => characters.some(c => c.id === item.charId)).map(item => {
                     const c = characters.find(c => c.id === item.charId)!;
                     return <button className="voyage-row" key={item.id} onClick={() => show(item)}>
-                        <TokenImg src={c.avatar} alt="" className="voyage-avatar"/><span><strong>{c.name}</strong><small>{invitationTitle(item.occasion)} · {sentDate(item.sentAt)}</small></span>
+                        <TokenImg value={c.avatar} alt="" className="voyage-avatar"/><span><strong>{c.name}</strong><small className="voyage-meta"><span>{invitationTitle(item.occasion)}</span><span>{sentDate(item.sentAt)}</span></small></span>
                         <em>{invitationStatus(item)}</em><CaretRight size={15}/></button>;
                 })}
                 {loaded && !letters.some(item => characters.some(c => c.id === item.charId)) && <p className="voyage-muted">还没有送出的邀请</p>}
@@ -130,20 +139,25 @@ export default function VoyageApp() {
                 {actor && <VoyageCharacterSettings key={actor.id} actor={actor}/>}
             </>}
             {page === 'compose' && <>
-                <label className="voyage-field">收件人<select value={recipient} onChange={e => setRecipient(e.target.value)}>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+                <label className="voyage-field voyage-recipient">收件人<span>{actor && <TokenImg value={actor.avatar} alt="" className="voyage-avatar"/>}
+                    <select value={recipient} onChange={e => setRecipient(e.target.value)}>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></span></label>
                 <div className="voyage-switch" aria-label="邀请类型">{(['gift', 'birthday'] as const).map(kind => <button key={kind} aria-pressed={occasion === kind} onClick={() => setOccasion(kind)}>{kind === 'gift' ? '旅行赠礼' : '生日赠礼'}</button>)}</div>
-                <section className="voyage-paper"><Suitcase size={27}/><h2>{invitationTitle(occasion)}</h2>
+                <section className="voyage-paper voyage-stationery"><span className="voyage-sticker voyage-postage" aria-hidden="true"/>
+                    <div className="voyage-letter-head"><small>给{actor?.name || '收件人'}</small><h2>{invitationTitle(occasion)}</h2></div>
                     <p>旅费全免，目的地、出发日和同行者由收件人决定。</p>
                     <label className="voyage-field">你的留言<textarea value={note} maxLength={600} rows={4} placeholder="想写给对方的话" onChange={e => setNote(e.target.value)}/></label>
                 </section>
                 <button className="voyage-primary" disabled={busy || !actor} onClick={() => void run('send')}>{busy ? '正在送出…' : '送出邀请'} <PaperPlaneTilt size={17}/></button>
             </>}
             {page === 'letter' && letter && <>
-                <section className="voyage-paper"><EnvelopeOpen size={29}/><small>{sentDate(letter.sentAt)} · {invitationStatus(letter)}</small>
-                    <h2>{invitationTitle(letter.occasion)}</h2><strong>给{actor?.name || '收件人'}</strong>
-                    {letter.note && <p className="voyage-letter-text">{letter.note}</p>}<p className="voyage-muted">旅费全免 · {letter.approvedPlan ? '行程已批准' : '出发日待定'}</p>
+                {letter.approvedPlan && <header className="voyage-book-title"><small>出发前</small><h2>{letter.approvedPlan.content.destination}</h2></header>}
+                <section className="voyage-paper voyage-stationery"><span className="voyage-sticker voyage-postage" aria-hidden="true"/>
+                    <div className="voyage-letter-head"><small>给{actor?.name || '收件人'}</small><h2>{invitationTitle(letter.occasion)}</h2></div>
+                    <small className="voyage-meta"><span>{sentDate(letter.sentAt)}</span><span>{invitationStatus(letter)}</span></small>
+                    {letter.note && <p className="voyage-letter-text">{letter.note}</p>}<p className="voyage-muted voyage-meta"><span>旅费全免</span>{!letter.approvedPlan && <span>出发日待定</span>}</p>
                 </section>
-                {letter.reply ? <section className="voyage-answer"><h3>{actor?.name}的回信</h3><p className="voyage-letter-text">{letter.reply.text}</p></section>
+                {letter.reply ? <section className="voyage-answer voyage-reply-paper"><h3>{actor?.name}的回信</h3><p className="voyage-letter-text">{letter.reply.text}</p>
+                    <ReplySticker value={letter.reply.moodSticker}/></section>
                     : <button className="voyage-primary" disabled={busy || !actor} onClick={() => void run('reply')}>{busy ? '正在等回信…' : '请对方回信'}</button>}
                 {letter.reply?.decision === 'later' && <button className="voyage-link" disabled={busy || !actor} onClick={() => void run('reply')}>{busy ? '正在等回信…' : '再问问对方'}</button>}
                 {letter.reply?.decision === 'accept' && <button className="voyage-primary" onClick={() => setPage('planning')}>{letter.approvedPlan ? '查看行程' : '旅行策划'} <CaretRight size={16}/></button>}

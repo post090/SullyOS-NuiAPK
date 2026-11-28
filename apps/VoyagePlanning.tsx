@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ArrowsClockwise, MapPin } from '@phosphor-icons/react';
+import { ArrowsClockwise } from '@phosphor-icons/react';
 import { trackVoyageResult } from '../utils/voyage/analytics';
 import { saveApprovedPlan } from '../utils/voyage/invitations';
 import { matchesTripDigest, type TravelInvitation, type TripDraft } from '../utils/voyage/letter';
@@ -22,9 +22,9 @@ function ReferencePhoto({ photo }: { photo: VoyagePhoto }) {
     return <figure className="voyage-photo">
         {failed ? <small>图片暂时无法加载</small> :
             <img src={preview} alt={photo.caption} loading="lazy" decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)}/>}
-        <figcaption>{photo.caption}<small>{photo.credit} · <a href={photo.licenseUrl} target="_blank" rel="noopener noreferrer">{photo.license}</a>
-            {' · '}<a href={photo.sourceUrl} target="_blank" rel="noopener noreferrer">原始作品</a>
-            {' · '}<a href={photo.imageUrl} target="_blank" rel="noopener noreferrer">打开图片</a></small></figcaption>
+        <figcaption>{photo.caption}<small className="voyage-meta"><span>{photo.credit}</span><a href={photo.licenseUrl} target="_blank" rel="noopener noreferrer">{photo.license}</a>
+            <a href={photo.sourceUrl} target="_blank" rel="noopener noreferrer">原始作品</a>
+            <a href={photo.imageUrl} target="_blank" rel="noopener noreferrer">打开图片</a></small></figcaption>
     </figure>;
 }
 
@@ -41,7 +41,7 @@ function StopReferences({ stop }: { stop: VoyageStop }) {
 function PlanStop({ stop, sources }: { stop: VoyageStop; sources: string[] }) {
     const [open, setOpen] = useState(false);
     return <details onToggle={event => setOpen(event.currentTarget.open)}>
-        <summary><span>第 {stop.day} 天 · {stop.startLocal} · {stop.durationMinutes} 分钟</span><strong>{stop.place}</strong></summary>
+        <summary><span className="voyage-meta"><span>第 {stop.day} 天</span><time>{stop.startLocal}</time><span>{stop.durationMinutes} 分钟</span></span><strong>{stop.place}</strong></summary>
         <dl>
             {open && <StopReferences stop={stop}/>}
             <dt>怎么到</dt><dd>{stop.route}</dd>
@@ -61,13 +61,14 @@ function PlanStop({ stop, sources }: { stop: VoyageStop; sources: string[] }) {
 function PlanPaper({ draft, approved }: { draft: TripDraft; approved: boolean }) {
     const { destination, outline, weather, alternatives, sources, itinerary } = draft.content;
     return <article className="voyage-paper voyage-plan">
-        <MapPin size={25}/><small>{approved ? '已批准' : '待审核'} · 第 {draft.version} 版</small>
+        <small className="voyage-meta"><span>{approved ? '已批准' : '待审核'}</span><span>第 {draft.version} 版</span></small>
         <h2>{destination}</h2><p>{outline}</p>
         {itinerary && <section className="voyage-stops">
-            <h3>分站行程</h3><small>当地时间 · {itinerary.timeZone}</small>
+            <h3>分站行程</h3><small className="voyage-meta"><span>当地时间</span><span>{itinerary.timeZone}</span></small>
             {itinerary.stops.map((stop, index) => <PlanStop key={index} stop={stop} sources={sources}/>)}
         </section>}
-        <h3>当地天气</h3><p>{weather}</p><h3>天气备选</h3><p>{alternatives}</p>
+        <section className="voyage-weather"><span className="voyage-sticker voyage-weather-sticker" aria-hidden="true"/>
+            <h3>天气资料</h3><p>{weather}</p><h3>天气备选</h3><p>{alternatives}</p></section>
         <h3>资料来源</h3><ul>{sources.filter(url => /^https:\/\//i.test(url)).map((url, index) =>
             <li key={index}><a href={url} target="_blank" rel="noopener noreferrer">{url}</a></li>)}</ul>
     </article>;
@@ -185,7 +186,7 @@ export default function VoyagePlanning({ letter, actor }: { letter: TravelInvita
             {request.referenceText && <details><summary>已发送的角色资料</summary><p className="voyage-letter-text">{request.referenceText}</p></details>}
             {request.reviewMode === 'chat' && request.state === 'draft' && <p>在点点的聊天里回复「通过」，或告诉它想改哪里。</p>}
             {request.reviewMode === 'device' && status?.chatReviewAvailable && <button className="voyage-link" disabled={busy} onClick={() => void run('enableChat')}>改为在点点聊天中审核</button>}
-            {request.state === 'returned' && <p className="voyage-letter-text">修改意见 · {request.feedback}</p>}
+            {request.state === 'returned' && <><h3>修改意见</h3><p className="voyage-letter-text">{request.feedback}</p></>}
         </section>}
         {request?.state === 'draft' && request.draft && <>
             <PlanPaper draft={request.draft} approved={false}/>

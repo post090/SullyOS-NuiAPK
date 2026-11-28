@@ -4,7 +4,7 @@ import { ContextBuilder } from '../context';
 import { normalizeLlmBaseUrl } from '../llmEndpoint';
 import { injectMemoryPalace } from '../memoryPalace/pipeline';
 import { extractContent, extractJson, safeFetchJson } from '../safeApi';
-import { invitationText, parseInvitationReply, type TravelInvitation } from './letter';
+import { invitationText, parseInvitationReply, voyageMoods, type TravelInvitation } from './letter';
 import { listInvitations, saveInvitationReply } from './invitations';
 import { resolveCharacterUser } from '../userPersona';
 import { SESSION_SPACE_ID } from '../userSpaces';
@@ -21,6 +21,7 @@ export async function requestInvitationReply(letter: TravelInvitation, actor: Ch
         await injectMemoryPalace(char, undefined, prompt, resolveCharacterUser(user, char).name);
         const messages = await ContextBuilder.buildCharacterRequest({
             char, user, instructions: '你收到对方亲自送来的虚拟旅行邀请。按自己的意愿，用平时私聊的口吻回一封短笺。可以接受、晚些再决定或婉拒。可以提想去的方向或请假的打算。只发生了送邀请这件事，尚未确定行程、请假或出发。只输出 JSON，对象内 decision 是 accept、later、decline 之一，text 是你写给对方的回信。'
+                + '如果想在信上贴一张表达此刻心情的贴纸，可在 moodSticker 填入' + voyageMoods.join('、') + '之一，也可以省略。'
         }, [{ role: 'user', content: prompt }]);
         const data = await safeFetchJson(normalizeLlmBaseUrl(api.baseUrl, api.apiType) + '/chat/completions', {
             method: 'POST', signal, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + (api.apiKey || 'sk-none') },
