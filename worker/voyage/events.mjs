@@ -175,15 +175,15 @@ async function activeGrants(env, owner) {
   } while (cursor);
   return grants;
 }
-export async function subscriptionCount(env, owner) {
+export async function subscribedGrants(env, owner) {
   const rows = await env.DB.prepare(
     'SELECT g.grant_id FROM subscriptions s JOIN subscription_grants g ON g.sub=s.id WHERE s.owner=? AND s.expires>?',
   )
     .bind(owner, Date.now())
     .all();
-  if (!rows.results.length) return 0;
+  if (!rows.results.length) return [];
   const grants = await activeGrants(env, owner);
-  return rows.results.filter((row) => grants.has(row.grant_id)).length;
+  return rows.results.map((row) => row.grant_id).filter((id) => grants.has(id));
 }
 /** Deliver only still-actionable requests. Stable event IDs survive timeouts and repeated refreshes. */
 export async function deliverPending(env, owner, send = fetch) {

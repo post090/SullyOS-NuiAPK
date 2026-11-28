@@ -1,5 +1,5 @@
 import { spaceDatabaseName, SESSION_SPACE_ID, DEFAULT_SPACE_ID, createSpaceStorage, rawSpaceStorage, listUserSpaces, assertUserSpaceAvailable } from './userSpaces';
-import { VOYAGE_INVITE_PREFIX } from './voyage/letter';
+import { VOYAGE_CONTEXT_PREFIX, VOYAGE_INVITE_PREFIX } from './voyage/letter';
 import { clearEmojiOriginals } from './emojiOriginals';
 import { patchEmojiOriginal, patchSentSticker } from './emojiBackup';
 import { withSharedAssetLock, canCoordinateAssetDeletion } from './sharedAssetLock';
@@ -716,6 +716,7 @@ export const DB = {
     return new Promise<void>((resolve, reject) => {
       const transaction = db.transaction([STORE_CHARACTERS, STORE_ASSETS], 'readwrite');
       transaction.objectStore(STORE_CHARACTERS).delete(id);
+      transaction.objectStore(STORE_ASSETS).delete(VOYAGE_CONTEXT_PREFIX + id);
       const letters = transaction.objectStore(STORE_ASSETS).openCursor(IDBKeyRange.bound(VOYAGE_INVITE_PREFIX, VOYAGE_INVITE_PREFIX + '\uffff'));
       letters.onsuccess = () => {
         const cursor = letters.result;

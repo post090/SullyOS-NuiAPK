@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CaretLeft, CaretRight, EnvelopeOpen, PaperPlaneTilt, PencilSimpleLine, Suitcase } from '@phosphor-icons/react';
+import { CaretLeft, CaretRight, EnvelopeOpen, PaperPlaneTilt, PencilSimpleLine, SlidersHorizontal, Suitcase } from '@phosphor-icons/react';
 import { AppID } from '../types';
 import { useOS } from '../context/OSContext';
 import { useLocalBackHandler } from '../hooks/useLocalBackHandler';
@@ -10,14 +10,15 @@ import { INVITATIONS_CHANGED, invitationStatus, invitationTitle, type Invitation
 import { requestInvitationReply } from '../utils/voyage/reply';
 import TokenImg from '../components/os/TokenImg';
 import VoyagePlanning from './VoyagePlanning';
+import { VoyageCharacterSettings } from './VoyageContextFields';
 import { useAppShortcut } from '../utils/appShortcutLaunch';
 import './voyage.css';
 
-type Page = 'list' | 'compose' | 'letter' | 'planning';
+type Page = 'list' | 'compose' | 'letter' | 'planning' | 'context';
 const sentDate = (at: number) => new Date(at).toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
 
 export default function VoyageApp() {
-    const { characters, theme, userProfile, apiConfig, activeCharacterId, setActiveCharacterId, openApp, closeApp } = useOS();
+    const { characters, worldbooks, theme, userProfile, apiConfig, activeCharacterId, setActiveCharacterId, openApp, closeApp } = useOS();
     const [page, setPage] = useState<Page>('list');
     const [letters, setLetters] = useState<TravelInvitation[]>([]);
     const [selected, select] = useState('');
@@ -99,7 +100,7 @@ export default function VoyageApp() {
 
     return <div className={`voyage-app ${theme.darkMode ? 'voyage-dark' : ''}`} style={{ '--voyage-hue': theme.hue } as React.CSSProperties}>
         <header className="voyage-bar"><button aria-label="返回" onClick={() => { if (!back()) closeApp(); }}><CaretLeft size={22}/></button>
-            <h1>{{ list: '旅迹', compose: '写邀请', letter: '邀请详情', planning: '旅行策划' }[page]}</h1>
+            <h1>{{ list: '旅迹', compose: '写邀请', letter: '邀请详情', planning: '旅行策划', context: '策划资料' }[page]}</h1>
             {page === 'list' && characters.length > 0 && <button aria-label="写旅行邀请" onClick={compose}><PencilSimpleLine size={22}/></button>}
         </header>
         <main className="voyage-body">
@@ -107,6 +108,10 @@ export default function VoyageApp() {
                 <section className="voyage-gift"><EnvelopeOpen size={36} weight="duotone"/>
                     <h2>旅行邀请</h2><button className="voyage-primary" disabled={!characters.length} onClick={compose}>写一封邀请 <PaperPlaneTilt size={16}/></button>
                 </section>
+                {characters.length > 0 && <button className="voyage-row" onClick={() => {
+                    select(''); setRecipient(characters.find(c => c.id === activeCharacterId)?.id || characters[0].id);
+                    setError(''); setPage('context');
+                }}><SlidersHorizontal size={22}/><span>策划资料</span><CaretRight size={16}/></button>}
                 {!characters.length && <button className="voyage-link" onClick={() => openApp(AppID.Character)}>去神经链接添加角色</button>}
                 <h3>已送出的邀请</h3>
                 {letters.filter(item => characters.some(c => c.id === item.charId)).map(item => {
@@ -117,6 +122,12 @@ export default function VoyageApp() {
                 })}
                 {loaded && !letters.some(item => characters.some(c => c.id === item.charId)) && <p className="voyage-muted">还没有送出的邀请</p>}
                 {!loaded && !error && <p className="voyage-muted" role="status">正在读信…</p>}
+            </>}
+            {page === 'context' && <>
+                <label className="voyage-field">角色<select value={recipient} onChange={e => setRecipient(e.target.value)}>
+                    {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select></label>
+                {actor && <VoyageCharacterSettings key={actor.id} actor={actor} library={worldbooks}/>}
             </>}
             {page === 'compose' && <>
                 <label className="voyage-field">收件人<select value={recipient} onChange={e => setRecipient(e.target.value)}>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
@@ -138,7 +149,7 @@ export default function VoyageApp() {
                 {letter.reply?.decision === 'accept' && <button className="voyage-primary" onClick={() => setPage('planning')}>{letter.approvedPlan ? '查看行程' : '旅行策划'} <CaretRight size={16}/></button>}
                 {actor && <button className="voyage-link" disabled={busy} onClick={() => { setActiveCharacterId(actor.id); openApp(AppID.Chat); }}>去聊天 <CaretRight size={15}/></button>}
             </>}
-            {page === 'planning' && letter && <VoyagePlanning key={letter.id} letter={letter}/>}
+            {page === 'planning' && letter && actor && <VoyagePlanning key={letter.id} letter={letter} actor={actor} worldbooks={worldbooks}/>}
             {error && <div role="alert" className="voyage-error">{error}{page === 'list' && <button onClick={() => { setError(''); refresh(n => n + 1); }}>重新读取</button>}</div>}
         </main>
     </div>;

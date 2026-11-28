@@ -1,3 +1,5 @@
+import { MAX_VOYAGE_REFERENCE_BYTES } from '../../utils/voyage/referenceLimits.js';
+import { itinerarySchema, MAX_VOYAGE_SOURCES, readItinerary } from '../../utils/voyage/itinerary.ts';
 const encoder = new TextEncoder();
 export async function digest(text) {
   const bytes = await crypto.subtle.digest('SHA-256', encoder.encode(text));
@@ -22,14 +24,16 @@ const fields = { destination: 140, outline: 7000, weather: 2200, alternatives: 2
 export const draftSchema = {
   type: 'object',
   additionalProperties: false,
-  required: [...Object.keys(fields), 'sources'],
+  required: [...Object.keys(fields), 'sources', 'itinerary'],
   properties: {
     ...Object.fromEntries(Object.entries(fields).map(([k, maxLength]) => [k, { type: 'string', maxLength }])),
-    sources: { type: 'array', minItems: 1, maxItems: 12, items: { type: 'string', format: 'uri' } },
+    outline: { type: 'string', maxLength: fields.outline, description: '供出发前了解的大概安排和节奏；分站时间、在地资料与探索选择单独放在 itinerary。' },
+    sources: { type: 'array', minItems: 1, maxItems: MAX_VOYAGE_SOURCES, items: { type: 'string', format: 'uri' } },
+    itinerary: itinerarySchema,
   },
 };
 function validateDraft(value) {
-  if (!value || !Array.isArray(value.sources) || !value.sources.length || value.sources.length > 12)
+  if (!value || !Array.isArray(value.sources) || !value.sources.length || value.sources.length > MAX_VOYAGE_SOURCES)
     throw new InputError('请列出资料来源');
   const draft = Object.fromEntries(
     Object.entries(fields).map(([key, max]) => [key, cleanText(value[key], max)]),
@@ -40,11 +44,17 @@ function validateDraft(value) {
       throw new InputError('资料来源须为 HTTPS 链接');
     return url.href;
   });
+  if (value.itinerary !== undefined) {
+    try { draft.itinerary = readItinerary(value.itinerary, draft.sources.length); }
+    catch (error) { throw new InputError(error.message); }
+  }
   return draft;
 }
-export async function createRequest(db, owner, id, input) {
+export async function createRequest(db, owner, id, input, referenceText = '', reviewerGrant = null) {
   checkId(id);
   const brief = cleanText(input, 2000);
+  if (typeof referenceText !== 'string' || encoder.encode(referenceText).length > MAX_VOYAGE_REFERENCE_BYTES)
+    throw new InputError('角色资料超过 256 KiB，请减少所选条目', 413);
   const now = Date.now();
   const event = await digest(JSON.stringify([owner, id, 0]));
   await db.batch([
@@ -53,18 +63,31 @@ export async function createRequest(db, owner, id, input) {
         "INSERT INTO requests(owner,id,brief,state,created) VALUES(?,?,?,'requested',?) ON CONFLICT DO NOTHING",
       )
       .bind(owner, id, brief, now),
+    db.prepare(
+      'INSERT INTO request_options(owner,id,reference_text,reviewer_grant) SELECT owner,id,?,? FROM requests WHERE owner=? AND id=? AND changes()=1',
+    ).bind(referenceText, reviewerGrant, owner, id),
     db
       .prepare(
         'INSERT INTO events SELECT ?,owner,id,created FROM requests WHERE owner=? AND id=? AND brief=? ON CONFLICT DO NOTHING',
       )
       .bind(event, owner, id, brief),
   ]);
-  const row = await db.prepare('SELECT brief FROM requests WHERE owner=? AND id=?').bind(owner, id).first();
-  if (row.brief !== brief) throw new InputError('同一申请已提交其他内容', 409);
+  const row = await db.prepare(
+    "SELECT r.brief,COALESCE(o.reference_text,'') AS referenceText FROM requests r LEFT JOIN request_options o USING(owner,id) WHERE r.owner=? AND r.id=?",
+  ).bind(owner, id).first();
+  if (row.brief !== brief || row.referenceText !== referenceText) throw new InputError('同一申请已提交其他内容', 409);
+}
+export async function enableChatReview(db, owner, id, grant) {
+  const result = await db.prepare(
+    "INSERT INTO request_options(owner,id,reviewer_grant) SELECT owner,id,? FROM requests WHERE owner=? AND id=? AND state!='approved' ON CONFLICT(owner,id) DO UPDATE SET reviewer_grant=excluded.reviewer_grant RETURNING id",
+  ).bind(grant, owner, checkId(id)).first();
+  if (!result) throw new InputError('这份申请已定稿或不存在', 409);
 }
 export async function getRequest(db, owner, id) {
   const row = await db
-    .prepare('SELECT id,brief,state,version,approved,feedback FROM requests WHERE owner=? AND id=?')
+    .prepare(
+      "SELECT r.id,r.brief,r.state,r.version,r.approved,r.feedback,COALESCE(o.reference_text,'') AS referenceText,CASE WHEN o.reviewer_grant IS NULL THEN 'device' ELSE 'chat' END AS reviewMode FROM requests r LEFT JOIN request_options o USING(owner,id) WHERE r.owner=? AND r.id=?",
+    )
     .bind(owner, checkId(id))
     .first();
   if (!row) throw new InputError('找不到申请', 404);
@@ -85,6 +108,13 @@ export async function submitDraft(db, owner, id, baseVersion, value) {
   const content = JSON.stringify(validateDraft(value));
   const hash = await digest(content);
   const version = baseVersion + 1;
+  if (value.itinerary === undefined) {
+    // A pre-upgrade client may retry a draft that D1 already saved before its connection dropped.
+    const previous = await db.prepare('SELECT digest FROM drafts WHERE owner=? AND id=? AND version=?')
+      .bind(owner, id, version).first();
+    if (previous?.digest === hash) return { version, digest: hash };
+    throw new InputError('新草稿需要每站的路线、费用、天气、现场资料和可选行动');
+  }
   await db.batch([
     db
       .prepare(
@@ -104,7 +134,7 @@ export async function submitDraft(db, owner, id, baseVersion, value) {
   if (row?.digest !== hash) throw new InputError('申请不存在或版本已改变', 409);
   return { version, digest: hash };
 }
-export async function review(db, owner, id, input) {
+export async function review(db, owner, id, input, reviewerGrant = null) {
   const { decision, version, digest: hash } = input;
   if (
     !['approve', 'return'].includes(decision) ||
@@ -118,9 +148,9 @@ export async function review(db, owner, id, input) {
   const event = await digest(JSON.stringify([owner, checkId(id), version]));
   const change = db
     .prepare(
-      "UPDATE requests SET state=?,feedback=?,approved=CASE WHEN ?='approved' THEN version ELSE approved END WHERE owner=? AND id=? AND version=? AND state='draft' AND EXISTS (SELECT 1 FROM drafts WHERE owner=? AND id=? AND version=? AND digest=?)",
+      "UPDATE requests SET state=?,feedback=?,approved=CASE WHEN ?='approved' THEN version ELSE approved END WHERE owner=? AND id=? AND version=? AND state='draft' AND EXISTS (SELECT 1 FROM drafts WHERE owner=? AND id=? AND version=? AND digest=?) AND (? IS NULL OR EXISTS (SELECT 1 FROM request_options o WHERE o.owner=requests.owner AND o.id=requests.id AND o.reviewer_grant=?))",
     )
-    .bind(state, feedback, state, owner, id, version, owner, id, version, hash);
+    .bind(state, feedback, state, owner, id, version, owner, id, version, hash, reviewerGrant, reviewerGrant);
   const statements = [change];
   if (state === 'returned')
     statements.push(

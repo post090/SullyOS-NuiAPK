@@ -10,6 +10,10 @@ CREATE TABLE IF NOT EXISTS drafts (
   owner TEXT NOT NULL, id TEXT NOT NULL, version INTEGER NOT NULL, digest TEXT NOT NULL, content TEXT NOT NULL,
   PRIMARY KEY(owner,id,version)
 );
+CREATE TABLE IF NOT EXISTS request_options (
+  owner TEXT NOT NULL, id TEXT NOT NULL, reference_text TEXT NOT NULL DEFAULT '', reviewer_grant TEXT,
+  PRIMARY KEY(owner,id), FOREIGN KEY(owner,id) REFERENCES requests(owner,id) ON DELETE CASCADE
+);
 CREATE TABLE IF NOT EXISTS subscriptions (
   id TEXT PRIMARY KEY, owner TEXT NOT NULL, url TEXT NOT NULL, secret TEXT NOT NULL,
   old_secret TEXT, rotate_until INTEGER, expires INTEGER NOT NULL

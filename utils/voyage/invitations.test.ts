@@ -8,8 +8,9 @@ import { createIndependentUserRemap } from '../independentUserRemap';
 import { exportUserSpaces, importUserSpaces } from '../userSpaceBackup';
 import { saveUserSpaces } from '../userSpaces';
 import { listInvitations, saveApprovedPlan, saveInvitationReply, sendInvitation } from './invitations';
-import { parseInvitationReply, VOYAGE_INVITE_PREFIX, type TripDraft } from './letter';
+import { parseInvitationReply, VOYAGE_CONTEXT_PREFIX, VOYAGE_INVITE_PREFIX, type TripDraft } from './letter';
 import { plannerRequestId } from './planner';
+import { availableVoyageBooks, buildVoyageReference, readContextChoice, saveContextChoice } from './characterContext';
 
 const inboxId = 'example-letter';
 const firstChar = 'example-recipient';
@@ -17,7 +18,10 @@ const secondChar = 'second-recipient';
 const draft: TripDraft = {
     version: 1, digest: 'a'.repeat(64), content: {
         destination: '测试城市', outline: '沿河散步', weather: '临近出发再查当地预报',
-        alternatives: '雨天可选展馆', sources: ['https://example.org/guide']
+        alternatives: '雨天可选展馆', sources: ['https://example.org/guide'],
+        itinerary: { timeZone: 'Asia/Shanghai', stops: [{ day: 1, startLocal: '10:00', durationMinutes: 45,
+            place: '河边', route: '从车站步行十分钟', cost: '步行免费，茶饮价格待核实', weatherPlan: '降雨时可选展馆',
+            placeNotes: '导览收录了沿岸的旧桥', scene: '天气好时可以沿河辨认旧桥', choices: ['到桥头看桥拱', '在步道休息'], sourceNumbers: [1] }] }
     }
 };
 async function clearRecords() {
@@ -47,6 +51,31 @@ async function acceptAndApprove() {
 }
 
 describe('旅行邀请', () => {
+    it('previews exact user-selected source text and restores the per-character choice from a text backup', async () => {
+        const mounted = { id: 'one', title: '同名条目', content: '  第一段\n第二段  ' };
+        const other = { id: 'two', title: '同名条目', content: '不能混入' };
+        const books = availableVoyageBooks({ mountedWorldbooks: [mounted] }, [other]);
+        const main = '  主提示词原文\n  保留空格。';
+        const choice = { mode: 'main' as const, prompt: ' 自定义\n原文 ', extraNote: ' 留一段自由时间。\n下雨也可以逛书店。 ', worldbookIds: ['one','removed'] };
+        expect(buildVoyageReference(main, books, await readContextChoice(firstChar))).toBe('【角色主提示词】\n' + main);
+        expect(buildVoyageReference(main, books, choice)).toBe('【角色主提示词】\n' + main + '\n\n【附加叮嘱】\n' + choice.extraNote + '\n\n【世界书 · 同名条目】\n' + mounted.content);
+        expect(buildVoyageReference(main, books, { ...choice, mode: 'custom' })).toBe('【自定义提示词】\n' + choice.prompt + '\n\n【世界书 · 同名条目】\n' + mounted.content);
+        expect(buildVoyageReference(main, books, { ...choice, extraNote: '  ', worldbookIds: [] })).toBe('【角色主提示词】\n' + main);
+        expect(buildVoyageReference(main, books, { ...choice, mode: 'none', worldbookIds: [] })).toBe('');
+        await saveContextChoice(firstChar, choice);
+        await DB.saveAsset(VOYAGE_CONTEXT_PREFIX + secondChar, JSON.stringify({ mode: 'custom', prompt: '第二位自己的偏好', worldbookIds: [] }));
+        const zip = await JSZip.loadAsync(await (await exportUserSpaces('text_only','current')).arrayBuffer());
+        await clearRecords();
+        await importUserSpaces(zip);
+        expect(await readContextChoice(firstChar)).toEqual(choice);
+        expect(await readContextChoice(secondChar)).toEqual({ mode: 'custom', prompt: '第二位自己的偏好', extraNote: '', worldbookIds: [] });
+        const remap = createIndependentUserRemap(new Map());
+        remap.noteCharacter(firstChar); remap.finish();
+        const key = VOYAGE_CONTEXT_PREFIX + firstChar;
+        expect(remap.row('assets', { id: key, data: JSON.stringify(choice) }).id).toBe(VOYAGE_CONTEXT_PREFIX + remap.newId(firstChar));
+        await DB.deleteCharacter(firstChar);
+        expect(await DB.getAsset(key)).toBeFalsy();
+    });
     it('commits one invitation and one private chat message on concurrent sends, and validates the recipient', async () => {
         const [first, retry] = await Promise.all([send(), send()]);
         expect(retry).toEqual(first);

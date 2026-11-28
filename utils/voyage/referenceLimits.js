@@ -1,0 +1,1 @@
+export const MAX_VOYAGE_REFERENCE_BYTES = 256 * 1024;

@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { makeConnection, plannerRequestId, readPlan, readSubscriptions, reviewPlan, submitBrief } from './planner';
+import { makeConnection, plannerRequestId, readPlan, readPlannerStatus, reviewPlan, submitBrief } from './planner';
 import { trackVoyageResult } from './analytics';
 import { trackEvent } from '../analytics';
 
@@ -36,7 +36,7 @@ it('distinguishes missing, failed and approved requests and refuses mismatched o
         .mockResolvedValueOnce(Response.json({...row,state:'approved',approvedDraft:draft}));
     vi.stubGlobal('fetch',send);
     expect(await readPlan(c,id,signal())).toBeNull();
-    await expect(readSubscriptions(c,signal())).rejects.toThrow(/配对码/);
+    await expect(readPlannerStatus(c,signal())).rejects.toThrow(/配对码/);
     await expect(readPlan(c,id,signal())).rejects.toThrow(/不匹配/);
     await expect(readPlan(c,id,signal())).rejects.toThrow(/审批版本/);
     await expect(readPlan(c,id,signal())).rejects.toThrow(/格式无效/);
@@ -53,6 +53,14 @@ it('guards empty briefs, preserves the observed version on conflicts and require
     expect(send).not.toHaveBeenCalled();
     await expect(reviewPlan(c,id,draft,'return','补充雨天路线',signal())).rejects.toThrow(/刷新/);
     expect(send).toHaveBeenCalledTimes(1);
+});
+it('rejects oversized notes before sending and reports a service that dropped the selected reference', async () => {
+    const oldServer = vi.fn().mockResolvedValue(Response.json(row));
+    vi.stubGlobal('fetch', oldServer);
+    await expect(submitBrief(c, id, '散步', signal(), '记'.repeat(90000))).rejects.toThrow(/256 KiB/);
+    expect(oldServer).not.toHaveBeenCalled();
+    await expect(submitBrief(c, id, '散步', signal(), '附加叮嘱', true)).rejects.toThrow(/刷新核对/);
+    expect(oldServer).toHaveBeenCalledTimes(1);
 });
 it('allows only fixed action labels in voyage analytics', () => {
     for (const value of [id, content, 'private-url', c.token]) {

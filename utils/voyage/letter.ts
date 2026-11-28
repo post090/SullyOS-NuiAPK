@@ -1,9 +1,12 @@
+import type { VoyageItinerary } from './itinerary';
+
 export const VOYAGE_INVITE_PREFIX = 'voyage_invitation_v1/';
+export const VOYAGE_CONTEXT_PREFIX = 'voyage_context_v1/';
 export const INVITATIONS_CHANGED = 'sully-voyage-invitations-changed';
 export type TripDraft = {
     version: number;
     digest: string;
-    content: { destination: string; outline: string; weather: string; alternatives: string; sources: string[] };
+    content: { destination: string; outline: string; weather: string; alternatives: string; sources: string[]; itinerary?: VoyageItinerary };
 };
 export type InvitationOccasion = 'gift' | 'birthday';
 export type InvitationDecision = 'accept' | 'later' | 'decline';

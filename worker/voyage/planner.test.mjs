@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs';
 // @vitest-environment node
 import { test, onTestFinished, vi } from 'vitest';
 import { createRequire } from 'node:module';
-import { createRequest, digest, getRequest, review, submitDraft } from './plans.mjs';
-import { deliverPending, subscription, subscriptionCount } from './events.mjs';
+import { createRequest, digest, enableChatReview, getRequest, review, submitDraft } from './plans.mjs';
+import { deliverPending, subscription, subscribedGrants } from './events.mjs';
+import { recordChatReview, referencePage } from './chat-review.mjs';
 import voyageWorker from './index.mjs';
 const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite');
 
@@ -52,6 +53,11 @@ const draft = {
   weather: '日期未定，临近出发再查分时预报',
   alternatives: '如有雨，在开放的连廊休息',
   sources: ['https://example.org/garden'],
+  itinerary: { timeZone: 'Asia/Shanghai', stops: [{
+    day: 1, startLocal: '10:30', durationMinutes: 40, place: '测试园林北门', route: '从车站步行约十分钟到北门',
+    cost: '票价待核实', weatherPlan: '下雨时改走入口连廊', placeNotes: '园林导览标出了回廊和水池',
+    scene: '若水面平静，可留意回廊的倒影', choices: ['在水池边多坐一会', '沿回廊看窗格'], sourceNumbers: [1],
+  }] },
 };
 test('only the owner can see a draft, revisions require review, same operation is idempotent', async () => {
   const { DB: db } = fixture();
@@ -130,13 +136,13 @@ test('events verify their callback and send only a scoped stable request ID; ret
     /challenge_failed/,
   );
   assert.equal(redirected, 1);
-  assert.equal(await subscriptionCount(env, owner), 0);
+  assert.equal((await subscribedGrants(env, owner)).length, 0);
   const sub = await subscription(env, owner, 'events/subscribe', params, 'test-grant', receiver);
   assert.equal(
     (await subscription(env, owner, 'events/subscribe', params, 'test-grant', receiver)).id,
     sub.id,
   );
-  assert.equal(await subscriptionCount(env, owner), 1);
+  assert.equal((await subscribedGrants(env, owner)).length, 1);
   assert.equal(challengeCount, 1);
   await createRequest(env.DB, owner, id, 'brief');
   await deliverPending(env, owner, receiver);
@@ -154,7 +160,7 @@ test('events verify their callback and send only a scoped stable request ID; ret
   await deliverPending(env, owner, receiver);
   assert.deepEqual(ids, [ids[0], ids[0], ids[0]]);
   env.grants.length = 0;
-  assert.equal(await subscriptionCount(env, owner), 0);
+  assert.equal((await subscribedGrants(env, owner)).length, 0);
   await createRequest(env.DB, owner, 'second-test', 'brief');
   await deliverPending(env, owner, receiver);
   assert.equal(ids.length, 3);
@@ -165,7 +171,7 @@ test('events verify their callback and send only a scoped stable request ID; ret
   );
 });
 
-test('real OAuth PKCE grants the planner tools while only the independently paired device approves a draft', async () => {
+test('real OAuth PKCE keeps legacy approvals on the device and permits chat review only for device-authorized requests', async () => {
   const { OAUTH_PROVIDER: unused, ...env } = fixture();
   const kv = new Map();
   env.OAUTH_KV = {
@@ -318,4 +324,73 @@ test('real OAuth PKCE grants the planner tools while only the independently pair
   assert.equal((await (await api(route, deviceCode)).json()).approvedDraft, null);
   const result = await api(route + '/review', deviceCode, { ...version, decision: 'approve' });
   assert.equal((await result.json()).approvedDraft.digest, version.digest);
+  const nextId = 'chat-review-flow';
+  const reference = '【角色主提示词】\n' + '持'.repeat(5988) + '🎒\n【世界书 · 自选】\n  原文  ';
+  const newPath = '/device/requests/' + nextId;
+  const deviceRow = await (await api(newPath, deviceCode, { brief: '半日', referenceText: reference, reviewMode: 'chat' })).json();
+  assert.equal(deviceRow.reviewMode, 'chat');
+  const callTool = async (name, args) => (await rpc('tools/call', { name, arguments: args })).result;
+  const readResult = async (name, args) => JSON.parse((await callTool(name, args)).content[0].text);
+  const row = await readResult('get_trip_request', { requestId: nextId });
+  const rest = await readResult('get_trip_reference', { requestId: nextId, offset: row.reference.nextOffset });
+  assert.equal(row.reference.text + rest.text, reference);
+  const receipt = await readResult('submit_draft', { requestId: nextId, baseVersion: 0, draft });
+  const chat = { requestId: nextId, ...receipt, decision: 'approve' };
+  assert.equal((await callTool('record_chat_review', { ...chat, ownerReply: '看起来不错' })).isError, true);
+  assert.equal((await (await api(newPath, deviceCode)).json()).state, 'draft');
+  const decision = await readResult('record_chat_review', { ...chat, ownerReply: '通过' });
+  assert.equal(decision.state, 'approved');
+  assert.equal((await (await api(newPath, deviceCode)).json()).approvedDraft.digest, receipt.digest);
+});
+
+test('pins the owner, grant, reply and shown version across revisions and concurrent trips', async () => {
+  const { DB: db } = fixture();
+  await createRequest(db, owner, id, '散步', '  主设原文\n');
+  const v1 = await submitDraft(db, owner, id, 0, draft);
+  const decision = { requestId: id, ...v1, ownerReply: '通过', decision: 'approve' };
+  const apply = (args = decision, account = owner, grant = 'chosen') => recordChatReview(db, account, grant, args);
+  await assert.rejects(apply(), /授权/);
+  await enableChatReview(db, owner, id, 'chosen');
+  await assert.rejects(apply(decision, 'another'), /授权/);
+  await assert.rejects(apply(decision, owner, 'other-grant'), /授权/);
+  for (const ownerReply of ['不错', '不通过', '如果通过呢？', '通过第2版']) await assert.rejects(apply({ ...decision, ownerReply }), /明确回复/);
+  const feedback = { ...decision, decision: 'return', ownerReply: '把博物馆放到上午' };
+  assert.equal((await apply(feedback)).feedback, feedback.ownerReply);
+  assert.equal((await apply(feedback)).state, 'returned');
+  const v2 = await submitDraft(db, owner, id, 1, { ...draft, outline: '上午参观博物馆' });
+  await assert.rejects(apply(), /刷新/);
+  await createRequest(db, owner, 'second-trip', '另一份', '', 'chosen');
+  await submitDraft(db, owner, 'second-trip', 0, { ...draft, destination: '另一座园林' });
+  const pending = { ...decision, ...v2 };
+  await assert.rejects(apply(pending), /多份/);
+  assert.equal((await apply({ ...pending, ownerReply: '测试园林，通过' })).approvedDraft.version, 2);
+  assert.equal((await apply({ ...pending, ownerReply: '测试园林，通过' })).approvedDraft.version, 2);
+  await assert.rejects(createRequest(db, owner, id, '散步', '换了资料'), /其他内容/);
+  assert.equal((await getRequest(db, owner, id)).referenceText, '  主设原文\n');
+});
+test('long character reference pages round-trip intact, including supplementary characters', () => {
+  const text = 'a'.repeat(5999) + '🎒后续';
+  const first = referencePage(text);
+  assert.equal(first.nextOffset, 5999);
+  assert.equal(first.text + referencePage(text, first.nextOffset).text, text);
+  assert.throws(() => referencePage(text, 6000), /起点/);
+});
+test('requires both layers per stop on new submissions and preserves prior-format drafts', async () => {
+  const { DB: db } = fixture();
+  await createRequest(db, owner, id, '慢慢走');
+  const { itinerary, ...old } = draft;
+  await assert.rejects(submitDraft(db, owner, id, 0, old), /每站/);
+  const stop = itinerary.stops[0];
+  for (const change of [{ scene: '' }, { cost: '' }, { choices: ['走走'] }, { sourceNumbers: [2] }, { startLocal: '24:10' }]) {
+    await assert.rejects(submitDraft(db, owner, id, 0, { ...draft, itinerary: { ...itinerary, stops: [{ ...stop, ...change }] } }));
+  }
+  const saved = JSON.stringify(old), hash = await digest(saved);
+  db.prepare('INSERT INTO drafts(owner,id,version,digest,content) VALUES(?,?,1,?,?)').bind(owner, id, hash, saved).run();
+  db.prepare("UPDATE requests SET version=1,state='draft' WHERE owner=? AND id=?").bind(owner,id).run();
+  assert.deepEqual(await submitDraft(db, owner, id, 0, old), { version: 1, digest: hash });
+  assert.deepEqual((await getRequest(db, owner, id)).draft.content, old);
+  await review(db, owner, id, { decision:'return', version:1, digest:hash, feedback:'补充具体资料' });
+  const updated = await submitDraft(db, owner, id, 1, draft);
+  assert.equal(updated.version, 2);
+  assert.deepEqual((await getRequest(db, owner, id)).draft.content.itinerary, itinerary);
 });

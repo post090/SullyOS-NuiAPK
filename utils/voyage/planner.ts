@@ -1,5 +1,7 @@
 import { SESSION_SPACE_ID } from '../userSpaces';
 import type { TravelInvitation, TripDraft } from './letter';
+import { MAX_VOYAGE_REFERENCE_BYTES } from './referenceLimits.js';
+import { MAX_VOYAGE_SOURCES, readItinerary } from './itinerary';
 
 export interface PlannerConnection { origin: string; token: string }
 export interface PlannerRequest {
@@ -9,6 +11,8 @@ export interface PlannerRequest {
     feedback: string | null;
     draft: TripDraft | null;
     approvedDraft: TripDraft | null;
+    referenceText: string;
+    reviewMode: 'chat' | 'device';
 }
 const sessionKey = 'voyage/planner/' + SESSION_SPACE_ID;
 
@@ -48,7 +52,7 @@ function parseDraft(value: unknown): TripDraft | null {
         || typeof value.version !== 'number' || !Number.isSafeInteger(value.version) || value.version < 1) throw error();
     const { destination, outline, weather, alternatives, sources } = value.content;
     if (typeof destination !== 'string' || typeof outline !== 'string' || typeof weather !== 'string' || typeof alternatives !== 'string'
-        || !Array.isArray(sources) || !sources.length || sources.length > 12) throw error();
+        || !Array.isArray(sources) || !sources.length || sources.length > MAX_VOYAGE_SOURCES) throw error();
     const links = sources.map((source: unknown) => {
         if (typeof source !== 'string') throw error();
         let url: URL;
@@ -56,7 +60,8 @@ function parseDraft(value: unknown): TripDraft | null {
         if (url.protocol !== 'https:' || url.username || url.password) throw error();
         return url.href;
     });
-    return { version: value.version, digest: value.digest, content: { destination, outline, weather, alternatives, sources: links } };
+    const itinerary = value.content.itinerary === undefined ? undefined : readItinerary(value.content.itinerary, links.length);
+    return { version: value.version, digest: value.digest, content: { destination, outline, weather, alternatives, sources: links, ...(itinerary && { itinerary }) } };
 }
 function parseRequest(value: unknown, id: string): PlannerRequest {
     if (!isRecord(value) || value.id !== id || typeof value.brief !== 'string'
@@ -66,7 +71,9 @@ function parseRequest(value: unknown, id: string): PlannerRequest {
     if (['draft','returned','approved'].includes(value.state) && !draft ||
         value.state === 'approved' && (!approvedDraft || approvedDraft.digest !== draft?.digest || approvedDraft.version !== draft?.version))
         throw new Error('旅行服务返回的审批版本不一致。');
-    return { id, brief: value.brief, state: value.state, feedback: typeof value.feedback === 'string' ? value.feedback : null, draft, approvedDraft };
+    if (value.referenceText !== undefined && typeof value.referenceText !== 'string') throw new Error('角色资料格式无效。');
+    return { id, brief: value.brief, state: value.state, feedback: typeof value.feedback === 'string' ? value.feedback : null, draft, approvedDraft,
+        referenceText: typeof value.referenceText === 'string' ? value.referenceText : '', reviewMode: value.reviewMode === 'chat' ? 'chat' : 'device' };
 }
 
 async function deviceFetch(connection: PlannerConnection, path: string, signal: AbortSignal, body?: unknown, allowMissing = false): Promise<unknown> {
@@ -85,6 +92,7 @@ async function deviceFetch(connection: PlannerConnection, path: string, signal: 
         if (allowMissing && response.status === 404) return null;
         if (!response.ok) {
             if (response.status === 401 || response.status === 403) throw new Error('设备配对码无效，请重新连接。');
+            if (response.status === 413) throw new Error('角色资料过长，请减少所选条目再提交。');
             if (response.status === 409) throw new Error('云端版本已改变，请刷新后再操作。');
             throw new Error('旅行服务暂时无法处理，请稍后刷新。');
         }
@@ -95,18 +103,28 @@ async function deviceFetch(connection: PlannerConnection, path: string, signal: 
         throw error;
     } finally { clearTimeout(timer); signal.removeEventListener('abort', cancel); }
 }
-export async function readSubscriptions(connection: PlannerConnection, signal: AbortSignal) {
+export async function readPlannerStatus(connection: PlannerConnection, signal: AbortSignal) {
     const result = await deviceFetch(connection, 'status', signal);
-    if (!isRecord(result) || typeof result.subscriptions !== 'number' || result.subscriptions < 0) throw new Error('该地址没有返回旅行服务状态。');
-    return result.subscriptions;
+    if (!isRecord(result) || typeof result.subscriptions !== 'number' || !Number.isSafeInteger(result.subscriptions) || result.subscriptions < 0) throw new Error('该地址没有返回旅行服务状态。');
+    return { subscriptions: result.subscriptions, chatReviewAvailable: result.chatReviewAvailable === true, characterReference: result.characterReference === true };
 }
 export async function readPlan(c: PlannerConnection, id: string, signal: AbortSignal) {
     const result = await deviceFetch(c, 'requests/' + encodeURIComponent(id), signal, undefined, true);
     return result === null ? null : parseRequest(result, id);
 }
-export async function submitBrief(c: PlannerConnection, id: string, brief: string, signal: AbortSignal) {
+export async function submitBrief(c: PlannerConnection, id: string, brief: string, signal: AbortSignal,
+    referenceText = '', chatReview = false) {
     if (!brief.trim() || brief.length > 2000) throw new Error('请填写 1 至 2000 字的旅行想法。');
-    return parseRequest(await deviceFetch(c, 'requests/' + encodeURIComponent(id), signal, { brief: brief.trim() }), id);
+    if (new TextEncoder().encode(referenceText).length > MAX_VOYAGE_REFERENCE_BYTES) throw new Error('角色资料超过 256 KiB，请减少所选条目。');
+    const body = { brief: brief.trim(), ...(referenceText && { referenceText }), ...(chatReview && { reviewMode: 'chat' }) };
+    const row = parseRequest(await deviceFetch(c, 'requests/' + encodeURIComponent(id), signal, body), id);
+    if (row.referenceText !== referenceText || (chatReview && row.reviewMode !== 'chat')) {
+        throw new Error('服务保存的资料或审核方式与本次提交不同，请刷新核对申请。');
+    }
+    return row;
+}
+export async function allowChatReview(c: PlannerConnection, id: string, signal: AbortSignal) {
+    return parseRequest(await deviceFetch(c, 'requests/' + encodeURIComponent(id) + '/chat-review', signal, {}), id);
 }
 export async function reviewPlan(c: PlannerConnection, id: string, draft: TripDraft, decision: 'approve' | 'return', feedback: string, signal: AbortSignal) {
     if (decision === 'return' && (!feedback.trim() || feedback.length > 1000)) throw new Error('请填写修改意见，限 1000 字。');
