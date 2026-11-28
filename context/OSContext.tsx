@@ -4178,7 +4178,11 @@ export const OSProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       try {
           setSysOperation({ status: 'processing', message: '正在从云端下载...', progress: 0 });
           const backup = await downloadBackup(cloudBackupConfig, file, (pct) => {
-              setSysOperation(prev => ({ ...prev, message: `下载中 ${pct}%...`, progress: pct * 0.5 }));
+              setSysOperation(prev => ({
+                  ...prev,
+                  message: pct === 0 ? '正在连接云端备份…' : `下载中 ${pct}%...`,
+                  progress: pct * 0.5,
+              }));
           });
 
           if (!backup) throw new Error('下载失败');

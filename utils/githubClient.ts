@@ -20,6 +20,7 @@ import { Capacitor, CapacitorHttp } from '@capacitor/core';
 
 import { CloudBackupConfig, CloudBackupFile } from '../types';
 import { DownloadedBackup, receiveBackupDownload, verifyBackupPart } from './backupDownload';
+import { downloadAndroidGithubAsset, NativeGithubDownloadError, type CachedGithubAsset } from './githubNativeDownload';
 import { getProxyWorkerUrl } from './proxyWorker';
 import { resilientFetch } from './resilientFetch';
 import { formatTraceBytes, startStepTrace } from './taskTrace';
@@ -34,8 +35,7 @@ const RELEASE_NAME_PREFIX = 'Sully Backup ';
 // 32 MB / 片。备份超过这个体积时会自动切成多个 asset 上传到同一个
 // release，恢复时再拼回来。
 // Keep every transfer comfortably below both Cloudflare's request-body ceiling
-// and its 128 MB isolate memory ceiling. Smaller parts also reduce the native
-// Capacitor base64 bridge peak during downloads.
+// and its 128 MB isolate memory ceiling.
 const MAX_PART_SIZE = 32 * 1024 * 1024;
 // APK 直连走 CapacitorHttp 时每片要变成 base64 字符串过桥（×4/3），32MB 片会生成
 // 40MB+ 的桥消息，单线程 JSON 解析与大堆 GC 会把主线程拖到 ANR。原生直连单独用小片。
@@ -957,7 +957,7 @@ export const listBackups = async (config: CloudBackupConfig): Promise<CloudBacku
 /**
  * Asset download: GET /releases/assets/{id} with Accept:octet-stream returns
  * a 302 to a signed CDN URL. fetch() with redirect:'follow' handles it on
- * web; CapacitorHttp follows redirects by default.
+ * web. Android direct downloads stream into private cache through Filesystem.
  *
  * For multi-part backups, href is 'releaseId:id1,id2,id3,...'. We download
  * each part sequentially and append it to one download file — bytes line up
@@ -970,20 +970,25 @@ const downloadAssetPart = async (
     expectedDigest: string | undefined,
     label: string,
     onPartProgress?: (loadedBytes: number) => void,
-): Promise<Uint8Array<ArrayBuffer>> => {
+): Promise<Uint8Array<ArrayBuffer> | CachedGithubAsset> => {
     const token = config.githubToken!;
     const owner = config.githubOwner!;
     const repo = repoName(config);
+    const url = `${API_HOST}/repos/${owner}/${repo}/releases/assets/${assetId}`;
+    const headers = authHeaders(token, { Accept: 'application/octet-stream' });
     let lastError: Error | null = null;
 
     for (let attempt = 0; attempt < MAX_ASSET_ATTEMPTS; attempt++) {
         try {
+            if (!shouldUseGithubProxy(config) && isNative() && Capacitor.getPlatform() === 'android') {
+                return await downloadAndroidGithubAsset(url, headers, { label, size: expectedSize, digest: expectedDigest }, onPartProgress);
+            }
             const response = await ghRequest(
                 config,
-                `${API_HOST}/repos/${owner}/${repo}/releases/assets/${assetId}`,
+                url,
                 'GET',
                 {
-                    headers: authHeaders(token, { Accept: 'application/octet-stream' }),
+                    headers,
                     binary: true,
                 },
             );
@@ -1016,7 +1021,9 @@ const downloadAssetPart = async (
         } catch (error: any) {
             lastError = error instanceof Error ? error : new Error(String(error || '下载失败'));
             if (attempt >= MAX_ASSET_ATTEMPTS - 1) break;
-            if (!/network|fetch|连接|超时/i.test(lastError.message)) throw lastError;
+            const retryable = lastError instanceof NativeGithubDownloadError
+                ? lastError.retryable : /network|fetch|连接|超时/i.test(lastError.message);
+            if (!retryable) throw lastError;
             await delay(750 * (attempt + 1));
         }
     }
@@ -1030,7 +1037,6 @@ export const downloadBackup = async (
 ): Promise<DownloadedBackup | null> => {
     const token = config.githubToken;
     const owner = config.githubOwner;
-    const repo = repoName(config);
     if (!token || !owner) {
         throw new Error('GitHub 配置不完整，请先重新测试并连接账号。');
     }
@@ -1046,31 +1052,48 @@ export const downloadBackup = async (
 
     const trace = startStepTrace('cloudDownload', { 云端: 'GitHub', 备份大小: formatTraceBytes(Number(file.size) || 0), 分片数: assetIds.length });
     try {
-        onProgress?.(2);
+        let lastPercent = -1;
+        const reportProgress = (percent: number) => {
+            if (percent > lastPercent) {
+                lastPercent = percent;
+                onProgress?.(percent);
+            }
+        };
+        reportProgress(0);
         let downloadedBytes = 0;
         const totalBytes = Math.max(0, Number(file.size) || 0);
-        const span = 96 / assetIds.length;
+        const reportReceived = (received: number) => {
+            if (received > 0 && totalBytes > 0) {
+                reportProgress(Math.min(99, Math.max(1, Math.floor(received * 100 / totalBytes))));
+            }
+        };
         const backup = await receiveBackupDownload(async sink => {
             for (let i = 0; i < assetIds.length; i++) {
                 const completedBeforePart = downloadedBytes;
                 const label = `GitHub 备份第 ${i + 1}/${assetIds.length} 片`;
                 const partStep = `下载第 ${i + 1} / ${assetIds.length} 片`;
                 trace.step(partStep, downloadedBytes, totalBytes || undefined, 'B');
-                const bytes = await downloadAssetPart(config, assetIds[i], file.partSizes?.[i], file.partDigests?.[i], label, (partLoadedBytes) => {
+                const partSize = file.partSizes?.[i] || (assetIds.length === 1 && totalBytes ? totalBytes : undefined);
+                const part = await downloadAssetPart(config, assetIds[i], partSize, file.partDigests?.[i], label, (partLoadedBytes) => {
                     trace.step(partStep, completedBeforePart + partLoadedBytes, totalBytes || undefined, 'B');
-                    if (totalBytes > 0) {
-                        const byteFraction = Math.min(1, (completedBeforePart + partLoadedBytes) / totalBytes);
-                        onProgress?.(Math.min(98, Math.max(2, Math.floor(2 + byteFraction * 96))));
-                    }
+                    reportReceived(completedBeforePart + partLoadedBytes);
                 });
-                await sink.write(bytes);
-                downloadedBytes += bytes.byteLength;
-                onProgress?.(totalBytes > 0
-                    ? Math.min(99, Math.floor(2 + Math.min(1, downloadedBytes / totalBytes) * 96))
-                    : Math.min(99, Math.floor(2 + (i + 1) * span)));
+                if ('writeTo' in part) {
+                    try {
+                        await part.writeTo(sink);
+                        downloadedBytes += part.size;
+                    } finally {
+                        await part.dispose();
+                    }
+                } else {
+                    await sink.write(part);
+                    downloadedBytes += part.byteLength;
+                }
+                if (totalBytes > 0) reportReceived(downloadedBytes);
+                else reportProgress(Math.min(99, Math.floor((i + 1) * 100 / assetIds.length)));
             }
         }, totalBytes || undefined, trace);
-        onProgress?.(100);
+        reportProgress(100);
         return backup;
     } catch (error: any) {
         if (

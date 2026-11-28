@@ -90,19 +90,31 @@ export async function receiveBackupDownload(
 const toHex = (buffer: ArrayBuffer) =>
     Array.from(new Uint8Array(buffer), byte => byte.toString(16).padStart(2, '0')).join('');
 
-/** 核对一片的大小和摘要，对不上就抛出写明期望值和实际值的错误。digest 缺失或不是 sha256:… 时只核对大小。 */
+/** 核对一片的大小和摘要。原生缓存文件按流校验，大附件也只需一块读缓冲。 */
 export async function verifyBackupPart(
-    bytes: Uint8Array<ArrayBuffer>,
+    bytes: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array<ArrayBuffer>>,
     expected: { label: string; size?: number; digest?: string | null },
 ): Promise<void> {
-    if (expected.size !== undefined && bytes.byteLength !== expected.size) {
-        throw sizeMismatch(expected.label, expected.size, bytes.byteLength);
-    }
     const want = /^sha256:([0-9a-f]{64})$/i.exec(expected.digest || '')?.[1].toLowerCase();
-    // 非安全上下文（局域网 http 调试）没有 crypto.subtle，只能核对大小。
-    if (!want || !globalThis.crypto?.subtle) return;
-    const actual = toHex(await crypto.subtle.digest('SHA-256', bytes));
-    if (actual !== want) {
+    let actual: string | undefined;
+    let size = 0;
+    if ('getReader' in bytes) {
+        const hash = want ? (await import('js-sha256')).sha256.create() : undefined;
+        await bytes.pipeTo(new WritableStream({
+            write(chunk) {
+                size += chunk.byteLength;
+                hash?.update(chunk);
+            },
+        }));
+        actual = hash?.hex();
+    } else {
+        size = bytes.byteLength;
+        if (want && globalThis.crypto?.subtle && (expected.size === undefined || size === expected.size)) {
+            actual = toHex(await crypto.subtle.digest('SHA-256', bytes));
+        }
+    }
+    if (expected.size !== undefined && size !== expected.size) throw sizeMismatch(expected.label, expected.size, size);
+    if (actual !== undefined && actual !== want) {
         throw new Error(`${expected.label}校验和不符（应为 sha256:${want}，实际 sha256:${actual}）。`);
     }
 }
