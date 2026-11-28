@@ -6,7 +6,7 @@ import { matchesTripDigest, type TravelInvitation, type TripDraft } from '../uti
 import type { VoyageStop } from '../utils/voyage/itinerary';
 import { readStopPhotos, type VoyagePhoto } from '../utils/voyage/photos';
 import { allowChatReview, makeConnection, plannerRequestId, readConnection, readPlan, readPlannerStatus, rememberConnection, reviewPlan, submitBrief, type PlannerConnection, type PlannerRequest } from '../utils/voyage/planner';
-import type { CharacterProfile, Worldbook } from '../types';
+import type { CharacterProfile } from '../types';
 import VoyageContextFields, { useVoyageContext } from './VoyageContextFields';
 
 const stateLabels = { requested: '等待策划', draft: '等你审核', returned: '已退回修改', approved: '行程已批准' };
@@ -73,12 +73,12 @@ function PlanPaper({ draft, approved }: { draft: TripDraft; approved: boolean })
     </article>;
 }
 
-export default function VoyagePlanning({ letter, actor, worldbooks }: { letter: TravelInvitation; actor: Pick<CharacterProfile, 'id' | 'systemPrompt' | 'mountedWorldbooks'>; worldbooks: Worldbook[] }) {
+export default function VoyagePlanning({ letter, actor }: { letter: TravelInvitation; actor: Pick<CharacterProfile, 'id' | 'systemPrompt' | 'mountedWorldbooks'> }) {
     const [connection, setConnection] = useState(readConnection);
     const [address, setAddress] = useState(connection?.origin || '');
     const [password, setPassword] = useState('');
     const [status, setStatus] = useState<Awaited<ReturnType<typeof readPlannerStatus>> | null>(null);
-    const context = useVoyageContext(actor, worldbooks);
+    const context = useVoyageContext(actor);
     const [request, setRequest] = useState<PlannerRequest | null>(null);
     const [loaded, setLoaded] = useState(false);
     const [incomplete, setIncomplete] = useState(false);
@@ -109,9 +109,10 @@ export default function VoyagePlanning({ letter, actor, worldbooks }: { letter: 
                 setStatus(service); setConnection(c); cachedConnection.current = c; rememberConnection(c); setPassword('');
                 row = remote;
             } else if (op === 'submit') {
-                if (context.reference && !status?.characterReference) throw new Error('请更新旅行服务以发送角色资料，或选择只发送简报。');
-                await context.save();
-                row = await submitBrief(c, id, brief, signal, context.reference, status?.chatReviewAvailable);
+                const reference = await context.referenceForSubmission();
+                if (signal.aborted) return;
+                if (reference && !status?.characterReference) throw new Error('请更新旅行服务以发送角色资料，或选择只发送简报。');
+                row = await submitBrief(c, id, brief, signal, reference, status?.chatReviewAvailable);
             } else if (op === 'enableChat') {
                 row = await allowChatReview(c, id, signal);
             } else {

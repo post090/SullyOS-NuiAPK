@@ -8,7 +8,8 @@ import VoyagePlanning from '../../apps/VoyagePlanning';
 import { VoyageCharacterSettings } from '../../apps/VoyageContextFields';
 import { makeConnection, rememberConnection } from './planner';
 import { DB } from '../db';
-import type { TravelInvitation, TripDraft } from './letter';
+import { VOYAGE_CONTEXT_PREFIX, type TravelInvitation, type TripDraft } from './letter';
+import type { CharacterProfile } from '../../types';
 import * as invitations from './invitations';
 
 it('keeps notes with their recipient and sends exactly the preview only on submission', async () => {
@@ -29,12 +30,19 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
     vi.stubGlobal('fetch', fetcher);
     const host = document.createElement('div');
     const root = createRoot(host);
-    const one = { id: 'notes-recipient', systemPrompt: ' 第一位的原文\n保留换行。' };
-    const two = { id: 'other-recipient', systemPrompt: '另一位的主提示词' };
-    const library = [{ id:'book-a', title:'旅行背景', category:'历史', content:' 世界书原文 ', createdAt:1, updatedAt:1 }];
+    const attached = { id: 'book-a', title: '旅行背景', content: ' 世界书原文 ' };
+    const other = { id: 'book-b', title: '旅行背景', content: '另一位的同名世界书' };
+    const disabled = { id: 'book-hidden', title: '已停用条目', content: '停用原文', disable: true };
+    const one: CharacterProfile = { id: 'notes-recipient', name: '甲', avatar: '', description: '', memories: [],
+        systemPrompt: ' 第一位的原文\n保留换行。', mountedWorldbooks: [attached, disabled] };
+    const two: CharacterProfile = { ...one, id: 'other-recipient', name: '乙', systemPrompt: '另一位的主提示词', mountedWorldbooks: [other] };
+    let current = one;
+    vi.spyOn(DB, 'getCharacter').mockImplementation(async id => id === one.id ? current : id === two.id ? two : undefined);
+    settings.set(VOYAGE_CONTEXT_PREFIX + one.id, JSON.stringify({ mode: 'main', prompt: '', extraNote: '',
+        worldbookIds: [other.id, disabled.id] }));
     const letter: TravelInvitation = { id:'letter-with-notes', charId:one.id, occasion:'gift', note:'私人邀请',sentAt:1,
         reply:{ at:2, decision:'accept', text:'去散步吧' } };
-    const setting = (actor: typeof one) => React.createElement(VoyageCharacterSettings, { key: actor.id, actor, library });
+    const setting = (actor: CharacterProfile) => React.createElement(VoyageCharacterSettings, { key: actor.id, actor });
     const button = (name: string) => Array.from(host.querySelectorAll('button')).find(el => el.textContent === name);
     async function render(view: React.ReactElement) {
         await act(async () => root.render(view));
@@ -47,20 +55,26 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
         });
     }
     const note = ' 途中可以休息。\n也可以去海边。 ';
-    const preview = '【角色主提示词】\n' + one.systemPrompt + '\n\n【附加叮嘱】\n' + note + '\n\n【世界书 · 旅行背景】\n' + library[0].content;
+    const withoutBook = '【角色主提示词】\n' + one.systemPrompt + '\n\n【附加叮嘱】\n' + note;
+    const preview = withoutBook + '\n\n【世界书 · 旅行背景】\n' + attached.content;
     try {
         await render(setting(one));
+        expect(host.querySelectorAll('input[type=checkbox]')).toHaveLength(1);
+        expect(host.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked).toBe(false);
         await editText(host.querySelector('textarea')!, note);
         await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
         expect(host.querySelector('pre')?.textContent).toBe(preview);
         await act(async () => button('保存此角色的选择')!.click());
         await vi.waitFor(() => expect(button('已保存')).toBeDefined());
+        expect(JSON.parse(settings.get(VOYAGE_CONTEXT_PREFIX + one.id)!).worldbookIds).toEqual([attached.id]);
         await render(setting(two));
         expect(host.querySelector('textarea')!.value).toBe('');
         expect(host.querySelector('pre')?.textContent).toBe('【角色主提示词】\n' + two.systemPrompt);
+        await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+        expect(host.querySelector('pre')?.textContent).toBe('【角色主提示词】\n' + two.systemPrompt + '\n\n【世界书 · 旅行背景】\n' + other.content);
         expect(fetcher).not.toHaveBeenCalled();
         rememberConnection(connection);
-        await render(React.createElement(VoyagePlanning, { letter, actor: one, worldbooks: library }));
+        await render(React.createElement(VoyagePlanning, { letter, actor: one }));
         expect(host.querySelector('pre')?.textContent).toBe(preview);
         await act(async () => button('采用对方的回信')!.click());
         expect(submissions).toHaveLength(0);
@@ -68,6 +82,20 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
         await vi.waitFor(() => expect(submissions).toHaveLength(1));
         expect(JSON.parse(submissions[0])).toEqual({ brief: letter.reply!.text, referenceText: preview, reviewMode:'chat' });
         expect(host.textContent).toContain('已发送的角色资料');
+
+        await render(React.createElement(VoyagePlanning, { key: 'next-letter', letter: { ...letter, id: 'next-letter' }, actor: one }));
+        expect(host.querySelector('pre')?.textContent).toBe(preview);
+        await act(async () => button('采用对方的回信')!.click());
+        current = { ...one, mountedWorldbooks: [] };
+        await act(async () => button('发给点点，在聊天中审核')!.click());
+        await vi.waitFor(() => expect(host.querySelector('[role=alert]')?.textContent).toContain('核对预览'));
+        expect(submissions).toHaveLength(1);
+        expect(host.querySelectorAll('input[type=checkbox]')).toHaveLength(0);
+        expect(host.querySelector('pre')?.textContent).toBe(withoutBook);
+        await act(async () => button('发给点点，在聊天中审核')!.click());
+        await vi.waitFor(() => expect(submissions).toHaveLength(2));
+        expect(JSON.parse(submissions[1])).toEqual({ brief: letter.reply!.text, referenceText: withoutBook, reviewMode: 'chat' });
+        expect(JSON.parse(settings.get(VOYAGE_CONTEXT_PREFIX + one.id)!).worldbookIds).toEqual([]);
     } finally {
         await act(async () => root.unmount());
         rememberConnection(null);
@@ -81,7 +109,7 @@ it('opens approved old drafts and shows the practical and on-site details of a n
     const draft: TripDraft = { version: 1, digest: 'a'.repeat(64), content: { destination: '海边',
         outline: '上午散步', weather: '临近核对', alternatives: '雨天可选展馆', sources: ['https://example.org/harbor'] } };
     const letter: TravelInvitation = { id:'readable', charId:actor.id, occasion:'gift', note:'', sentAt:1 };
-    const render = (approvedPlan: TripDraft) => renderToStaticMarkup(React.createElement(VoyagePlanning, { actor, worldbooks:[],
+    const render = (approvedPlan: TripDraft) => renderToStaticMarkup(React.createElement(VoyagePlanning, { actor,
         letter:{ ...letter, approvedPlan } }));
     expect(render(draft)).toContain('上午散步');
     expect(render(draft)).not.toContain('分站行程');
@@ -106,7 +134,7 @@ it('loads reference photos on opening a stop and retains the attribution and sou
             { ...base, visuals:{photos:[photo]} }, { ...base, visuals:{photos:[],unavailableReason:'展馆没有发布可转载的照片'} },
         ] } } };
     try {
-        await act(async () => root.render(React.createElement(VoyagePlanning, { actor:{ id:'photo-reader',systemPrompt:'' }, worldbooks:[],
+        await act(async () => root.render(React.createElement(VoyagePlanning, { actor:{ id:'photo-reader',systemPrompt:'' },
             letter:{ id:'photo-trip', charId:'photo-reader', occasion:'gift',note:'', sentAt:1, approvedPlan } })));
         expect(host.querySelector('img')).toBeNull();
         const details = host.querySelectorAll('details');
@@ -140,7 +168,7 @@ it('refreshes an incomplete cached approval on open while a complete old text ap
     vi.stubGlobal('fetch', fetcher);
     rememberConnection(makeConnection('https://planner.example.org', 's'.repeat(43)));
     async function show(approvedPlan:TripDraft) {
-        await act(async () => root.render(React.createElement(VoyagePlanning, { actor, worldbooks:[], letter:{...letter,approvedPlan} })));
+        await act(async () => root.render(React.createElement(VoyagePlanning, { actor, letter:{...letter,approvedPlan} })));
     }
     try {
         await show(full);

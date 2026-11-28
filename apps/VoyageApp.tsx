@@ -18,7 +18,7 @@ type Page = 'list' | 'compose' | 'letter' | 'planning' | 'context';
 const sentDate = (at: number) => new Date(at).toLocaleDateString(undefined, { month: 'long', day: 'numeric' });
 
 export default function VoyageApp() {
-    const { characters, worldbooks, theme, userProfile, apiConfig, activeCharacterId, setActiveCharacterId, openApp, closeApp } = useOS();
+    const { characters, theme, userProfile, apiConfig, activeCharacterId, setActiveCharacterId, openApp, closeApp } = useOS();
     const [page, setPage] = useState<Page>('list');
     const [letters, setLetters] = useState<TravelInvitation[]>([]);
     const [selected, select] = useState('');
@@ -127,7 +127,7 @@ export default function VoyageApp() {
                 <label className="voyage-field">角色<select value={recipient} onChange={e => setRecipient(e.target.value)}>
                     {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select></label>
-                {actor && <VoyageCharacterSettings key={actor.id} actor={actor} library={worldbooks}/>}
+                {actor && <VoyageCharacterSettings key={actor.id} actor={actor}/>}
             </>}
             {page === 'compose' && <>
                 <label className="voyage-field">收件人<select value={recipient} onChange={e => setRecipient(e.target.value)}>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
@@ -149,7 +149,7 @@ export default function VoyageApp() {
                 {letter.reply?.decision === 'accept' && <button className="voyage-primary" onClick={() => setPage('planning')}>{letter.approvedPlan ? '查看行程' : '旅行策划'} <CaretRight size={16}/></button>}
                 {actor && <button className="voyage-link" disabled={busy} onClick={() => { setActiveCharacterId(actor.id); openApp(AppID.Chat); }}>去聊天 <CaretRight size={15}/></button>}
             </>}
-            {page === 'planning' && letter && actor && <VoyagePlanning key={letter.id} letter={letter} actor={actor} worldbooks={worldbooks}/>}
+            {page === 'planning' && letter && actor && <VoyagePlanning key={letter.id} letter={letter} actor={actor}/>}
             {error && <div role="alert" className="voyage-error">{error}{page === 'list' && <button onClick={() => { setError(''); refresh(n => n + 1); }}>重新读取</button>}</div>}
         </main>
     </div>;

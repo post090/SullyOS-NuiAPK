@@ -57,9 +57,11 @@ describe('旅行邀请', () => {
     it('previews exact user-selected source text and restores the per-character choice from a text backup', async () => {
         const mounted = { id: 'one', title: '同名条目', content: '  第一段\n第二段  ' };
         const other = { id: 'two', title: '同名条目', content: '不能混入' };
-        const books = availableVoyageBooks({ mountedWorldbooks: [mounted] }, [other]);
+        const books = availableVoyageBooks([mounted]);
+        expect([...availableVoyageBooks(undefined)]).toEqual([]);
+        expect([...books.keys()]).toEqual([mounted.id]);
         const main = '  主提示词原文\n  保留空格。';
-        const choice = { mode: 'main' as const, prompt: ' 自定义\n原文 ', extraNote: ' 留一段自由时间。\n下雨也可以逛书店。 ', worldbookIds: ['one','removed'] };
+        const choice = { mode: 'main' as const, prompt: ' 自定义\n原文 ', extraNote: ' 留一段自由时间。\n下雨也可以逛书店。 ', worldbookIds: [mounted.id, other.id, 'removed'] };
         expect(buildVoyageReference(main, books, await readContextChoice(firstChar))).toBe('【角色主提示词】\n' + main);
         expect(buildVoyageReference(main, books, choice)).toBe('【角色主提示词】\n' + main + '\n\n【附加叮嘱】\n' + choice.extraNote + '\n\n【世界书 · 同名条目】\n' + mounted.content);
         expect(buildVoyageReference(main, books, { ...choice, mode: 'custom' })).toBe('【自定义提示词】\n' + choice.prompt + '\n\n【世界书 · 同名条目】\n' + mounted.content);

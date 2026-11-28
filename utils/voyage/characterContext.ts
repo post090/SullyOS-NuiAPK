@@ -26,10 +26,11 @@ export async function readContextChoice(charId: string): Promise<VoyageContextCh
 export const saveContextChoice = (charId: string, choice: VoyageContextChoice) =>
     DB.saveAsset(VOYAGE_CONTEXT_PREFIX + charId, JSON.stringify(choice));
 
-export function availableVoyageBooks(char: Pick<CharacterProfile, 'mountedWorldbooks'>, library: MountedWorldbook[]) {
-    const books = new Map((char.mountedWorldbooks ?? []).map(book => [book.id, book]));
-    for (const book of library) books.set(book.id, book);
-    return books;
+export function availableVoyageBooks(mounted: CharacterProfile['mountedWorldbooks']) {
+    return new Map((mounted ?? []).filter(book => !book.disable).map(book => [book.id, book]));
+}
+export function restrictVoyageChoice(choice: VoyageContextChoice, books: ReadonlyMap<string, MountedWorldbook>) {
+    return { ...choice, worldbookIds: choice.worldbookIds.filter(id => books.has(id)) };
 }
 export function buildVoyageReference(mainPrompt: string, books: Map<string, MountedWorldbook>, choice: VoyageContextChoice) {
     const sections: string[] = [];
