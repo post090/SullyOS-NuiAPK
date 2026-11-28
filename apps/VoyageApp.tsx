@@ -10,7 +10,7 @@ import { INVITATIONS_CHANGED, invitationStatus, invitationTitle, readVoyageMood,
 import { requestInvitationReply } from '../utils/voyage/reply';
 import TokenImg from '../components/os/TokenImg';
 import VoyagePlanning from './VoyagePlanning';
-import { VoyageCharacterSettings } from './VoyageContextFields';
+import { VoyageCharacterSettings, VoyageRecipientTicket } from './VoyageContextFields';
 import { useAppShortcut } from '../utils/appShortcutLaunch';
 import './voyage.css';
 
@@ -42,7 +42,7 @@ export default function VoyageApp() {
     const alive = useRef(false);
     const controller = useRef<AbortController>();
     const letter = letters.find(item => item.id === selected);
-    const actor = characters.find(c => c.id === (letter?.charId || recipient));
+    const actor = characters.find(c => c.id === (letter?.charId || recipient)) ?? (page === 'context' ? characters[0] : undefined);
 
     useEffect(() => {
         alive.current = true;
@@ -132,12 +132,10 @@ export default function VoyageApp() {
                 {loaded && !letters.some(item => characters.some(c => c.id === item.charId)) && <p className="voyage-muted">还没有送出的邀请</p>}
                 {!loaded && !error && <p className="voyage-muted" role="status">正在读信…</p>}
             </>}
-            {page === 'context' && <>
-                <label className="voyage-field">角色<select value={recipient} onChange={e => setRecipient(e.target.value)}>
-                    {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select></label>
-                {actor && <VoyageCharacterSettings key={actor.id} actor={actor}/>}
-            </>}
+            {page === 'context' && (actor ? <>
+                <VoyageRecipientTicket characters={characters} actor={actor} onSelect={setRecipient}/>
+                <VoyageCharacterSettings key={actor.id} actor={actor}/>
+            </> : <button className="voyage-link" onClick={() => openApp(AppID.Character)}>去神经链接添加角色</button>)}
             {page === 'compose' && <>
                 <label className="voyage-field voyage-recipient">收件人<span>{actor && <TokenImg value={actor.avatar} alt="" className="voyage-avatar"/>}
                     <select value={recipient} onChange={e => setRecipient(e.target.value)}>{characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></span></label>

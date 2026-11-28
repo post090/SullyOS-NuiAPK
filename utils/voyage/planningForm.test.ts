@@ -46,7 +46,7 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
     const button = (name: string) => Array.from(host.querySelectorAll('button')).find(el => el.textContent === name);
     async function render(view: React.ReactElement) {
         await act(async () => root.render(view));
-        await vi.waitFor(() => expect(host.querySelector('select')).toBeTruthy());
+        await vi.waitFor(() => expect(host.querySelector('input[type=radio]:checked')).toBeTruthy());
     }
     async function editText(field: HTMLTextAreaElement, value: string) {
         await act(async () => {
@@ -59,12 +59,28 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
     const preview = withoutBook + '\n\n【世界书《旅行背景》】\n' + attached.content;
     try {
         await render(setting(one));
+        const mode = (value: string) => host.querySelector<HTMLInputElement>(`input[type=radio][value="${value}"]`)!;
+        expect(mode('main').checked).toBe(true);
+        const books = host.querySelector('details')!;
+        expect(books.querySelector('summary')?.textContent).toContain('1 项可选');
+        await act(async () => books.querySelector('summary')!.click());
+        expect(books.open).toBe(true);
         expect(host.querySelectorAll('input[type=checkbox]')).toHaveLength(1);
         expect(host.querySelector<HTMLInputElement>('input[type=checkbox]')?.checked).toBe(false);
         await editText(host.querySelector('textarea')!, note);
         await act(async () => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
         expect(host.querySelector('pre')?.textContent).toBe(preview);
-        await act(async () => button('保存此角色的选择')!.click());
+        expect(books.querySelector('summary')?.textContent).toContain('已选 1 项');
+        await act(async () => mode('custom').click());
+        await editText(host.querySelector('textarea')!, '自定义的出行资料');
+        expect(host.querySelector('pre')?.textContent).toBe('【自定义提示词】\n自定义的出行资料\n\n【世界书《旅行背景》】\n' + attached.content);
+        await act(async () => mode('none').click());
+        expect(host.querySelector('textarea')).toBeNull();
+        expect(host.querySelector('pre')?.textContent).toBe('【世界书《旅行背景》】\n' + attached.content);
+        await act(async () => mode('main').click());
+        expect(host.querySelector('textarea')?.value).toBe(note);
+        expect(host.querySelector('pre')?.textContent).toBe(preview);
+        await act(async () => button('保存资料')!.click());
         await vi.waitFor(() => expect(button('已保存')).toBeDefined());
         expect(JSON.parse(settings.get(VOYAGE_CONTEXT_PREFIX + one.id)!).worldbookIds).toEqual([attached.id]);
         await render(setting(two));
@@ -91,6 +107,7 @@ it('keeps notes with their recipient and sends exactly the preview only on submi
         await vi.waitFor(() => expect(host.querySelector('[role=alert]')?.textContent).toContain('核对预览'));
         expect(submissions).toHaveLength(1);
         expect(host.querySelectorAll('input[type=checkbox]')).toHaveLength(0);
+        expect(host.querySelector('.voyage-attachments summary')?.textContent).toContain('暂无可选');
         expect(host.querySelector('pre')?.textContent).toBe(withoutBook);
         await act(async () => button('发给点点，在聊天中审核')!.click());
         await vi.waitFor(() => expect(submissions).toHaveLength(2));
